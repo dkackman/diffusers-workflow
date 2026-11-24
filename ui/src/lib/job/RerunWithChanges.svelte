@@ -85,6 +85,15 @@
   })
   const presets = $derived(presetsRead.data ?? null)
 
+  // The kind of file each variable takes, read once the form is open
+  const catalog = resource(
+    () => (open ? api.listWorkflows({ inputs: true }) : Promise.resolve(null)),
+    { watch: ['workflows'] },
+  )
+  const kinds = $derived(
+    catalog.data?.details?.[job.workflow_name ?? '']?.inputs ?? {},
+  )
+
   const promotions = $derived(
     promotionsOf(presets, declared, job.arguments ?? {}, values),
   )
@@ -133,6 +142,7 @@
     variables={values}
     bind:overrides
     idPrefix="rerun-var-"
+    {kinds}
   />
   {#if error}<ErrorLine {error} doing="rerun it" />{/if}
   <div class="actions">

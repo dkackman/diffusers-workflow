@@ -9,7 +9,6 @@ vi.mock('../api', () => ({
   },
 }))
 
-import BrowseButton from './BrowseButton.svelte'
 import MediaPicker from './MediaPicker.svelte'
 import { assetLibrary } from '../assetlib.svelte'
 import { outputLibrary } from '../outputlib.svelte'
@@ -202,25 +201,6 @@ it('opens on earlier runs for an output: value, latest ticked and marked', () =>
   ).toBe('true')
 })
 
-it('offers browsing only beside a file reference, as that kind', async () => {
-  const onpick = vi.fn()
-  const { unmount } = render(BrowseButton, { value: 'a cat', onpick })
-  expect(
-    screen.queryByRole('button', { name: 'choose another file' }),
-  ).toBeNull()
-  unmount()
-
-  render(BrowseButton, { value: 'asset:clips/intro.mp4', onpick })
-  await fireEvent.click(
-    screen.getByRole('button', { name: 'choose another file' }),
-  )
-  expect(tiles()).toEqual(['choose clips/intro.mp4'])
-  await fireEvent.click(
-    screen.getByRole('button', { name: 'choose clips/intro.mp4' }),
-  )
-  expect(onpick).toHaveBeenCalledWith('asset:clips/intro.mp4')
-})
-
 const toggle = (name: RegExp) => screen.getByRole('button', { name })
 
 it('group toggles are disabled while searching', async () => {
@@ -242,12 +222,16 @@ it('the collapse state is per workspace and tab', async () => {
   render(MediaPicker, { open: true, onpick: () => {} })
   await fireEvent.click(toggle(/Shared library/))
   expect(
-    localStorage.getItem(`dw-collapsed-media-picker:${workspace.current}:assets`),
+    localStorage.getItem(
+      `dw-collapsed-media-picker:${workspace.current}:assets`,
+    ),
   ).toContain('common')
   await showRuns()
   expect(toggle(/^portrait/).getAttribute('aria-expanded')).toBe('true')
   expect(
-    localStorage.getItem(`dw-collapsed-media-picker:${workspace.current}:outputs`),
+    localStorage.getItem(
+      `dw-collapsed-media-picker:${workspace.current}:outputs`,
+    ),
   ).toBeNull()
 })
 
@@ -260,8 +244,6 @@ it('the current tile says current', () => {
   const tile = screen.getByRole('button', { name: 'choose iris.png' })
   expect(tile.textContent).toContain('current')
   expect(
-    screen
-      .getByRole('button', { name: 'choose cast/priya.png' })
-      .textContent,
+    screen.getByRole('button', { name: 'choose cast/priya.png' }).textContent,
   ).not.toContain('current')
 })

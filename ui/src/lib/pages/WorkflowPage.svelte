@@ -89,7 +89,9 @@
    * workflow, and the maintainer's figure - "a maintainer's figure: ~3 min
    * · 22 GB VRAM, measured on <card> at steps=30". Null when the card has
    * no cost - never "unknown cost". */
-  const catalog = resource(() => api.listWorkflows(), { watch: ['workflows'] })
+  const catalog = resource(() => api.listWorkflows({ inputs: true }), {
+    watch: ['workflows'],
+  })
   const card = $derived(catalog.data?.details?.[name])
   const observed = $derived(
     (card?.observed as Record<string, unknown> | undefined) ?? null,
@@ -342,10 +344,7 @@
            hint is written for a person, so it is not -->
         <h2>Variables</h2>
         <p class="hint muted">
-          Leave a field blank to use the workflow's own default. Type
-          <code>prompt:</code>, <code>asset:</code> or <code>output:</code> to pick
-          a stored prompt, an asset or an earlier job's file - or press ↓ in an empty
-          field to see them.
+          Leave a field blank to use the workflow's own default.
         </p>
         <VariablesForm
           mode="override"
@@ -357,6 +356,7 @@
           constraints={constraintHints(workflow)}
           presets={workflow.presets}
           findings={placed.byVariable}
+          kinds={card?.inputs ?? {}}
         />
       </div>
     {:else}

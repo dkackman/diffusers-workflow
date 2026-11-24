@@ -336,3 +336,25 @@ it('names its buttons and placeholder for the kind, and renders its children aft
     document.querySelector('input[type="file"]')?.getAttribute('accept'),
   ).toBe('audio/*')
 })
+
+it('a kindless field offers files only for a file reference', () => {
+  const buttons = () =>
+    screen.queryAllByRole('button', { name: /Choose|Upload/ })
+  for (const held of ['variable:size', 'prompt:cat', 'previous_result:a', '']) {
+    const { unmount } = field({ kind: undefined, value: held })
+    expect(buttons(), held).toHaveLength(0)
+    unmount()
+  }
+  for (const held of [
+    'asset:cast/priya.png',
+    'output:a/b.png',
+    'https://x/y.png',
+    '/inputs/y.png',
+  ]) {
+    const { unmount } = field({ kind: undefined, value: held })
+    expect(buttons(), held).toHaveLength(2)
+    unmount()
+  }
+  field({ kind: 'file', value: '' })
+  expect(buttons()).toHaveLength(2)
+})

@@ -112,12 +112,46 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-it('sets the tab title to the workflow, with Workflows as its back link', async () => {
+it('sets the tab title to the workflow', async () => {
   await openPage()
   expect(document.title).toBe('templates/text-to-image · diffusers-workflow')
-  expect(
-    screen.getByRole('link', { name: /^← (Workflows|Examples)$/ }),
-  ).toBeTruthy()
+})
+
+it('the back link names Workflows here and Examples there', async () => {
+  location.hash = '#/ws/default/workflows/templates%2Ftext-to-image'
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
+  await openPage()
+  expect(screen.getByRole('link', { name: '← Workflows' })).toBeTruthy()
+  cleanup()
+  location.hash = '#/shared/examples/templates%2Ftext-to-image'
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
+  await openPage()
+  expect(screen.getByRole('link', { name: '← Examples' })).toBeTruthy()
+})
+
+it('the inpaint form offers upload and browse for its image and mask', async () => {
+  vi.mocked(api.getWorkflow).mockResolvedValue({
+    definition: {
+      id: 'Inpaint',
+      variables: { prompt: 'a cat', image: '', mask: '' },
+      steps: [{ name: 'generate', pipeline: {} }],
+    },
+    origin: 'examples',
+    writable: false,
+  } as never)
+  vi.mocked(api.listWorkflows).mockResolvedValue({
+    workflows: [],
+    details: {
+      'templates/text-to-image': { inputs: { image: 'image', mask: 'image' } },
+    },
+    libraries: [],
+    shadowed: [],
+  } as never)
+  await openPage()
+  expect(screen.getAllByRole('button', { name: /^Choose/ })).toHaveLength(2)
+  expect(screen.getAllByRole('button', { name: /^Upload/ })).toHaveLength(2)
+  expect(api.listWorkflows).toHaveBeenCalledWith({ inputs: true })
+  expect(field('prompt').closest('.reference')).toBeNull()
 })
 
 it('a proof opens its file in the gallery', async () => {

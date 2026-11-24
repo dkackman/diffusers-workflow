@@ -352,3 +352,64 @@ describe('VariablesForm removing a variable', () => {
     expect(notify.success).not.toHaveBeenCalled()
   })
 })
+
+describe('VariablesForm file fields', () => {
+  const override = (over: Record<string, unknown> = {}) => ({
+    mode: 'override' as const,
+    variables: { image: '', note: 'x' } as Record<string, unknown>,
+    idPrefix: 'v-',
+    ...over,
+  })
+  const chooseButtons = () =>
+    screen.queryAllByRole('button', { name: /Choose|Upload/ })
+
+  it('an image input is a reference field filtered to images', () => {
+    const { container } = render(
+      VariablesForm,
+      override({ kinds: { image: 'image' } }),
+    )
+    expect(screen.getAllByRole('button', { name: /^Choose/ })).toHaveLength(1)
+    expect(
+      document.getElementById('v-image')?.getAttribute('placeholder'),
+    ).toBe('type, drop or choose an image')
+    expect(
+      container.querySelector('input[type="file"]')?.getAttribute('accept'),
+    ).toBe('image/*')
+    // the other variable is plain text
+    expect(document.getElementById('v-note')?.closest('.reference')).toBeNull()
+  })
+
+  it('an audio input offers only audio', () => {
+    const { container } = render(
+      VariablesForm,
+      override({ kinds: { image: 'audio' } }),
+    )
+    expect(
+      container.querySelector('input[type="file"]')?.getAttribute('accept'),
+    ).toBe('audio/*')
+    expect(screen.getByTitle(/^Upload an audio/)).toBeTruthy()
+  })
+
+  it('a variable holding an asset is a reference field without a kind', () => {
+    const { container } = render(
+      VariablesForm,
+      override({
+        mode: 'define',
+        variables: { image: 'asset:cast/priya.png', note: 'x' },
+      }),
+    )
+    expect(chooseButtons()).toHaveLength(2)
+    expect(
+      container.querySelector('input[type="file"]')?.hasAttribute('accept'),
+    ).toBe(false)
+    expect(screen.getByTitle(/^Upload a file/)).toBeTruthy()
+  })
+
+  it('an override of a variable whose default is an asset takes any file', () => {
+    render(
+      VariablesForm,
+      override({ variables: { image: 'output:run/a.png', note: 'x' } }),
+    )
+    expect(chooseButtons()).toHaveLength(2)
+  })
+})

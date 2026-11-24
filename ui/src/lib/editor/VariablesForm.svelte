@@ -13,7 +13,9 @@
   import { promptLibrary } from '../promptlib.svelte'
   import { promptTooltip } from '../prompts'
   import { referenceCompletions } from '../refcomplete.svelte'
-  import BrowseButton from '../assets/BrowseButton.svelte'
+  import ReferenceField from '../ui/ReferenceField.svelte'
+  import type { FieldKind } from '../referenceField'
+  import { ASSET, OUTPUT, referenceName } from '../references'
   import { attentionBackends } from '../attentionBackends.svelte'
   import type { Finding } from '../findings'
   import { undoToast } from '../destructive'
@@ -30,6 +32,7 @@
     constraints = {},
     presets = undefined,
     findings = {},
+    kinds = {},
   }: {
     /** define: edit the workflow's own defaults (add/remove/coerce).
      * override: fill per-run values over read-only defaults. */
@@ -55,6 +58,9 @@
      * `arguments.<name>` / `variables.<name>` path (`placeFindings`) and
      * shown under the field as text. */
     findings?: Record<string, Finding[]>
+    /** The kind of file each variable takes (the catalog's `inputs`): in
+     * override mode such a variable is a ReferenceField of that kind */
+    kinds?: Record<string, FieldKind>
   } = $props()
 
   const keys = $derived(Object.keys(variables ?? {}))
@@ -82,6 +88,17 @@
     return (
       presetPlaceholder(presetDefinition, overrides, key) ??
       displayValue(variables[key])
+    )
+  }
+
+  /** Whether a variable is a file field: it takes a kind of file (override
+   * mode), or holds an asset: or output: reference */
+  function isFileField(key: string): boolean {
+    if (mode === 'override' && Object.hasOwn(kinds, key)) return true
+    const value = effective(key)
+    return (
+      referenceName(value, ASSET) !== null ||
+      referenceName(value, OUTPUT) !== null
     )
   }
 
@@ -169,10 +186,7 @@
   }
 </script>
 
-<div
-  class="formgrid top vars"
-  class:withaction={mode === 'define'}
->
+<div class="formgrid top vars" class:withaction={mode === 'define'}>
   {#each keys as key (key)}
     <label for={idPrefix + key}>
       {key}{#if requiredVariables.has(key)}
@@ -217,6 +231,15 @@
             <option value={backend}>{backend}</option>
           {/each}
         </select>
+      {:else if isFileField(key)}
+        <ReferenceField
+          id={idPrefix + key}
+          value={shown(key)}
+          kind={mode === 'override' ? (kinds[key] ?? 'file') : undefined}
+          placeholder={placeholderFor(key) || undefined}
+          oninput={(raw) => draft(key, raw)}
+          onchange={(raw) => commit(key, raw)}
+        />
       {:else}
         <ExpandingText
           id={idPrefix + key}
@@ -230,10 +253,6 @@
           onpromptpick={(name) => commit(key, reference(PROMPT, name))}
         />
       {/if}
-      <BrowseButton
-        value={effective(key)}
-        onpick={(value) => commit(key, value)}
-      />
     </div>
     {#if mode === 'define'}
       <button
@@ -286,7 +305,7 @@
 </div>
 
 <style>
-  /* The field, and beside it the asset browser when it holds an asset: */
+  /* The field: */
   .field {
     display: flex;
     gap: var(--space-1);

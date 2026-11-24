@@ -62,6 +62,12 @@
 
   const media = $derived(mediaKindOf(kind))
   const named = $derived(kindWithArticle(kind))
+  /** Choose… and Upload… belong to a field of a kind, or one holding a
+   * file's reference; not to a kindless field holding a variable, a prompt
+   * or a step's result */
+  const takesFiles = $derived(
+    kind !== undefined || /^(asset:|output:|https?:\/\/|\/)/.test(value),
+  )
 
   let fileInput: HTMLInputElement | undefined = $state()
   let browsing = $state(false)
@@ -228,30 +234,32 @@
       onchange={commit}
       oninput={typing}
     />
-    <button
-      type="button"
-      class="quiet withicon"
-      title={`Choose ${named} from the assets or earlier jobs`}
-      onclick={() => (browsing = true)}
-    >
-      <Images size={14} /> Choose…
-    </button>
-    <button
-      type="button"
-      class="quiet withicon"
-      title={`Upload ${named} from this computer, or drop one here`}
-      disabled={uploading.busy}
-      onclick={() => fileInput?.click()}
-    >
-      <Upload size={14} /> Upload…
-    </button>
-    <input
-      bind:this={fileInput}
-      class="hidden"
-      type="file"
-      accept={media ? `${media}/*` : undefined}
-      onchange={pick}
-    />
+    {#if takesFiles}
+      <button
+        type="button"
+        class="quiet withicon"
+        title={`Choose ${named} from the assets or earlier jobs`}
+        onclick={() => (browsing = true)}
+      >
+        <Images size={14} /> Choose…
+      </button>
+      <button
+        type="button"
+        class="quiet withicon"
+        title={`Upload ${named} from this computer, or drop one here`}
+        disabled={uploading.busy}
+        onclick={() => fileInput?.click()}
+      >
+        <Upload size={14} /> Upload…
+      </button>
+      <input
+        bind:this={fileInput}
+        class="hidden"
+        type="file"
+        accept={media ? `${media}/*` : undefined}
+        onchange={pick}
+      />
+    {/if}
     {@render children?.()}
   </div>
   {#if uploading.busy}

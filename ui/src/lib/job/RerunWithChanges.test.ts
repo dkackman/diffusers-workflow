@@ -15,7 +15,13 @@ vi.mock('../api', async (original) => {
   const real = await original<typeof import('../api')>()
   return {
     ApiError: real.ApiError,
-    api: { rerunJob: vi.fn(), getWorkflow: vi.fn() },
+    api: {
+      rerunJob: vi.fn(),
+      getWorkflow: vi.fn(),
+      listWorkflows: vi.fn(),
+      listAssets: vi.fn(() => new Promise(() => {})),
+      gallery: vi.fn(() => new Promise(() => {})),
+    },
   }
 })
 vi.mock('../router.svelte', () => ({ go: vi.fn() }))
@@ -52,6 +58,8 @@ beforeEach(() => {
     writable: true,
     etag: null,
   })
+  vi.mocked(api.listWorkflows).mockReset()
+  vi.mocked(api.listWorkflows).mockResolvedValue({ details: {} } as never)
   vi.mocked(go).mockReset()
 })
 afterEach(cleanup)
@@ -204,4 +212,27 @@ it('notes explicit arguments the bundle would set', async () => {
   expect(promotionButtons()[0].title).toContain(
     'keeps width=640 set explicitly',
   )
+})
+
+it('an image variable can be swapped through the picker', async () => {
+  vi.mocked(api.listWorkflows).mockResolvedValue({
+    workflows: [],
+    details: { tiny: { inputs: { image: 'image' } } },
+    libraries: [],
+    shadowed: [],
+  } as never)
+  render(RerunWithChanges, {
+    job: job({ arguments: { image: 'asset:cast/a.png' } }),
+    declared: { image: 'asset:cast/a.png' },
+  })
+  await fireEvent.click(screen.getByText('Run again with changes…'))
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: /^Choose/ })).toBeTruthy(),
+  )
+  expect(api.listWorkflows).toHaveBeenCalledWith({ inputs: true })
+  expect(screen.getByTitle(/^Upload an image/)).toBeTruthy()
+  await fireEvent.input(field('image'), {
+    target: { value: 'asset:cast/b.png' },
+  })
+  expect(queueButton().disabled).toBe(false)
 })
