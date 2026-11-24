@@ -54,9 +54,9 @@
                 type="button"
                 class="quiet"
                 onclick={() => choose(target)}
-                title={`fills ${target.variable} with this file`}
+                title={`${target.workflow} fills ${target.variable} with this file`}
               >
-                {target.workflow}
+                {leafName(target.workflow)}
               </button>
               <span class="muted"><code>{target.variable}</code></span>
             </li>

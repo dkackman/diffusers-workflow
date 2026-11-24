@@ -42,6 +42,6 @@ it('lists a button per workflow that takes it', async () => {
   } as never)
   render(UseAsInput, { file, open: true })
   await waitFor(() =>
-    expect(screen.getByRole('button', { name: 'mine/edit' })).toBeTruthy(),
+    expect(screen.getByRole('button', { name: 'edit' })).toBeTruthy(),
   )
 })
