@@ -49,6 +49,7 @@ beforeEach(() => {
   invalidateWorkspaces()
   workspace.names = undefined
   workspace.root = null
+  workspace.listed = false
   workspace.usage = {}
 })
 afterEach(cleanup)
@@ -67,13 +68,14 @@ it('lists workspaces, expands the current one and marks its section', async () =
   expect(screen.getByText('2 KB')).toBeTruthy()
 })
 
-it('a collapsed workspace links to its overview', async () => {
+it('a shut workspace links to the same section', async () => {
   render(Sidebar, { collapsed: false, onToggle: () => {} })
   await waitFor(() => expect(screen.getByText('default')).toBeTruthy())
+  // the route is studio's gallery, so default's row opens default's gallery;
   // the link's accessible name carries its usage figure too
   expect(
     screen.getByRole('link', { name: /^default/ }).getAttribute('href'),
-  ).toBe('#/ws/default/overview')
+  ).toBe('#/ws/default/gallery')
 })
 
 it('shared and server groups link to their sections', async () => {
@@ -92,30 +94,97 @@ it('shared and server groups link to their sections', async () => {
   ).toBe('#/server/status')
 })
 
-it('+ new refuses a reserved name without calling the server', async () => {
+it('new opens the form in its place, and closing it brings new back empty', async () => {
   render(Sidebar, { collapsed: false, onToggle: () => {} })
-  // 'studio' is the route's and renders before the listing lands; 'default'
-  // only the listing can supply
   await waitFor(() => expect(screen.getByText('default')).toBeTruthy())
-  await fireEvent.click(screen.getByRole('button', { name: /new workspace/i }))
+  await fireEvent.click(screen.getByRole('button', { name: 'new workspace' }))
+  expect(screen.queryByRole('button', { name: 'new workspace' })).toBeNull()
   const input = screen.getByPlaceholderText('name')
   await fireEvent.input(input, { target: { value: 'assets' } })
   await fireEvent.keyDown(input, { key: 'Enter' })
   await waitFor(() => expect(screen.getByText(/reserved/)).toBeTruthy())
-  expect(createWorkspace).not.toHaveBeenCalled()
+  await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  expect(screen.queryByPlaceholderText('name')).toBeNull()
+  // a reopened form starts over: no draft, no old refusal
+  await fireEvent.click(screen.getByRole('button', { name: 'new workspace' }))
+  expect((screen.getByPlaceholderText('name') as HTMLInputElement).value).toBe(
+    '',
+  )
+  expect(screen.queryByText(/reserved/)).toBeNull()
 })
 
 it('+ new creates and lands on the new overview', async () => {
   createWorkspace.mockResolvedValue({ name: 'fresh' })
   render(Sidebar, { collapsed: false, onToggle: () => {} })
-  // 'studio' is the route's and renders before the listing lands; 'default'
-  // only the listing can supply
   await waitFor(() => expect(screen.getByText('default')).toBeTruthy())
   await fireEvent.click(screen.getByRole('button', { name: /new workspace/i }))
   const input = screen.getByPlaceholderText('name')
   await fireEvent.input(input, { target: { value: 'fresh' } })
   await fireEvent.keyDown(input, { key: 'Enter' })
   await waitFor(() => expect(location.hash).toBe('#/ws/fresh/overview'))
+  // the form closed: new is back
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'new workspace' })).toBeTruthy(),
+  )
+})
+
+it('no workspace root says why there is no new', async () => {
+  listWorkspaces.mockResolvedValueOnce({
+    workspace_root: null as unknown as string,
+    default: 'default',
+    workspaces: [{ name: 'default', default: true }],
+  })
+  render(Sidebar, { collapsed: false, onToggle: () => {} })
+  const why = await screen.findByText('New workspaces need a workspace folder')
+  expect(why.getAttribute('title')).toBe(
+    'Start the server with --workspace <folder> to add workspaces.',
+  )
+  expect(screen.queryByRole('button', { name: 'new workspace' })).toBeNull()
+})
+
+it('a failed listing does not claim there is no workspace folder', async () => {
+  listWorkspaces.mockRejectedValueOnce(new Error('down'))
+  render(Sidebar, { collapsed: false, onToggle: () => {} })
+  await waitFor(() => expect(screen.getByText('default')).toBeTruthy())
+  expect(workspace.listed).toBe(false)
+  expect(
+    screen.queryByText('New workspaces need a workspace folder'),
+  ).toBeNull()
+})
+
+it('collapsing the sidebar keeps a typed workspace name', async () => {
+  const view = render(Sidebar, { collapsed: false, onToggle: () => {} })
+  await fireEvent.click(
+    await screen.findByRole('button', { name: 'new workspace' }),
+  )
+  await fireEvent.input(screen.getByPlaceholderText('name'), {
+    target: { value: 'half-typed' },
+  })
+  await view.rerender({ collapsed: true, onToggle: () => {} })
+  expect(screen.queryByPlaceholderText('name')).toBeNull()
+  await view.rerender({ collapsed: false, onToggle: () => {} })
+  expect((screen.getByPlaceholderText('name') as HTMLInputElement).value).toBe(
+    'half-typed',
+  )
+})
+
+it('a server with a workspace root offers new, not the reason', async () => {
+  render(Sidebar, { collapsed: false, onToggle: () => {} })
+  await screen.findByRole('button', { name: 'new workspace' })
+  expect(
+    screen.queryByText('New workspaces need a workspace folder'),
+  ).toBeNull()
+})
+
+it('collapsed, every workspace can be chosen', async () => {
+  render(Sidebar, { collapsed: true, onToggle: () => {} })
+  const dot = await screen.findByRole('link', { name: 'default workspace' })
+  expect(dot.getAttribute('title')).toBe('default')
+  // the switch keeps the section here too
+  expect(dot.getAttribute('href')).toBe('#/ws/default/gallery')
+  expect(dot.querySelector('.dot.solo')).not.toBeNull()
+  // the open workspace's dot is drawn, not linked: its sections are the links
+  expect(screen.queryByRole('link', { name: 'studio workspace' })).toBeNull()
 })
 
 it('collapsed shows icons only and the toggle reports', async () => {

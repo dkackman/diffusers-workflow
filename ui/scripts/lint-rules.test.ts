@@ -141,3 +141,40 @@ it('destructive.ts keeps the other syntax rules', async () => {
     'no-restricted-syntax',
   ])
 })
+
+// The Monaco rule (eslint.config.js): the whole package - every language
+// it ships - is imported nowhere; Monaco loads through src/lib/monaco.ts,
+// and a type import costs nothing at run time
+/** The messages of the Monaco rule `code` breaks, linted as `file` */
+async function monacoErrors(code: string, file: string): Promise<string[]> {
+  const [result] = await eslint.lintText(code, { filePath: join(UI, file) })
+  return result.messages
+    .filter((m) =>
+      m.message.includes(
+        'Import Monaco through src/lib/monaco.ts, which loads the JSON language only.',
+      ),
+    )
+    .map((m) => m.ruleId ?? '')
+}
+
+it('importing monaco-editor whole is refused', async () => {
+  const whole = `import * as monaco from 'monaco-editor'\nexport const m = monaco`
+  for (const file of [
+    'src/lib/monaco.ts',
+    'src/lib/pages/Probe.ts',
+    'src/lib/ui/Probe.ts',
+    'src/lib/resource.svelte.ts',
+    'src/lib/pages/Probe.test.ts',
+  ])
+    expect(await monacoErrors(whole, file)).toEqual(['no-restricted-imports'])
+  const svelte = `<script lang="ts">\n  import * as monaco from 'monaco-editor'\n  export const m = monaco\n</script>\n`
+  for (const file of ['src/lib/ui/LoadState.svelte', 'src/lib/pages/P.svelte'])
+    expect(await monacoErrors(svelte, file)).toEqual(['no-restricted-imports'])
+})
+
+it('a type import is allowed', async () => {
+  const typed = `import type * as Monaco from 'monaco-editor'\nexport let e: Monaco.editor.IStandaloneCodeEditor | null = null`
+  expect(await monacoErrors(typed, 'src/lib/editor/Probe.ts')).toEqual([])
+  const core = `import * as monaco from 'monaco-editor/editor/editor.api.js'\nexport const m = monaco`
+  expect(await monacoErrors(core, 'src/lib/monaco.ts')).toEqual([])
+})

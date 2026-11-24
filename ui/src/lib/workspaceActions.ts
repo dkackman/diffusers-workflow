@@ -83,7 +83,8 @@ function contentsOf(e: unknown): Contents {
 
 /** The informed question: the server's counts, and the starred outputs -
  * read off the gallery, since the workspace deleted is the current one.
- * Null (reported) when either could not be read */
+ * Null (reported) when the server's counts could not be read; a gallery that
+ * cannot be read asks without the starred count */
 async function askToDelete(name: string): Promise<boolean | null> {
   let contents: Contents = {}
   try {
@@ -100,13 +101,14 @@ async function askToDelete(name: string): Promise<boolean | null> {
     }
     contents = contentsOf(e)
   }
-  let starred: number
+  // A gallery that cannot be read still asks: the confirm says the count is
+  // unknown rather than leave the workspace undeletable
+  let starred: number | null
   try {
     const { files } = await api.gallery()
     starred = files.filter((f) => f.starred).length
-  } catch (e) {
-    notify.failure(`count the starred files in ${name}`, e)
-    return null
+  } catch {
+    starred = null
   }
   const spec = workspaceConfirm(name, contents, starred)
   return confirmDialog(spec.message, spec)

@@ -11,6 +11,9 @@
   import { hashState } from '../router.svelte'
   import RequestFilter from '../gallery/RequestFilter.svelte'
   import {
+    JOBS_PAGE,
+    heldFor,
+    type HeldJobs,
     jobMatches,
     listWithPrompts,
     listingRefused,
@@ -20,6 +23,7 @@
     runningProgress,
   } from '../jobsListing'
   import { loadWorkspaces, workspace } from '../workspace.svelte'
+  import { wsHref } from '../routes'
   import {
     rerunRestartBatchWithConfirm,
     restartBanners,
@@ -82,14 +86,44 @@
   // Prompts ride along only for jobs not yet read (listWithPrompts): a
   // prompt never changes, so the 3 s poll does not ask for them again
   const known = new Map<string, string>()
+  // How many finished jobs are read: the newest page, then what Show older
+  // or Search all asked for. A change re-reads, and a filter does not reset it
+  let shown = $state(JOBS_PAGE)
+  // Search all read the whole history once; from then on a poll reads a
+  // page and merges it into `held`, so the cost per poll stays a page
+  let loadAll = $state(false)
+  const held: HeldJobs = { question: '', jobs: new Map() }
+  // A different workspace or request is a new question: it starts at the
+  // first page again, as `held` does, so the three cannot drift apart
+  let asking = ''
   const list = resource(
     async () => {
       const [ws, scoped] = [listed, { ...requestScope }]
-      const { list: answer, prompts } = await listWithPrompts(ws, scoped, known)
+      const question = JSON.stringify([ws, scoped])
+      if (question !== asking) {
+        asking = question
+        shown = JOBS_PAGE
+        loadAll = false
+      }
+      const [limit, all] = [shown, loadAll]
+      const { list: answer, prompts } = await listWithPrompts(
+        ws,
+        scoped,
+        known,
+        limit,
+        all ? heldFor(held, ws, scoped) : undefined,
+      )
       const rows = answer.jobs.reverse()
       const queued = await queuedEverywhere(rows, !!(ws || scoped.request))
       const progress = await runningProgress(rows)
-      return { rows, queueSize: queueLength(rows, queued), prompts, progress }
+      return {
+        rows,
+        total: answer.total,
+        finished: answer.finished,
+        queueSize: queueLength(rows, queued),
+        prompts,
+        progress,
+      }
     },
     { live: { everyMs: 3000 } },
   )
@@ -118,6 +152,10 @@
       ((!!statusFilter.value || !!nameFilter.value) && jobs.length > 0),
   )
   const queueSize = $derived(list.data?.queueSize ?? 0)
+  const total = $derived(refused ? 0 : (list.data?.total ?? 0))
+  const finished = $derived(refused ? 0 : (list.data?.finished ?? 0))
+  const partial = $derived(!loadAll && shown < finished)
+  const olderBy = $derived(Math.min(JOBS_PAGE, finished - shown))
   const visible = $derived(
     jobs.filter(
       (job) =>
@@ -193,6 +231,7 @@
   <input
     class="filter"
     placeholder="search names, prompts, notes and ids…"
+    title="search names, prompts, notes and ids"
     bind:value={nameFilter.value}
   />
 {/snippet}
@@ -227,6 +266,21 @@
   </div>
 {/each}
 
+{#if partial && (statusFilter.value || nameFilter.value)}
+  <p class="hint">
+    Searching the newest {jobs.length} of {total} jobs.
+    <button
+      class="quiet"
+      onclick={() => {
+        shown = finished
+        loadAll = true
+      }}
+    >
+      Search all {total}
+    </button>
+  </p>
+{/if}
+
 <LoadState
   of={list}
   label="jobs"
@@ -235,7 +289,8 @@
   onclear={clearFilters}
 >
   {#snippet emptyIcon()}<Inbox size={36} strokeWidth={1.5} />{/snippet}
-  {#snippet emptyText()}No jobs yet — pick a workflow and run it.{/snippet}
+  {#snippet emptyText()}No jobs yet.
+    <a href={wsHref(workspace.current, 'workflows')}>Pick a workflow</a> and run it.{/snippet}
   {#if visible.length > 0}
     <div class="panel list">
       {#each visible as job (job.id)}
@@ -253,6 +308,15 @@
     </div>
   {/if}
 </LoadState>
+
+{#if partial}
+  <p class="hint">
+    Showing the newest {jobs.length} of {total} jobs.
+    <button class="quiet" onclick={() => (shown += JOBS_PAGE)}>
+      Show {olderBy} older
+    </button>
+  </p>
+{/if}
 
 <style>
   select {

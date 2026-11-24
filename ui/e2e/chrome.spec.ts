@@ -233,13 +233,21 @@ async function meterPage(page: Page, running: boolean) {
 test('the meter names idle in words with nothing running', async ({ page }) => {
   const meter = await meterPage(page, false)
   await expect(meter.locator('.stateword')).toHaveText('idle')
-  await expect(meter).toHaveAttribute('aria-label', /^server & worker status, /)
+  await expect(meter).toHaveAttribute(
+    'aria-label',
+    /^(idle|1 job running|\d+ jobs running), server & worker status, /,
+  )
 })
 
 test('the meter names running in words with a job in flight', async ({
   page,
 }) => {
   const meter = await meterPage(page, true)
-  await expect(meter.locator('.stateword')).toHaveText('running')
-  await expect(meter).toHaveAttribute('aria-label', /^server & worker status, /)
+  // the one-job `running` link says it; the meter does not say it twice
+  await expect(meter.locator('.stateword')).toHaveCount(0)
+  await expect(page.getByRole('link', { name: 'running' })).toBeVisible()
+  await expect(meter).toHaveAttribute(
+    'aria-label',
+    /^(idle|1 job running|\d+ jobs running), server & worker status, /,
+  )
 })

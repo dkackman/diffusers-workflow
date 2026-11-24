@@ -1,11 +1,15 @@
 /** Monaco, loaded lazily: this module is only imported dynamically from
  * JsonEditor, so the editor lands in its own chunk and the main bundle
- * stays small. The workflow schema is wired into the JSON language service,
- * which is the whole point - validation, completion and hover come from
- * dw/workflow_schema.json's own descriptions. */
-import * as monaco from 'monaco-editor'
-// monaco 0.56 maps 'monaco-editor/*' onto its esm/vs tree via package
-// exports; the JSON language service moved to languages/features/json
+ * stays small. It loads the editor core, its contributions
+ * (monacoContribs.ts) and the JSON language - none of the package's other
+ * languages, which `import 'monaco-editor'` would bring (ESLint refuses
+ * that import). The workflow schema is wired into the JSON language
+ * service, which is the whole point - validation, completion and hover
+ * come from dw/workflow_schema.json's own descriptions. */
+import * as monaco from 'monaco-editor/editor/editor.api.js'
+import './monacoContribs'
+// monaco maps 'monaco-editor/*' onto its esm/vs tree via package exports;
+// the JSON language service is languages/features/json
 import { jsonDefaults } from 'monaco-editor/languages/features/json/register.js'
 import editorWorker from 'monaco-editor/editor/editor.worker.js?worker'
 import jsonWorker from 'monaco-editor/language/json/json.worker.js?worker'

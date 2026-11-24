@@ -28,6 +28,13 @@ server uses, and in what order they are resolved, is in
 [WORKSPACES.md](WORKSPACES.md). Running it for other machines is
 [REMOTE.md](REMOTE.md); in a container, [DOCKER.md](DOCKER.md).
 
+The server gzips a response when the client sends `Accept-Encoding: gzip`
+and the body is at least 1 KB, except `/mcp` and what is already compressed
+or must stream (event streams, images, video, audio, zips, a `206` range).
+The body decodes to the same bytes. The web UI's `/assets/*` files carry
+content hashes and are cached as immutable for a year; `index.html` is
+`no-cache`, so a reload after an upgrade fetches the new build.
+
 ## The HTTP API
 
 Everything the web UI and the MCP server do goes through one HTTP API, and a
@@ -138,7 +145,11 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   first, and a **New workflow** button), its asset count and disk usage. Each
   panel loads and fails on its own, so a slow gallery does not hold the jobs
   list back and an error shows in place of that panel. **Manage** deletes
-  the workspace (disabled for `default`).
+  the workspace (disabled for `default`). Until **Got it** is pressed in
+  this browser, a first-run card at the top says what dw is and links
+  `templates/text-to-image` (the Examples page, or the Workflows page, when
+  the listing lacks it); storage that throws keeps the dismissal for the
+  session (`ui/src/lib/firstRun.ts`).
 - **Workflows** - every workflow on the workspace's own `--workflow-dir`, as
   cards with the last image it made, its summary, the server's observed run
   time, and `configures` / read-only marks. Shape buttons and trait chips
@@ -206,7 +217,11 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   ![The editor in split view: the variables as a form beside the workflow JSON](img/ui-editor.png)
 
 - **Jobs** - the workspace's queue and run history (history persists in
-  `~/.diffusers_helper/jobs.sqlite`), filterable by status. A job queued or
+  `~/.diffusers_helper/jobs.sqlite`), filterable by status. The list holds
+  every live job and the newest 50 finished ones; **Show older** loads the
+  next 50. The status filter and the search see only what is loaded, and
+  say so ("Searching the newest N of M jobs.") with a **Search all** button
+  that loads the rest (`ui/src/lib/jobsListing.ts`). A job queued or
   running when the server stopped is listed as `cancelled` with `error`
   starting `server restart:` ([After a restart](#after-a-restart)). A failed or cancelled row shows its `reason` on a muted line under the workflow name, cut to one line with the full text on hover. When loaded rows hold restart tombstones (`restart_batch`) that no loaded row's `rerun_of` names, a banner per batch, newest first, says "N jobs were cancelled by a server restart" with a **Rerun…** button (hidden under a status filter that hides cancelled rows). Only the click calls the batch route - the poll never does: its preview lists what would be queued with each estimate and a total, and what is skipped with why; confirming resends with `acknowledged_cost: true`, cancelling queues nothing, and a preview with nothing left to rerun says so and hides that banner for the session (`ui/src/lib/restartBatches.ts`). A waiting job
   shows its place in line, can be moved (the place is in the whole queue, so a list narrowed to a workspace or a request asks the server how many jobs are queued rather than counting its own rows), and shows `waiting_for` while held
@@ -494,7 +509,11 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   reports them), a **Runtime** panel (Python, torch, CUDA, driver and package
   versions, with a copy button), bind address and LAN addresses, whether a token is required, whether
   `/mcp` is mounted, a **Connect from another machine** panel with the
-  browser URL and the `claude mcp add` line for a chosen address, the
+  browser URL and the `claude mcp add` line (its token header only when a
+  token is required) for a chosen address (on a loopback bind: built from
+  the page's own address when it was reached through a reverse proxy or a
+  tunnel, with no rebind advice; read on the box itself, the command that
+  restarts it bound to the network, with a token, in their place), the
   resolved directories, and the Caches panel (below) - then the queue and
   history across every workspace, with a workspace filter. A request filter
   there (`req=`) is read in one workspace - the one picked, else the current
@@ -534,7 +553,7 @@ layout, the reserved names and how each client picks one are in
 | Route | What it does |
 | --- | --- |
 | `POST /api/jobs` | Queue a run: `{"workflow_path": ...}` or an inline `{"workflow": {...}, "base_dir": ...}`, plus `arguments` for variable overrides. `workflow_path` accepts a stored workflow name as listed by `/api/workflows` (with or without `.json`, nested names included), or a relative/absolute path that still resolves under `--workflow-dir` - confined the same way the `/api/workflows` CRUD routes are; a path that names a real file outside that directory is rejected with 400, not opened. Answers with argument warnings from signature checking. Takes an optional `acknowledged_cost`: `true` is recorded as `acknowledged: boolean`; the object `{fingerprint, minutes, downloads}` from a validate answer's `plan` is `bound` - the server re-plans the run for the arguments given and answers **409** when the fingerprint differs or a repo in `downloads_required` (pipeline `model_name`s and the repos task steps fetch) is not in `downloads` (a download that has since vanished is not a refusal); the body is `{"detail": {message, reason: "fingerprint" \| "downloads" \| "unplannable", acknowledged, plan, acknowledge}}` with the current plan, so the caller re-quotes from it, and `acknowledge` - the `{fingerprint, minutes, downloads}` to resend - whenever there is a plan. A `null` in `downloads` (a URL with no repo) is ignored. The validate `plan` sent unedited is bound too: when `downloads` is absent, its `downloads_required` repos (and `estimate.minutes`) are what was acknowledged; an explicit `downloads`, even `[]`, wins. `minutes` is recorded, never compared. Nothing is required: the web UI and every caller that sends nothing are `acknowledged: none`, and every job answer and history row carries `acknowledged` (and `acknowledged_cost` when bound). `POST /api/jobs/{id}/rerun` takes the same field and checks against the stored spec; a fresh seed does not change a fingerprint. Takes optional `request` and `item` (both or neither, each matching `^[a-z0-9][a-z0-9-]{0,63}$`) linking the job to an item of that workspace's requests ledger; a link the ledger cannot admit is refused **422** with `detail: {code, message}`, `code` one of `unknown_request` (no such request, or no workspace root), `request_closed` (done or abandoned), `unknown_item`, `item_dropped`. The job summary and detail carry `request` and `item` when set (absent otherwise). A rerun inherits the link; when it no longer admits, the rerun still queues and keeps the link, with a `rerun_ledger_link_<code>` warning. |
-| `GET /api/jobs?workspace=&status=&request=&item=&limit=&prompts=` | Queue + history summaries, oldest first, with `total` beside them. `request` keeps the jobs linked to that request, and `item` (with `request`) those linked to that item. `status` narrows to one state or a comma-separated set (`queued`, `running`, `succeeded`, `failed`, `cancelled`; anything else is a 400); `limit` keeps the newest N, and `total` still reports how many matched, so a bounded answer cannot be mistaken for a complete one. Each summary carries `device`, the card the job ran on (`"cuda:1 NVIDIA GeForce RTX 3090"`; null while queued and for older jobs), and `rerun_of`, present on a job started by rerun: the id of the job it reran; absent for a fresh submit. A failed or cancelled job with an error carries `reason`, the error's first line clipped to 160 characters with a trailing `…` (the full error stays on the detail); a restart tombstone also carries `restart_batch`, its dead server's `server_instance` - the key a restart batch groups by. Both are absent, never null, otherwise. No parameters means every job, which is what the web UI polls. `prompts=true` adds `prompts`: job id -> the `prompt` argument each listed job was submitted with (queued, running and historical alike; read the same way as the gallery's), absent unless asked |
+| `GET /api/jobs?workspace=&status=&request=&item=&limit=&prompts=` | Queue + history summaries, oldest first, with `total` beside them. `request` keeps the jobs linked to that request, and `item` (with `request`) those linked to that item. `status` narrows to one state or a comma-separated set (`queued`, `running`, `succeeded`, `failed`, `cancelled`; anything else is a 400); `limit` keeps the newest N, and `total` still reports how many matched, so a bounded answer cannot be mistaken for a complete one. Each summary carries `device`, the card the job ran on (`"cuda:1 NVIDIA GeForce RTX 3090"`; null while queued and for older jobs), and `rerun_of`, present on a job started by rerun: the id of the job it reran; absent for a fresh submit. A failed or cancelled job with an error carries `reason`, the error's first line clipped to 160 characters with a trailing `…` (the full error stays on the detail); a restart tombstone also carries `restart_batch`, its dead server's `server_instance` - the key a restart batch groups by. Both are absent, never null, otherwise. No parameters means every job; the web UI asks for every queued and running job and the newest finished ones with `limit`. `prompts=true` adds `prompts`: job id -> the `prompt` argument each listed job was submitted with (queued, running and historical alike; read the same way as the gallery's), absent unless asked |
 | `GET /api/jobs/{id}` | Full detail: spec, events, manifest, error. A manifest entry for a step served from the step cache carries `reused: true`. Every entry carries `subfolder` - the in-run subfolder the step's `result.subfolder` chose, `''` for none. A `for_each` step appears in the manifest as its members (`shot@wide_open`, `shot@closeup`), because the manifest records what ran; the run's `workflow.json` keeps the `for_each` form, because it records what was asked. Carries `output_kinds`: each manifest file mapped to its media kind (`image`, `video`, `audio`, `text`, or null), and each file-carrying run event (`step_end`) carries the same map for its own files. The entry of a pipeline step that ran carries `timing` (see [Step timing](WORKSPACES.md#step-timing)). Carries `rerun_of` - present on a job started by rerun: the id of the job it reran; absent for a fresh submit. Carries `host_memory_job_peak_committed_mb`, the job's peak committed host memory (anonymous + shared + device-mapped pages, the figure the host-RAM gate projects from), null until a reading lands. |
 | `DELETE /api/jobs/{id}/run` | Delete the run directory a finished job wrote, whole, from the output root the job ran against (no workspace selector applies): `{job_id, run_dir, deleted, run_swept}`. 404 for an unknown job or one with no run directory, 409 for one still queued or running |
 | `GET /api/jobs/{id}/workflow` | The workflow the job ran: `{id, definition, realized, seed_variable}`. `seed_variable` names the variable a `new_seed` rerun would draw into (null when the workflow has none), read from the workflow as written rather than the realized copy, whose seed is pinned. `realized: true` is the copy the run itself wrote (`workflow.json` in its run directory), with arguments, seed, prompts and `output:latest` pinned; `false` falls back to the submitted definition, which is what a job from before run tracking has. 404 means neither is readable - the job itself still is. The equivalent MCP tool is `get_job_workflow` (see [MCP.md](MCP.md#diagnose)) |

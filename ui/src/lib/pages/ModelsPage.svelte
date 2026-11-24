@@ -1,3 +1,29 @@
+<script lang="ts" module>
+  // The server checks a download with huggingface_hub's validate_repo_id
+  // (dw/hub_cache.py); this is that rule, so the field never refuses a repo
+  // the server takes nor sends one it refuses. Pinned by
+  // tests/test_ui_twins.py. A part is 1-96 word, "-" or "." characters,
+  // opening and closing on a word character; the namespace is optional
+  const PART = String.raw`[A-Za-z0-9_](?:[A-Za-z0-9_.-]{0,94}[A-Za-z0-9_])?`
+  const REPO_ID = new RegExp(`^(?:${PART}/)?${PART}$`)
+
+  const REPO_ID_HINT =
+    'A repo id is org/name, like black-forest-labs/FLUX.1-dev.'
+
+  /** Why a download field's value cannot be sent, or null when it is empty
+   * or a repo id the server accepts */
+  export function repoIdHint(value: string): string | null {
+    const repo = value.trim()
+    if (!repo) return null
+    const valid =
+      REPO_ID.test(repo) &&
+      !repo.includes('--') &&
+      !repo.includes('..') &&
+      !repo.endsWith('.git')
+    return valid ? null : REPO_ID_HINT
+  }
+</script>
+
 <script lang="ts">
   import { resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
@@ -22,6 +48,7 @@
 
   let expanded = $state<Record<string, boolean>>({})
   let repoInput = $state('')
+  const repoHint = $derived(repoIdHint(repoInput))
 
   // The hub cache and downloads follow the models feed (a delete, a
   // download started or cancelled, here or by an agent); a download or a
@@ -137,22 +164,24 @@
     onsubmit={(e) => {
       e.preventDefault()
       const repo = repoInput.trim()
-      if (repo) void startDownload.run(repo)
+      if (repo && !repoIdHint(repo)) void startDownload.run(repo)
     }}
   >
     <input
-      placeholder="download a model… (org/name)"
+      aria-label="Hugging Face repo to download"
+      placeholder="org/name, e.g. black-forest-labs/FLUX.1-dev"
       bind:value={repoInput}
-      title="a Hugging Face repo id, e.g. black-forest-labs/FLUX.1-dev"
+      aria-invalid={repoHint ? 'true' : undefined}
     />
     <button
       class="withicon"
       type="submit"
-      disabled={!repoInput.trim() || startDownload.busy}
+      disabled={!repoInput.trim() || !!repoHint || startDownload.busy}
       title="download this repo into the hub cache"
     >
       <Download size={14} />Download
     </button>
+    {#if repoHint}<span class="hint">{repoHint}</span>{/if}
   </form>
 
   <LoadState of={diffusersRead} label="the diffusers version" quiet>
@@ -250,8 +279,8 @@
             <th></th>
             <th>repo</th>
             <th class="num">size</th>
-            <th class="num">files</th>
-            <th title={LAST_USED_TIP}>last used</th>
+            <th class="num wideonly">files</th>
+            <th class="wideonly" title={LAST_USED_TIP}>last used</th>
             <th></th>
           </tr>
         </thead>
@@ -300,8 +329,9 @@
                 ></span>
                 <span class="sizenum">{formatBytes(repo.size_on_disk)}</span>
               </td>
-              <td class="num muted">{repo.nb_files}</td>
+              <td class="num muted wideonly">{repo.nb_files}</td>
               <LastUsedCell
+                class="wideonly"
                 lastJobUse={repo.last_job_use}
                 lastAccessed={repo.last_accessed}
               />
@@ -328,8 +358,10 @@
                   <td class="num muted">
                     {formatBytes(revision.size_on_disk)}
                   </td>
-                  <td></td>
-                  <td class="muted lastused">{day(revision.last_modified)}</td>
+                  <td class="wideonly"></td>
+                  <td class="muted lastused wideonly">
+                    {day(revision.last_modified)}
+                  </td>
                   <td></td>
                 </tr>
               {/each}
@@ -385,6 +417,8 @@
   }
   .dlform {
     display: flex;
+    flex-wrap: wrap;
+    align-items: center;
     gap: 0.5rem;
   }
   .dlform input {
@@ -402,6 +436,10 @@
     .dlform input {
       flex: 1;
       max-width: none;
+    }
+    /* repo and size are what a phone needs; the rest is on a wider screen */
+    .datatable :global(.wideonly) {
+      display: none;
     }
   }
   .dl {

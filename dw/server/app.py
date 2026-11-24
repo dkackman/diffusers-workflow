@@ -2,10 +2,9 @@
 
 `create_app` is the factory: it builds the JobManager (and the MCP app), puts
 what the handlers read on `app.state`, installs the middleware and registers
-the routers in `dw/server/routes/`. All state lives in the JobManager; the
-routers are routing, validation and SSE framing. Everything path-shaped goes
-through dw.security validators. Interactive API docs are served at /docs
-(OpenAPI at /openapi.json).
+the routers in `dw/server/routes/`. All state lives in the JobManager; routers
+are routing, validation and SSE framing; every path goes through dw.security
+validators. API docs are at /docs (OpenAPI at /openapi.json).
 """
 
 import logging
@@ -14,6 +13,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.routing import Route
 
 from ..hub_cache import DownloadManager
@@ -38,8 +38,7 @@ logger = logging.getLogger("dw")
 
 
 def default_ui_dir():
-    """Where the built SPA lives: ui/dist in a checkout (the copy npm just
-    built), else the copy packaged into the wheel at dw/server/ui, else None."""
+    """The built SPA: ui/dist in a checkout, else the wheel's dw/server/ui, or None."""
     here = os.path.dirname(os.path.abspath(__file__))
     candidates = [
         os.path.join(os.path.dirname(os.path.dirname(here)), "ui", "dist"),
@@ -51,20 +50,44 @@ def default_ui_dir():
     return None
 
 
+class UiFiles(StaticFiles):
+    """The built UI. /assets/ names are content-hashed, so cache them for a
+    year; index.html names those hashes and revalidates, or a returning
+    browser runs an old build. StaticFiles alone resolves paths."""
+
+    def file_response(self, full_path, stat_result, scope, status_code=200):
+        response = super().file_response(full_path, stat_result, scope, status_code)
+        hashed = scope["path"].startswith("/assets/")
+        immutable = "public, max-age=31536000, immutable"
+        response.headers["Cache-Control"] = immutable if hashed else "no-cache"
+        return response
+
+
+def _compress(app_):
+    """Gzip everything but /mcp and /mcp/* (the MCP client asked for none);
+    Starlette itself leaves event streams, media, zips and a 206 alone."""
+    gzip = GZipMiddleware(app_, minimum_size=1000, compresslevel=6)
+
+    async def route(scope, receive, send):
+        path = scope.get("path", "")
+        mcp = path == "/mcp" or path.startswith("/mcp/")
+        await (app_ if mcp else gzip)(scope, receive, send)
+
+    return route
+
+
 def _lifespan(manager, mcp_server, mcp_client):
     @asynccontextmanager
     async def lifespan(app):
         if mcp_server is None:
             yield
         else:
-            # the SDK's session manager is the mounted app's own lifespan,
-            # which Starlette does not run for a sub-app
+            # the SDK session manager is the sub-app's lifespan, which Starlette skips
             try:
                 async with mcp_server.session_manager.run():
                     yield
             finally:
-                # the client owns a connection pool; a session manager that
-                # fails to start must not leak it
+                # the client's pool must not leak if the session manager fails to start
                 mcp_client.close()
         manager.shutdown()
 
@@ -76,47 +99,35 @@ def _store_directories(
 ):
     """The directories every handler resolves against, on `app.state`."""
     state.job_manager = manager
-    # This box's own job history as a cost, recomputed when the jobs table
-    # moves rather than when a file does - a job landing changes every
-    # figure and changes no workflow file (#93)
+    # Job history as a cost, recomputed when the jobs table moves, not a file: a
+    # job landing changes no workflow file (#93)
     state.observed_costs = ObservedCosts(getattr(manager, "history", None))
     state.workflow_dir = workflow_dir
     state.prompt_dir = prompt_dir
-    # Where uploads land and 'asset:' references resolve. None when the
-    # caller configured no asset library: uploads, keep and delete then
-    # answer 409, since there is nowhere for an asset to be
+    # Where uploads land and 'asset:' resolves; None: uploads/keep/delete 409
     state.asset_dir = os.path.abspath(asset_dir) if asset_dir else None
-    # The workspace the three directories above default to folders of, for a
-    # client that wants to name the root rather than reason about the parts.
-    # None when the caller resolved no workspace (a test building an app
-    # around three explicit directories)
+    # The root the directories above default to; None without one (a test
+    # building an app around three explicit directories)
     state.workspace = os.path.abspath(workspace) if workspace else None
-    # The LoRA catalog this server writes to: the root's loras/, shared by
-    # every workspace like the prompt library. None when there is no root (a
-    # server configured from loose directories) - the shipped catalog is
-    # still read, and a save answers 409
+    # The LoRA catalog written (root's loras/), shared by all like the prompt library;
+    # None without a root: the shipped catalog is still read, and a save 409s
     state.lora_dir = (
         os.path.join(state.workspace, LORAS_SUBDIR) if state.workspace else None
     )
     if state.lora_dir and _holds_a_workspace(state.lora_dir):
         logger.warning(
             f"{state.lora_dir} holds a workspace named '{LORAS_SUBDIR}', but "
-            f"'{LORAS_SUBDIR}' is now a reserved name (the LoRA catalog): the "
-            "workspace is no longer listed and LoRA saves land beside its "
-            "folders. Rename the directory to keep using it."
+            f"'{LORAS_SUBDIR}' is now reserved (the LoRA catalog): the workspace "
+            "is no longer listed and LoRA saves land beside its folders. "
+            "Rename the directory to keep using it."
         )
-    # The root that holds named workspaces. Its own folders are the default
-    # workspace - which is what the three directories above already point at,
-    # so a server given individual directory overrides simply has one
-    # workspace and no others
+    # The root holding named workspaces; its folders are the default one, so a
+    # server given directory overrides has that one workspace and no others
     state.workspace_root = (
         Workspace(state.workspace, "flag") if state.workspace else None
     )
-    # The default workspace itself, as a Workspace: its four folders are the
-    # configured directories above, not '<root>/workflows' and friends - a
-    # caller can override any one of them individually (--workflow-dir,
-    # etc), so they cannot be derived from a root the way a named
-    # workspace's folders are
+    # The default workspace: its folders are the configured directories above
+    # (each overridable, e.g. --workflow-dir), not derived from the root
     state.default_workspace = ConfiguredWorkspace(
         workflows=state.workflow_dir,
         assets=state.asset_dir,
@@ -125,9 +136,8 @@ def _store_directories(
         root=state.workspace,
     )
 
-    # Where a job's requests-ledger link is checked on a rerun: the folder
-    # holding the workspace's requests.json, or None. Never raises - a
-    # workspace that is gone has no ledger, which the rerun warns about
+    # The folder of a workspace's requests.json, for a rerun's ledger check
+    # (None, never raises, when the workspace is gone, which the rerun warns about)
     def ledger_root_for(name):
         from .deps import workspace_for
 
@@ -137,16 +147,11 @@ def _store_directories(
             return None
 
     manager.ledger_root_for = ledger_root_for
-    # A StaticFiles instance per output/asset root, built lazily and reused -
-    # a mount is bound to one directory at startup, but a named workspace's
-    # root does not exist yet then. Keeping the instance around (rather than
-    # building one per request) is what makes /outputs and /inputs answer
-    # ETag/If-None-Match with 304 and Range with 206 the way a real mount
-    # does, instead of the plain FileResponse this replaced always resending
-    # the whole file
+    # A StaticFiles per output/asset root, built lazily (a mount binds one
+    # directory at startup and a named workspace's root may not exist yet). Reused,
+    # so /outputs and /inputs answer 304 and 206 instead of resending the file
     state.static_files_by_root = {}
-    # The two sets zip_download's compression policy reads, exposed so a test
-    # can assert the relationship without reaching into the module
+    # The two sets zip_download's policy reads, exposed for tests
     state.media_kinds = MEDIA_KINDS
     state.raw_media_extensions = RAW_MEDIA_EXTENSIONS
 
@@ -167,24 +172,21 @@ def _store_serving(
     state.examples_dirs = examples_dirs
     state.downloads = download_manager or DownloadManager()
     state.updater = diffusers_updater or DiffusersUpdater()
-    # One index per distinct listing, per app (see deps.ceiling_index)
+    # One index per distinct listing (deps.ceiling_index)
     state.ceiling_indexes = {}
-    # The LoRA catalog's partitions, one per listing (see deps.lora_index)
+    # The LoRA catalog's partitions per listing (deps.lora_index)
     state.lora_indexes = None
     state.catalog_listings = {}
-    # Which workspace workflows name each asset (see deps.asset_users)
+    # Which workspace workflows name each asset (deps.asset_users)
     state.asset_users = {}
 
 
 def _mount_mcp(app, mcp_asgi):
-    """The two `/mcp` routes. One route pair rather than
-    app.mount("/mcp", ...): Starlette's Mount only matches paths *under* its
-    prefix, so a bare POST /mcp - the URL clients are configured with - would
-    fall through to the SPA catch-all and come back 405. Exactly the two
-    spellings require_bearer_token gates - a single "/mcp{path:path}" route
-    would also answer /mcpfoo, which the gate does not cover.
-    build_mcp_app's wrapper normalizes the path for the SDK app's single
-    route."""
+    """The two `/mcp` routes, not app.mount("/mcp"): a Mount only matches *under*
+    its prefix, so a bare POST /mcp (the configured URL) would fall to the SPA
+    catch-all and 405. Exactly the two spellings require_bearer_token gates; one
+    "/mcp{path:path}" would also answer /mcpfoo. build_mcp_app's wrapper
+    normalizes the path for the SDK."""
     app.router.routes.append(Route("/mcp", endpoint=mcp_asgi, name="mcp"))
     app.router.routes.append(
         Route("/mcp/{sub_path:path}", endpoint=mcp_asgi, name="mcp_sub")
@@ -213,21 +215,17 @@ def create_app(
 
     `devices` is `--devices` as resolved: one worker per entry (#462).
 
-    `host` is the address the server is bound to (informational here - it
-    is added to the Host-header allowlist alongside the loopback names, so
-    a deployment bound to one specific non-loopback address still accepts
-    its own requests). `token`, if given, is a static bearer token required
-    on every /api/* request - see require_bearer_token in http_security.
+    `host` is the bound address, added to the Host-header allowlist beside loopback so a
+    bind to one non-loopback address accepts its own requests. `token`, if given, is the
+    bearer token every /api/* request needs (http_security's require_bearer_token).
 
-    Registration order is the surface: the routers in `ROUTERS` order, then
-    `/mcp`, then the files routes, then the UI mount last.
+    Registration order is the surface: `ROUTERS`, `/mcp`, the files routes, the UI.
     """
     manager = job_manager or JobManager(
         output_dir, log_level=log_level, workflow_dir=workflow_dir, devices=devices
     )
-    # An injected manager must confine jobs to the same workflow_dir the
-    # routes do, or /api/validate and /api/jobs would enforce different
-    # boundaries
+    # An injected manager must share the routes' workflow_dir, or validate
+    # and jobs would enforce different boundaries
     if manager.workflow_dir is None:
         manager.workflow_dir = workflow_dir
     elif manager.workflow_dir != workflow_dir:
@@ -263,7 +261,7 @@ def create_app(
     )
     app.state.mcp_mounted = mcp_asgi is not None
     app.state.listening = Listening()
-    # One registry the routes and the job manager both bump (dw/server/changes.py)
+    # One registry the routes and job manager both bump (changes.py)
     app.state.changes = Changes()
     manager.changes = app.state.changes
     _store_serving(
@@ -277,6 +275,8 @@ def create_app(
     )
     app.state.downloads.changes = app.state.changes
     app.state.updater.changes = app.state.changes
+    # Before install_middleware: outside its streams, GZip ignores minimum_size
+    app.add_middleware(_compress)
     install_middleware(app)
     include_routers(app)
     if mcp_asgi is not None:
@@ -285,8 +285,8 @@ def create_app(
 
     resolved_ui = ui_dir or default_ui_dir()
     if resolved_ui:
-        # Mounted last so /api and /outputs keep precedence; html=True serves
-        # index.html at /, and the SPA routes by hash so no fallback is needed
-        app.mount("/", StaticFiles(directory=resolved_ui, html=True), name="ui")
+        # Last, so /api and /outputs win; html=True serves index.html at / (the
+        # SPA routes by hash, no fallback needed)
+        app.mount("/", UiFiles(directory=resolved_ui, html=True), name="ui")
 
     return app

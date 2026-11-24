@@ -99,7 +99,7 @@ const WORKSPACE_FOLDERS: [string, string][] = [
 
 type Contents = Record<string, { files: number; bytes: number }>
 
-function folderParts(contents: Contents, starred: number): string[] {
+function folderParts(contents: Contents, starred: number | null): string[] {
   const known = new Map(WORKSPACE_FOLDERS)
   const order = [
     ...WORKSPACE_FOLDERS.map(([key]) => key),
@@ -110,7 +110,9 @@ function folderParts(contents: Contents, starred: number): string[] {
     if (!files) return []
     const noun = known.get(key) ?? key
     const stars =
-      key === 'outputs' && starred > 0 ? ` (${starred} starred)` : ''
+      key === 'outputs' && starred !== null && starred > 0
+        ? ` (${starred} starred)`
+        : ''
     return [`${counted(files, noun, known.has(key) ? undefined : key)}${stars}`]
   })
 }
@@ -125,7 +127,7 @@ const listed = (parts: string[]) =>
 export function workspaceConfirm(
   name: string,
   contents: Contents,
-  starred: number,
+  starred: number | null,
 ): ConfirmSpec {
   const parts = folderParts(contents, starred)
   const bytes = Object.values(contents).reduce(
@@ -137,7 +139,9 @@ export function workspaceConfirm(
     : 'This permanently removes the workspace, which holds no files.'
   return {
     title: `Delete workspace "${name}"?`,
-    message: `${removes} The prompt library and the shared asset library are kept.`,
+    message:
+      `${removes} The prompt library and the shared asset library are kept.` +
+      (starred === null ? " The starred count couldn't be read." : ''),
     confirmLabel: 'Delete workspace',
     danger: true,
   }

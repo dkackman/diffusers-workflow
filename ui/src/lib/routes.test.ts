@@ -13,7 +13,10 @@ import {
   parseView,
   serverHref,
   sharedHref,
+  switchHref,
   wsHref,
+  type RouteView,
+  type WsSection,
 } from './routes'
 
 describe('parseView', () => {
@@ -190,5 +193,45 @@ describe('compareHref', () => {
       section: 'compare',
       rest: names,
     })
+  })
+})
+
+describe('switchHref', () => {
+  const ws = (section: WsSection, ...rest: string[]): RouteView => ({
+    kind: 'ws',
+    workspace: 'studio',
+    section,
+    rest,
+  })
+  it('switching keeps the section', () => {
+    expect(switchHref('other', ws('gallery'))).toBe('#/ws/other/gallery')
+    expect(switchHref('other', ws('jobs'))).toBe('#/ws/other/jobs')
+    expect(switchHref('my ws', ws('assets'))).toBe('#/ws/my%20ws/assets')
+  })
+  it('switching drops a job id', () => {
+    expect(switchHref('other', ws('jobs', 'abc'))).toBe('#/ws/other/jobs')
+    expect(switchHref('other', ws('workflows', 'a', 'b'))).toBe(
+      '#/ws/other/workflows',
+    )
+  })
+  it('the editor switches to workflows', () => {
+    expect(switchHref('other', ws('edit', 'flux'))).toBe('#/ws/other/workflows')
+  })
+  it('compare switches to the gallery', () => {
+    expect(switchHref('other', ws('compare', 'a.png', 'b.png'))).toBe(
+      '#/ws/other/gallery',
+    )
+  })
+  it('a shared page switches to the overview', () => {
+    const overview = '#/ws/other/overview'
+    expect(
+      switchHref('other', { kind: 'shared', section: 'prompts', rest: [] }),
+    ).toBe(overview)
+    expect(switchHref('other', { kind: 'server', section: 'models' })).toBe(
+      overview,
+    )
+    expect(switchHref('other', { kind: 'missing', path: '/nope' })).toBe(
+      overview,
+    )
   })
 })

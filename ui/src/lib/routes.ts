@@ -182,6 +182,20 @@ export function serverHref(section: ServerSection): string {
   return join(['server', section])
 }
 
+/** Where choosing workspace `name` goes from `view`: the same section of
+ * the other workspace, without what follows it (a job id names one job of
+ * this workspace). The editor and a comparison name this workspace's files,
+ * so they become the other's Workflows and Gallery; a shared or server page
+ * belongs to no workspace, so the switch lands on the overview. */
+export function switchHref(name: string, view: RouteView): string {
+  if (view.kind !== 'ws') return wsHref(name, 'overview')
+  const moved: Partial<Record<WsSection, WsSection>> = {
+    edit: 'workflows',
+    compare: 'gallery',
+  }
+  return wsHref(name, moved[view.section] ?? view.section)
+}
+
 /** A comparison of `names`: the one builder, each name one path segment
  * (so a name holding a slash survives the round trip through `parseView`,
  * which takes `rest` as the decoded array). */

@@ -26,6 +26,8 @@
       move the item to the top / bottom of the plan (a request item's reorder
       handle)
     </dd>
+    <dt><kbd>/</kbd></dt>
+    <dd>search this page's list</dd>
     <dt><kbd>?</kbd></dt>
     <dd>show this help</dd>
   </dl>

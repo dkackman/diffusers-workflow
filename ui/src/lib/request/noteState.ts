@@ -128,3 +128,27 @@ export function notesWaiting(request: LedgerRequest): number {
   ]
   return notes.filter((note) => noteWaiting(note, request)).length
 }
+
+/** Whether a note can be written here: the request is open and the item
+ * (if any) is not dropped */
+export function noteListEditable(
+  request: LedgerRequest,
+  item: string | null,
+): boolean {
+  return (
+    request.state === 'open' &&
+    (item === null || request.items.some((i) => i.key === item && !i.dropped))
+  )
+}
+
+/** Whether a note list has anything to draw: a note to read, or a box to
+ * write in. A dropped item, or a closed request, keeps its notes to read
+ * and takes no more until it is reopened, so with none saved it shows
+ * nothing. */
+export function noteListShows(
+  request: LedgerRequest,
+  item: string | null,
+  shown: number,
+): boolean {
+  return shown > 0 || noteListEditable(request, item)
+}

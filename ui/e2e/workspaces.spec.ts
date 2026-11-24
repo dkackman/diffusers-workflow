@@ -53,6 +53,36 @@ test('create a workspace, work in it, delete it', async ({ page }) => {
   await expect(nav.getByText('e2e-ws')).toHaveCount(0)
 })
 
+test('switching workspace from the gallery lands on the other gallery', async ({
+  page,
+}) => {
+  const name = `e2e-switch-${Date.now().toString(36)}`
+  const nav = page.getByRole('complementary', { name: 'navigation' })
+  await page.goto('/')
+  try {
+    await nav.getByRole('button', { name: 'new workspace' }).click()
+    await nav.getByPlaceholder('name').fill(name)
+    await nav.getByRole('button', { name: 'Create' }).click()
+    await expect(page).toHaveURL(new RegExp(`#/ws/${name}/overview$`))
+    await page.goto('/#/ws/default/gallery')
+    await expect(page.getByRole('heading', { name: 'Gallery' })).toBeVisible()
+    // the other workspace's gallery is asked for, scoped to it
+    const scoped = page.waitForRequest(
+      (r) =>
+        r.url().includes('/api/gallery') &&
+        r.url().includes(`workspace=${name}`),
+    )
+    await nav.getByRole('link', { name: new RegExp(`^${name}`) }).click()
+    await expect(page).toHaveURL(new RegExp(`#/ws/${name}/gallery$`))
+    await scoped
+    await expect(page.getByRole('heading', { name: 'Gallery' })).toBeVisible()
+  } finally {
+    await page.request.delete(
+      `/api/workspaces/${encodeURIComponent(name)}?acknowledged=true`,
+    )
+  }
+})
+
 test('an unknown workspace falls back to default and says so', async ({
   page,
 }) => {

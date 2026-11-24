@@ -25,7 +25,7 @@
   import { workflowName } from '../terms'
   import { hiddenWorkspaces, setHidden } from '../hiddenWorkspaces.svelte'
   import { latestProofs, proofByRun } from '../proofs'
-  import { fileHref, jobHref, wsHref } from '../routes'
+  import { fileHref, jobHref, sharedHref, wsHref } from '../routes'
   import type { JobSummary } from '../types'
   import {
     DEFAULT_WORKSPACE,
@@ -37,6 +37,8 @@
   import { deleteWorkspaceWithConfirm } from '../workspaceActions'
   import { action } from '../action.svelte'
   import ActionButton from '../ui/ActionButton.svelte'
+  import FirstRunCard from '../FirstRunCard.svelte'
+  import { firstRunLink } from '../firstRun'
 
   const name = $derived(workspace.current)
   // It asks first itself: the question needs the server's count
@@ -85,8 +87,13 @@
   // examples have their own page
   const workflows = resource(
     async () => {
-      const r = await api.listWorkflows()
-      return r.workflows.filter((wf) => r.details?.[wf]?.writable !== false)
+      const listing = await api.listWorkflows()
+      return {
+        listing,
+        names: listing.workflows.filter(
+          (wf) => listing.details?.[wf]?.writable !== false,
+        ),
+      }
     },
     { watch: ['workflows'] },
   )
@@ -119,7 +126,7 @@
   // names it, so a switch never asks the new workspace for the old files
   const listed = $derived(gallery.data?.workspace ?? name)
   const featured = $derived(
-    [...(workflows.data ?? [])]
+    [...(workflows.data?.names ?? [])]
       .sort(
         (l, r) =>
           (proofs[l] ? 0 : 1) - (proofs[r] ? 0 : 1) || l.localeCompare(r),
@@ -142,6 +149,7 @@
 </script>
 
 <PageHeader title={name} secondary={directory ?? undefined} baseline />
+<FirstRunCard link={firstRunLink(workflows.data?.listing ?? null, name)} />
 <NoteEditor
   note={workspace.notes[name]}
   target={`${WORKSPACE}${name}`}
@@ -165,7 +173,9 @@
         label="loading recent outputs"
       />{/snippet}
     {#snippet emptyIcon()}<Images size={36} strokeWidth={1.5} />{/snippet}
-    {#snippet emptyText()}Nothing generated yet — run a workflow.{/snippet}
+    {#snippet emptyText()}Nothing generated yet.
+      <a href={wsHref(name, 'workflows')}>Run a workflow</a> and what it makes lands
+      here.{/snippet}
     {#snippet children({ recent })}
       <div class="strip">
         {#each recent as file (file.name)}
@@ -216,7 +226,7 @@
               aria-hidden="true"
             >
               &nbsp;·&nbsp;
-            </span>{/if}<span class="jid">{job.id}</span>
+            </span>{/if}<span class="jid" title={job.id}>{job.id}</span>
         </span>
       </span>
     </a>
@@ -259,7 +269,8 @@
         !jobs.data.running}
     >
       {#snippet emptyIcon()}<Inbox size={36} strokeWidth={1.5} />{/snippet}
-      {#snippet emptyText()}No jobs yet.{/snippet}
+      {#snippet emptyText()}No jobs yet.
+        <a href={wsHref(name, 'workflows')}>Run a workflow</a> to start one.{/snippet}
       {#snippet children({ running, finished })}
         <ul class="jobs">
           {#if running}{@render jobRow(running, true)}{/if}
@@ -275,7 +286,7 @@
         <Layers size={15} /> Workflows
       </a>
       {#if workflows.data}<span class="num muted">
-          {workflows.data.length}
+          {workflows.data.names.length}
         </span>{/if}
       <span class="flex"></span>
       <a
@@ -290,11 +301,12 @@
     <LoadState
       of={workflows}
       label="workflows"
-      empty={workflows.data?.length === 0}
+      empty={workflows.data?.names.length === 0}
     >
       {#snippet emptyIcon()}<Layers size={36} strokeWidth={1.5} />{/snippet}
-      {#snippet emptyText()}No workflows yet — create one in the editor, or run
-        an example.{/snippet}
+      {#snippet emptyText()}No workflows yet.
+        <a href={wsHref(name, 'edit')}>Create one in the editor</a>, or
+        <a href={sharedHref('examples')}>start from an example</a>.{/snippet}
       <div class="cards">
         {#each featured as wf (wf)}
           <a
@@ -449,8 +461,9 @@
     white-space: nowrap;
   }
   /* "<time> · <id>" on its own line: the id tells apart jobs that finish in
-     one minute, so it is never truncated; the time gives way first (it
-     ellipsizes, and a phone drops it) */
+     one minute, so the time gives way first (it ellipsizes, and a phone
+     drops it); an id longer than the row is clipped, and its title holds
+     the whole of it */
   .jobs .when {
     display: flex;
     min-width: 0;
@@ -462,10 +475,13 @@
     flex: none;
   }
   .jobs .when .jid {
-    flex: none;
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .jobs .when .at {
-    flex: 0 1 auto;
+    flex: 0 1000 auto;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;

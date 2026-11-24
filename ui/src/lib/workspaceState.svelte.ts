@@ -14,6 +14,11 @@ export const workspace = $state<{
   current: string
   names: string[] | undefined
   root: string | null
+  /** Whether `names` is the server's answer. A failed listing falls back to
+   * the default alone so the sidebar has something to show, and that fallback
+   * must not be read as proof that every other workspace is gone, or that the
+   * server has no workspace folder. */
+  listed: boolean
   /** Roughly how much disk each workspace holds, by name - the server
    * computes it per listing and caches it briefly, so it is a glance
    * rather than a live figure. Absent for a server that does not send it. */
@@ -24,6 +29,7 @@ export const workspace = $state<{
   current: DEFAULT_WORKSPACE,
   names: undefined,
   root: null,
+  listed: false,
   usage: {},
   notes: {},
 })

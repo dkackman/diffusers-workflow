@@ -114,6 +114,7 @@
     overflow-wrap: break-word;
   }
   .secondary {
+    overflow-wrap: anywhere;
     font-family: var(--font-mono);
     font-size: var(--t-sm);
   }

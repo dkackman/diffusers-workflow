@@ -110,6 +110,13 @@ vi.mock('../api', () => ({
       deleteCacheEntry(name, entry),
   },
 }))
+// The page's own location: jsdom serves every test from localhost, so a
+// proxied or tunnelled reader is the origin this returns instead
+const page = vi.hoisted(() => ({ origin: null as string | null }))
+vi.mock('../serverinfo', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../serverinfo')>()),
+  reachedOrigin: () => page.origin,
+}))
 vi.mock('../changes.svelte', async () => ({
   changes: (await import('../test/feedMock')).feed.changes,
 }))
@@ -150,6 +157,7 @@ afterEach(() => {
   deleteCacheEntry.mockClear()
   confirmDialog.mockClear()
   localStorage.clear()
+  page.origin = null
 })
 
 it('sets the tab title to Status, with the host and version beside it', async () => {
@@ -181,10 +189,121 @@ it('never renders a real token, only the placeholder', async () => {
   expect(text).toContain('yes')
 })
 
-it('explains that MCP needs --mcp when it is not mounted', async () => {
+it('an unmounted MCP says python -m dw.serve --mcp', async () => {
   const text = await show({ mcp: { mounted: false, path: '/mcp' } })
-  expect(text).toContain('dw-serve --mcp')
+  expect(text).toContain(
+    'Not mounted. Restart the server with --mcp (python -m dw.serve --mcp) to serve the MCP tools at /mcp.',
+  )
+  expect(text).toContain(
+    'The MCP endpoint is not mounted, so there is no command to run yet. Restart the server with --mcp.',
+  )
+  expect(text).not.toContain('dw-serve')
   expect(text).not.toContain('claude mcp add')
+})
+
+it('a loopback bind offers no network URL', async () => {
+  const text = await show({ bind_host: '127.0.0.1', wildcard_bind: false })
+  expect(text).toContain(
+    'This server is bound to 127.0.0.1, so only this machine can reach it.',
+  )
+  expect(text).toContain(
+    'Only this machine can reach this server. To use it from another, restart it bound to the network, with a token:',
+  )
+  expect(text).toContain(
+    'DW_API_TOKEN=<token> python -m dw.serve --host 0.0.0.0',
+  )
+  expect(text).toContain('How to use dw from another machine')
+  expect(text).not.toContain('192.168.1.50')
+  expect(text).not.toContain('claude mcp add')
+})
+
+it('a loopback bind read on this machine keeps the restart advice', async () => {
+  const text = await show({ bind_host: '127.0.0.1', wildcard_bind: false })
+  expect(text).toContain('A loopback bind is reachable only from this machine.')
+  expect(text).not.toContain('through a proxy or tunnel')
+  expect(text).not.toContain('Endpoint')
+})
+
+it('a loopback bind reached through a proxy builds on the page origin', async () => {
+  page.origin = 'https://dw.example.com'
+  const text = await show({ bind_host: '127.0.0.1', wildcard_bind: false })
+  expect(text).toContain(
+    'You reached this server at https://dw.example.com, through a proxy or tunnel.',
+  )
+  expect(text).toContain('https://dw.example.com/mcp')
+  expect(text).toContain(
+    'claude mcp add --transport http dw https://dw.example.com/mcp ' +
+      '--header "Authorization: Bearer <token>"',
+  )
+  expect(text).toContain("Replace <token> with the server's API token.")
+  expect(text).toContain('Paste the token once')
+  expect(text).not.toContain('only this machine')
+  expect(text).not.toContain('--host 0.0.0.0')
+  expect(text).not.toContain('192.168.1.50')
+})
+
+it('a tunnel to a tokenless loopback server needs no token header', async () => {
+  page.origin = 'http://gpu-tunnel:9000'
+  const text = await show({
+    bind_host: '127.0.0.1',
+    wildcard_bind: false,
+    auth_required: false,
+  })
+  expect(text).toContain(
+    'claude mcp add --transport http dw http://gpu-tunnel:9000/mcp',
+  )
+  expect(text).not.toContain('Authorization: Bearer')
+  expect(text).not.toContain('--host 0.0.0.0')
+})
+
+it('a wildcard bind lists its addresses', async () => {
+  const text = await show()
+  expect(text).toContain('http://192.168.1.50:8765')
+  expect(text).toContain(
+    'claude mcp add --transport http dw http://192.168.1.50:8765/mcp',
+  )
+  expect(text).not.toContain('Only this machine can reach this server')
+})
+
+it('a bind to one address offers that address only', async () => {
+  const text = await show({
+    bind_host: '10.0.0.7',
+    wildcard_bind: false,
+    addresses: [
+      { address: '192.168.1.50', family: 'IPv4', interface: 'enp6s0' },
+      { address: '10.0.0.7', family: 'IPv4', interface: 'eth1' },
+    ],
+  })
+  expect(text).toContain('http://10.0.0.7:8765')
+  expect(text).toContain(
+    'claude mcp add --transport http dw http://10.0.0.7:8765/mcp',
+  )
+  expect(text).not.toContain('192.168.1.50')
+})
+
+it('a bind to an address no interface lists still offers it', async () => {
+  const text = await show({ bind_host: '10.9.9.9', wildcard_bind: false })
+  expect(text).toContain('http://10.9.9.9:8765')
+  expect(text).not.toContain('192.168.1.50')
+})
+
+it('no token required, no token note', async () => {
+  const text = await show({ auth_required: false })
+  expect(text).toContain(
+    'claude mcp add --transport http dw http://192.168.1.50:8765/mcp',
+  )
+  expect(text).not.toContain('Authorization: Bearer')
+  expect(text).not.toContain("Replace <token> with the server's API token.")
+  expect(text).not.toContain('Paste the token once')
+})
+
+it('one heading says Status', async () => {
+  const { container } = render(ServerPage)
+  for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0))
+  const headings = [...container.querySelectorAll('h1, h2')].filter(
+    (h) => h.textContent?.trim() === 'Status',
+  )
+  expect(headings).toHaveLength(1)
 })
 
 it('says so when there is no non-loopback address', async () => {

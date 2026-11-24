@@ -8,6 +8,7 @@ import {
 } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import OverviewPage from './OverviewPage.svelte'
+import { firstRunSession } from '../firstRun'
 import { formatMtime } from '../format'
 import { feed } from '../test/feedMock'
 import { invalidateWorkspaces, workspace } from '../workspace.svelte'
@@ -103,6 +104,7 @@ vi.mock('../confirm.svelte', () => ({
 vi.mock('../toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
 
 beforeEach(async () => {
+  firstRunSession.dismissed = false
   for (const k of Object.keys(calls)) delete calls[k]
   data.files = []
   data.galleryWorkspace = 'studio'
@@ -611,10 +613,67 @@ it('a job row puts its time and full id on a second line, id never truncated', a
   expect(name).toContain('text-to-image')
   expect(name).toContain(formatMtime(1_700_000_000))
   expect(name).toContain('e2ebrdtake01')
-  // textContent cannot see CSS truncation: check the computed style, and the
-  // stylesheet rule itself, which jsdom may not apply
-  const cs = getComputedStyle(jid)
-  expect(cs.textOverflow === 'ellipsis' && cs.overflow === 'hidden').toBe(false)
+})
+
+it('a long job id keeps its row: clipped, with the whole id in its title', async () => {
+  const id = 'e2e' + 'x'.repeat(80)
+  data.jobs = [
+    {
+      id,
+      workflow: 'text-to-image',
+      workflow_name: 'text-to-image',
+      status: 'failed',
+      run_id: null,
+      created_at: 1,
+      started_at: 1,
+      finished_at: 2,
+      workspace: 'studio',
+    },
+  ]
+  render(OverviewPage)
+  await waitFor(() => expect(screen.getByTitle(`job ${id}`)).toBeTruthy())
+  expect(document.querySelector('.jid')?.getAttribute('title')).toBe(id)
+  // jsdom applies no component styles: the rule is read off the source
   const rule = /\.jobs \.when \.jid\s*\{[^}]*\}/.exec(overviewSource)?.[0] ?? ''
-  expect(rule).not.toMatch(/text-overflow|overflow:\s*hidden/)
+  expect(rule).toMatch(/min-width:\s*0/)
+  expect(rule).toMatch(/overflow:\s*hidden/)
+  expect(rule).toMatch(/text-overflow:\s*ellipsis/)
+})
+
+it('the overview shows the card until it is dismissed', async () => {
+  data.workflows = ['templates/text-to-image']
+  render(OverviewPage)
+  const card = await screen.findByRole('region', {
+    name: 'New here? Make your first picture',
+  })
+  await waitFor(() =>
+    expect(
+      screen
+        .getByRole('link', { name: 'Open text-to-image' })
+        .getAttribute('href'),
+    ).toBe('#/ws/studio/workflows/templates/text-to-image'),
+  )
+  expect(
+    card.compareDocumentPosition(
+      screen.getByText('Your note on this workspace'),
+    ) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy()
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Got it, dismiss this introduction' }),
+  )
+  expect(screen.queryByText('New here? Make your first picture')).toBeNull()
+})
+
+it('an empty overview says where to go', async () => {
+  render(OverviewPage)
+  await waitFor(() => expect(screen.getAllByText(/no jobs yet/i)).toBeTruthy())
+  const hrefs = (text: string) =>
+    screen
+      .getAllByRole('link', { name: text })
+      .map((a) => a.getAttribute('href'))
+  expect(hrefs('Run a workflow')).toHaveLength(2)
+  for (const href of hrefs('Run a workflow'))
+    expect(href).toMatch(/^#\/ws\/[^/]+\/workflows$/)
+  expect(hrefs('Create one in the editor')[0]).toMatch(/^#\/ws\/[^/]+\/edit$/)
+  expect(hrefs('start from an example')).toEqual(['#/shared/examples'])
 })

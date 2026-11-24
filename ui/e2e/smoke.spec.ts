@@ -298,7 +298,7 @@ test('models page inventories the hub cache', async ({ page }) => {
     timeout: 30_000,
   })
   // The download form is present but never submitted here
-  await expect(page.getByPlaceholder(/download a model/)).toBeVisible()
+  await expect(page.getByLabel('Hugging Face repo to download')).toBeVisible()
 })
 
 test('task steps get introspection-driven forms', async ({ page }) => {
@@ -340,10 +340,10 @@ test('the theme toggle re-themes an open Monaco editor', async ({ page }) => {
   await expect(editor).toBeVisible({ timeout: 20_000 })
   await expect(editor).toHaveClass(/\bvs\b/)
 
-  const toggle = page.getByRole('button', { name: /^theme:/ })
+  const toggle = page.getByRole('button', { name: /^theme:/i })
   await toggle.click() // system -> light
   await toggle.click() // light -> dark
-  await expect(toggle).toHaveAccessibleName(/theme: dark/)
+  await expect(toggle).toHaveAccessibleName(/theme: dark/i)
   await expect(editor).toHaveClass(/vs-dark/)
 
   await toggle.click() // dark -> system (light)

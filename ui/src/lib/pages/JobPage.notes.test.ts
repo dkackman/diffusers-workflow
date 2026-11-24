@@ -261,3 +261,21 @@ it('puts Results straight after the header and the error, the notes under them',
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
 })
+
+it("a dropped item's job has no empty agent-notes box", async () => {
+  held.job = job({ request: 'r1', item: 's3' })
+  held.request = request([
+    item('s3', {
+      title: 'Shot 3',
+      status: 'dropped',
+      dropped: true,
+      attempts: [attempt('j2')],
+      notes: [],
+    }),
+  ])
+  const { container } = render(JobPage, { jobId: 'j2' })
+  await waitFor(() => expect(api.getRequest).toHaveBeenCalled())
+  await waitFor(() => expect(screen.getByText('Results')).toBeTruthy())
+  expect(container.querySelector('.agentnotes')).toBeNull()
+  expect(screen.queryByText('Notes for the agent on Shot 3')).toBeNull()
+})
