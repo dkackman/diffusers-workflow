@@ -205,15 +205,19 @@
           size="cover"
         />
       </span>
-      <StatusChip status={job.status} />
-      <span class="wf">{workflowName(job)}</span>
-      <span class="when">
-        {#if when !== null}<span class="at">{formatMtime(when)}</span><span
-            class="sep"
-            aria-hidden="true"
-          >
-            &nbsp;·&nbsp;
-          </span>{/if}<span class="jid">{job.id}</span>
+      <span class="jobtext">
+        <span class="line1">
+          <StatusChip status={job.status} />
+          <span class="wf">{workflowName(job)}</span>
+        </span>
+        <span class="when">
+          {#if when !== null}<span class="at">{formatMtime(when)}</span><span
+              class="sep"
+              aria-hidden="true"
+            >
+              &nbsp;·&nbsp;
+            </span>{/if}<span class="jid">{job.id}</span>
+        </span>
       </span>
     </a>
   </li>
@@ -411,27 +415,45 @@
     flex: none;
     width: 48px;
   }
+  .jobs .jobtext {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: var(--space-1);
+  }
+  .jobs .line1 {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-width: 0;
+  }
   .jobs .wf {
     flex: 1;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  /* "<time> · <id>": the id tells apart jobs that finish in one minute, so
-     it is the part that ellipsizes last; a phone drops the time first */
+  /* "<time> · <id>" on its own line: the id tells apart jobs that finish in
+     one minute, so it is never truncated; the time gives way first (it
+     ellipsizes, and a phone drops it) */
   .jobs .when {
-    flex: 0 1 auto;
-    min-width: 0;
-    max-width: 45%;
     display: flex;
+    min-width: 0;
     color: var(--muted);
     white-space: pre;
+    font-size: var(--t-xs, var(--t-sm));
   }
-  .jobs .when .at,
   .jobs .when .sep {
     flex: none;
   }
   .jobs .when .jid {
+    flex: none;
+  }
+  .jobs .when .at {
+    flex: 0 1 auto;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;

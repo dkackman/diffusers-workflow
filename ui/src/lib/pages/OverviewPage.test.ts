@@ -1,3 +1,4 @@
+import overviewSource from './OverviewPage.svelte?raw'
 import {
   cleanup,
   fireEvent,
@@ -555,4 +556,44 @@ it('same-workflow jobs finishing in one minute differ by their id', async () => 
   expect(name(a)).toContain(formatMtime(1_700_000_000))
   expect(name(a)).toContain('abc123')
   expect(name(a)).not.toBe(name(b))
+})
+
+it('a job row puts its time and full id on a second line, id never truncated', async () => {
+  data.files = []
+  data.jobs = [
+    {
+      id: 'e2ebrdtake01',
+      workflow: 'text-to-image',
+      workflow_name: 'text-to-image',
+      status: 'failed',
+      run_id: null,
+      created_at: 1_699_999_990,
+      started_at: 1_699_999_995,
+      finished_at: 1_700_000_000,
+      workspace: 'studio',
+    },
+  ]
+  render(OverviewPage)
+  await waitFor(() =>
+    expect(screen.getByTitle('job e2ebrdtake01')).toBeTruthy(),
+  )
+  const row = screen.getByTitle('job e2ebrdtake01')
+  const line1 = row.querySelector('.line1')
+  const when = row.querySelector('.when')
+  const jid = row.querySelector('.jid') as HTMLElement
+  expect(line1?.querySelector('.wf')).toBeTruthy()
+  expect(line1?.contains(when)).toBe(false)
+  expect(when?.contains(jid)).toBe(true)
+  expect(jid.textContent).toBe('e2ebrdtake01')
+  // the accessible name keeps workflow, time and id
+  const name = row.textContent?.replace(/\s+/g, ' ')
+  expect(name).toContain('text-to-image')
+  expect(name).toContain(formatMtime(1_700_000_000))
+  expect(name).toContain('e2ebrdtake01')
+  // textContent cannot see CSS truncation: check the computed style, and the
+  // stylesheet rule itself, which jsdom may not apply
+  const cs = getComputedStyle(jid)
+  expect(cs.textOverflow === 'ellipsis' && cs.overflow === 'hidden').toBe(false)
+  const rule = /\.jobs \.when \.jid\s*\{[^}]*\}/.exec(overviewSource)?.[0] ?? ''
+  expect(rule).not.toMatch(/text-overflow|overflow:\s*hidden/)
 })
