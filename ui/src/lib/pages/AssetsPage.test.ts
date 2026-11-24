@@ -875,12 +875,12 @@ it('switching assets never shows the previous asset provenance', async () => {
   )
   await renderAssets()
   screen.getByLabelText('show details for iris.png').click()
-  await screen.findByText('kept from paint')
+  await screen.findByText('Saved from paint')
   screen.getByLabelText('show details for cast/priya.jpg').click()
   await waitFor(() =>
     expect(screen.getByText('asset:cast/priya.jpg')).toBeTruthy(),
   )
-  expect(screen.queryByText('kept from paint')).toBeNull()
+  expect(screen.queryByText('Saved from paint')).toBeNull()
 })
 
 it("a failed provenance read for the next asset is a load failure, not a refresh line over the last one's", async () => {
@@ -891,11 +891,11 @@ it("a failed provenance read for the next asset is a load failure, not a refresh
   )
   await renderAssets()
   screen.getByLabelText('show details for iris.png').click()
-  await screen.findByText('kept from paint')
+  await screen.findByText('Saved from paint')
   screen.getByLabelText('show details for cast/priya.jpg').click()
   await screen.findByText(/Couldn't load where this asset came from/)
   expect(screen.queryByText(/Couldn't refresh/)).toBeNull()
-  expect(screen.queryByText('kept from paint')).toBeNull()
+  expect(screen.queryByText('Saved from paint')).toBeNull()
 })
 
 async function saveIrisNote(note: string) {
@@ -918,7 +918,7 @@ it('saving a note does not read the provenance again', async () => {
   galleryMetadata.mockImplementation(() => Promise.resolve(keptFrom('paint')))
   await renderAssets()
   screen.getByLabelText('show details for iris.png').click()
-  await screen.findByText('kept from paint')
+  await screen.findByText('Saved from paint')
   const reads = galleryMetadata.mock.calls.length
   await saveIrisNote('hero shot')
   for (let i = 0; i < 3; i++) await new Promise((r) => setTimeout(r, 10))

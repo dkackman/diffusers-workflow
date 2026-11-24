@@ -4,12 +4,12 @@
   import { api } from '../api'
   import NoteEditor from '../ui/NoteEditor.svelte'
   import { ASSET } from '../references'
-  import type { AssetFile, GalleryMetadata } from '../types'
+  import type { AssetFile } from '../types'
   import { resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
   import Skeleton from '../ui/Skeleton.svelte'
   import { formatBytes, formatMtime } from '../format'
-  import { workflowName } from '../terms'
+  import { savedFrom } from '../recipe'
   import { wsHref } from '../routes'
   import { workspace } from '../workspace.svelte'
 
@@ -30,21 +30,14 @@
     onnotesaved?: (note: string | null) => void
   } = $props()
 
-  // Where a kept asset came from, when keep_output recorded it: the
-  // workflow and run version of the job that wrote the file
+  // Where a saved asset came from, when keep_output recorded it: the
+  // workflow and run version of the job that wrote the file (savedFrom)
   // Read through the reference alone, so a note saved (a new `asset`, the
   // same file) does not read it again
   const reference = $derived(asset.reference)
   const source = resource(() => api.galleryMetadata(reference), {
     watch: ['assets'],
   })
-  const keptFrom = (r: GalleryMetadata) => {
-    if (!r.job) return ''
-    const text = (v: unknown) => (typeof v === 'string' ? v : null)
-    const named = text(r.job.workflow_name) || text(r.job.workflow)
-    const workflow = named ? workflowName({ workflow_name: named }) : r.job.id
-    return `kept from ${workflow}${r.version ? ` v${r.version}` : ''}`
-  }
 </script>
 
 <div class="detail panel">
@@ -97,7 +90,7 @@
         label="loading where this asset came from"
       />{/snippet}
     {#snippet children(r)}
-      {#if keptFrom(r)}<p class="usedby muted">{keptFrom(r)}</p>{/if}
+      {#if savedFrom(r)}<p class="usedby muted">{savedFrom(r)}</p>{/if}
     {/snippet}
   </LoadState>
   {#if asset.used_by?.length}

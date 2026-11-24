@@ -50,9 +50,9 @@ it('says which workflow and version a kept asset came from', async () => {
     version: 3,
   }
   render(AssetDetail, props)
-  await waitFor(() => expect(screen.getByText(/kept from/)).toBeTruthy())
-  expect(screen.getByText(/kept from/).textContent?.trim()).toBe(
-    'kept from portrait v3',
+  await waitFor(() => expect(screen.getByText(/Saved from/)).toBeTruthy())
+  expect(screen.getByText(/Saved from/).textContent?.trim()).toBe(
+    'Saved from portrait v3',
   )
   expect(galleryMetadata).toHaveBeenCalledWith('asset:face.png')
 })
@@ -62,7 +62,7 @@ it('says nothing for an asset with no recorded provenance', async () => {
   render(AssetDetail, props)
   await waitFor(() => expect(galleryMetadata).toHaveBeenCalled())
   await new Promise((r) => setTimeout(r, 0))
-  expect(screen.queryByText(/kept from/)).toBeNull()
+  expect(screen.queryByText(/Saved from/)).toBeNull()
 })
 
 it('shows the asset note', () => {
@@ -77,5 +77,5 @@ it('a failed provenance read says so, with Retry, rather than nothing', async ()
   await screen.findByText(/Couldn't load where this asset came from/)
   provenance.response = { job: { id: 'j1', status: 'ok', workflow: 'p' } }
   await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
-  await waitFor(() => expect(screen.getByText(/kept from p/)).toBeTruthy())
+  await waitFor(() => expect(screen.getByText(/Saved from p/)).toBeTruthy())
 })

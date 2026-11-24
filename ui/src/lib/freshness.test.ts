@@ -100,6 +100,12 @@ const PAGE_TABLE: Record<string, Freshness[]> = {
   'ui/MediaBody.svelte': [{ watch: [] }],
   // a text tile's first lines, read once when first seen
   'ui/OutputTile.svelte': [{ watch: [] }],
+  // one of the two by the file's source; the job read once, when needed
+  'ui/RecipePanel.svelte': [
+    { watch: ['gallery'] },
+    { watch: ['assets'] },
+    { watch: [] },
+  ],
 }
 
 /** The pages that edit one document: it is kept fresh by what they call to
