@@ -1262,7 +1262,8 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
     (`["arguments"]`, may include `workflow` or `prompt:<name>` when a
     referenced prompt's text changed after the take).
   - `ready` - a job could be queued for it now.
-  - `attempts` - `[{job, status, note?, minutes, output}]`, oldest first.
+  - `attempts` - `[{job, status, note?, reason?, minutes, output}]`, oldest
+    first; `reason` (why a take failed or was cancelled) only with `reasons=true`.
   - `result` - `{job, run_id, output}` or null.
   - `accepted_missing` - only when true.
   - `spent_minutes`.
