@@ -29,7 +29,7 @@ describe('VariablesForm attention backend variables', () => {
   it('renders a select with default (none) plus the server list', () => {
     attentionBackends.list = ['native', 'sparse']
     render(VariablesForm, props())
-    const select = screen.getByRole('combobox')
+    const select = screen.getByLabelText('attn')
     expect(select.tagName).toBe('SELECT')
     expect(
       Array.from(select.querySelectorAll('option')).map((o) => o.textContent),
@@ -39,7 +39,7 @@ describe('VariablesForm attention backend variables', () => {
   it('keeps a current value the server does not list, marked unavailable', () => {
     attentionBackends.list = ['native']
     render(VariablesForm, props({ variables: { attn: 'sage_hub' } }))
-    const select = screen.getByRole('combobox') as HTMLSelectElement
+    const select = screen.getByLabelText('attn') as HTMLSelectElement
     expect(select.value).toBe('sage_hub')
     expect(
       screen.getByText('sage_hub (not available on this server)'),
@@ -50,7 +50,7 @@ describe('VariablesForm attention backend variables', () => {
     attentionBackends.list = []
     render(VariablesForm, props())
     expect(screen.queryByRole('combobox', { name: '' })).toBeNull()
-    expect(document.querySelector('select')).toBeNull()
+    expect(document.querySelector('select:not(.vartype)')).toBeNull()
   })
 
   it('falls back to the text field for a reference or non-string value', () => {
@@ -62,13 +62,13 @@ describe('VariablesForm attention backend variables', () => {
         backendVariables: new Set(['attn', 'n']),
       }),
     )
-    expect(document.querySelector('select')).toBeNull()
+    expect(document.querySelector('select:not(.vartype)')).toBeNull()
   })
 
   it('does not turn other variables into selects', () => {
     attentionBackends.list = ['native']
     render(VariablesForm, props({ variables: { prompt: 'a cat' } }))
-    expect(document.querySelector('select')).toBeNull()
+    expect(document.querySelector('select:not(.vartype)')).toBeNull()
   })
 
   it('in override mode shows the workflow default and writes the choice', async () => {
@@ -78,7 +78,7 @@ describe('VariablesForm attention backend variables', () => {
       VariablesForm,
       props({ mode: 'override', variables: { attn: 'sparse' }, overrides }),
     )
-    const select = screen.getByRole('combobox') as HTMLSelectElement
+    const select = screen.getByLabelText('attn') as HTMLSelectElement
     expect(select.value).toBe('')
     expect(screen.getByText('default (sparse)')).toBeTruthy()
     await fireEvent.change(select, { target: { value: 'native' } })
@@ -89,7 +89,7 @@ describe('VariablesForm attention backend variables', () => {
     attentionBackends.list = ['native', 'sparse']
     const variables: Record<string, unknown> = { attn: '' }
     render(VariablesForm, props({ variables }))
-    await fireEvent.change(screen.getByRole('combobox'), {
+    await fireEvent.change(screen.getByLabelText('attn'), {
       target: { value: 'sparse' },
     })
     expect(variables.attn).toBe('sparse')
@@ -99,7 +99,7 @@ describe('VariablesForm attention backend variables', () => {
     attentionBackends.list = ['native', 'sparse']
     const variables: Record<string, unknown> = { attn: 'sparse' }
     render(VariablesForm, props({ variables }))
-    await fireEvent.change(screen.getByRole('combobox'), {
+    await fireEvent.change(screen.getByLabelText('attn'), {
       target: { value: '' },
     })
     expect(variables.attn).toBeNull()
@@ -108,7 +108,7 @@ describe('VariablesForm attention backend variables', () => {
   it('renders a null default as a select with default (none) selected', () => {
     attentionBackends.list = ['native']
     render(VariablesForm, props({ variables: { attn: null } }))
-    const select = screen.getByRole('combobox') as HTMLSelectElement
+    const select = screen.getByLabelText('attn') as HTMLSelectElement
     expect(select.value).toBe('')
     expect(select.selectedOptions[0].textContent).toBe('default (none)')
   })
@@ -230,7 +230,7 @@ describe('VariablesForm preset selectors', () => {
       idPrefix: 'v-',
       presets,
     })
-    expect(document.querySelector('select')).toBeNull()
+    expect(document.querySelector('select:not(.vartype)')).toBeNull()
     cleanup()
     render(VariablesForm, {
       mode: 'override',
@@ -239,7 +239,7 @@ describe('VariablesForm preset selectors', () => {
       idPrefix: 'v-',
       presets,
     })
-    expect(document.querySelector('select')).toBeNull()
+    expect(document.querySelector('select:not(.vartype)')).toBeNull()
     cleanup()
     render(VariablesForm, {
       mode: 'override',
@@ -248,7 +248,7 @@ describe('VariablesForm preset selectors', () => {
       idPrefix: 'v-',
       presets,
     })
-    expect(document.querySelector('select')).toBeNull()
+    expect(document.querySelector('select:not(.vartype)')).toBeNull()
   })
 
   it('in define mode stays a text field, with what it sets and its bundles', () => {
@@ -258,7 +258,7 @@ describe('VariablesForm preset selectors', () => {
       idPrefix: 'v-',
       presets,
     })
-    expect(document.querySelector('select')).toBeNull()
+    expect(document.querySelector('select:not(.vartype)')).toBeNull()
     expect(document.getElementById('v-resolution')?.tagName).not.toBe('SELECT')
     const lines = Array.from(
       document.querySelectorAll('[data-presets-for="resolution"] li'),
@@ -436,5 +436,74 @@ describe('VariablesForm file fields', () => {
     await tick()
     expect(document.getElementById('v-image')).toBe(field)
     expect(document.activeElement).toBe(field)
+  })
+})
+
+describe('VariablesForm adding a variable', () => {
+  const addProps = (over: Record<string, unknown> = {}) =>
+    props({
+      variables: { existing: 'x' },
+      backendVariables: new Set(),
+      ...over,
+    })
+  const nameBox = () =>
+    screen.getByPlaceholderText('new variable name…') as HTMLInputElement
+  const enter = async (name: string) => {
+    await fireEvent.input(nameBox(), { target: { value: name } })
+    await fireEvent.keyDown(nameBox(), { key: 'Enter' })
+    await tick()
+  }
+
+  it('Enter adds a variable', async () => {
+    const variables: Record<string, unknown> = { existing: 'x' }
+    render(VariablesForm, addProps({ variables }))
+    await enter('seed')
+    expect(document.getElementById('v-seed')).toBeTruthy()
+    expect(nameBox().value).toBe('')
+  })
+
+  it('a bad name says why and adds nothing', async () => {
+    render(VariablesForm, addProps())
+    await enter('has space')
+    expect(
+      screen.getByText(
+        'A variable name starts with a letter or _ and holds letters, numbers, _ and -.',
+      ).className,
+    ).toContain('error')
+    expect(nameBox().getAttribute('aria-invalid')).toBe('true')
+    expect(document.getElementById('v-has space')).toBeNull()
+    await enter('existing')
+    expect(
+      screen.getByText('There is already a variable called existing.'),
+    ).toBeTruthy()
+  })
+
+  it('30 in a new variable is stored as 30', async () => {
+    render(VariablesForm, addProps())
+    await enter('steps')
+    const field = document.getElementById('v-steps') as HTMLTextAreaElement
+    const type = screen.getByLabelText('type of steps') as HTMLSelectElement
+    expect(type.value).toBe('text')
+    await fireEvent.change(field, { target: { value: '30' } })
+    await tick()
+    // the row now holds the number 30: its type says so, and a later edit
+    // keeps it a number
+    expect(type.value).toBe('number')
+    await fireEvent.change(field, { target: { value: '31' } })
+    await tick()
+    expect(type.value).toBe('number')
+    expect(field.value).toBe('31')
+  })
+
+  it('the type select turns 30 back into text', async () => {
+    const variables: Record<string, unknown> = { steps: 30 }
+    render(VariablesForm, addProps({ variables }))
+    const type = screen.getByLabelText('type of steps') as HTMLSelectElement
+    expect(type.value).toBe('number')
+    await fireEvent.change(type, { target: { value: 'text' } })
+    await tick()
+    expect(variables.steps).toBe('30')
+    await fireEvent.change(type, { target: { value: 'none' } })
+    expect(variables.steps).toBeNull()
   })
 })

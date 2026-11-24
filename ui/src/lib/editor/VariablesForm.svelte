@@ -1,15 +1,17 @@
 <script lang="ts">
   import { PROMPT, reference } from '../references'
-  import { Plus, Trash2 } from '@lucide/svelte'
+  import { Trash2 } from '@lucide/svelte'
+  import { SvelteSet } from 'svelte/reactivity'
   import ExpandingText from './ExpandingText.svelte'
+  import VariableNotes from './VariableNotes.svelte'
+  import NewVariable from './NewVariable.svelte'
   import {
-    coerce,
     displayValue,
     isReference,
     presetPlaceholder,
     presetView,
-    widgetFor,
   } from '../editor'
+  import { VARIABLE_TYPES, asType, inferValue, typeOf } from './variableTypes'
   import { isFreeText } from '../workflow/runForm'
   import { promptLibrary } from '../promptlib.svelte'
   import { promptTooltip } from '../prompts'
@@ -23,6 +25,7 @@
   import { undoToast } from '../destructive'
   import { OPEN_DOCUMENT } from '../editorShell.svelte'
   import { notify } from '../toast'
+  import type { VariableType } from './variableTypes'
 
   let {
     mode,
@@ -125,7 +128,8 @@
     )
   }
 
-  let newVariable = $state('')
+  /** Added and not yet given a value: its first commit infers the type */
+  const fresh = new SvelteSet<string>()
 
   function shown(key: string): string {
     if (mode === 'override') return overrides[key] ?? ''
@@ -166,9 +170,16 @@
       overrides[key] = raw
       return
     }
-    // Coerce to the default's type - schema validation runs on the
-    // definition itself, so "9" where 9 belongs breaks the workflow
-    variables[key] = coerce(widgetFor(undefined, variables[key]), raw)
+    // Coerce to the row's type - schema validation runs on the definition
+    // itself, so "9" where 9 belongs breaks the workflow
+    const type = typeOf(variables[key])
+    variables[key] =
+      fresh.delete(key) || type === 'none' ? inferValue(raw) : asType(raw, type)
+  }
+
+  function retype(key: string, type: string) {
+    fresh.delete(key)
+    variables[key] = asType(displayValue(variables[key]), type as VariableType)
   }
 
   // An override is live as it is typed, so Run takes what is in the box
@@ -177,10 +188,9 @@
     if (mode === 'override') overrides[key] = raw
   }
 
-  function addVariable() {
-    if (!newVariable) return
-    variables = { ...(variables ?? {}), [newVariable]: '' }
-    newVariable = ''
+  function addVariable(name: string) {
+    variables = { ...(variables ?? {}), [name]: '' }
+    fresh.add(name)
   }
 
   /** Removed at once, with an Undo that puts it back at its place - before
@@ -290,6 +300,16 @@
       />
       {@render enhance(key)}
     {/if}
+    {#if mode === 'define'}
+      <select
+        class="vartype"
+        aria-label="type of {key}"
+        value={typeOf(variables[key])}
+        onchange={(e) => retype(key, e.currentTarget.value)}
+      >
+        {#each VARIABLE_TYPES as type (type)}<option>{type}</option>{/each}
+      </select>
+    {/if}
   </div>
   {#if mode === 'define'}
     <button
@@ -301,30 +321,13 @@
       <Trash2 size={14} />
     </button>
   {/if}
-  {#if Object.hasOwn(selectors, key)}
-    <ul class="hints" data-presets-for={key}>
-      {#if selectors[key].sets.length}
-        <li>sets {selectors[key].sets.join(', ')}</li>
-      {/if}
-      {#if mode === 'define' && selectors[key].bundles.length}
-        <li>bundles: {selectors[key].bundles.join(', ')}</li>
-      {/if}
-    </ul>
-  {/if}
-  {#if constraints[key]?.length}
-    <ul class="hints" data-hints-for={key}>
-      {#each constraints[key] as hint, i (i)}
-        <li>{hint}</li>
-      {/each}
-    </ul>
-  {/if}
-  {#if findings[key]?.length}
-    <ul class="hints findings" data-findings-for={key}>
-      {#each findings[key] as finding, i (i)}
-        <li class={finding.tone}>{finding.text}</li>
-      {/each}
-    </ul>
-  {/if}
+  <VariableNotes
+    {key}
+    {mode}
+    selector={selectors[key]}
+    hints={constraints[key]}
+    findings={findings[key]}
+  />
 {/snippet}
 
 <div class="formgrid top vars" class:withaction={mode === 'define'}>
@@ -343,17 +346,7 @@
     {/if}
   {/if}
   {#if mode === 'define'}
-    <input placeholder="new variable name…" bind:value={newVariable} />
-    <button
-      class="quiet icon addvar"
-      onclick={addVariable}
-      disabled={!newVariable}
-      title="add this variable to the workflow"
-      aria-label="add this variable to the workflow"
-    >
-      <Plus size={14} />
-    </button>
-    <span></span>
+    <NewVariable taken={keys} onadd={addVariable} />
   {/if}
 </div>
 
@@ -373,25 +366,12 @@
     font-size: 0.8em;
     color: var(--warn);
   }
-  /* Under the field, in the field's column; spans the row when narrow */
-  .hints {
-    grid-column: 2 / -1;
-    margin: calc(-1 * var(--space-1)) 0 0;
-    padding: 0;
-    list-style: none;
-    font-size: 0.85em;
-    color: var(--muted);
-    overflow-wrap: anywhere;
-  }
-  @container (max-width: 400px) {
-    .hints {
-      grid-column: 1 / -1;
-    }
-  }
   .fold {
     grid-column: 1 / -1;
   }
-  .addvar {
-    justify-self: start;
+  .vartype {
+    flex: none;
+    width: auto;
+    font-size: 0.85em;
   }
 </style>
