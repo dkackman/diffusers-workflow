@@ -55,8 +55,10 @@ itself, prefixing a relative one with the address it reaches the server at.
 
 Open `http://<box>:8765`. Click the key icon in the header and paste the
 token once; it is kept in the browser's `localStorage` and sent with every
-request. The Server → Status page shows the server's addresses and the
-`claude mcp add` line below, ready to copy. The UI is compressed and cached,
+request. On a network bind the Server → Status page shows the server's
+addresses and the `claude mcp add` line (with the token header only when a
+token is required), ready to copy; on a loopback bind it shows neither and
+gives the restart command instead. The UI is compressed and cached,
 and a reload after an upgrade picks up the new version.
 
 <picture>

@@ -181,10 +181,60 @@ it('never renders a real token, only the placeholder', async () => {
   expect(text).toContain('yes')
 })
 
-it('explains that MCP needs --mcp when it is not mounted', async () => {
+it('an unmounted MCP says python -m dw.serve --mcp', async () => {
   const text = await show({ mcp: { mounted: false, path: '/mcp' } })
-  expect(text).toContain('dw-serve --mcp')
+  expect(text).toContain(
+    'Not mounted. Restart the server with --mcp (python -m dw.serve --mcp) to serve the MCP tools at /mcp.',
+  )
+  expect(text).toContain(
+    'The MCP endpoint is not mounted, so there is no command to run yet. Restart the server with --mcp.',
+  )
+  expect(text).not.toContain('dw-serve')
   expect(text).not.toContain('claude mcp add')
+})
+
+it('a loopback bind offers no network URL', async () => {
+  const text = await show({ bind_host: '127.0.0.1', wildcard_bind: false })
+  expect(text).toContain(
+    'This server is bound to 127.0.0.1, so only this machine can reach it.',
+  )
+  expect(text).toContain(
+    'Only this machine can reach this server. To use it from another, restart it bound to the network, with a token:',
+  )
+  expect(text).toContain(
+    'DW_API_TOKEN=<token> python -m dw.serve --host 0.0.0.0',
+  )
+  expect(text).toContain('How to use dw from another machine')
+  expect(text).not.toContain('192.168.1.50')
+  expect(text).not.toContain('claude mcp add')
+})
+
+it('a wildcard bind lists its addresses', async () => {
+  const text = await show()
+  expect(text).toContain('http://192.168.1.50:8765')
+  expect(text).toContain(
+    'claude mcp add --transport http dw http://192.168.1.50:8765/mcp',
+  )
+  expect(text).not.toContain('Only this machine can reach this server')
+})
+
+it('no token required, no token note', async () => {
+  const text = await show({ auth_required: false })
+  expect(text).toContain(
+    'claude mcp add --transport http dw http://192.168.1.50:8765/mcp',
+  )
+  expect(text).not.toContain('Authorization: Bearer')
+  expect(text).not.toContain("Replace <token> with the server's API token.")
+  expect(text).not.toContain('Paste the token once')
+})
+
+it('one heading says Status', async () => {
+  const { container } = render(ServerPage)
+  for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0))
+  const headings = [...container.querySelectorAll('h1, h2')].filter(
+    (h) => h.textContent?.trim() === 'Status',
+  )
+  expect(headings).toHaveLength(1)
 })
 
 it('says so when there is no non-loopback address', async () => {

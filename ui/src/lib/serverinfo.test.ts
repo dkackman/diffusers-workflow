@@ -4,6 +4,7 @@ import {
   browserUrl,
   isLoopbackBind,
   isUnauthenticatedPublicBind,
+  bindSnippet,
   mcpAddCommand,
   mcpUrl,
   runtimeRows,
@@ -73,6 +74,23 @@ describe('mcp add command', () => {
     const command = mcpAddCommand('10.0.0.4', 8765, '/mcp')
     expect(command).toContain(TOKEN_PLACEHOLDER)
     expect(TOKEN_PLACEHOLDER).toBe('<token>')
+  })
+})
+
+describe('mcp add command token header', () => {
+  it('the mcp line carries the token header only when a token is required', () => {
+    expect(mcpAddCommand('10.0.0.4', 8765, '/mcp', true)).toContain(
+      '--header "Authorization: Bearer <token>"',
+    )
+    expect(mcpAddCommand('10.0.0.4', 8765, '/mcp', false)).toBe(
+      'claude mcp add --transport http dw http://10.0.0.4:8765/mcp',
+    )
+  })
+
+  it('the bind snippet uses python -m dw.serve and the placeholder', () => {
+    expect(bindSnippet()).toBe(
+      'DW_API_TOKEN=<token> python -m dw.serve --host 0.0.0.0',
+    )
   })
 })
 

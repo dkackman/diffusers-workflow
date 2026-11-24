@@ -26,17 +26,29 @@ export function mcpUrl(
   return `${browserUrl(address, port)}${suffix}`
 }
 
-/** The `claude mcp add` command for this server. The token is a literal
+/** The `claude mcp add` command for this server. The token header is part
+ * of it only when the server requires one; the token itself is a literal
  * placeholder - see TOKEN_PLACEHOLDER. */
 export function mcpAddCommand(
   address: string,
   port: number,
   path: string = '/mcp',
+  withToken: boolean = true,
 ): string {
-  return (
-    `claude mcp add --transport http dw ${mcpUrl(address, port, path)} ` +
-    `--header "Authorization: Bearer ${TOKEN_PLACEHOLDER}"`
-  )
+  const command = `claude mcp add --transport http dw ${mcpUrl(address, port, path)}`
+  return withToken
+    ? `${command} --header "Authorization: Bearer ${TOKEN_PLACEHOLDER}"`
+    : command
+}
+
+/** The guide to using a server from another machine. */
+export const REMOTE_GUIDE =
+  'https://github.com/dkackman/diffusers-workflow/blob/master/docs/REMOTE.md'
+
+/** The command that restarts the server reachable from the network, with a
+ * token. The token is a placeholder - see TOKEN_PLACEHOLDER. */
+export function bindSnippet(): string {
+  return `DW_API_TOKEN=${TOKEN_PLACEHOLDER} python -m dw.serve --host 0.0.0.0`
 }
 
 /** A bind that only this machine can reach. */
