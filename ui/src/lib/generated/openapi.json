@@ -1431,7 +1431,7 @@
       },
       "GalleryLinkedJob": {
         "additionalProperties": false,
-        "description": "A job linked to a request item that wrote or republished the file.",
+        "description": "A job linked to a request item that published the file - wrote it or\nrepublished it from the step cache.",
         "properties": {
           "attempt": {
             "anyOf": [
@@ -3297,7 +3297,7 @@
       },
       "LedgerNote": {
         "additionalProperties": false,
-        "description": "One note the user wrote for the agent. Only the request-notes routes\nwrite one.",
+        "description": "One note the user wrote for the agent; only request-notes routes write one.",
         "properties": {
           "at": {
             "description": "When its text last changed.",
@@ -3627,6 +3627,14 @@
           "items": {
             "title": "Items",
             "type": "integer"
+          },
+          "needs": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Only with needs=true: how many items want the user, by reason - held, ready, failed (can run again), revised, choose, accepted_missing - and notes_waiting.",
+            "title": "Needs",
+            "type": "object"
           },
           "ready": {
             "description": "Items a job could be queued for now.",
@@ -4941,6 +4949,14 @@
           "items": {
             "title": "Items",
             "type": "integer"
+          },
+          "needs": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Only with needs=true: how many items want the user, by reason - held, ready, failed (can run again), revised, choose, accepted_missing - and notes_waiting.",
+            "title": "Needs",
+            "type": "object"
           },
           "ready": {
             "description": "Items a job could be queued for now.",
@@ -12356,7 +12372,7 @@
     },
     "/api/workspaces/{name}/requests": {
       "get": {
-        "description": "A workspace's requests, newest change first, without their items.\n`unreadable` says why when requests.json is there but is not a ledger.",
+        "description": "A workspace's requests, newest change first, without their items;\n`needs=true` adds each row's `needs`. `unreadable` says why when\nrequests.json is there but is not a ledger.",
         "operationId": "list_requests_api_workspaces__name__requests_get",
         "parameters": [
           {
@@ -12366,6 +12382,16 @@
             "schema": {
               "title": "Name",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "needs",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Needs",
+              "type": "boolean"
             }
           }
         ],

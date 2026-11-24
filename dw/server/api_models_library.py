@@ -74,9 +74,8 @@ class WorkspaceCopied(ApiModel):
     destination: str
     copied: CopiedItems
     already_present: list[str] = Field(
-        description="Runs the destination already held (`<workflow>/<run id>`) "
-        "and assets it held with identical bytes (library-relative path) - "
-        "skipped."
+        description="Runs the destination already held (`<workflow>/<run id>`) and "
+        "assets it held with identical bytes (library-relative path) - skipped."
     )
     renumbered: dict[str, dict[str, int]] = Field(
         description="Copied runs whose `vN` changed, keyed `<workflow>/<run id>`: "
@@ -378,8 +377,7 @@ class LedgerNoteRef(ApiModel):
 
 
 class LedgerNote(ApiModel):
-    """One note the user wrote for the agent. Only the request-notes routes
-    write one."""
+    """One note the user wrote for the agent; only request-notes routes write one."""
 
     id: str = Field(description="Unique within the request; never reused.")
     text: str
@@ -455,21 +453,18 @@ class LedgerItem(ApiModel):
     status: Literal[
         "dropped", "done", "revised", "running", "queued", "failed", "planned"
     ] = Field(
-        description="Derived from the item's linked jobs, first that holds: "
-        "dropped, done (a result exists) - or revised when its workflow or "
-        "arguments changed after every succeeded take and no take was "
-        "accepted since - running, queued, failed (every linked job failed or "
-        "was cancelled), planned."
+        description="Derived from the item's linked jobs, first that holds: dropped, "
+        "done (a result exists) - or revised when its workflow or arguments changed "
+        "after every succeeded take and no take was accepted since - running, "
+        "queued, failed (every linked job failed or was cancelled), planned."
     )
     revised_because: list[str] = sometimes(
-        "What moved on a revised item: `workflow`, `arguments`, "
-        "`prompt:<name>` (a referenced prompt's text changed). Absent unless "
-        "the item is revised."
+        "What moved on a revised item: `workflow`, `arguments`, `prompt:<name>` (a "
+        "referenced prompt's text changed). Absent unless the item is revised."
     )
     changed_at: str | None = Field(
-        description="When the item was created or its workflow or arguments "
-        "last changed, stamped by the server; null on an item stored before "
-        "the stamp."
+        description="When the item was created or its workflow or arguments last "
+        "changed, stamped by the server; null on an item stored before the stamp."
     )
     accepted_basis: "LedgerAcceptedBasis | None" = Field(
         description="When a take was last accepted while the item read "
@@ -556,6 +551,10 @@ class LedgerSummary(ApiModel):
     spent_minutes: int | float
     remaining_minutes: int | float
     updated_at: str | None
+    needs: dict[str, int] = sometimes(
+        "Only with needs=true: how many items want the user, by reason - held, ready, "
+        "failed (can run again), revised, choose, accepted_missing - and notes_waiting."
+    )
 
 
 class LedgerList(ApiModel):
@@ -731,7 +730,8 @@ class AssetDeleted(ApiModel):
 
 
 class GalleryLinkedJob(ApiModel):
-    """A job linked to a request item that wrote or republished the file."""
+    """A job linked to a request item that published the file - wrote it or
+    republished it from the step cache."""
 
     id: str
     request: str

@@ -1984,8 +1984,9 @@ export interface paths {
         };
         /**
          * List Requests
-         * @description A workspace's requests, newest change first, without their items.
-         *     `unreadable` says why when requests.json is there but is not a ledger.
+         * @description A workspace's requests, newest change first, without their items;
+         *     `needs=true` adds each row's `needs`. `unreadable` says why when
+         *     requests.json is there but is not a ledger.
          */
         get: operations["list_requests_api_workspaces__name__requests_get"];
         put?: never;
@@ -2686,7 +2687,8 @@ export interface components {
         };
         /**
          * GalleryLinkedJob
-         * @description A job linked to a request item that wrote or republished the file.
+         * @description A job linked to a request item that published the file - wrote it or
+         *     republished it from the step cache.
          */
         GalleryLinkedJob: {
             /**
@@ -3503,8 +3505,7 @@ export interface components {
         };
         /**
          * LedgerNote
-         * @description One note the user wrote for the agent. Only the request-notes routes
-         *     write one.
+         * @description One note the user wrote for the agent; only request-notes routes write one.
          */
         LedgerNote: {
             /**
@@ -3673,6 +3674,13 @@ export interface components {
             id: string;
             /** Items */
             items: number;
+            /**
+             * Needs
+             * @description Only with needs=true: how many items want the user, by reason - held, ready, failed (can run again), revised, choose, accepted_missing - and notes_waiting.
+             */
+            needs?: {
+                [key: string]: number;
+            };
             /**
              * Ready
              * @description Items a job could be queued for now.
@@ -4229,6 +4237,13 @@ export interface components {
             id: string;
             /** Items */
             items: number;
+            /**
+             * Needs
+             * @description Only with needs=true: how many items want the user, by reason - held, ready, failed (can run again), revised, choose, accepted_missing - and notes_waiting.
+             */
+            needs?: {
+                [key: string]: number;
+            };
             /**
              * Ready
              * @description Items a job could be queued for now.
@@ -8170,7 +8185,9 @@ export interface operations {
     };
     list_requests_api_workspaces__name__requests_get: {
         parameters: {
-            query?: never;
+            query?: {
+                needs?: boolean;
+            };
             header?: never;
             path: {
                 name: string;

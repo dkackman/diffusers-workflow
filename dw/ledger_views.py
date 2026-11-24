@@ -367,6 +367,13 @@ def _review(item, notes, now):
     return {"until": item["review_until"], "state": state, "seconds_left": left}
 
 
+def _hold(item, status, request_notes, state, now):
+    """`_review` of a planned or revised item of an open request, else None."""
+    if status not in ("planned", "revised") or state != "open":
+        return None
+    return _review(item, [*(item.get("notes") or []), *request_notes], now)
+
+
 def item_view(
     item, jobs, ready=False, request_notes=(), state="open", now=None, prompts=None
 ):
@@ -398,11 +405,7 @@ def item_view(
         "output": attempts[jobs.index(chosen)]["output"],
     }
     status = _item_status(item, jobs, prompts)
-    review = (
-        _review(item, [*(item.get("notes") or []), *request_notes], now)
-        if status in ("planned", "revised") and state == "open"
-        else None
-    )
+    review = _hold(item, status, request_notes, state, now)
     because = (
         revised_because(item, jobs, chosen if chosen in jobs else None, prompts)
         if status == "revised"
@@ -487,9 +490,9 @@ def request_view(request, jobs=(), now=None, prompts=None):
     return view
 
 
-def summary_view(request, jobs=(), prompts=None):
+def summary_view(request, jobs=(), prompts=None, needs=False):
     """One row of the list: what a request is, without its items. `prompts`
-    as `request_view`'s."""
+    as `request_view`'s. With `needs`, the row's `needs` (`needs_counts`)."""
     grouped = _jobs_by_item(jobs)
     counts = {}
     for item in request.get("items", []):
@@ -508,4 +511,129 @@ def summary_view(request, jobs=(), prompts=None):
         "spent_minutes": _spent(jobs),
         "remaining_minutes": _remaining(request, grouped, prompts),
         "updated_at": history[-1].get("at") if history else None,
+        **(
+            {"needs": needs_counts(_needs_shape(request, grouped, prompts))}
+            if needs
+            else {}
+        ),
     }
+
+
+# --- what wants the user ----------------------------------------------------
+
+# A list row's `needs` keys, in the order the request page's needs line
+# gives them (ui/src/lib/request/standing.ts)
+NEEDS_REASONS = ("held", "ready", "failed", "revised", "choose", "accepted_missing")
+
+
+def _needs_shape(request, grouped, prompts=None):
+    """The request as `needs_counts` reads it: each item's `status`,
+    `ready`, `attempts` (`{job, status}`), `review` and `accepted_missing`,
+    derived as `request_view` derives them but without outputs - no proof
+    callable is called."""
+    ready = _ready(request, grouped, prompts)
+    notes, now = request.get("notes") or [], datetime.now(timezone.utc)
+    items = []
+    for item in request.get("items", []):
+        jobs = grouped.get(item.get("key"), [])
+        status = _item_status(item, jobs, prompts)
+        items.append(
+            {
+                **item,
+                "status": status,
+                "ready": item.get("key") in ready,
+                "attempts": [
+                    {"job": j.get("job"), "status": j.get("status")} for j in jobs
+                ],
+                "review": _hold(item, status, notes, request.get("state"), now),
+                "accepted_missing": _result(item, jobs)[1],
+            }
+        )
+    return {**request, "items": items}
+
+
+def _in_flight(item):
+    return any(a.get("status") in ("queued", "running") for a in item["attempts"])
+
+
+def _asks(item):
+    """What the item would ask of the user that a hold stands in for:
+    `ready` (planned and ready), `revised` (revised, no take in flight)."""
+    if item.get("status") == "planned" and item.get("ready"):
+        return "ready"
+    if item.get("status") == "revised" and not _in_flight(item):
+        return "revised"
+    return None
+
+
+def _runs_again(item, statuses):
+    """A failed item that can run again: not every attempt cancelled, every
+    dependency done, and a stored workflow."""
+    attempts = item["attempts"]
+    cancelled = bool(attempts) and all(a.get("status") == "cancelled" for a in attempts)
+    done = all(statuses.get(key) == "done" for key in item.get("depends_on") or [])
+    return (
+        item.get("status") == "failed"
+        and not cancelled
+        and done
+        and bool(item.get("workflow"))
+    )
+
+
+def _item_needs(item, statuses):
+    """The reasons one live item of an open request wants the user. A hold
+    counts as `held` only in place of what it would otherwise ask."""
+    ask = _asks(item)
+    good = sum(a.get("status") == "succeeded" for a in item["attempts"])
+    reasons = [
+        ("held" if item.get("review") else ask, ask is not None),
+        ("failed", _runs_again(item, statuses)),
+        ("choose", not item.get("accepted") and good >= 2),
+        ("accepted_missing", bool(item.get("accepted_missing"))),
+    ]
+    return [reason for reason, holds in reasons if holds]
+
+
+def needs_counts(request_view):
+    """How many items of a read-shape request want the user, by reason
+    (NEEDS_REASONS), and `notes_waiting`, every key present. An open
+    request's live items only: `held` when a review hold stands in for
+    `ready` or `revised`; `failed` when it can run again (`_runs_again`);
+    `choose` with two or more good takes and none accepted;
+    `accepted_missing`. The request page's `planState` is the same rule
+    (ui/src/lib/request/itemState.ts); tests/fixtures/request_needs_cases.json
+    holds the two equal."""
+    counts = dict.fromkeys((*NEEDS_REASONS, "notes_waiting"), 0)
+    items = request_view.get("items") or []
+    live = [item for item in items if not item.get("dropped")]
+    if request_view.get("state") == "open":
+        statuses = {item.get("key"): item.get("status") for item in items}
+        for item in live:
+            for reason in _item_needs({"attempts": [], **item}, statuses):
+                counts[reason] += 1
+    notes = [*(request_view.get("notes") or [])]
+    notes += [note for item in live for note in item.get("notes") or []]
+    counts["notes_waiting"] = sum(note_waiting(note, request_view) for note in notes)
+    return counts
+
+
+def _instant(at):
+    """An ISO time as an aware datetime (one without an offset read as
+    UTC), or None."""
+    try:
+        when = datetime.fromisoformat(at)
+    except (TypeError, ValueError):
+        return None
+    return when if when.tzinfo else when.replace(tzinfo=timezone.utc)
+
+
+def note_waiting(note, request):
+    """Whether a note still waits on the agent: on an open request, saved at
+    or after the agent's last write (`agent_wrote_at`; none, or a time on
+    either side that does not read, leaves it waiting). The rule
+    `dw_mcp/ledger.py` `note_waiting` states, pinned to the same
+    tests/fixtures/note_waiting_cases.json."""
+    if not note or request.get("state") != "open":
+        return False
+    saved, wrote = _instant(note.get("at")), _instant(request.get("agent_wrote_at"))
+    return saved is None or wrote is None or saved >= wrote

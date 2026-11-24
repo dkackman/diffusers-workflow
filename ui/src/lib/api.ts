@@ -375,7 +375,7 @@ export const api = {
   // The requests ledger. Unscoped: the workspace is in the path
   listRequests: (workspace: string) =>
     request<LedgerList>(
-      `/api/workspaces/${encodeURIComponent(workspace)}/requests`,
+      `/api/workspaces/${encodeURIComponent(workspace)}/requests?needs=true`,
       undefined,
       { scope: false },
     ),

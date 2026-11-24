@@ -1202,6 +1202,11 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
   `GET` and `PUT` of one request take `reasons=true` (the web page sends it):
   a failed or cancelled attempt then carries `reason`, the first line of the
   job's error. Without it no attempt does, so the agent's reads are unchanged.
+  `GET` of the list takes `needs=true` (the web page sends it): each row then
+  carries `needs`, how many items want the user by reason (`held`, `ready`,
+  `failed` - can run again - `revised`, `choose`, `accepted_missing`) and
+  `notes_waiting`, the request page's rule (`ledger_views.needs_counts`).
+  Without it no row does, and `GET /api/requests` never carries it.
 
   **Writing.** `PUT` takes one request's whole plan:
 

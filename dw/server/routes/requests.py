@@ -96,15 +96,16 @@ def _ledger_root(state, name):
     response_model=LedgerList,
     response_model_exclude_unset=True,
 )
-def list_requests(request: Request, name: str):
-    """A workspace's requests, newest change first, without their items.
-    `unreadable` says why when requests.json is there but is not a ledger."""
+def list_requests(request: Request, name: str, needs: bool = False):
+    """A workspace's requests, newest change first, without their items;
+    `needs=true` adds each row's `needs`. `unreadable` says why when
+    requests.json is there but is not a ledger."""
     root = _ledger_root(request.app.state, name)
     if request.headers.get("X-DW-Notes-Channel") == "1":
         request.app.state.listening.seen(name)
     return {
         "workspace": name,
-        **ledger.listing(root, _jobs_for(request, name), _prompts(request)),
+        **ledger.listing(root, _jobs_for(request, name), _prompts(request), needs),
     }
 
 
