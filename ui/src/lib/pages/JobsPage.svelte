@@ -11,6 +11,7 @@
   import { hashState } from '../router.svelte'
   import RequestFilter from '../gallery/RequestFilter.svelte'
   import {
+    JOBS_PAGE,
     jobMatches,
     listWithPrompts,
     listingRefused,
@@ -82,14 +83,28 @@
   // Prompts ride along only for jobs not yet read (listWithPrompts): a
   // prompt never changes, so the 3 s poll does not ask for them again
   const known = new Map<string, string>()
+  // How many finished jobs are read: the newest page, then what Show older
+  // or Search all asked for. A change re-reads, and a filter does not reset it
+  let shown = $state(JOBS_PAGE)
   const list = resource(
     async () => {
-      const [ws, scoped] = [listed, { ...requestScope }]
-      const { list: answer, prompts } = await listWithPrompts(ws, scoped, known)
+      const [ws, scoped, limit] = [listed, { ...requestScope }, shown]
+      const { list: answer, prompts } = await listWithPrompts(
+        ws,
+        scoped,
+        known,
+        limit,
+      )
       const rows = answer.jobs.reverse()
       const queued = await queuedEverywhere(rows, !!(ws || scoped.request))
       const progress = await runningProgress(rows)
-      return { rows, queueSize: queueLength(rows, queued), prompts, progress }
+      return {
+        rows,
+        total: answer.total,
+        queueSize: queueLength(rows, queued),
+        prompts,
+        progress,
+      }
     },
     { live: { everyMs: 3000 } },
   )
@@ -118,6 +133,9 @@
       ((!!statusFilter.value || !!nameFilter.value) && jobs.length > 0),
   )
   const queueSize = $derived(list.data?.queueSize ?? 0)
+  const total = $derived(refused ? 0 : (list.data?.total ?? 0))
+  const partial = $derived(shown < total)
+  const olderBy = $derived(Math.min(JOBS_PAGE, total - shown))
   const visible = $derived(
     jobs.filter(
       (job) =>
@@ -193,6 +211,7 @@
   <input
     class="filter"
     placeholder="search names, prompts, notes and ids…"
+    title="search names, prompts, notes and ids"
     bind:value={nameFilter.value}
   />
 {/snippet}
@@ -227,6 +246,15 @@
   </div>
 {/each}
 
+{#if partial && (statusFilter.value || nameFilter.value)}
+  <p class="hint">
+    Searching the newest {shown} of {total} jobs.
+    <button class="quiet" onclick={() => (shown = total)}>
+      Search all {total}
+    </button>
+  </p>
+{/if}
+
 <LoadState
   of={list}
   label="jobs"
@@ -253,6 +281,15 @@
     </div>
   {/if}
 </LoadState>
+
+{#if partial}
+  <p class="hint">
+    Showing the newest {shown} of {total} jobs.
+    <button class="quiet" onclick={() => (shown += JOBS_PAGE)}>
+      Show {olderBy} older
+    </button>
+  </p>
+{/if}
 
 <style>
   select {

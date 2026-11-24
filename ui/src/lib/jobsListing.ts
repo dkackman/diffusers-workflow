@@ -5,7 +5,7 @@ import { api } from './api'
 import { ApiError } from './apiErrors'
 import type { RequestFilter } from './requestFilter'
 import { workflowName } from './terms'
-import type { JobSummary } from './types'
+import type { JobList, JobSummary } from './types'
 
 /** The workspace a Jobs listing asks for; '' is every workspace. A
  * workspace's own page lists `current`. The all-jobs view lists the one
@@ -44,33 +44,83 @@ export function queueLength(jobs: JobSummary[], queued = 0): number {
   return Math.max(seen, queued)
 }
 
+/** How many finished jobs the Jobs page reads at first, and each
+ * Show older adds. */
+export const JOBS_PAGE = 50
+
 /** The listing a Jobs page's filters name: `ws` ('' for every workspace)
  * narrowed to a request, or one item of it, with each job's submitted
- * prompt (`prompts`) when asked. */
-export const listJobs = (ws: string, scoped: RequestFilter, prompts = true) =>
+ * prompt (`prompts`) when asked, and to the `status` set / newest `limit`
+ * when given. */
+export const listJobs = (
+  ws: string,
+  scoped: RequestFilter,
+  prompts = true,
+  opts: { status?: string; limit?: number } = {},
+) =>
   api.listJobs(
     ws || undefined,
-    undefined,
-    undefined,
+    opts.limit,
+    opts.status,
     scoped.request || undefined,
     scoped.item || undefined,
     { prompts },
   )
 
-/** The listing, and each job's prompt, without paying for prompts on every
- * poll: a job's prompt never changes, so `known` (job id -> prompt, kept by
- * the page) holds what was read, and the listing is asked again with
- * `prompts` only when a job it names is not in it - the first read, or a
- * job that arrived since. */
+/** The live jobs and the finished page as one listing: by creation, oldest
+ * first, each id once (the live answer wins), `total` every live job and
+ * every finished one. */
+export function mergeListings(live: JobList, done: JobList) {
+  const byId = new Map<string, JobSummary>()
+  for (const job of [...done.jobs, ...live.jobs]) byId.set(job.id, job)
+  const jobs = [...byId.values()].sort(
+    (a, b) => (a.created_at ?? 0) - (b.created_at ?? 0),
+  )
+  const prompts =
+    live.prompts || done.prompts
+      ? { ...done.prompts, ...live.prompts }
+      : undefined
+  return {
+    jobs,
+    total: live.jobs.length + done.total,
+    ...(prompts ? { prompts } : {}),
+  }
+}
+
+/** One read of the listing, asking for prompts when it is the first or
+ * names a job the page does not know yet - then it is asked again, alone. */
+async function readWithPrompts(
+  ws: string,
+  scoped: RequestFilter,
+  known: Map<string, string>,
+  opts: { status: string; limit?: number },
+) {
+  const first = known.size === 0
+  let list = await listJobs(ws, scoped, first, opts)
+  if (!first && list.jobs.some((job) => !known.has(job.id)))
+    list = await listJobs(ws, scoped, true, opts)
+  return list
+}
+
+/** The page of the listing - every queued and running job and the newest
+ * `limit` finished ones - and each job's prompt, without paying for
+ * prompts on every poll: a job's prompt never changes, so `known` (job id
+ * -> prompt, kept by the page) holds what was read, and a read is asked
+ * again with `prompts` only when a job it names is not in it. */
 export async function listWithPrompts(
   ws: string,
   scoped: RequestFilter,
   known: Map<string, string>,
+  limit: number = JOBS_PAGE,
 ) {
-  const first = known.size === 0
-  let list = await listJobs(ws, scoped, first)
-  if (!first && list.jobs.some((job) => !known.has(job.id)))
-    list = await listJobs(ws, scoped, true)
+  const [live, done] = await Promise.all([
+    readWithPrompts(ws, scoped, known, { status: 'queued,running' }),
+    readWithPrompts(ws, scoped, known, {
+      status: 'succeeded,failed,cancelled',
+      limit,
+    }),
+  ])
+  const list = mergeListings(live, done)
   for (const job of list.jobs)
     if (list.prompts || !known.has(job.id))
       known.set(job.id, list.prompts?.[job.id] ?? known.get(job.id) ?? '')
