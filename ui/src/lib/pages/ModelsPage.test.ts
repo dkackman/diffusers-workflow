@@ -1,3 +1,4 @@
+import modelsSource from './ModelsPage.svelte?raw'
 import {
   cleanup,
   fireEvent,
@@ -315,4 +316,16 @@ it('a repo id can be sent', async () => {
   expect((send as HTMLButtonElement).disabled).toBe(false)
   await fireEvent.click(send)
   expect(calls.startDownload).toHaveBeenCalledWith('org/name')
+})
+
+it("the phone rule hides only the Models table's wide columns", () => {
+  // An unscoped :global(.wideonly) would hide every .wideonly in the app
+  // below 640 px once this page's CSS had loaded
+  const rules = [
+    ...modelsSource.matchAll(/^\s*([^{}\n]*:global\(\.wideonly\))/gm),
+  ]
+  expect(rules.length).toBeGreaterThan(0)
+  for (const [, selector] of rules) {
+    expect(selector.trim()).toMatch(/^\.datatable :global\(\.wideonly\)$/)
+  }
 })

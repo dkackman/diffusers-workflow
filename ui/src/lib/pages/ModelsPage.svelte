@@ -438,7 +438,7 @@
       max-width: none;
     }
     /* repo and size are what a phone needs; the rest is on a wider screen */
-    :global(.wideonly) {
+    .datatable :global(.wideonly) {
       display: none;
     }
   }
