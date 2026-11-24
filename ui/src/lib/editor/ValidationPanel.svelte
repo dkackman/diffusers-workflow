@@ -1,17 +1,26 @@
 <script lang="ts">
   import { CircleCheck, TriangleAlert, X } from '@lucide/svelte'
   import { placeFindings } from '../findings'
+  import { findingPlace, type Place } from '../findingPlace'
   import { verdictOf } from '../runCheck.svelte'
   import type { ValidationResult } from '../types'
   import PlanLines from '../workflow/PlanLines.svelte'
 
   // The verdict on the definition as it stands, and under it, whenever the
   // server sent a plan, what a run will do. The reader is the author, so
-  // every warning stays visible: nothing is split off for one
+  // every warning stays visible: nothing is split off for one. An error
+  // that names a step or variable `doc` still has offers to go to it
   let {
     validation,
+    doc,
     ondismiss,
-  }: { validation: ValidationResult; ondismiss: () => void } = $props()
+    onjump,
+  }: {
+    validation: ValidationResult
+    doc: Record<string, any>
+    ondismiss: () => void
+    onjump: (place: Place) => void
+  } = $props()
 
   const placed = $derived(placeFindings(validation, []))
   const verdict = $derived(verdictOf(validation, null, placed))
@@ -39,7 +48,16 @@
     </div>
   {/if}
   {#each placed.general as finding, i (i)}
-    <div class="error">{finding.text}</div>
+    {@const place = findingPlace(finding.path ?? null, doc)}
+    <div class="error">
+      {finding.text}
+      {#if place}
+        <button class="quiet goto" onclick={() => onjump(place)}>
+          Go to {place.kind}
+          {place.name}
+        </button>
+      {/if}
+    </div>
   {/each}
   {#each placed.author as finding, i (i)}
     <div class="warn"><TriangleAlert size={14} /> {finding.text}</div>
@@ -77,6 +95,11 @@
   }
   .verdict.good {
     color: var(--good);
+  }
+  .goto {
+    margin-left: 0.4rem;
+    padding: 0.05rem 0.45rem;
+    font-size: 0.8rem;
   }
   .warn {
     display: flex;

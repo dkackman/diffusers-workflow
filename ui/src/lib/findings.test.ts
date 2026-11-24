@@ -38,7 +38,7 @@ it("errors are never the author's", () => {
     [],
   )
   expect(placed.general).toEqual([
-    { tone: 'bad', text: 'steps[0]: no pipeline' },
+    { tone: 'bad', text: 'steps[0]: no pipeline', path: 'steps[0]' },
   ])
   expect(placed.author).toEqual([])
   const bare = placeFindings(result({ valid: false, error: 'refused' }), [])

@@ -77,7 +77,12 @@ it('both say the same verdict for the same answer', () => {
   expect(screen.getByText("1 note for the workflow's author")).toBeTruthy()
   cleanup()
   const editor = render(ValidationPanel, {
-    props: { validation: answer, ondismiss: () => {} },
+    props: {
+      validation: answer,
+      doc: {},
+      ondismiss: () => {},
+      onjump: () => {},
+    },
   })
   expect(editor.container.querySelector('.verdict')?.textContent).toContain(
     'A job would be refused: 1 issue to fix.',
