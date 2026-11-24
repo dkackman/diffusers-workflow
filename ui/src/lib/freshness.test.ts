@@ -46,25 +46,24 @@ const PAGE_TABLE: Record<string, Freshness[]> = {
   '../App.svelte': [],
   'Sidebar.svelte': [{ watch: ['workspaces'] }],
   'CachesPanel.svelte': [{ watch: ['models'] }],
-  'assets/AssetDetail.svelte': [{ watch: ['assets'] }],
   'editor/ArgumentsEditor.svelte': [{ watch: [] }],
   'editor/LorasEditor.svelte': [{ watch: ['loras'] }],
   'editor/PipelineOptions.svelte': [{ watch: [] }],
   'editor/StepEditor.svelte': [{ watch: ['workflows'] }],
-  'gallery/GalleryDetail.svelte': [
-    { watch: ['gallery'] },
-    { watch: ['gallery'] },
-  ],
   'gallery/RequestFilter.svelte': [{ watch: ['requests'] }],
+  'gallery/UseAsInput.svelte': [{ watch: ['workflows'] }],
   'job/ChainSegments.svelte': [{ watch: ['workflows'] }],
   'job/JobResults.svelte': [{ watch: ['gallery'] }],
   'job/RerunWithChanges.svelte': [{ watch: ['workflows'] }],
-  'pages/AssetsPage.svelte': [{ watch: ['assets'] }],
+  'pages/AssetsPage.svelte': [{ watch: ['assets'] }, { watch: ['assets'] }],
   'pages/ComparePage.svelte': [{ watch: ['gallery'] }],
   'pages/EditorPage.svelte': [{ watch: ['workflows'] }],
-  'pages/GalleryPage.svelte': [{ watch: ['gallery'] }],
+  'pages/GalleryPage.svelte': [{ watch: ['gallery'] }, { watch: ['gallery'] }],
   'pages/JobPage.svelte': [{ watch: ['jobs'] }],
-  'pages/JobsPage.svelte': [{ live: { everyMs: 3000 } }],
+  'pages/JobsPage.svelte': [
+    { live: { everyMs: 3000 } },
+    { watch: ['gallery'] },
+  ],
   'pages/JsonEditorStub.svelte': [],
   'pages/NotFoundPage.svelte': [],
   'pages/ModelsPage.svelte': [
@@ -96,6 +95,16 @@ const PAGE_TABLE: Record<string, Freshness[]> = {
     { watch: ['workflows'] },
     { watch: ['gallery'] },
   ],
+  // a text file shown large, read once when shown
+  'ui/MediaBody.svelte': [{ watch: [] }],
+  // a text tile's first lines, read once when first seen
+  'ui/OutputTile.svelte': [{ watch: [] }],
+  // one of the two by the file's source; the job read once, when needed
+  'ui/RecipePanel.svelte': [
+    { watch: ['gallery'] },
+    { watch: ['assets'] },
+    { watch: [] },
+  ],
 }
 
 /** The pages that edit one document: it is kept fresh by what they call to
@@ -121,6 +130,9 @@ const HELPER_EXCEPTIONS: Record<string, string> = {
   'job/EventLog.svelte':
     'fetchEventLog runs on a click (open, Refresh) and once more when the ' +
     'job ends, to read the events after the last one shown',
+  'job/JobViewer.svelte':
+    'saveAsAsset lists the asset library on a Save as asset click, and ' +
+    "only when the name is taken, for Keep both's suggestion",
   'ui/ConnectionBanner.svelte':
     "checkNow is the Retry now button's one status check",
 }

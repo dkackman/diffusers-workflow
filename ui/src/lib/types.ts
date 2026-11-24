@@ -77,6 +77,9 @@ export type LevelFinding = Schemas['LevelFinding']
 export type OutputRole = NonNullable<GalleryFile['role']>
 export type OutputDeleted = Schemas['OutputDeleted']
 export type AssetFile = Schemas['AssetFile']
+/** The kinds of file the gallery and the asset library list */
+export type OutputKind = GalleryFile['kind']
+export type AssetKind = AssetFile['kind']
 export type AssetLibrary = Schemas['AssetLibraryRoot']
 export type ShadowedAsset = Schemas['ShadowedAsset']
 export type AssetList = Schemas['AssetList']

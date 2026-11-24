@@ -55,3 +55,8 @@ The piece each concept is built from. Reach for it before writing new markup or 
 | A line of tone | `.error`, `.warn`, `.bad`, `.good`, `.hint` | `src/patterns.css` |
 | The person's note | `NoteEditor`, whose draft is a `NoteDraft` | `src/lib/ui/NoteEditor.svelte`, `src/lib/noteDraft.svelte.ts` |
 | A document editor's file bar | `DocumentFileBar` | `src/lib/editor/DocumentFileBar.svelte` |
+| A file shown small | `OutputTile`, with the kinds' glyphs and the tile data from `media.ts` | `src/lib/ui/OutputTile.svelte`, `src/lib/media.ts` |
+| A file shown large | `MediaViewer`, the page's `open=` (`openInHash`/`writeOpen`) holding which | `src/lib/ui/MediaViewer.svelte`, `src/lib/mediaViewer.ts` |
+| What made a file | `RecipePanel` | `src/lib/ui/RecipePanel.svelte` |
+| A reference to copy | `ReferenceChip` | `src/lib/ui/ReferenceChip.svelte` |
+| A file to reuse | `UseAsInput` | `src/lib/gallery/UseAsInput.svelte` |

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { api, fetchOutputText, setNote, streamJobEvents } from './api'
+import { galleryThumbnailUrl } from './apiUrls'
 
 type Stub = {
   ok: boolean
@@ -208,6 +209,14 @@ describe('job listing', () => {
     await api.listJobs()
     expect(calls[0][0]).toBe('/api/jobs')
   })
+
+  it('asks for prompts only when told to', async () => {
+    const calls = stubFetch({ ok: true, body: { jobs: [], total: 0 } })
+    await api.listJobs('studio', undefined, undefined, undefined, undefined, {
+      prompts: true,
+    })
+    expect(calls[0][0]).toBe('/api/jobs?workspace=studio&prompts=true')
+  })
 })
 
 describe('workflow definition fetch', () => {
@@ -248,14 +257,27 @@ describe('gallery listing and thumbnails', () => {
     expect(calls[1][0]).toBe('/api/gallery?limit=100000')
   })
 
+  it('asks for prompts and durations only when told to', async () => {
+    const calls = stubFetch({ ok: true, body: {} })
+    await api.gallery(undefined, undefined, undefined, {
+      prompts: true,
+      media: true,
+    })
+    await api.gallery(undefined, undefined, undefined, {})
+    expect(calls[0][0]).toBe(
+      '/api/gallery?limit=100000&prompts=true&media=true',
+    )
+    expect(calls[1][0]).toBe('/api/gallery?limit=100000')
+  })
+
   it("scopes a thumbnail URL to the file's own workspace when one is named", () => {
-    expect(api.galleryThumbnailUrl('run/clip.mp4', 'studio')).toBe(
+    expect(galleryThumbnailUrl('run/clip.mp4', 'studio')).toBe(
       '/api/gallery/run/clip.mp4/thumbnail?workspace=studio',
     )
   })
 
   it('builds a thumbnail URL that keeps folder separators', () => {
-    expect(api.galleryThumbnailUrl('ltx/wf-gen.0-0.0.png')).toBe(
+    expect(galleryThumbnailUrl('ltx/wf-gen.0-0.0.png')).toBe(
       '/api/gallery/ltx/wf-gen.0-0.0.png/thumbnail',
     )
   })
@@ -338,15 +360,13 @@ describe('output URLs', () => {
     const { setApiToken } = await import('./token')
     setApiToken('s3cr3t')
     try {
-      expect(api.galleryThumbnailUrl('a.png')).toBe(
+      expect(galleryThumbnailUrl('a.png')).toBe(
         '/api/gallery/a.png/thumbnail?token=s3cr3t',
       )
     } finally {
       setApiToken('')
     }
-    expect(api.galleryThumbnailUrl('a.png')).toBe(
-      '/api/gallery/a.png/thumbnail',
-    )
+    expect(galleryThumbnailUrl('a.png')).toBe('/api/gallery/a.png/thumbnail')
   })
 })
 

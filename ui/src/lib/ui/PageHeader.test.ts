@@ -122,3 +122,15 @@ it('a nested header is an h2 that never names the tab or takes focus', async () 
   expect(pageFrame.title).toBe('Status')
   expect(document.activeElement).toBe(document.body)
 })
+
+it('renders n of m', () => {
+  const { container, rerender } = render(PageHeader, {
+    props: { title: 'Gallery', count: { n: 3, of: 12, noun: 'file' } },
+  })
+  expect(container.querySelector('.count')?.textContent).toBe('3 of 12 files')
+  // the same number twice says it once
+  void rerender({ title: 'Gallery', count: { n: 12, of: 12, noun: 'file' } })
+  return tick().then(() =>
+    expect(container.querySelector('.count')?.textContent).toBe('12 files'),
+  )
+})

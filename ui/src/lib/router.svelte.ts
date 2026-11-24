@@ -52,18 +52,26 @@ export function hashQuery(): Record<string, string> {
   return query
 }
 
+// A comma is left as typed: it is legal in a fragment, and a list reads
+// `roles=final,intermediate` rather than `final%2Cintermediate`
+const encodeValue = (value: string) =>
+  encodeURIComponent(value).replace(/%2C/gi, ',')
+
+/** The current path with `values` as its query, empty values dropped: what
+ * setHashQuery writes in place, and what a push of a query names. */
+export function queryHash(values: Record<string, string>): string {
+  const query = Object.entries(values)
+    .filter(([, value]) => value)
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeValue(value)}`)
+    .join('&')
+  return '#/' + hashParts()[0] + (query ? '?' + query : '')
+}
+
 /** Replace the hash's query in place: no history entry and no hashchange,
  * so typing in a filter neither floods Back nor re-runs the route. Empty
  * values are dropped, so a cleared filter leaves a clean link. */
 export function setHashQuery(values: Record<string, string>) {
-  const query = Object.entries(values)
-    .filter(([, value]) => value)
-    .map(
-      ([key, value]) =>
-        `${encodeURIComponent(key)}=${encodeURIComponent(value)}`,
-    )
-    .join('&')
-  const hash = '#/' + hashParts()[0] + (query ? '?' + query : '')
+  const hash = queryHash(values)
   if (hash !== location.hash) history.replaceState(history.state, '', hash)
   committed = location.hash
 }
@@ -74,12 +82,32 @@ export type HashCodec<T> = {
   format: (value: T) => string
 }
 const text: HashCodec<string> = { parse: (raw) => raw, format: (v) => v }
+/** A list, comma-joined: `roles=final,intermediate` */
+const list: HashCodec<string[]> = {
+  parse: (raw) => (raw ? raw.split(',') : []),
+  format: (value) => value.join(','),
+}
 export const codec = {
-  /** A list, comma-joined: `roles=final,intermediate` */
-  list: {
-    parse: (raw) => (raw ? raw.split(',') : []),
-    format: (value) => value.join(','),
-  } as HashCodec<string[]>,
+  list,
+  /** One of `values`, the first being the box's initial one; anything else
+   * (a hand-edited or stale link) reads as that first one */
+  oneOf: <T extends string>(values: readonly T[]): HashCodec<T> => ({
+    parse: (raw) => (values.includes(raw as T) ? (raw as T) : values[0]),
+    format: (value) => value,
+  }),
+  /** Some of `values`, comma-joined, read back in their order with no
+   * repeats: an unknown one is dropped, and none left reads as `initial` */
+  someOf: <T extends string>(
+    values: readonly T[],
+    initial: T[],
+  ): HashCodec<T[]> => ({
+    parse: (raw) => {
+      const named = list.parse(raw)
+      const known = values.filter((v) => named.includes(v))
+      return known.length ? known : initial
+    },
+    format: list.format,
+  }),
   /** On or off: `starred=1`, or the key left out */
   flag: {
     parse: (raw) => raw === '1',
@@ -438,7 +466,13 @@ export function renameRoute(hash: string) {
 }
 
 export function go(...parts: string[]) {
-  location.hash = '/' + parts.map(encodeURIComponent).join('/')
+  goHref('/' + parts.map(encodeURIComponent).join('/'))
+}
+
+/** Navigate, as `go` does (a new history entry), to a hash a builder in
+ * `routes.ts` spelled - `compareHref`, the one place a comparison is */
+export function goHref(hash: string) {
+  location.hash = hash
 }
 
 /** Navigate to a section of the workspace the UI is in. */

@@ -24,7 +24,7 @@
   )
 </script>
 
-<PageHeader title="Workflow Schema">
+<PageHeader title="Schema">
   {#snippet actions()}<a
       class="muted"
       href="/api/schema"

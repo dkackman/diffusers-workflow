@@ -11,7 +11,9 @@
   import { api } from '../api'
   import { goWs, route } from '../router.svelte'
   import { leafOf } from '../grouping'
-  import { SECTION_LABELS, sharedHref, wsHref } from '../routes'
+  import { SECTION_LABELS, fileHref, sharedHref, wsHref } from '../routes'
+  import { outputMedia } from '../media'
+  import OutputTile from '../ui/OutputTile.svelte'
   import { workspace } from '../workspace.svelte'
   import { loadPromptLibrary } from '../promptlib.svelte'
   import { observedText, observedTitle } from '../observed'
@@ -71,13 +73,19 @@
       const files = result.files.filter(
         (file: GalleryFile) => file.folder === wanted,
       )
-      return { name: wanted, files: files.slice(0, 6) }
+      return {
+        name: wanted,
+        workspace: result.workspace,
+        files: files.slice(0, 6),
+      }
     },
     { watch: ['gallery'] },
   )
   const proofs = $derived(
     proofRead.data?.name === name ? proofRead.data.files : [],
   )
+  // The listing's own workspace: each proof's thumbnail and link name it
+  const proofHome = $derived(proofRead.data?.workspace ?? workspace.current)
   /** The catalog card: this server's own measured run time for the
    * workflow, and the maintainer's figure - "a maintainer's figure: ~3 min
    * · 22 GB VRAM, measured on <card> at steps=30". Null when the card has
@@ -289,28 +297,14 @@
       {#if proofs.length}
         <div class="proofs">
           {#each proofs as proof (proof.name)}
-            <a
-              class="plain frame proof"
-              href={wsHref(workspace.current, 'gallery')}
-              title="{proof.label} — open the gallery"
-            >
-              {#if proof.kind === 'image'}
-                <img
-                  src={api.galleryThumbnailUrl(proof.name)}
-                  alt={proof.label}
-                  loading="lazy"
-                />
-              {:else}
-                <img
-                  src={api.galleryThumbnailUrl(proof.name)}
-                  alt={proof.label}
-                  loading="lazy"
-                />
-                <span class="videobadge" aria-hidden="true">
-                  <Play size={11} />
-                </span>
-              {/if}
-            </a>
+            <OutputTile
+              file={outputMedia(proof, proofHome)}
+              size="strip"
+              caption="none"
+              href={fileHref(proofHome, 'gallery', proof.name)}
+              alt={proof.label}
+              title="{proof.label} — open it in the gallery"
+            />
           {/each}
         </div>
       {/if}
@@ -407,11 +401,6 @@
     flex-wrap: wrap;
     gap: var(--space-2);
     margin-bottom: var(--space-4);
-  }
-  /* .frame carries the look; this only says how big a proof is here */
-  .proof {
-    width: 116px;
-    aspect-ratio: 1;
   }
 
   .foot {

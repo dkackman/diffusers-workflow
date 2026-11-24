@@ -153,3 +153,333 @@ table.datatable.dense td {
   background: color-mix(in srgb, var(--warn) 22%, transparent);
   color: var(--warn);
 }
+
+/* A file as a tile (OutputTile.svelte): the picture on --panel-2, letterboxed
+   and never cropped, a caption under a rule, the marks in a corner row. One
+   hover and one selection look: the ink border for the open file
+   (`.active`), the ink edge for a ticked one (`.picked`, an outer ring so the
+   picture cannot cover it). `tile-<size>` sets the frame. */
+.filetile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  width: 100%;
+  padding: 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-frame);
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  font-weight: 500;
+  text-align: left;
+  text-decoration: none;
+}
+a.filetile,
+button.filetile {
+  cursor: pointer;
+}
+a.filetile:hover,
+button.filetile:hover,
+.filetile.active {
+  border-color: var(--ink);
+  filter: none;
+}
+.filetile.picked {
+  border-color: var(--ink);
+  box-shadow: 0 0 0 1px var(--ink);
+}
+.filetile.dim {
+  opacity: 0.45;
+}
+/* A grid renders every tile's node; content-visibility skips layout and
+   paint for the ones scrolled out of view */
+.tile-grid {
+  content-visibility: auto;
+  contain-intrinsic-size: 150px 190px;
+}
+.tile-strip {
+  width: 96px;
+}
+.tile-take {
+  width: 240px;
+}
+.tile-mini {
+  width: 48px;
+}
+.tile-media {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  background: var(--panel-2);
+  overflow: hidden;
+  font-family: var(--font-mono);
+}
+.tile-card .tile-media,
+.tile-take .tile-media {
+  aspect-ratio: 4 / 3;
+}
+/* Pinned to the frame: a percentage height in a grid cell does not resolve,
+   and a tall picture would then overflow the square and be cropped */
+.tile-pic {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.tile-glyph {
+  display: inline-flex;
+  font-size: var(--t-lg);
+  line-height: 1;
+}
+.tile-sound,
+.tile-text {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 100%;
+  max-height: 100%;
+  padding: var(--space-2);
+  overflow: hidden;
+  text-align: center;
+}
+.tile-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tile-length {
+  color: var(--ink);
+}
+.tile-excerpt {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--ink);
+  text-align: left;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* A clip's play badge and length sit along the bottom, clear of the pick
+   box in the top corner */
+.tile-media .videobadge {
+  top: auto;
+  bottom: var(--space-2);
+}
+.tile-time {
+  position: absolute;
+  right: var(--space-2);
+  bottom: var(--space-2);
+  padding: 0 0.3rem;
+  border-radius: 0.2rem;
+  background: color-mix(in srgb, var(--ink) 65%, transparent);
+  color: var(--panel);
+}
+.tile-caption {
+  display: block;
+  padding: 0.3rem 0.45rem;
+  border-top: 1px solid var(--line);
+  font-family: var(--font-mono);
+  color: var(--ink);
+  overflow: hidden;
+}
+.caption-line .tile-caption {
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Sibling outputs share a long prefix and differ near the end, so the clamp
+   wraps and breaks mid-token rather than clipping the part that differs */
+.caption-clamp .tile-caption {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  -webkit-box-orient: vertical;
+  word-break: break-all;
+}
+.tile-marks {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-1);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.2rem;
+  max-width: calc(100% - 2rem);
+}
+.tile-mark {
+  display: inline-flex;
+  padding: 0.15rem;
+  border-radius: 0.2rem;
+  background: var(--panel);
+  color: var(--muted);
+}
+.tile-meta {
+  display: block;
+  padding: 0 0.45rem 0.3rem;
+}
+
+/* A question (ConfirmDialog) is asked over the sheet that asked it: the
+   viewer's delete and Save as asset. Its portal can sit before that
+   sheet's on <body>, where one layer would leave it underneath */
+.ui-ask {
+  z-index: var(--layer-ask);
+}
+/* A toast stays pressable over a modal sheet (an Undo for a star made in
+   the viewer): Bits makes <body> inert to the pointer while one is open,
+   and Modal does not take a press on a toast for one outside it */
+[data-sonner-toaster] {
+  pointer-events: auto;
+}
+
+/* One file shown large (MediaViewer.svelte, through Modal's `fill`): the
+   sheet is the window, a bar of controls on top and the stage under it,
+   the page's aside a 22rem column beside the stage from 900px and below it
+   under that. Nothing scrolls at fit: the stage takes what the bar leaves
+   and the file is bounded by it (`.media-fit`, MediaBody.svelte). */
+.ui-sheet-fill {
+  inset: 0;
+  top: 0;
+  left: 0;
+  transform: none;
+  width: 100vw;
+  height: 100dvh;
+  min-width: 0;
+  max-width: none;
+  border-radius: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+/* One row at every width: the name and a long reference give way, each
+   cut with an ellipsis (the reference keeps its copy button) */
+.viewer-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line);
+}
+.viewer-bar .viewer-name {
+  flex: 1 1 8rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.viewer-bar > * {
+  flex-shrink: 0;
+}
+.viewer-bar > .viewer-name,
+.viewer-bar > .refchip {
+  flex-shrink: 1;
+  min-width: 0;
+}
+.viewer-bar .refchip code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.viewer-size {
+  min-width: 3.2rem;
+  font-variant-numeric: tabular-nums;
+}
+/* The page's actions in the phone bar's More menu (portalled, so here): one
+   per line, an icon button showing its aria-label beside its icon */
+.ui-popover:has(> .viewer-more) {
+  width: min(17rem, 80vw);
+}
+.viewer-more {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.15rem;
+}
+.viewer-more > button,
+.viewer-more > a {
+  justify-content: flex-start;
+  gap: 0.45rem;
+  text-align: left;
+}
+.viewer-more svg {
+  flex-shrink: 0;
+}
+.viewer-more > .icon[aria-label]::after {
+  content: attr(aria-label);
+}
+.viewer-more > .refchip {
+  padding: 0.3rem 0.45rem;
+}
+.viewer-more .refchip code {
+  overflow-wrap: anywhere;
+}
+.viewer-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+.viewer-stage {
+  position: relative;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+}
+/* Previous and Next at an end: aria-disabled keeps the focus in the sheet */
+.viewer-bar button[aria-disabled='true'] {
+  opacity: 0.4;
+  cursor: default;
+  filter: none;
+}
+.viewer-stage.zoomed {
+  cursor: grab;
+}
+.viewer-frame {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  transform-origin: center;
+}
+.viewer-aside {
+  max-height: 40dvh;
+  overflow-y: auto;
+  padding: var(--space-3);
+  border-top: 1px solid var(--line);
+}
+@media (min-width: 900px) {
+  .viewer-body.has-aside {
+    grid-template-columns: minmax(0, 1fr) 22rem;
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .viewer-aside {
+    max-height: none;
+    border-top: none;
+    border-left: 1px solid var(--line);
+  }
+}
+.media-fit {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+.media-text {
+  align-self: stretch;
+  width: 100%;
+  max-height: 100%;
+  margin: 0;
+  padding: var(--space-3);
+  overflow: auto;
+  white-space: pre-wrap;
+}

@@ -36,12 +36,7 @@ from ...host_memory_projection import CEILING_FRACTION, host_memory_warnings
 from ...plan import gate_warnings, missing_repo_errors
 from ...presets import apply_presets
 from ...schema import format_validation_errors
-from ...security import (
-    InvalidInputError,
-    SecurityError,
-    validate_ledger_key,
-    validate_path,
-)
+from ...security import SecurityError, validate_path
 from ...variables import set_variables
 from ...workspace import Workspace
 from ..admission import (
@@ -56,11 +51,9 @@ from ..admission import (
     check_bound_acknowledgement,
     validation_plan,
 )
-from ..catalog import (
-    catalog_name_for,
-    resolve_workflow_reference,
-)
+from ..catalog import catalog_name_for, resolve_workflow_reference
 from ..deps import (
+    check_ledger_filter,
     internal_error,
     selected_workspace,
     sources_for,
@@ -81,6 +74,7 @@ from ..outputs import (
     absolute_served_url,
     asset_library_for_job,
     delete_run_directory,
+    job_prompts,
     output_kinds,
     served_url,
     with_run_state,
@@ -254,6 +248,7 @@ def list_jobs(
         default=None,
         description="With `request`: only the jobs linked to this item of it",
     ),
+    prompts: bool = False,
 ):
     """All jobs by default - a plain filter, not `selected_workspace`,
     since the jobs list spans every workspace the server holds unless a
@@ -263,16 +258,10 @@ def list_jobs(
     `limit` keeps the newest N, and `total` always reports how many
     matched before the cut, so a caller can tell a bounded answer from a
     complete one. The default is still every matching job, oldest first -
-    what the web UI polls."""
+    what the web UI polls. `prompts=true` adds `prompts`: each listed job's
+    submitted `prompt` argument by job id."""
     manager = request.app.state.job_manager
-    if item and not request_id:
-        raise HTTPException(status_code=422, detail="item needs request")
-    for value, what in ((request_id, "request"), (item, "item")):
-        if value:
-            try:
-                validate_ledger_key(value, what)
-            except InvalidInputError as e:
-                raise HTTPException(status_code=422, detail=str(e))
+    check_ledger_filter(request_id, item)
     if workspace:
         # A name that was never a workspace is a typo, not "no jobs here"
         workspace_for(request.app.state, workspace)
@@ -299,7 +288,10 @@ def list_jobs(
         request=request_id,
         item=item,
     )
-    return {"jobs": jobs, "total": total}
+    if not prompts:
+        return {"jobs": jobs, "total": total}
+    found = job_prompts(manager, [job["id"] for job in jobs])
+    return {"jobs": jobs, "total": total, "prompts": found}
 
 
 @router.get(

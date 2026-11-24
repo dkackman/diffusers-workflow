@@ -93,7 +93,7 @@
           title={detail?.description || detail?.text || undefined}
         ></a>
         <span class="cardtop">
-          <span class="cardname">{leafOf(name)}</span>
+          <span class="cardname" title={leafOf(name)}>{leafOf(name)}</span>
           {#if details[name]?.origin && details[name].origin !== 'workspace'}
             <span
               class="origin muted"
@@ -102,30 +102,30 @@
               {details[name].origin}
             </span>
           {/if}
-          {#if detail?.intended_model}
-            <button
-              class="togglechip modelchip"
-              class:on={filter.value === detail.intended_model}
-              aria-pressed={filter.value === detail.intended_model}
-              onclick={() =>
-                (filter.value =
-                  filter.value === detail.intended_model
-                    ? ''
-                    : detail.intended_model)}
-              title="written for {detail.intended_model} - click to filter"
-            >
-              {detail.intended_model}
-            </button>
-          {/if}
         </span>
         {#if detail?.description || detail?.text}
           <span class="carddesc muted">
             {detail.description || detail.text}
           </span>
         {/if}
-        {#if detail?.tags?.length}
+        {#if detail?.intended_model || detail?.tags?.length}
           <span class="cardtags">
-            {#each detail.tags as tag (tag)}
+            {#if detail?.intended_model}
+              <button
+                class="togglechip modelchip"
+                class:on={filter.value === detail.intended_model}
+                aria-pressed={filter.value === detail.intended_model}
+                onclick={() =>
+                  (filter.value =
+                    filter.value === detail.intended_model
+                      ? ''
+                      : detail.intended_model)}
+                title="written for {detail.intended_model} - click to filter"
+              >
+                {detail.intended_model}
+              </button>
+            {/if}
+            {#each detail?.tags ?? [] as tag (tag)}
               <button
                 class="togglechip"
                 class:on={filter.value === tag}
@@ -193,9 +193,13 @@
   }
   .cardname {
     flex: 1;
+    min-width: 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
   }
   .carddesc {
     font-weight: 400;

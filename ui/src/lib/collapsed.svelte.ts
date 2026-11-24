@@ -3,10 +3,12 @@
  * it; the name is whatever the list calls a section. */
 import { storageGet, storageSet } from './storage'
 
-export function collapsedState(key: string): {
+export interface Collapsed {
   has(name: string): boolean
   toggle(name: string): void
-} {
+}
+
+export function collapsedState(key: string): Collapsed {
   const shut = $state<Record<string, boolean>>(
     storageGet(key, {} as Record<string, boolean>),
   )

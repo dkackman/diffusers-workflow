@@ -4,6 +4,8 @@ import {
   SERVER_SECTIONS,
   SHARED_SECTIONS,
   WS_SECTIONS,
+  compareHref,
+  fileHref,
   jobHref,
   legacyRedirect,
   resolveView,
@@ -162,5 +164,31 @@ describe('jobHref', () => {
   })
   it('keeps the legacy form where the caller has no workspace', () => {
     expect(jobHref('abc')).toBe('#/jobs/abc')
+  })
+})
+
+describe('fileHref', () => {
+  it('fileHref puts the name in open=', () => {
+    expect(fileHref('my studio', 'gallery', 'shot/r1/a b.png')).toBe(
+      '#/ws/my%20studio/gallery?open=shot%2Fr1%2Fa%20b.png',
+    )
+    expect(fileHref('studio', 'assets', 'cast/priya.png')).toBe(
+      '#/ws/studio/assets?open=cast%2Fpriya.png',
+    )
+  })
+})
+
+describe('compareHref', () => {
+  it('round-trips names with slashes', () => {
+    const names = ['wf/r1/a b.png', 'wf/v#1.mp4']
+    const hash = compareHref('studio', names)
+    expect(hash).toBe('#/ws/studio/compare/wf%2Fr1%2Fa%20b.png/wf%2Fv%231.mp4')
+    const parts = hash.slice(2).split('/').map(decodeURIComponent)
+    expect(parseView(parts)).toEqual({
+      kind: 'ws',
+      workspace: 'studio',
+      section: 'compare',
+      rest: names,
+    })
   })
 })

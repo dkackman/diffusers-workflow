@@ -55,6 +55,15 @@ it('location.replace appears only in the router', () => {
   expect(using).toEqual(['src/lib/router.svelte.ts'])
 })
 
+// What stands in for a picture is one map: `kindGlyph` in src/lib/media.ts.
+// A second spelling of a glyph is a second map to keep in step
+it('the kind glyphs are spelled only in media.ts', () => {
+  const using = sourceFiles()
+    .filter((f) => /[♪¶]/.test(readFileSync(f, 'utf8')))
+    .map((f) => f.slice(UI.length + 1).replaceAll('\\', '/'))
+  expect(using).toEqual(['src/lib/media.ts'])
+})
+
 // One look for a chosen segment and one for a chosen chip: the selected
 // styles live in Segmented.svelte and patterns.css, so no other component
 // restyles `aria-pressed` or `.activebtn`
@@ -124,4 +133,17 @@ it('app.css stays at or under 600 lines', () => {
   // a trailing newline is not a line
   const count = lines.at(-1) === '' ? lines.length - 1 : lines.length
   expect(count).toBeLessThanOrEqual(600)
+})
+
+// A popover or menu opened inside the viewer or a modal shows on top: it
+// closes on a press outside, so it is never left over a modal opened later.
+// A question asked from a sheet sits over that sheet
+it('the layers stack page, modal, question, popover', () => {
+  const css = readFileSync(join(UI, 'src/app.css'), 'utf8')
+  const layer = (name: string) =>
+    Number(css.match(new RegExp(`--layer-${name}:\\s*(\\d+)`))?.[1])
+  const order = ['sticky', 'drawer', 'modal', 'ask', 'popover'].map(layer)
+  expect(order.every((n) => Number.isFinite(n))).toBe(true)
+  expect([...order].sort((a, b) => a - b)).toEqual(order)
+  expect(new Set(order).size).toBe(order.length)
 })

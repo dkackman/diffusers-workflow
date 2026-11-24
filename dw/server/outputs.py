@@ -6,6 +6,8 @@ The gallery, media, assets and files routers all reach it. Functions take the
 app's `state` explicitly, so two apps in one process resolve independently.
 """
 
+import functools
+import json
 import logging
 import os
 import shutil
@@ -25,6 +27,7 @@ from starlette.background import BackgroundTask
 
 from .. import settings
 from .. import references
+from ..media import media_duration
 from ..library import (
     ASSETS_KIND,
     WORKSPACE_ORIGIN,
@@ -73,6 +76,31 @@ MEDIA_KINDS = {
 }
 
 
+@functools.lru_cache(maxsize=4096)
+def _duration_at(path, mtime_ns, size):
+    """`media_duration` of `path` as it stood at this mtime and size: the key
+    changes when the file is rewritten, so a stale answer is never served."""
+    try:
+        return {"duration_seconds": media_duration(path)}
+    except Exception as e:
+        logger.debug(f"Not probeable as media: {path}: {e}")
+        return None
+
+
+def probed_duration(path, root):
+    """`{"duration_seconds": ...}` from the container's header - no stream is
+    decoded, so a `media=true` listing of thousands of clips stays cheap.
+    Memoised on the file's (path, mtime, size), bounded at 4096 answers.
+    `path` goes through `validate_path` against `root` first; None for a
+    file that is refused, cannot be stat'ed, or is not media."""
+    try:
+        path = validate_path(path, root, allow_create=False)
+        stat = os.stat(path)
+    except (SecurityError, OSError):
+        return None
+    return _duration_at(path, stat.st_mtime_ns, stat.st_size)
+
+
 def output_kinds(manifest):
     """Each file a job manifest lists, mapped to its MEDIA_KINDS entry, or
     None for a kind the gallery does not show. A client renders an output
@@ -84,6 +112,71 @@ def output_kinds(manifest):
         for name in entry.get("files") or []:
             kinds[name] = MEDIA_KINDS.get(os.path.splitext(name)[1].lower())
     return kinds
+
+
+# How much of a job's prompt a listing carries: enough to search by
+PROMPT_TEXT_MAX = 2000
+
+
+def prompt_text(arguments):
+    """The `prompt` argument of a job's submitted `arguments` as text - a
+    string, or a list's strings joined by newlines - cut to PROMPT_TEXT_MAX
+    characters; None when it is absent, empty or not text."""
+    prompt = arguments.get("prompt") if isinstance(arguments, dict) else None
+    if isinstance(prompt, list):
+        prompt = "\n".join(part for part in prompt if isinstance(part, str))
+    return (
+        prompt[:PROMPT_TEXT_MAX] if isinstance(prompt, str) and prompt.strip() else None
+    )
+
+
+def _stored_prompt(json_type, value):
+    """`prompt_text` of a `$.prompt` as `JobHistory.submitted_prompts` read it
+    out of SQL: text as it is, a list from its JSON, anything else None."""
+    if json_type == "array":
+        value = json.loads(value)
+    elif json_type != "text":
+        return None
+    return prompt_text({"prompt": value})
+
+
+# (history path, job id) -> its submitted prompt or None: a job's arguments
+# never change once stored, so the polled jobs listing reads each id once
+_PROMPT_MEMO, _PROMPT_MEMO_LOCK = OrderedDict(), threading.Lock()
+PROMPT_MEMO_MAX = 4096
+
+
+def job_prompts(manager, job_ids):
+    """Job id -> submitted prompt for `job_ids`: a live job's from its spec,
+    a historical one's from the history (`JobHistory.submitted_prompts`),
+    each read once and memoised (`_PROMPT_MEMO`, bounded at PROMPT_MEMO_MAX)."""
+    history, found = manager.history, {}
+    live = {job_id: manager.jobs.get(job_id) for job_id in job_ids}
+    unread = [
+        job_id
+        for job_id, job in live.items()
+        if job is None and (history.db_path, job_id) not in _PROMPT_MEMO
+    ]
+    rows = history.submitted_prompts(unread) if unread else []
+    read = {job_id: _stored_prompt(kind, value) for job_id, _run, kind, value in rows}
+    with _PROMPT_MEMO_LOCK:
+        _PROMPT_MEMO.update(((history.db_path, j), p) for j, p in read.items())
+        while len(_PROMPT_MEMO) > PROMPT_MEMO_MAX:
+            _PROMPT_MEMO.popitem(last=False)
+    for job_id, job in live.items():
+        prompt = prompt_text(job.spec.get("arguments")) if job else read.get(job_id)
+        prompt = prompt or _PROMPT_MEMO.get((history.db_path, job_id))
+        if prompt:
+            found[job_id] = prompt
+    return found
+
+
+def run_prompts(history, workspace, run_ids):
+    """Run id -> the prompt its job was submitted with, for `run_ids`; a run
+    whose job history no longer holds has no entry."""
+    rows = history.submitted_prompts(list(run_ids), by_run=True, workspace=workspace)
+    found = ((run, _stored_prompt(kind, value)) for _job, run, kind, value in rows)
+    return {run: prompt for run, prompt in found if prompt}
 
 
 def _shown(entries):

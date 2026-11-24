@@ -26,6 +26,7 @@
   import FlowView from '../editor/FlowView.svelte'
   import JsonEditor from '../editor/JsonEditor.svelte'
   import JobHeader from '../job/JobHeader.svelte'
+  import JobError from '../job/JobError.svelte'
   import JobProgress from '../job/JobProgress.svelte'
   import NoteEditor from '../ui/NoteEditor.svelte'
   import JobResults from '../job/JobResults.svelte'
@@ -181,10 +182,14 @@
           : (e.message as string),
       ),
   )
-  const seed = $derived(
-    events.find((e) => e.event === 'workflow_start')?.seed as
-      number | undefined,
-  )
+  // A job read from history has no events: its record keeps the seed it was
+  // queued with, under the variable the workflow draws it into
+  const seed = $derived.by(() => {
+    const drawn = events.find((e) => e.event === 'workflow_start')?.seed
+    if (typeof drawn === 'number') return drawn
+    const queued = seedVariable ? job?.arguments?.[seedVariable] : undefined
+    return typeof queued === 'number' ? queued : undefined
+  })
   // The record's number once the job has one; while it runs, the run_start
   // event says it first - so the page names the run the moment it opens
   const runVersion = $derived(
@@ -219,11 +224,34 @@
   // drawn red on the graph so the reader does not have to match the error
   // to a step by name
   const failed = $derived(job?.status === 'failed')
+  // A job read from history has no events, so its record's last step stands in
+  const failedStep = $derived(
+    activeNode ??
+      flowNodeName(
+        job?.progress?.step ?? undefined,
+        job?.progress?.parent_step ?? undefined,
+      ),
+  )
   const failedNode = $derived(
-    failed && activeNode && !finishedSteps.includes(activeNode)
-      ? activeNode
+    failed && failedStep && !finishedSteps.includes(failedStep)
+      ? failedStep
       : undefined,
   )
+  let rerunOpen = $state(false)
+  // The same condition RerunWithChanges shows its own button on: a run with
+  // no variables and no arguments has nothing for the dialog to change
+  const canRerun = $derived(
+    Object.keys({
+      ...(definition?.variables ?? {}),
+      ...(job?.arguments ?? {}),
+    }).length > 0,
+  )
+  // A job seen unfinished on this page and then failed is news to announce;
+  // one that loads already failed is not
+  let seenRunning = $state<string | null>(null)
+  $effect(() => {
+    if (running) seenRunning = jobId
+  })
   const failedMemberStep = $derived(
     failed ? activeMember(events as JobEvent[]) : undefined,
   )
@@ -270,6 +298,27 @@
   })
 </script>
 
+<!-- A running job leads with this; a finished one has it as one line,
+     after its results and the workflow -->
+{#snippet progressPanel()}
+  {#if steps.length}
+    <div class="panel">
+      <JobProgress
+        {steps}
+        {finishedSteps}
+        {listStep}
+        {running}
+        {progress}
+        {etaSeconds}
+        {stall}
+        took={job?.started_at && job.finished_at
+          ? job.finished_at - job.started_at
+          : null}
+      />
+    </div>
+  {/if}
+{/snippet}
+
 <JobHeader
   {job}
   {jobId}
@@ -278,20 +327,11 @@
   {running}
   {cancelPending}
   {seedVariable}
+  bind:rerunOpen
   declared={definition?.variables ?? null}
   request={linked?.request ?? null}
   requestGone={linked?.gone ?? false}
 />
-
-{#if linked && linkItem}
-  <LinkedNotes
-    bind:this={agentNotes}
-    {linked}
-    item={linkItem}
-    filter={aboutJob}
-    refs={[{ item: linkItem, job: jobId }]}
-  />
-{/if}
 
 <LoadState of={record} label="job {jobId}" what="job {jobId}">
   {#if job}
@@ -303,33 +343,64 @@
       </div>
     {/if}
 
-    {#if steps.length}
+    {#if running}{@render progressPanel()}{/if}
+
+    {#if job.error}
+      <JobError
+        {job}
+        step={failedNode ?? null}
+        onrerun={() => (rerunOpen = true)}
+        {canRerun}
+        live={seenRunning === jobId}
+      />
+    {/if}
+
+    {#if fileGroups.length || unsaved.length}
       <div class="panel">
-        <h2>Progress</h2>
-        <JobProgress
-          {steps}
-          {finishedSteps}
-          {listStep}
-          {running}
-          {progress}
-          {etaSeconds}
-          {stall}
+        {#key job.id}
+          <JobResults
+            {job}
+            {fileGroups}
+            {unsaved}
+            {kinds}
+            {seedVariable}
+            {running}
+            onnote={linked?.request && linkItem && !running
+              ? noteFile
+              : undefined}
+          />
+        {/key}
+      </div>
+    {/if}
+
+    <ChainSegments {job} {definition} />
+
+    {#if job.run_dir}
+      <div class="panel">
+        <RemoteNotice shown={noteMoved} />
+        <!-- An edit in progress keeps its draft when a newer note lands; the
+             page's own save is adopted, so it marks nothing -->
+        <NoteEditor
+          note={job.note}
+          target={job.run_dir}
+          workspace={job.workspace}
+          label="Your note on this job"
+          bind:editing={noteEditing}
+          onsaved={(note) =>
+            job && record.adopt({ ...job, note: note ?? undefined })}
         />
       </div>
     {/if}
 
-    {#if job.run_dir}
-      <RemoteNotice shown={noteMoved} />
-      <!-- An edit in progress keeps its draft when a newer note lands; the
-           page's own save is adopted, so it marks nothing -->
-      <NoteEditor
-        note={job.note}
-        target={job.run_dir}
-        workspace={job.workspace}
-        label="Your note on this job"
-        bind:editing={noteEditing}
-        onsaved={(note) =>
-          job && record.adopt({ ...job, note: note ?? undefined })}
+    <!-- The note for the agent sits with the job's own, under Results:
+         "Note this file" opens its box below the tiles it came from -->
+    {#if linked && linkItem}
+      <LinkedNotes
+        bind:this={agentNotes}
+        {linked}
+        item={linkItem}
+        filter={aboutJob}
+        refs={[{ item: linkItem, job: jobId }]}
       />
     {/if}
 
@@ -345,6 +416,17 @@
           >
             {realized ? 'realized' : 'as submitted'}
           </span>
+          <button
+            class="quiet icon"
+            onclick={() => (showJson = !showJson)}
+            aria-expanded={showJson}
+            aria-label={showJson ? 'hide JSON' : 'show JSON'}
+            title={showJson
+              ? 'hide the workflow this job ran'
+              : 'show the workflow this job ran, as JSON'}
+          >
+            <Braces size={14} />
+          </button>
           <RemoteNotice shown={definitionMoved} inline />
         </div>
         <FlowView
@@ -362,20 +444,6 @@
           {nodeTimes}
           {memberTimes}
         />
-        <!-- The JSON toggle sits where the JSON opens, beneath the graph -->
-        <div class="jsontoggle">
-          <button
-            class="quiet icon"
-            onclick={() => (showJson = !showJson)}
-            aria-expanded={showJson}
-            aria-label={showJson ? 'hide JSON' : 'show JSON'}
-            title={showJson
-              ? 'hide the workflow this job ran'
-              : 'show the workflow this job ran, as JSON'}
-          >
-            <Braces size={14} />
-          </button>
-        </div>
         {#if showJson}
           <div class="json">
             <JsonEditor
@@ -388,33 +456,7 @@
       </section>
     {/if}
 
-    {#if fileGroups.length || unsaved.length}
-      <div class="panel">
-        <h2>Results</h2>
-        {#key job.id}
-          <JobResults
-            {job}
-            {fileGroups}
-            {unsaved}
-            {kinds}
-            {seedVariable}
-            onnote={linked?.request && linkItem && !running
-              ? noteFile
-              : undefined}
-          />
-        {/key}
-      </div>
-    {/if}
-
-    <ChainSegments {job} {definition} />
-
-    {#if job.error}
-      <div class="panel error-edge">
-        <h2 class="error">Error</h2>
-        <p>{job.error}</p>
-        {#if job.traceback}<pre>{job.traceback}</pre>{/if}
-      </div>
-    {/if}
+    {#if !running}{@render progressPanel()}{/if}
 
     {#if logs.length}
       <div class="panel">
@@ -423,7 +465,7 @@
       </div>
     {/if}
 
-    <EventLog {jobId} live={running} />
+    <EventLog {jobId} live={running} pulse={events.length} />
   {/if}
 </LoadState>
 
@@ -440,11 +482,6 @@
     align-items: center;
     gap: 0.4rem 1rem;
     margin-bottom: var(--space-2);
-  }
-  .jsontoggle {
-    display: flex;
-    justify-content: flex-end;
-    margin-top: var(--space-1);
   }
   .flowhead h2 {
     margin: 0;

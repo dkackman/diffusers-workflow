@@ -139,7 +139,9 @@ test('the status area opens a detail popover', async ({ page }) => {
   // click-outside closes it too
   await page.getByRole('button', { name: 'server & worker status' }).click()
   await expect(pop).toBeVisible()
-  await page.locator('main').click()
+  // on the page's heading: main's centre is wherever the Overview's
+  // panels put a link, and a link would navigate away
+  await page.locator('main h1').click()
   await expect(pop).toHaveCount(0)
   // the trigger toggles: a second click closes it rather than reopening it
   const trigger = page.getByRole('button', { name: 'server & worker status' })

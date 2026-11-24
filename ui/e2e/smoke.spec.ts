@@ -99,10 +99,8 @@ test('schema page renders a browsable tree from the live schema', async ({
   page,
 }) => {
   await page.goto('/#/schema')
-  await expect(
-    page.getByRole('heading', { name: 'Workflow Schema' }),
-  ).toBeVisible()
-  await expect(page).toHaveTitle('Workflow Schema · diffusers-workflow')
+  await expect(page.getByRole('heading', { name: 'Schema' })).toBeVisible()
+  await expect(page).toHaveTitle('Schema · diffusers-workflow')
   // the document root is open and shows the top-level properties
   await expect(page.getByText('steps', { exact: true })).toBeVisible()
   // expanding a definition reveals its properties
@@ -410,7 +408,9 @@ test('the workflow page checks a run as you edit, and places each finding', asyn
   await expect(
     check.getByText('a job would be admitted, with warnings'),
   ).toBeVisible()
-  await expect(check.getByLabel('what a job will do')).toContainText('about 3 min')
+  await expect(check.getByLabel('what a job will do')).toContainText(
+    'about 3 min',
+  )
   expect(asked[0].body.workflow_path).toBe('models/z-image')
   expect(asked[0].url).toContain('sizes=false')
   // a hostile warning prints as text

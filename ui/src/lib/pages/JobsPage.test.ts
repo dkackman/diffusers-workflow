@@ -23,6 +23,13 @@ const data = vi.hoisted(() => ({
   gate: null as Promise<void> | null,
   // What the server answers for "how many jobs are queued, anywhere"
   queued: 0,
+  // job id -> prompt, as `prompts=true` answers; the gallery's files; a
+  // running job's progress by id
+  prompts: {} as Record<string, string>,
+  files: [] as unknown[],
+  progress: {} as Record<string, unknown>,
+  // Whether each listing asked for prompts
+  asked: [] as boolean[],
 }))
 vi.mock('../api', async () => ({
   ApiError: (await import('../apiErrors')).ApiError,
@@ -36,8 +43,10 @@ vi.mock('../api', async () => ({
       status?: string,
       request?: string,
       item?: string,
+      opts?: { prompts?: boolean },
     ) => {
       data.listed.push([ws, limit, status, request, item])
+      if (limit !== 1) data.asked.push(!!opts?.prompts)
       if (data.gate && limit !== 1)
         return data.gate.then(() => ({ jobs: [], total: 0 }))
       if (status === 'queued' && limit === 1)
@@ -47,8 +56,14 @@ vi.mock('../api', async () => ({
         (j) =>
           (!request || j.request === request) && (!item || j.item === item),
       )
-      return Promise.resolve({ jobs, total: jobs.length })
+      return Promise.resolve({
+        jobs,
+        total: jobs.length,
+        ...(opts?.prompts ? { prompts: data.prompts } : {}),
+      })
     },
+    gallery: () => Promise.resolve({ workspace: 'default', files: data.files }),
+    getJob: (id: string) => Promise.resolve({ progress: data.progress[id] }),
     // The request picker's list, in whichever workspace it is asked for
     listRequests: (ws: string) =>
       Promise.resolve({
@@ -76,6 +91,10 @@ afterEach(() => {
   data.listError = null
   data.gate = null
   data.queued = 0
+  data.prompts = {}
+  data.files = []
+  data.progress = {}
+  data.asked = []
   workspace.current = 'default'
   data.rerunRestartBatch.mockReset()
   data.moveJob.mockReset()
@@ -177,7 +196,9 @@ it('rows and the name filter use the file name', async () => {
   await waitFor(() => expect(screen.getByText('e2e-card')).toBeTruthy())
   expect(screen.queryByText('E2ECard')).toBeNull()
   expect(screen.getByText('other')).toBeTruthy()
-  const input = screen.getByPlaceholderText('filter by workflow…')
+  const input = screen.getByPlaceholderText(
+    'search names, prompts, notes and ids…',
+  )
   await fireEvent.input(input, { target: { value: 'e2e-c' } })
   expect(screen.getByText('e2e-card')).toBeTruthy()
   expect(screen.queryByText('other')).toBeNull()
@@ -202,7 +223,9 @@ it('reads its filters from the link and writes them back to it', async () => {
   render(JobsPage)
   await waitFor(() => expect(screen.getByText('broke')).toBeTruthy())
   expect(screen.queryByText('fine')).toBeNull()
-  const input = screen.getByPlaceholderText('filter by workflow…')
+  const input = screen.getByPlaceholderText(
+    'search names, prompts, notes and ids…',
+  )
   await fireEvent.input(input, { target: { value: 'zzz' } })
   expect(location.hash).toBe('#/ws/default/jobs?status=failed&q=zzz')
   await fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
@@ -226,7 +249,7 @@ it('navigating to the bare jobs route clears the filters', async () => {
   const status = screen.getByTitle('filter by status') as HTMLSelectElement
   expect(status.value).toBe('')
   const input = screen.getByPlaceholderText(
-    'filter by workflow…',
+    'search names, prompts, notes and ids…',
   ) as HTMLInputElement
   expect(input.value).toBe('')
   expect(location.hash).toBe('#/ws/default/jobs')
@@ -682,3 +705,80 @@ it('a refusal from a quiet poll clears the rows, not just a loud load', async ()
     timeout: 6000,
   })
 }, 10000)
+
+const proofFile = (run_id: string) => ({
+  name: `wf/${run_id}/out.png`,
+  kind: 'image',
+  run_id,
+  folder: 'wf',
+  url: `/api/outputs/wf/${run_id}/out.png`,
+  label: 'out.png',
+  mtime: 1,
+  size: 1,
+  starred: false,
+})
+
+it('each row shows its picture, prompt and note', async () => {
+  location.hash = ''
+  data.jobs = [
+    summary({
+      id: 'a-1',
+      workflow: 'text-to-image',
+      run_id: 'run-a',
+      note: 'the good one\nsecond line',
+    }),
+    summary({ id: 'b-2', workflow: 'text-to-image' }),
+  ]
+  data.prompts = { 'a-1': 'a red fox\nin snow', 'b-2': 'a blue whale' }
+  data.files = [proofFile('run-a')]
+  const { container } = render(JobsPage)
+  await waitFor(() => expect(screen.getByText('a red fox')).toBeTruthy())
+  expect(screen.getByText('a blue whale')).toBeTruthy()
+  expect(screen.getByText('the good one')).toBeTruthy()
+  expect(screen.queryByText('second line')).toBeNull()
+  // The row with a run has its picture; the other keeps the same slot
+  await waitFor(() =>
+    expect(container.querySelectorAll('.row .proof img').length).toBe(1),
+  )
+  expect(container.querySelectorAll('.row .proof').length).toBe(2)
+  // Each id is on its own line, whole
+  expect(screen.getByText('a-1').closest('code')).toBeTruthy()
+})
+
+it('searching a prompt or an id finds the job', async () => {
+  data.jobs = [
+    summary({ id: 'a-1', workflow: 'text-to-image' }),
+    summary({ id: 'b-2', workflow: 'text-to-image', note: 'keeper' }),
+  ]
+  data.prompts = { 'a-1': 'a red fox', 'b-2': 'a blue whale' }
+  render(JobsPage)
+  await waitFor(() => expect(screen.getByText('a red fox')).toBeTruthy())
+  const input = screen.getByPlaceholderText(
+    'search names, prompts, notes and ids…',
+  )
+  await fireEvent.input(input, { target: { value: 'whale' } })
+  await waitFor(() => expect(screen.queryByText('a red fox')).toBeNull())
+  expect(screen.getByText('a blue whale')).toBeTruthy()
+  await fireEvent.input(input, { target: { value: 'a-1 fox' } })
+  await waitFor(() => expect(screen.queryByText('a blue whale')).toBeNull())
+  expect(screen.getByText('a red fox')).toBeTruthy()
+  await fireEvent.input(input, { target: { value: 'keeper' } })
+  await waitFor(() => expect(screen.getByText('a blue whale')).toBeTruthy())
+  expect(screen.queryByText('a red fox')).toBeNull()
+  location.hash = ''
+})
+
+it('a running row shows its percentage', async () => {
+  data.jobs = [summary({ id: 'r-1', status: 'running', finished_at: null })]
+  data.progress = { 'r-1': { denoise_step: 5, denoise_total_steps: 20 } }
+  render(JobsPage)
+  await waitFor(() => expect(screen.getByText('25%')).toBeTruthy())
+})
+
+it('prompts are asked for once, not on every poll', async () => {
+  data.jobs = [summary({ id: 'a-1' })]
+  data.prompts = { 'a-1': 'a red fox' }
+  render(JobsPage)
+  await waitFor(() => expect(screen.getByText('a red fox')).toBeTruthy())
+  expect(data.asked).toEqual([true])
+})

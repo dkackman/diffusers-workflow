@@ -24,7 +24,12 @@ it('reads the ETA as about <duration> left', () => {
   expect(screen.getByText(/about 3 min left/)).toBeTruthy()
 })
 
+it('the estimate names the step', () => {
+  show(180)
+  expect(screen.getByText(/about 3 min left in this step/)).toBeTruthy()
+})
+
 it('says under 1 min for a short ETA and nothing without one', () => {
   show(20)
-  expect(screen.getByText(/under 1 min left/)).toBeTruthy()
+  expect(screen.getByText(/under 1 min left in this step/)).toBeTruthy()
 })

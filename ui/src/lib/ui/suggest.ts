@@ -10,7 +10,7 @@ export type SuggestItem = {
   detail?: string
   /** An image to show beside the name */
   thumb?: string
-  /** A character standing in for a picture: ♪ for audio */
+  /** A character standing in for a picture (`kindGlyph`, src/lib/media.ts) */
   glyph?: string
   /** A short tag after the name: which library it came from */
   badge?: string

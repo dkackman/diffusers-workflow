@@ -1,5 +1,9 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import { api, outputUrl } from '../api'
+  import { jobMedia, type MediaFile } from '../media'
+  import { openInHash } from '../mediaViewer'
+  import { leafName } from '../names'
   import { resource } from '../resource.svelte'
   import { isBundle, runMetadataReader } from './runMetadata'
   import { describeOutputMeta } from '../outputMeta'
@@ -9,24 +13,30 @@
     type StepGroup,
     type UnsavedStep,
   } from '../results'
-  import DownloadLink from '../DownloadLink.svelte'
-  import type { GalleryInput, JobDetail } from '../types'
+  import type { GalleryInput, JobDetail, OutputKind } from '../types'
+  import MissingFile from '../ui/MissingFile.svelte'
+  import OutputTile from '../ui/OutputTile.svelte'
   import RoleTag from '../gallery/RoleTag.svelte'
   import { ASSET, OUTPUT, referenceName } from '../references'
   import { wsHref } from '../routes'
   import { isTimeline } from '../timeline'
   import TimelineStrip from './TimelineStrip.svelte'
   import TimingBar from './TimingBar.svelte'
+  import JobViewer from './JobViewer.svelte'
+  import ResultsHead from './ResultsHead.svelte'
 
-  // The Results panel's body: each output beside what made it, sectioned by
-  // subfolder and grouped by step, then the steps that wrote nothing. The
-  // page keys this on the job id, so a switch starts with no lookups
+  // The Results panel: its head (ResultsHead), then each output
+  // as a tile with one line of what made it, sectioned by subfolder (or
+  // role) and grouped by step, then the steps that wrote nothing. A tile
+  // opens the job's outputs in the viewer (JobViewer). The page keys this
+  // on the job id, so a switch starts with no lookups
   let {
     job,
     fileGroups,
     unsaved,
     kinds,
     seedVariable,
+    running = false,
     onnote,
   }: {
     job: JobDetail
@@ -34,6 +44,8 @@
     unsaved: UnsavedStep[]
     kinds: Record<string, string | null>
     seedVariable: string | null
+    /** The job is still running, so a file open= names may yet arrive */
+    running?: boolean
     /** Given for a finished take of a request item: "Note this file"
      * opens the page's note for the agent about that file */
     onnote?: (file: string) => void
@@ -83,6 +95,36 @@
   const sectioned = $derived(
     sections.length > 1 || sections[0].subfolder !== '',
   )
+  // Every file in the order the panel shows them, finals first: what the
+  // viewer steps through, Compare picks from and Download all takes
+  const ordered = $derived(
+    (byRole
+      ? [...byRole.final, ...byRole.intermediate]
+      : sections.flatMap((section) => section.groups)
+    ).flatMap((group) => group.files),
+  )
+  // A kind the gallery does not show (null) has no tile: its name links it
+  const tileOf = (file: string): MediaFile | null => {
+    const kind = kindOf(file) as OutputKind | null
+    return kind ? jobMedia(file, kind, job.id, job.workspace) : null
+  }
+  const items = $derived(
+    ordered.map(tileOf).filter((t): t is MediaFile => t !== null),
+  )
+  let open = $state<string | null>(openInHash())
+  // An open= that names no output: while the job runs the file may still
+  // arrive, and the viewer opens on it then; once it has finished, said
+  // under the head and cleared, as the Gallery does
+  let missing = $state('')
+  $effect(() => {
+    const name = open
+    if (!name || running || items.some((item) => item.name === name)) return
+    untrack(() => {
+      missing = leafName(name)
+      open = null
+    })
+  })
+
   // Two runs of a workflow write the same file names, so the job id rides
   // along - without it the browser shows this job the image it cached from
   // the previous one. The job's own workspace rides along too, so its media
@@ -102,6 +144,8 @@
   }
 </script>
 
+<ResultsHead files={ordered} {items} workspace={job.workspace} />
+<MissingFile bind:leaf={missing} />
 {#if allReused}
   <p class="muted reusednote">
     Served from the step cache: every step matched an earlier job with the same
@@ -143,7 +187,7 @@
   {#each sections as section (section.subfolder)}
     {#if sectioned}
       <h3 class="subhead">
-        {section.subfolder === '' ? '(run root)' : `${section.subfolder}/`}
+        {section.subfolder === '' ? '(top folder)' : `${section.subfolder}/`}
       </h3>
     {/if}
     {@render stepGroups(section.groups, sectioned)}
@@ -168,81 +212,46 @@
         {/if}
       </svelte:element>
     {/if}
-    {#each group.files as file (file)}
-      {@const info = describeOutputMeta(fileMeta[file])}
-      <!-- Laid out as the gallery detail is: the media on the left,
-           what made it on the right. data-step is what a flow-graph node
-           scrolls to. -->
-      <div class="output" data-step={group.step}>
-        {#if kindOf(file) === 'image'}
-          <a
-            class="frame plain"
-            href={fileUrl(file)}
-            target="_blank"
-            title={file.split('/').pop()}
-          >
-            <img src={fileUrl(file)} alt={file.split('/').pop()} />
-          </a>
-        {:else if kindOf(file) === 'video'}
-          <span class="frame">
-            <!-- svelte-ignore a11y_media_has_caption -->
-            <video src={fileUrl(file)} controls loop></video>
-          </span>
-        {:else if kindOf(file) === 'audio'}
-          <span class="frame">
-            <audio src={fileUrl(file)} controls></audio>
-          </span>
-        {:else}
-          <a class="filelink" href={fileUrl(file)} target="_blank">
-            {file.split('/').pop()}
-          </a>
-        {/if}
-        <div class="meta">
-          <div class="metabar">
-            <span class="filename">{file.split('/').pop()}</span>
-            <DownloadLink href={api.outputDownloadUrl(file, job.workspace)} />
-            {#if onnote}
-              <button
-                type="button"
-                class="bare"
-                aria-label="Note this file ({file
-                  .split('/')
-                  .pop()}) for the agent"
-                onclick={() => onnote(file)}
-              >
-                Note this file
-              </button>
-            {/if}
-          </div>
-          {#if info.model}
-            <div>
-              <span class="muted">model</span>
-              <code>{info.model}</code>
-            </div>
+    <div class="tiles">
+      {#each group.files as file (file)}
+        {@const tile = tileOf(file)}
+        {@const info = describeOutputMeta(fileMeta[file])}
+        <!-- data-step is what a flow-graph node scrolls to -->
+        <div class="output" data-step={group.step}>
+          {#if tile}
+            <OutputTile
+              file={tile}
+              size="card"
+              caption="line"
+              active={open === file}
+              onclick={() => (open = file)}
+              aria-label="Open {tile.label}"
+              title="Open this file, with what made it"
+            >
+              {#snippet meta()}
+                {#if info.model || info.seed !== undefined}
+                  <span class="recipe">
+                    {[
+                      info.model,
+                      info.seed !== undefined && `seed ${info.seed}`,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </span>
+                {/if}
+              {/snippet}
+            </OutputTile>
+          {:else}
+            <a class="filelink" href={fileUrl(file)} target="_blank">
+              {leafName(file)}
+            </a>
           {/if}
-          {#if info.seed !== undefined}
-            <div>
-              <span class="muted">seed</span> <code>{info.seed}</code>
-            </div>
-          {/if}
-          {#if info.prompt}
-            <div class="prompt">
-              <span class="muted">prompt</span>
-              <p>{info.prompt}</p>
-            </div>
-          {/if}
-          {#if info.negativePrompt}
-            <div class="prompt">
-              <span class="muted">negative prompt</span>
-              <p>{info.negativePrompt}</p>
-            </div>
+          {#if isBundle(file) && isTimeline(fileMedia[file])}
+            <TimelineStrip summary={fileMedia[file]} {memberHref} />
           {/if}
         </div>
-        {#if isBundle(file) && isTimeline(fileMedia[file])}
-          <TimelineStrip summary={fileMedia[file]} {memberHref} />
-        {/if}
-      </div>
-    {/each}
+      {/each}
+    </div>
   {/each}
 {/snippet}
 {#if unsaved.length}
@@ -268,6 +277,8 @@
   </ul>
 {/if}
 
+<JobViewer {items} bind:open {onnote} />
+
 <style>
   .roles details {
     margin-top: var(--space-3);
@@ -291,59 +302,30 @@
     margin: 0 0 0.6rem;
   }
 
-  /* One output per row, the gallery detail's shape: the proof on the left,
-     the recipe that made it on the right */
+  /* A step's outputs as a grid of tiles; a timeline's strip under its
+     file takes the row */
+  .tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr));
+    gap: var(--space-3);
+  }
   .output {
-    display: flex;
-    gap: var(--space-4);
-    align-items: flex-start;
-    flex-wrap: wrap;
-  }
-  .output + .output {
-    margin-top: var(--space-3);
-    padding-top: var(--space-3);
-    border-top: 1px solid var(--line);
-  }
-  /* What the run produced, framed the way the catalog and the gallery
-     frame it - the picture flush to its edges, no rounding of its own */
-  .output :global(.frame) {
-    max-width: min(480px, 100%);
-  }
-  .output :global(.frame > video) {
-    height: auto;
-  }
-  .output a.filelink {
-    font-family: var(--font-mono);
-    font-size: var(--t-sm);
-  }
-  .meta {
-    display: flex;
-    flex-direction: column;
-    gap: 0.2rem;
-    font-size: 0.85rem;
-    max-width: 46ch;
     min-width: 0;
   }
-  .meta .muted {
-    margin-right: 0.4rem;
+  .output:has(:global(.timeline)) {
+    grid-column: 1 / -1;
   }
-  .metabar {
-    display: flex;
-    align-items: center;
-    gap: 0.8rem;
-    margin-bottom: 0.3rem;
-  }
-  /* The name the engine wrote, and what you would type to reference it */
-  .filename {
+  .filelink {
     font-family: var(--font-mono);
     font-size: var(--t-sm);
     overflow-wrap: anywhere;
-    flex: 1;
   }
-  .prompt p {
-    margin: 0.15rem 0 0;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
+  .recipe {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-mono);
   }
   .stephead {
     font-family: var(--font-mono);

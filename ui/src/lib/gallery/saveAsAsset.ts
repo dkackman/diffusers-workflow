@@ -1,7 +1,10 @@
 // Saving a gallery file to the asset library, under a name later workflows
 // can use without depending on the job that made it. The name is asked for
 // in the app's own dialog; a name already in the library is never replaced
-// without asking, and Keep both saves under freeName's suggestion. Cancel
+// without asking, and Keep both saves under freeName's suggestion. The
+// library is listed only when the name is taken, for that suggestion, and a
+// failed listing is no names: the editors' shared list (assetlib) is never
+// touched (#1600). Cancel
 // or Escape at either question is an answer, not a failure: it sends
 // nothing more and reports nothing.
 import { ApiError, api } from '../api'
@@ -9,7 +12,8 @@ import { chooseDialog, nameDialog } from '../confirm.svelte'
 import { freeName } from '../documentSave'
 import { MAX_NAME_LENGTH, isNameSegment, leafName } from '../names'
 import { ASSET, referenceName } from '../references'
-import type { GalleryFile } from '../types'
+/** What a save reads of the file: only its output name */
+type Saved = { name: string }
 
 // How many names Keep both tries before giving up, as uploads.ts does
 const KEEP_BOTH_TRIES = 20
@@ -34,7 +38,7 @@ function nameTaken(e: unknown): boolean {
 
 /** The name the server stores: it adds the file's extension to a name
  * typed without one */
-function storedName(name: string, file: GalleryFile): string {
+function storedName(name: string, file: Saved): string {
   const leaf = leafName(file.name)
   const dot = leaf.lastIndexOf('.')
   if (name.includes('.') || dot <= 0) return name
@@ -42,7 +46,7 @@ function storedName(name: string, file: GalleryFile): string {
 }
 
 async function kept(
-  file: GalleryFile,
+  file: Saved,
   name: string,
   overwrite?: true,
 ): Promise<{ name: string }> {
@@ -55,7 +59,7 @@ async function kept(
 /** Keep both: the first free name, and the next when the listing was
  * behind the library */
 async function keepBoth(
-  file: GalleryFile,
+  file: Saved,
   name: string,
   existing: string[],
 ): Promise<{ name: string }> {
@@ -71,12 +75,18 @@ async function keepBoth(
   }
 }
 
+/** The library's names, read for Keep both's suggestion */
+export const listAssetNames = (): Promise<string[]> =>
+  api.listAssets().then((result) => result.assets.map((asset) => asset.name))
+
 /** Ask what to do with a name already in the library */
 async function onTaken(
-  file: GalleryFile,
+  file: Saved,
   name: string,
-  existing: string[],
+  listNames: () => Promise<string[]>,
 ): Promise<{ name: string } | null> {
+  // A listing that fails leaves Keep both to find the free name by trying
+  const existing = await listNames().catch((): string[] => [])
   const stored = storedName(name, file)
   const free = freeName(stored, new Set([...existing, stored]))
   const question = `"${stored}" is already in the asset library.`
@@ -96,11 +106,12 @@ async function onTaken(
 }
 
 /** Save `file` to the asset library under a name the person types.
- * `existing` is the library's names as last listed, which Keep both's
- * suggestion avoids. Null when they cancel; a failure throws. */
+ * `listNames` reads the library's names, which Keep both's suggestion
+ * avoids, once the name turns out taken. Null when they cancel; a failure
+ * throws. */
 export async function saveAsAsset(
-  file: GalleryFile,
-  existing: string[],
+  file: Saved,
+  listNames: () => Promise<string[]> = listAssetNames,
 ): Promise<{ name: string } | null> {
   const name = await nameDialog(
     'Later workflows can use the file under this name.',
@@ -117,6 +128,6 @@ export async function saveAsAsset(
     return await kept(file, name)
   } catch (e) {
     if (!nameTaken(e)) throw e
-    return onTaken(file, name, existing)
+    return onTaken(file, name, listNames)
   }
 }

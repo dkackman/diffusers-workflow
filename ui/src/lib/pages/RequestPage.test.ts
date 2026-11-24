@@ -31,8 +31,6 @@ vi.mock('../api', async () => ({
       }
       return data.request
     }),
-    galleryThumbnailUrl: (name: string, ws?: string) =>
-      `/thumb/${name}?ws=${ws}`,
     putRequest: (...args: unknown[]) => data.putRequest(...args),
     addNote: (...args: unknown[]) => data.addNote(...args),
     notesChannel: (...args: unknown[]) => data.notesChannel(...args),
@@ -159,7 +157,7 @@ it('leads with where the request stands, then the plan, the ask and its changes'
     screen
       .getByRole('img', { name: 'result of First poster' })
       .getAttribute('src'),
-  ).toBe('/thumb/run/a.png?ws=studio')
+  ).toBe('/api/gallery/run/a.png/thumbnail?workspace=studio')
   const rail = container.querySelector('.rail') as HTMLElement
   expect(within(rail).getByText(/three posters/).textContent).toBe(
     'make me\n  three posters',

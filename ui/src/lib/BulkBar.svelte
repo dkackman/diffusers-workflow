@@ -3,7 +3,7 @@
   // bar while anything is ticked, and the select-all button above the grid.
   // Shared by the gallery and the assets page, which run the same selection
   // (see picks.svelte.ts) and had two copies of this markup and its CSS.
-  import { Columns2, Download, Trash2 } from '@lucide/svelte'
+  import { Columns2, Download, Star, Trash2 } from '@lucide/svelte'
   import { COMPARE_MAX } from './compare'
   import type { Picks } from './picks.svelte'
 
@@ -13,6 +13,8 @@
     filterActive,
     busy = false,
     noun,
+    allStarred = false,
+    onstar,
     ondownload,
     ondelete,
     oncompare,
@@ -24,6 +26,10 @@
     busy?: boolean
     /** What one row is, for the region label: 'file', 'asset'. */
     noun: string
+    /** Every picked file is starred: the button then takes the star off. */
+    allStarred?: boolean
+    /** Only the gallery stars; without it no button shows. */
+    onstar?: (next: boolean) => void
     ondownload: () => void
     ondelete: () => void
     /** Only the gallery compares; without it no button shows. */
@@ -46,6 +52,16 @@
         aria-label="compare the selected {noun}s side by side"
       >
         <Columns2 size={14} />
+      </button>
+    {/if}
+    {#if onstar}
+      <button
+        class="quiet withicon"
+        onclick={() => onstar(!allStarred)}
+        disabled={busy}
+        title="{allStarred ? 'unstar' : 'star'} the selected {noun}s"
+      >
+        <Star size={14} />{allStarred ? 'Unstar' : 'Star'}
       </button>
     {/if}
     <button

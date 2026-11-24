@@ -98,6 +98,24 @@ it('shows the asset library by section, this workspace first, as thumbnails', ()
   )
 })
 
+it('a clip shows its play badge', async () => {
+  render(MediaPicker, { open: true, onpick: () => {} })
+  const clip = screen.getByRole('button', { name: 'choose clips/intro.mp4' })
+  expect(clip.querySelector('.videobadge')).toBeTruthy()
+  expect(clip.classList).toContain('filetile')
+  await showRuns()
+  const shot = screen.getByRole('button', {
+    name: `choose clip/${RUN1}/shot.mp4`,
+  })
+  expect(shot.querySelector('.videobadge')).toBeTruthy()
+  // a picture is never a badge's place
+  expect(
+    screen
+      .getByRole('button', { name: `choose portrait/${RUN1}/out.png` })
+      .querySelector('.videobadge'),
+  ).toBeNull()
+})
+
 it('keeps to the kind a field takes', () => {
   render(MediaPicker, { open: true, kind: 'video', onpick: () => {} })
   expect(tiles()).toEqual(['choose clips/intro.mp4'])

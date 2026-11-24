@@ -182,6 +182,23 @@ export function serverHref(section: ServerSection): string {
   return join(['server', section])
 }
 
+/** A comparison of `names`: the one builder, each name one path segment
+ * (so a name holding a slash survives the round trip through `parseView`,
+ * which takes `rest` as the decoded array). */
+export function compareHref(workspace: string, names: string[]): string {
+  return wsHref(workspace, 'compare', ...names)
+}
+
+/** A file opened in the Gallery or the Assets viewer: the section's
+ * `open=<name>` deep link, which the page opens (and Back closes). */
+export function fileHref(
+  workspace: string,
+  section: 'gallery' | 'assets',
+  name: string,
+): string {
+  return `${wsHref(workspace, section)}?open=${encodeURIComponent(name)}`
+}
+
 /** A job's page. With its workspace it is a full hash; without one, only
  * where the caller has none (the header's running link: health carries no
  * workspace), the legacy form the job page redirects. */

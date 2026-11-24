@@ -6,6 +6,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/svelte'
 import PromptEditorPage from './PromptEditorPage.svelte'
 import { api } from '../api'
@@ -376,4 +377,19 @@ it('shows the unsaved chip like the workflow editor', async () => {
   expect(screen.queryByText('unsaved')).toBeNull()
   await fireEvent.input(promptText(), { target: { value: 'changed' } })
   expect(screen.getByText('unsaved')).toBeTruthy()
+})
+
+it('Save is the one primary button of the prompt editor', async () => {
+  await openHero()
+  await waitFor(() => expect(screen.getByRole('button', { name: /^Save/ })))
+  const primary = within(
+    screen
+      .getByRole('heading', { level: 1 })
+      .closest('.pagehead') as HTMLElement,
+  )
+    .getAllByRole('button')
+    .filter((b) => b.matches('.withicon:not(.quiet, .bare)'))
+    .map((b) => b.textContent?.trim())
+  expect(primary).toEqual(['Save'])
+  expect(screen.getByRole('button', { name: /^Save/ })).not.toHaveClass('quiet')
 })

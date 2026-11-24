@@ -23,3 +23,11 @@ export function describeOutputMeta(
     negativePrompt: promptText(args?.negative_prompt),
   }
 }
+
+/** The arguments `describeOutputMeta` names on their own (the seed, the
+ * prompts), so a list of the rest (recipe.ts) does not say them twice */
+export const DESCRIBED_ARGUMENTS: readonly string[] = [
+  'seed',
+  'prompt',
+  'negative_prompt',
+]

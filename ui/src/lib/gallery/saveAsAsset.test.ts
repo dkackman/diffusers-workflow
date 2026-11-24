@@ -12,9 +12,11 @@ import { confirmState, resolveChoice } from '../confirm.svelte'
 import { action } from '../action.svelte'
 import { ApiError } from '../apiErrors'
 import type { GalleryFile } from '../types'
-import { assetNameError, saveAsAsset } from './saveAsAsset'
+import { assetLibrary } from '../assetlib.svelte'
+import { assetNameError, listAssetNames, saveAsAsset } from './saveAsAsset'
 
 const keepOutput = vi.hoisted(() => vi.fn())
+const listAssets = vi.hoisted(() => vi.fn())
 const notifyMock = vi.hoisted(() => ({
   success: vi.fn(),
   error: vi.fn(),
@@ -23,7 +25,10 @@ const notifyMock = vi.hoisted(() => ({
 }))
 vi.mock('../api', async () => ({
   ApiError: (await import('../apiErrors')).ApiError,
-  api: { keepOutput: (...a: unknown[]) => keepOutput(...a) },
+  api: {
+    keepOutput: (...a: unknown[]) => keepOutput(...a),
+    listAssets: () => listAssets(),
+  },
 }))
 vi.mock('../toast', () => ({ notify: notifyMock }))
 
@@ -43,6 +48,7 @@ const kept = (name: string) => ({ reference: `asset:${name}` })
 
 beforeEach(() => {
   keepOutput.mockReset()
+  listAssets.mockReset()
   for (const fn of Object.values(notifyMock)) fn.mockReset()
   render(ConfirmDialog)
 })
@@ -51,12 +57,21 @@ afterEach(() => {
   while (confirmState.open) resolveChoice(null)
 })
 
-/** saveAsAsset as GalleryDetail runs it */
-const save = (existing: string[] = []) =>
-  action(saveAsAsset, {
+/** The library's names as a listing after a 409 reads them */
+const listed = vi.fn<() => Promise<string[]>>()
+
+/** saveAsAsset as the Gallery runs it */
+const save = (
+  existing: string[] = [],
+  listNames: () => Promise<string[]> = listed,
+) => {
+  listed.mockReset()
+  listed.mockResolvedValue(existing)
+  return action(saveAsAsset, {
     doing: 'save it as an asset',
     success: (r) => `Saved as asset ${r.name}`,
-  }).run(file, existing)
+  }).run(file, listNames)
+}
 
 async function name(value?: string) {
   const dialog = await screen.findByRole('alertdialog', {
@@ -201,6 +216,41 @@ it('a refusal for another reason is a failure, not a question', async () => {
     expect.objectContaining({ message: 'This workspace has no asset library' }),
   )
   expect(keepOutput).toHaveBeenCalledTimes(1)
+})
+
+it('lists the library only after the name is taken', async () => {
+  keepOutput.mockResolvedValueOnce(kept('hero.png'))
+  let done = save(['face.png'])
+  await name('hero.png')
+  await done
+  expect(listed).not.toHaveBeenCalled()
+  await closed()
+
+  keepOutput
+    .mockRejectedValueOnce(taken())
+    .mockResolvedValueOnce(kept('face-2.png'))
+  done = save(['face.png'])
+  await name()
+  await fireEvent.click(
+    within(await conflict()).getByRole('button', { name: 'Keep both' }),
+  )
+  expect(await done).toEqual({ name: 'face-2.png' })
+  expect(listed).toHaveBeenCalledTimes(1)
+})
+
+it('a failed listing leaves the shared list alone', async () => {
+  assetLibrary.items = [{ name: 'face.png' }] as typeof assetLibrary.items
+  listAssets.mockRejectedValueOnce(new Error('down'))
+  keepOutput.mockRejectedValueOnce(taken())
+  const done = save([], listAssetNames)
+  await name()
+  // the question is still asked, its suggestion from no names
+  const dialog = await conflict()
+  expect(listAssets).toHaveBeenCalledTimes(1)
+  await fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+  expect(await done).toBeNull()
+  expect(assetLibrary.items).toEqual([{ name: 'face.png' }])
+  expect(notifyMock.failure).not.toHaveBeenCalled()
 })
 
 it('names a bad name and an empty one', () => {

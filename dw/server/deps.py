@@ -17,7 +17,12 @@ from ..adapter_compatibility import catalog_index
 from ..lora_catalog import entry_errors
 from ..presets import PRESETS_KEY, effective_variables
 from ..realize import strings_with_prefix
-from ..security import SecurityError, validate_asset_reference
+from ..security import (
+    InvalidInputError,
+    SecurityError,
+    validate_asset_reference,
+    validate_ledger_key,
+)
 from ..vram_inheritance import (
     build_index,
     inherited_differences,
@@ -57,6 +62,19 @@ def internal_error(message):
     return HTTPException(
         status_code=500, detail="internal error - the server log has the detail"
     )
+
+
+def check_ledger_filter(request_id, item):
+    """Refuse a listing's requests-ledger filter: an `item` without a
+    `request`, or either as a malformed ledger key, is a 422."""
+    if item and not request_id:
+        raise HTTPException(status_code=422, detail="item needs request")
+    for value, what in ((request_id, "request"), (item, "item")):
+        if value:
+            try:
+                validate_ledger_key(value, what)
+            except InvalidInputError as e:
+                raise HTTPException(status_code=422, detail=str(e))
 
 
 def asset_library_missing(shared=False):

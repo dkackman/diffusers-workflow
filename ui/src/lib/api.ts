@@ -73,10 +73,11 @@ import {
   addToken,
   appendQuery,
   encodePath,
+  linked,
   outputUrl,
+  queryOf,
   scopeTo,
   withToken,
-  galleryThumbnailUrl,
 } from './apiUrls'
 import { documentRoutes } from './apiDocuments'
 import { adoptJob } from './jobWatch'
@@ -114,24 +115,19 @@ export const api = {
   // state or a comma-separated set ('succeeded,failed,cancelled'); `limit`
   // keeps the newest N of what matched.
   // `requestId` (with `item`) narrows to the jobs linked to a requests-ledger
-  // request, or one item of it
+  // request, or one item of it; `opts.prompts` adds each job's prompt
   listJobs: (
     workspace?: string,
     limit?: number,
     status?: string,
     requestId?: string,
     item?: string,
+    opts?: { prompts?: boolean },
   ) => {
-    const query = new URLSearchParams()
-    if (workspace) query.set('workspace', workspace)
-    if (status) query.set('status', status)
-    if (requestId) query.set('request', requestId)
-    if (requestId && item) query.set('item', item)
-    if (limit) query.set('limit', String(limit))
-    const qs = query.toString()
-    return request<JobList>(qs ? `/api/jobs?${qs}` : '/api/jobs', undefined, {
-      scope: false,
-    })
+    const link = linked(requestId, item)
+    const qs = queryOf({ workspace, status, ...link, limit, ...opts })
+    const url = qs ? `/api/jobs?${qs}` : '/api/jobs'
+    return request<JobList>(url, undefined, UNSCOPED)
   },
   getJob: (id: string) => request<JobDetail>(`/api/jobs/${id}`),
   /** The definition a job ran, for the job page's read-only flow view.
@@ -296,13 +292,16 @@ export const api = {
   // it asks for none
   // `requestId` narrows to the runs whose job is linked to that
   // requests-ledger request (in the selected workspace), and `item` to one
-  // item of it
-  gallery: (roles?: string[], requestId?: string, item?: string) => {
-    const params = new URLSearchParams({ limit: '100000' })
-    for (const role of roles ?? []) params.append('role', role)
-    if (requestId) params.set('request', requestId)
-    if (requestId && item) params.set('item', item)
-    return request<GalleryList>(`/api/gallery?${params}`)
+  // item of it. `opts`: `prompts` (by run id), `media` (durations)
+  gallery: (
+    roles?: string[],
+    requestId?: string,
+    item?: string,
+    opts?: { prompts?: boolean; media?: boolean },
+  ) => {
+    const link = linked(requestId, item)
+    const qs = queryOf({ limit: 100000, role: roles, ...link, ...opts })
+    return request<GalleryList>(`/api/gallery?${qs}`)
   },
   // `workspace`, when given, names the file's own workspace and wins over
   // whatever is currently selected in the picker - mirrors `outputUrl`, since
@@ -323,7 +322,6 @@ export const api = {
    * the whole file, so only a click calls it, never a poll. */
   assess: (name: string) =>
     request<AssessReply>(`/api/gallery/${encodePath(name)}/assess`),
-  galleryThumbnailUrl,
   deleteOutput: (name: string) =>
     request<OutputDeleted>(`/api/gallery/${encodePath(name)}`, {
       method: 'DELETE',
@@ -360,9 +358,10 @@ export const api = {
         (shared ? '&shared=true' : ''),
       { method: 'POST', body: file, headers: preconditionHeaders(pre) },
     ),
-  /** The asset library, spanning the workspace's own, the shared `common`
-   * one and any example library - each entry tagged with which. */
-  listAssets: () => request<AssetList>('/api/assets'),
+  /** The asset library: the workspace's own, the shared `common` one and any
+   * example library, each entry tagged with which; `media` adds A/V lengths */
+  listAssets: (opts?: { media?: boolean }) =>
+    request<AssetList>(opts?.media ? '/api/assets?media=true' : '/api/assets'),
   /** Download a multi-file asset selection as one zip - the gallery's bulk
    * download, for the input side. Spans every library on the search path,
    * since the grid does. */

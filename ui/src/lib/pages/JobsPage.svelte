@@ -1,26 +1,23 @@
 <script lang="ts">
-  import { formatDuration, formatExact, formatMtime } from '../format'
-  import StatusChip from '../ui/StatusChip.svelte'
-  import { holdKind, holdText } from '../progress'
-  import { queueWait } from '../jobTimes'
+  import { proofByRun } from '../proofs'
+  import JobRow from '../job/JobRow.svelte'
   import { resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
   import PageHeader from '../ui/PageHeader.svelte'
   import { onMount } from 'svelte'
-  import { ChevronDown, ChevronUp, ChevronsUp, Inbox } from '@lucide/svelte'
+  import { Inbox } from '@lucide/svelte'
   import { api } from '../api'
   import { action } from '../action.svelte'
-  import type { JobSummary } from '../types'
-  import { versionTitle, workflowName } from '../terms'
-  import { wsHref } from '../routes'
   import { hashState } from '../router.svelte'
   import RequestFilter from '../gallery/RequestFilter.svelte'
   import {
-    listJobs,
+    jobMatches,
+    listWithPrompts,
     listingRefused,
     listingWorkspace,
     queueLength,
     queuedEverywhere,
+    runningProgress,
   } from '../jobsListing'
   import { loadWorkspaces, workspace } from '../workspace.svelte'
   import {
@@ -82,15 +79,32 @@
   // What load reads before its first await (the scope's workspace and the
   // request filter) restarts the read when it changes, so a narrowed view
   // never shows another question's rows
+  // Prompts ride along only for jobs not yet read (listWithPrompts): a
+  // prompt never changes, so the 3 s poll does not ask for them again
+  const known = new Map<string, string>()
   const list = resource(
     async () => {
       const [ws, scoped] = [listed, { ...requestScope }]
-      const rows = (await listJobs(ws, scoped)).jobs.reverse()
+      const { list: answer, prompts } = await listWithPrompts(ws, scoped, known)
+      const rows = answer.jobs.reverse()
       const queued = await queuedEverywhere(rows, !!(ws || scoped.request))
-      return { rows, queueSize: queueLength(rows, queued) }
+      const progress = await runningProgress(rows)
+      return { rows, queueSize: queueLength(rows, queued), prompts, progress }
     },
     { live: { everyMs: 3000 } },
   )
+  // Each run's picture, from the workspace's gallery
+  const gallery = resource(
+    async () => {
+      const { files, workspace: from } = await api.gallery()
+      return { from, runs: proofByRun(files) }
+    },
+    { watch: ['gallery'] },
+  )
+  const runs = $derived(gallery.data?.runs ?? {})
+  const listedGallery = $derived(gallery.data?.from ?? '')
+  const prompts = $derived(list.data?.prompts ?? {})
+  const progress = $derived(list.data?.progress ?? {})
   // The server turning the question down: its message is the explanation,
   // and the rows of an earlier question must not stay under this one's
   const refused = $derived(
@@ -108,9 +122,7 @@
     jobs.filter(
       (job) =>
         (!statusFilter.value || job.status === statusFilter.value) &&
-        workflowName(job)
-          .toLowerCase()
-          .includes(nameFilter.value.toLowerCase()),
+        jobMatches(job, prompts[job.id] ?? '', nameFilter.value),
     ),
   )
   // Batches a preview found nothing left to rerun in: their banner stays
@@ -153,30 +165,6 @@
     event.preventDefault()
     void moving.run(id, way)
   }
-
-  const requestLabel = (f: { request: string; item: string }) =>
-    f.item ? `${f.request} › ${f.item}` : f.request
-  const when = (t: number | null) => (t ? formatMtime(t) : '—')
-  const waitOf = (job: JobSummary) => queueWait(job, Date.now() / 1000)
-  // The row shows the compact start; hovering gives it to the second, with
-  // the finish and any time spent queued
-  const timesOf = (job: JobSummary) => {
-    const wait = waitOf(job)
-    return [
-      job.started_at && `started ${formatExact(job.started_at)}`,
-      job.finished_at && `finished ${formatExact(job.finished_at)}`,
-      wait !== null &&
-        wait >= 1 &&
-        `waited ${formatDuration(wait)} in the queue`,
-    ]
-      .filter(Boolean)
-      .join('\n')
-  }
-  const duration = (job: JobSummary) => {
-    if (!job.started_at) return ''
-    const end = job.finished_at ?? Date.now() / 1000
-    return formatDuration(end - job.started_at)
-  }
 </script>
 
 {#snippet filters()}
@@ -204,7 +192,7 @@
   {/if}
   <input
     class="filter"
-    placeholder="filter by workflow…"
+    placeholder="search names, prompts, notes and ids…"
     bind:value={nameFilter.value}
   />
 {/snippet}
@@ -251,133 +239,16 @@
   {#if visible.length > 0}
     <div class="panel list">
       {#each visible as job (job.id)}
-        <a
-          class="row plain"
-          class:historical={job.historical}
-          class:row-live={job.status === 'running'}
-          href={wsHref(job.workspace, 'jobs', job.id)}
-          title={job.historical
-            ? 'finished before this server started - loaded from history'
-            : ''}
-        >
-          <StatusChip status={job.status} />
-          <span class="namecol">
-            <span class="name">
-              {workflowName(job)}
-              {#if job.run_version}
-                <span
-                  class="wschip muted"
-                  title={versionTitle(job.run_version)}
-                >
-                  v{job.run_version}
-                </span>
-              {/if}
-              {#if job.rerun_of}
-                <span class="wschip muted" title="a rerun of {job.rerun_of}">
-                  rerun
-                </span>
-              {/if}
-              {#if job.request}
-                <span
-                  class="wschip muted"
-                  title="request {job.request}{job.item
-                    ? `, item ${job.item}`
-                    : ''}"
-                >
-                  {requestLabel({
-                    request: job.request,
-                    item: job.item ?? '',
-                  })}
-                </span>
-              {/if}
-              {#if scope === 'all' && (workspace.names?.length ?? 0) > 1}
-                <span class="wschip muted" title="workspace">
-                  {job.workspace}
-                </span>
-              {/if}
-              {#if job.device}
-                <span class="wschip muted" title="the card this job ran on">
-                  {job.device}
-                </span>
-              {/if}
-              {#if job.acknowledged === 'bound'}
-                <span
-                  class="wschip muted"
-                  title="queued with a cost acknowledgement bound to the validated plan"
-                >
-                  acknowledged
-                </span>
-              {/if}
-              {#if job.queue_position !== undefined}
-                <span class="qpos" title="position in the waiting queue">
-                  #{job.queue_position + 1}
-                </span>
-                {#if queueSize > 1}
-                  <span class="qmove">
-                    {#if job.queue_position > 0}
-                      <button
-                        class="quiet icon"
-                        onclick={(e) => move(e, job.id, 'front')}
-                        title="run this job next"
-                        aria-label="move {job.id} to the front of the queue"
-                      >
-                        <ChevronsUp size={13} />
-                      </button>
-                      <button
-                        class="quiet icon"
-                        onclick={(e) => move(e, job.id, 'up')}
-                        title="move up one place"
-                        aria-label="move {job.id} up one place"
-                      >
-                        <ChevronUp size={13} />
-                      </button>
-                    {/if}
-                    {#if job.queue_position < queueSize - 1}
-                      <button
-                        class="quiet icon"
-                        onclick={(e) => move(e, job.id, 'down')}
-                        title="move down one place"
-                        aria-label="move {job.id} down one place"
-                      >
-                        <ChevronDown size={13} />
-                      </button>
-                    {/if}
-                  </span>
-                {/if}
-              {/if}
-            </span>
-            {#if job.reason}
-              <span class="reason muted" title={job.reason}>{job.reason}</span>
-            {/if}
-          </span>
-          {#if job.status === 'queued'}
-            {@const wait = waitOf(job)}
-            <span
-              class="muted started"
-              title={job.created_at
-                ? `queued ${formatExact(job.created_at)} - time spent waiting for a card`
-                : 'time spent waiting for a card'}
-            >
-              waiting {wait === null ? '' : formatDuration(wait)}
-            </span>
-            {#if job.waiting_for}
-              {@const kind = holdKind(job.waiting_for)}
-              <span class="muted" title={holdText(job.waiting_for)}>
-                · {kind === 'host_ram'
-                  ? 'host RAM'
-                  : kind === 'cards_busy'
-                    ? 'cards busy'
-                    : 'held'}
-              </span>
-            {/if}
-          {:else}
-            <span class="muted started" title={timesOf(job)}>
-              {when(job.started_at)}
-            </span>
-          {/if}
-          <span class="muted dur">{duration(job)}</span>
-          <code class="muted jobid">{job.id}</code>
-        </a>
+        {@const proof = job.run_id ? runs[job.run_id] : undefined}
+        <JobRow
+          {job}
+          {queueSize}
+          showWorkspace={scope === 'all' && (workspace.names?.length ?? 0) > 1}
+          prompt={prompts[job.id] ?? ''}
+          percent={progress[job.id] ?? null}
+          proof={proof && job.workspace === listedGallery ? proof : null}
+          onmove={move}
+        />
       {/each}
     </div>
   {/if}
@@ -387,40 +258,6 @@
   select {
     max-width: 150px;
   }
-  .row {
-    display: grid;
-    grid-template-columns: 90px minmax(0, 1fr) auto auto auto;
-    gap: 1rem;
-    align-items: center;
-  }
-  /* The job id is the widest unbreakable cell and is repeated on the job
-     page itself, so it is the first thing to go as the row narrows; below
-     that the timestamps drop to a second line under the name */
-  @media (max-width: 860px) {
-    .row {
-      grid-template-columns: 90px minmax(0, 1fr) auto auto;
-    }
-    .jobid {
-      display: none;
-    }
-  }
-  @media (max-width: 560px) {
-    .row {
-      grid-template-columns: auto minmax(0, 1fr);
-      gap: 0.2rem 0.7rem;
-    }
-  }
-  .row.historical {
-    opacity: 0.72;
-  }
-  /* The name and, under it, why a failed or cancelled job ended - each its
-     own element, so a later line beside the reason is a sibling */
-  .reason {
-    font-size: var(--t-xs);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
   .restart {
     display: flex;
     align-items: center;
@@ -429,47 +266,5 @@
     padding: 0.55rem 0.8rem;
     margin-bottom: 0.6rem;
     box-shadow: inset 3px 0 0 var(--warn);
-  }
-  /* A workflow name is what the engine resolved to run this job */
-  .name {
-    font-family: var(--font-mono);
-    font-size: var(--t-sm);
-    font-weight: 600;
-    display: inline-flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 0.4rem;
-    min-width: 0;
-    overflow-wrap: anywhere;
-  }
-  .started,
-  .dur {
-    font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
-    font-size: var(--t-xs);
-  }
-  .qpos {
-    font-family: var(--font-mono);
-    font-size: var(--t-xs);
-    color: var(--muted);
-    border: 1px solid var(--line);
-    border-radius: 4px;
-    padding: 0 0.3rem;
-    font-variant-numeric: tabular-nums;
-  }
-  .wschip {
-    font-family: var(--font-mono);
-    font-size: var(--t-xs);
-    border: 1px solid var(--line);
-    border-radius: 4px;
-    padding: 0 0.3rem;
-  }
-  .qmove {
-    display: inline-flex;
-    gap: 0.1rem;
-  }
-  .icon {
-    display: inline-flex;
-    padding: 0.15rem 0.3rem;
   }
 </style>

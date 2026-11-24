@@ -13,7 +13,8 @@ const STILLS = [
   'e2e-run-group/20260906-101612-ffffffff/still.png',
   'e2e-run-group/20260906-101500-a1b2c3d4/still.png',
 ]
-// The height a narrowed, starred gallery scrolls in: its six run files
+// The height a narrowed, starred gallery scrolls in: its ten run files (the
+// fixture's six and the four of e2e-find, all of which `e2e` finds)
 // stand taller than this viewport
 const SHORT = { width: 1000, height: 500 }
 
@@ -43,11 +44,11 @@ const scrollY = (page: Page) => page.evaluate(() => window.scrollY)
 async function narrowAndScroll(page: Page, by = 400): Promise<number> {
   await page.setViewportSize(SHORT)
   await page.goto(GALLERY)
-  await page.getByPlaceholder('filter…').fill('e2e')
+  await page.getByPlaceholder('search names, prompts and notes…').fill('e2e')
   await page.getByRole('button', { name: 'Starred', exact: true }).click()
   await expect(page).toHaveURL(/q=e2e/)
   await expect(page).toHaveURL(/starred=1/)
-  await expect(page.locator('button.cell')).toHaveCount(6)
+  await expect(page.locator('button.filetile')).toHaveCount(10)
   await page.mouse.move(600, 300)
   await page.mouse.wheel(0, by)
   await expect.poll(() => scrollY(page)).toBeGreaterThan(by - 50)
@@ -113,12 +114,11 @@ test("each sidebar section's tab title and h1 are its sidebar label", async ({
 }) => {
   // A page that names its subject rather than its section says so here:
   // the overview is the workspace's, the editor's is its document's, and
-  // the shared Assets and the Schema pages qualify the label
+  // the shared Assets page qualifies the label
   const subject: Record<string, string> = {
     '#/ws/default/overview': 'default',
     '#/ws/default/edit': 'New workflow',
     '#/shared/assets': 'Shared assets',
-    '#/server/schema': 'Workflow Schema',
   }
   await page.goto('/#/ws/default/jobs')
   const items = await page
@@ -173,7 +173,9 @@ test('Back to a narrowed, scrolled gallery that loads late keeps its filters and
   await star(request, STILLS[0], true)
   await expect(page).toHaveURL(/q=e2e/)
   await expect(page).toHaveURL(/starred=1/)
-  await expect(page.getByPlaceholder('filter…')).toHaveValue('e2e')
+  await expect(
+    page.getByPlaceholder('search names, prompts and notes…'),
+  ).toHaveValue('e2e')
   await expect(
     page.getByRole('button', { name: 'Starred', exact: true }),
   ).toHaveAttribute('aria-pressed', 'true')
@@ -228,17 +230,23 @@ test("Back and Forward between two queries on the same path restore each entry's
   await page.evaluate(() => {
     location.hash = '#/ws/default/gallery?starred=1'
   })
-  await expect(page.getByPlaceholder('filter…')).toHaveValue('')
+  await expect(
+    page.getByPlaceholder('search names, prompts and notes…'),
+  ).toHaveValue('')
   expect(await scrollY(page)).toBe(first)
   await page.mouse.wheel(0, -200)
   await expect.poll(() => scrollY(page)).toBeLessThan(first - 150)
   const second = await scrollY(page)
 
   await page.goBack()
-  await expect(page.getByPlaceholder('filter…')).toHaveValue('e2e')
+  await expect(
+    page.getByPlaceholder('search names, prompts and notes…'),
+  ).toHaveValue('e2e')
   await expect.poll(() => scrollY(page)).toBe(first)
   await page.goForward()
-  await expect(page.getByPlaceholder('filter…')).toHaveValue('')
+  await expect(
+    page.getByPlaceholder('search names, prompts and notes…'),
+  ).toHaveValue('')
   await expect.poll(() => scrollY(page)).toBe(second)
 })
 
@@ -246,13 +254,13 @@ test('typing in the gallery filter leaves focus in the field', async ({
   page,
 }) => {
   await page.goto(GALLERY)
-  const filter = page.getByPlaceholder('filter…')
+  const filter = page.getByPlaceholder('search names, prompts and notes…')
   await filter.click()
   await page.keyboard.type('still', { delay: 50 })
   await expect(page).toHaveURL(/q=still/)
   await expect(filter).toBeFocused()
   await expect(filter).toHaveValue('still')
-  await expect(page.locator('button.cell')).toHaveCount(2)
+  await expect(page.locator('button.filetile')).toHaveCount(2)
   await expect(filter).toBeFocused()
 })
 
@@ -261,7 +269,10 @@ test('a star is undone, not asked about', async ({ page, request }) => {
   await star(request, name, false)
   await page.goto(GALLERY)
   await page.getByRole('button', { name: new RegExp(`^${name}`) }).click()
-  await page.getByRole('button', { name: 'star this file' }).click()
+  const viewer = page.getByRole('dialog')
+  await viewer
+    .getByRole('button', { name: 'Star', exact: true, pressed: false })
+    .click()
   await expect.poll(() => isStarred(request, name)).toBe(true)
   const toast = page
     .locator('[data-sonner-toast]')
@@ -269,7 +280,7 @@ test('a star is undone, not asked about', async ({ page, request }) => {
   await toast.getByRole('button', { name: 'Undo' }).click()
   await expect.poll(() => isStarred(request, name)).toBe(false)
   await expect(
-    page.getByRole('button', { name: 'star this file' }),
+    viewer.getByRole('button', { name: 'Star', exact: true, pressed: false }),
   ).toBeVisible()
 })
 
@@ -281,7 +292,8 @@ test('deleting a starred file says it is starred and asks in danger', async ({
   await page.goto(GALLERY)
   await page.getByRole('button', { name: new RegExp(`^${name}`) }).click()
   await page
-    .getByRole('button', { name: 'delete this file from the output directory' })
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Delete', exact: true })
     .click()
   const dialog = page.getByRole('alertdialog')
   await expect(dialog).toContainText(`Delete ${name}?`)

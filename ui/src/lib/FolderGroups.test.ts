@@ -42,4 +42,39 @@ describe('FolderGroups', () => {
     expect(headings[0].textContent).toContain('tti/')
     expect(headings[0].textContent).toContain('(2)')
   })
+
+  it('the toggle is disabled and says why while filtering', () => {
+    const { container } = render(FolderGroups, {
+      names: ['a/one', 'b/two'],
+      collapseKey: 'test-filtering',
+      filterActive: true,
+      card,
+    })
+    const toggles = [...container.querySelectorAll('button.group')]
+    expect(toggles.length).toBe(2)
+    for (const toggle of toggles) {
+      expect(toggle).toBeDisabled()
+      expect(toggle).toHaveAttribute(
+        'title',
+        'Showing every match while the filter is on',
+      )
+    }
+  })
+
+  it('orders and labels its groups as the caller says', () => {
+    const order = ['Today', 'Earlier']
+    const { container } = render(FolderGroups, {
+      names: ['old', 'new'],
+      collapseKey: 'test-ranked',
+      filterActive: false,
+      groupOf: (name: string) => (name === 'new' ? 'Today' : 'Earlier'),
+      rank: (group: string) => order.indexOf(group),
+      heading: (group: string) => group,
+      card,
+    })
+    const headings = [...container.querySelectorAll('.group')].map((el) =>
+      el.textContent?.trim(),
+    )
+    expect(headings).toEqual(['Today (1)', 'Earlier (1)'])
+  })
 })

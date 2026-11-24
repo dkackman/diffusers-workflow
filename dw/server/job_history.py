@@ -389,12 +389,11 @@ class JobHistory:
         before #1245). Its own SQL with no row cap, not the 200-row listing.
         A retired workspace's rows are members too, `workspace` still
         carrying DELETED_SUFFIX, so the caller can say why it skips one."""
-        pattern = RESTART_LIKE
         with self._lock, self._connect() as connection:
             row = connection.execute(
                 "SELECT server_instance FROM jobs WHERE id = ? AND status = ?"
                 " AND error LIKE ? AND server_instance IS NOT NULL",
-                (job_id, CANCELLED, pattern),
+                (job_id, CANCELLED, RESTART_LIKE),
             ).fetchone()
             if row is None:
                 return None
@@ -403,7 +402,7 @@ class JobHistory:
                 "SELECT id, workflow, workflow_name, workspace, created_at FROM jobs"
                 " WHERE server_instance = ? AND status = ? AND error LIKE ?"
                 " ORDER BY created_at, id",
-                (instance, CANCELLED, pattern),
+                (instance, CANCELLED, RESTART_LIKE),
             ).fetchall()
         return instance, [dict(member) for member in rows]
 
@@ -436,9 +435,8 @@ class JobHistory:
         from ..host_memory_projection import COMMITTED_PEAK, RSS_PEAK
 
         peaks, committed = self._peaks_for_key(key)
-        if not peaks:
-            return peaks, None
-        return peaks, COMMITTED_PEAK if committed else RSS_PEAK
+        basis = COMMITTED_PEAK if committed else RSS_PEAK
+        return peaks, basis if peaks else None
 
     def _peaks_for_key(self, key):
         """This machine's committed job peak, in MB, for every successful run
@@ -623,17 +621,24 @@ class JobHistory:
     def run_ids_for_request(self, workspace, request, item=None):
         """The run ids of `workspace`'s jobs linked to `request` (and, with
         `item`, to that item of it) - what the run-based gallery filters by."""
-        sql = (
-            "SELECT run_id FROM jobs WHERE workspace = ? AND request = ?"
-            " AND run_id IS NOT NULL"
-        )
-        params = [workspace, request]
-        if item:
-            sql += " AND item = ?"
-            params.append(item)
+        sql = "SELECT run_id FROM jobs WHERE workspace = ? AND request = ?"
+        sql += " AND run_id IS NOT NULL" + (" AND item = ?" if item else "")
+        params = [workspace, request, *([item] if item else [])]
         with self._lock, self._connect() as connection:
             rows = connection.execute(sql, params).fetchall()
         return {row["run_id"] for row in rows}
+
+    def submitted_prompts(self, ids, by_run=False, workspace=None):
+        """(id, run id, json_type, json_extract) of `$.prompt` for `workspace`'s rows
+        (any for None) whose id (run id `by_run`) is in list `ids` - not the blob."""
+        p, rows, col = "arguments, '$.prompt'", [], ("id", "run_id")[by_run]
+        sql = f"SELECT id, run_id, json_type({p}), json_extract({p}) FROM jobs"
+        sql += " WHERE json_valid(arguments) AND IFNULL(?, workspace) IS workspace"
+        for chunk in (ids[at : at + 500] for at in range(0, len(ids), 500)):
+            with self._lock, self._connect() as connection:
+                query = f"{sql} AND {col} IN ({','.join('?' * len(chunk))})"
+                rows += connection.execute(query, [workspace, *chunk]).fetchall()
+        return rows
 
     def device_ordinal(self, job_id):
         """The ordinal of the card a finished job ran on ('cuda:1'), or None
@@ -772,10 +777,8 @@ class JobHistory:
             row = connection.execute(
                 "SELECT events FROM jobs WHERE id = ?", (job_id,)
             ).fetchone()
-        if row is None:
-            return None
-        if not row["events"]:
-            return []
+        if row is None or not row["events"]:
+            return None if row is None else []
         try:
             return stored_manifest(json.loads(row["events"]))
         except json.JSONDecodeError:
@@ -796,7 +799,6 @@ class JobHistory:
         each produce a file with the same relative name, and without this a
         later job in another workspace could wrongly claim the match.
         """
-        escaped = _like_escaped(file_name)
         # Unbounded on purpose: every later fixed-seed rerun republishes the
         # file with 'reused', so a LIMIT would let the writing job fall out of
         # the window after that many reruns and leave the file unattributed.
@@ -804,10 +806,8 @@ class JobHistory:
         query = (
             "SELECT id, status, manifest FROM jobs WHERE manifest LIKE ? ESCAPE '\\'"
         )
-        params = [f"%{escaped}%"]
-        if workspace:
-            query += " AND workspace = ?"
-            params.append(workspace)
+        query += " AND workspace = ?" if workspace else ""
+        params = [f"%{_like_escaped(file_name)}%", *([workspace] if workspace else [])]
         query += " ORDER BY finished_at DESC"
         with self._lock, self._connect() as connection:
             rows = connection.execute(query, params).fetchall()

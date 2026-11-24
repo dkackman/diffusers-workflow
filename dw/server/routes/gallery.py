@@ -28,7 +28,6 @@ from ..api_models import (
 )
 from ...assets import is_asset_reference
 from ...library import ReadOnlyLibraryError
-from ...media import probe_media
 from ...notes import (
     MAX_NOTE_LENGTH,
     NOTES_FILE_NAME,
@@ -52,13 +51,7 @@ from ...runs import (
     record_run_versions,
     split_run_path,
 )
-from ...security import (
-    InvalidInputError,
-    SecurityError,
-    validate_asset_reference,
-    validate_ledger_key,
-    validate_path,
-)
+from ...security import SecurityError, validate_asset_reference, validate_path
 from ...workspace import DEFAULT_WORKSPACE_NAME, Workspace, forget_workspace_usage
 from ..changes import (
     ASSETS,
@@ -72,6 +65,7 @@ from ..changes import (
 )
 from ..deps import (
     asset_library_missing,
+    check_ledger_filter,
     internal_error,
     selected_workspace,
     workspace_for,
@@ -85,8 +79,10 @@ from ..outputs import (
     absolute_served_url,
     archive_selection,
     iter_gallery_files,
+    probed_duration,
     resolve_output_file,
     run_directory,
+    run_prompts,
     consumed_in,
     output_annotations,
     served_url,
@@ -228,14 +224,27 @@ def _check_gallery_filters(role, request_id, item):
                 status_code=400,
                 detail=f"unknown role {unknown}; roles are {list(ROLES)}",
             )
-    if item and not request_id:
-        raise HTTPException(status_code=422, detail="item needs request")
-    for value, what in ((request_id, "request"), (item, "item")):
-        if value:
-            try:
-                validate_ledger_key(value, what)
-            except InvalidInputError as e:
-                raise HTTPException(status_code=422, detail=str(e))
+    check_ledger_filter(request_id, item)
+
+
+def _page_extras(request, ws, page, media, prompts):
+    """What the opt-ins add to a gallery page: with `media`, each audio and
+    video entry's `duration_seconds` (set in place); with `prompts`, the
+    listing's `prompts` key, returned. {} when neither is asked for."""
+    if media:
+        for entry in page:
+            if entry["kind"] not in ("audio", "video"):
+                continue
+            probed = probed_duration(
+                os.path.join(ws.outputs, entry["name"]), ws.outputs
+            )
+            if probed is not None:
+                entry["duration_seconds"] = probed.get("duration_seconds")
+    if not prompts:
+        return {}
+    history = request.app.state.job_manager.history
+    runs = {entry["run_id"] for entry in page if entry["run_id"]}
+    return {"prompts": run_prompts(history, ws.name, runs)}
 
 
 @router.get(
@@ -250,6 +259,7 @@ def gallery(
     only_orphans: bool = False,
     version: Optional[int] = None,
     media: bool = False,
+    prompts: bool = False,
     role: Optional[list[str]] = Query(None),
     request_id: Optional[str] = Query(
         default=None,
@@ -296,7 +306,13 @@ def gallery(
     by, since size and mtime are misleading proxies for length (#356).
     Off by default and bounded by `limit`: only the page actually
     returned is probed, not the whole listing, so the cost of asking
-    stays proportional to the page size rather than the library size.
+    stays proportional to the page size rather than the library size. A
+    file's answer is its header's duration, memoised on its mtime and
+    size (`probed_duration`).
+
+    `prompts=true` adds `prompts`: run id -> the `prompt` argument its job
+    was submitted with, for the runs on the page. A run whose job history
+    no longer holds has no entry.
 
     Each entry carries `role`, `final` or `intermediate` (null for a
     flat-layout file or one no manifest lists); a file a later run read
@@ -344,13 +360,7 @@ def gallery(
     offset = max(0, offset)
     limit = max(0, limit)
     page = entries[offset : offset + limit]
-    if media:
-        for entry in page:
-            if entry["kind"] not in ("audio", "video"):
-                continue
-            probed = probe_media(os.path.join(ws.outputs, entry["name"]))
-            if probed is not None:
-                entry["duration_seconds"] = probed.get("duration_seconds")
+    extras = _page_extras(request, ws, page, media, prompts)
     return {
         "files": page,
         "total": len(entries),
@@ -359,6 +369,7 @@ def gallery(
         "folders": folders,
         "subfolders": subfolders,
         "workspace": ws.name,
+        **extras,
     }
 
 

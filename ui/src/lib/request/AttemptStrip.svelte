@@ -3,9 +3,14 @@
   import StatusChip from '../ui/StatusChip.svelte'
   import ItemProof from './ItemProof.svelte'
   import { takesOf, type Take } from './itemState'
+  import { COMPARE_MAX } from '../compare'
   import { formatSpent } from '../format'
-  import { wsHref } from '../routes'
+  import { hasPicture, jobMedia, type MediaFile } from '../media'
+  import { openInHash } from '../mediaViewer'
+  import { compareHref, jobHref } from '../routes'
   import type { LedgerItem } from '../types'
+  import MediaViewer from '../ui/MediaViewer.svelte'
+  import RecipePanel from '../ui/RecipePanel.svelte'
 
   // An item's takes - every job linked to it - oldest to newest, as
   // pictures: which one is the result, and whether the user chose it or it
@@ -37,6 +42,36 @@
     latest: 'latest take',
   }
 
+  // The takes that have a file, oldest to newest: what the viewer steps
+  // through. A take's output name is the manifest's own, relative to the
+  // output root, and two runs of a workflow can write the same one - so the
+  // viewer tells takes apart by `job/name`, the key `open=` carries in the
+  // hash (its leaf is still the file's). Each file is read through its job
+  const files = $derived(
+    takes.flatMap((take) => {
+      const out = take.attempt.output
+      if (!out) return []
+      const file = jobMedia(out.name, out.kind, take.attempt.job, workspace)
+      return [{ take, file, key: `${take.attempt.job}/${out.name}` }]
+    }),
+  )
+  const items = $derived(files.map((f) => ({ ...f.file, name: f.key })))
+  const fileOf = (shown: MediaFile) => files.find((f) => f.key === shown.name)
+  let open = $state<string | null>(openInHash())
+  const openTake = (job: string, name: string) => () =>
+    (open = `${job}/${name}`)
+  // Two or more takes with a picture or clip: the newest few side by side.
+  // The compare route addresses files by name: each name once, the newest
+  // take's place
+  const pictured = $derived(files.filter((f) => hasPicture(f.file.kind)))
+  const compared = $derived.by(() => {
+    const names = pictured.map((f) => f.file.name)
+    return names
+      .filter((n, i) => names.lastIndexOf(n) === i)
+      .slice(-COMPARE_MAX)
+  })
+  const comparable = $derived(compared.length >= 2)
+
   // The newest take is the one being looked for: the strip starts at its end
   let strip = $state<HTMLElement>()
   $effect(() => {
@@ -52,6 +87,13 @@
     {#if onaccept}Accept another to settle it.{/if}
   </p>
 {/if}
+{#if comparable}
+  <p class="head">
+    <a class="quiet compare" href={compareHref(workspace, compared)}>
+      Compare takes
+    </a>
+  </p>
+{/if}
 <ul class="strip" bind:this={strip} aria-label="Takes of {item.title}">
   {#each takes as take (take.attempt.job)}
     {@const attempt = take.attempt}
@@ -63,13 +105,22 @@
         output={attempt.output}
         state={attempt.status}
         {workspace}
-        href={wsHref(workspace, 'jobs', attempt.job)}
+        href={jobHref(attempt.job, workspace)}
+        onopen={attempt.output
+          ? openTake(attempt.job, attempt.output.name)
+          : undefined}
         alt="take {take.n} of {item.title}"
         size="take"
         picked={take.mark === 'accepted'}
       />
       <span class="caption">
-        <span class="n">take {take.n}</span>
+        <a
+          class="n plain"
+          href={jobHref(attempt.job, workspace)}
+          title="open the job"
+        >
+          take {take.n}
+        </a>
         {#if attempt.status !== 'succeeded'}
           <StatusChip status={attempt.status} />
         {/if}
@@ -119,7 +170,42 @@
   {/each}
 </ul>
 
+{#snippet actions(file: MediaFile)}
+  {@const take = fileOf(file)?.take}
+  {#if take}
+    {#if onaccept && take.attempt.status === 'succeeded'}
+      <button
+        type="button"
+        class="quiet"
+        aria-pressed={chosen(take)}
+        onclick={() => onaccept(take, chosen(take) ? null : take.attempt.job)}
+      >
+        {chosen(take) ? 'Accepted' : 'Accept'}
+      </button>
+    {/if}
+    <a class="quiet" href={jobHref(take.attempt.job, workspace)}>
+      Open the job
+    </a>
+  {/if}
+{/snippet}
+
+{#snippet aside(file: MediaFile)}
+  {#key file.name}
+    <RecipePanel
+      name={fileOf(file)?.file.name ?? file.name}
+      source="output"
+      workspace={file.workspace}
+    />
+  {/key}
+{/snippet}
+
+<MediaViewer {items} bind:open {actions} {aside} />
+
 <style>
+  .head {
+    margin: 0 0 var(--space-2);
+    font-size: var(--t-sm);
+  }
   .strip {
     list-style: none;
     margin: 0;
@@ -130,7 +216,7 @@
   }
   .tile {
     flex: none;
-    width: 120px;
+    width: 240px;
     display: flex;
     flex-direction: column;
     gap: 0.15rem;

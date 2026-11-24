@@ -11,6 +11,7 @@ import {
   isLoadState,
   measure,
   misclassified,
+  RAW_MEDIA_OWNERS,
   referencePrefixes,
   regressions,
   sourceFiles,
@@ -84,6 +85,7 @@ describe('the real tree', () => {
       'modules_in_import_cycles',
       'prefix_literals',
       'raw_error_toasts',
+      'raw_media',
       'unguarded_mutations',
       'unwatched_reads',
       'window_dialogs',
@@ -385,6 +387,85 @@ export { inner as removeInner }
       expect.stringMatching(/a\.svelte:7 held-review$/),
     ])
     expect(metrics.banned_terms).toBe(4)
+  })
+
+  it('raw_media counts img, video and audio outside OutputTile and MediaBody', async () => {
+    const { metrics, detail } = await measured({
+      'a.svelte': `<img src="a.png" alt="" />
+{#if x}
+  <video src="b.mp4"></video>
+{/if}
+<audio src="c.mp3" controls></audio>
+`,
+    })
+    expect(metrics.raw_media).toBe(3)
+    expect(detail.raw_media).toEqual([
+      expect.stringMatching(/a\.svelte:1 img$/),
+      expect.stringMatching(/a\.svelte:3 video$/),
+      expect.stringMatching(/a\.svelte:5 audio$/),
+    ])
+  })
+
+  it('raw_media counts source and picture', async () => {
+    const { metrics } = await measured({
+      'a.svelte': `<picture><source srcset="a.webp" /></picture>\n`,
+    })
+    expect(metrics.raw_media).toBe(2)
+  })
+
+  it('raw_media counts svelte:element with a static media tag only', async () => {
+    const { metrics, detail } = await measured({
+      'a.svelte': `<svelte:element this="img" src="a.png" />
+<svelte:element this={'video'} />
+<svelte:element this="div" />
+<svelte:element this={tag} />
+`,
+    })
+    expect(metrics.raw_media).toBe(1)
+    expect(detail.raw_media).toEqual([expect.stringMatching(/a\.svelte:1 img$/)])
+  })
+
+  it('raw_media counts media made in script, in .ts and .svelte', async () => {
+    const { metrics, detail } = await measured({
+      'a.ts': `export const a = document.createElement('video')
+export const b = new Audio('x.mp3')
+export const c = new Image()
+export const d = document.createElement(\`audio\`)
+export const ok = document.createElement('a')
+`,
+      'b.svelte': `<script lang="ts">
+  const el = document.createElement('img')
+  const t = document.createElement('textarea')
+</script>
+`,
+    })
+    expect(metrics.raw_media).toBe(5)
+    expect(detail.raw_media).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/a\.ts:1 video$/),
+        expect.stringMatching(/a\.ts:2 new Audio$/),
+        expect.stringMatching(/a\.ts:3 new Image$/),
+        expect.stringMatching(/a\.ts:4 audio$/),
+        expect.stringMatching(/b\.svelte:2 img$/),
+      ]),
+    )
+  })
+
+  it('raw_media counts {@html} holding a media tag', async () => {
+    const { metrics } = await measured({
+      'a.svelte': `{@html '<img src="a.png">'}
+{@html \`<video src="\${u}"></video>\`}
+{@html '<b>bold</b>'}
+`,
+    })
+    expect(metrics.raw_media).toBe(2)
+  })
+
+  it('raw_media spares exactly OutputTile and MediaBody', () => {
+    expect([...RAW_MEDIA_OWNERS].sort()).toEqual([
+      'src/lib/ui/MediaBody.svelte',
+      'src/lib/ui/OutputTile.svelte',
+    ])
   })
 
   it('duplicate_blocks counts one shared 6-line run once per file', async () => {

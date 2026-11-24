@@ -113,12 +113,15 @@ export async function fetchJson<T>(
 /** A text response - a saved output file, a gallery text file - through
  * the same path as every JSON call, so one that never arrived is a
  * NetworkError and `connection` hears of it. `path` is used as given when
- * `scope` is false: a file URL already names its workspace. */
+ * `scope` is false: a file URL already names its workspace. Revalidated
+ * ('no-cache'), never a cached copy: a Replace or a rewrite keeps the URL
+ * and changes the bytes. */
 export async function fetchText(
   path: string,
   options?: { scope?: boolean },
 ): Promise<string> {
-  return (await send(path, {}, options?.scope !== false)).text()
+  const init: RequestInit = { cache: 'no-cache' }
+  return (await send(path, init, options?.scope !== false)).text()
 }
 
 /** Fetch the text of a saved output file - how an enhancement's result

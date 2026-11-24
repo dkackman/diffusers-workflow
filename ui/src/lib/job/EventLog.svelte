@@ -1,11 +1,12 @@
 <script lang="ts">
   import ErrorLine from '../ui/ErrorLine.svelte'
+  import Details from '../ui/Details.svelte'
   // A job's event log, read from GET /api/jobs/{id}/event-log rather than
   // the live stream. Its state is its own: the page's `events` - which the
   // Progress list, the flow view and its chips read - never sees these rows.
   // Collapsed by default, and nothing is fetched until it is first opened.
   import { ChevronDown, ChevronRight, RefreshCw } from '@lucide/svelte'
-  import { tick, untrack } from 'svelte'
+  import { onDestroy, tick, untrack } from 'svelte'
   import { ApiError } from '../api'
   import { formatDuration } from '../format'
   import type { JobEvent } from '../types'
@@ -16,8 +17,13 @@
     fetchEventLog,
     type EventLogFetch,
   } from './eventLog'
+  import { createReadSpacer } from './eventLogReader'
 
-  let { jobId, live }: { jobId: string; live: boolean } = $props()
+  let {
+    jobId,
+    live,
+    pulse = 0,
+  }: { jobId: string; live: boolean; pulse?: number } = $props()
 
   let open = $state(false)
   let loaded = $state(false)
@@ -30,6 +36,28 @@
   let error = $state<unknown>(null)
   let kind = $state('')
   let body = $state<HTMLDivElement | null>(null)
+  // Follow new events: on for a live job. Only a scroll up by the user turns
+  // it off; `lastTop` is where the log last stood, so the scrolls this
+  // component makes (always to the bottom) never read as the user's.
+  let follow = $state(untrack(() => live))
+  let lastTop = 0
+  // The user has set the toggle (or scrolled up): a job that starts later
+  // no longer turns Follow on for them
+  let touched = false
+  // A refresh asked for while one was in flight: read once more after it
+  let again = false
+  let destroyed = false
+  // A live job's reads start at least this far apart
+  const READ_GAP_MS = 1000
+  const spacer = createReadSpacer(READ_GAP_MS, () => {
+    if (destroyed || missing) return
+    if (loading) again = true
+    else void load(lastSeq)
+  })
+  onDestroy(() => {
+    destroyed = true
+    spacer.cancel()
+  })
 
   // Another job is another log: drop this one's and close
   $effect(() => {
@@ -44,6 +72,17 @@
     missing = false
     error = null
     kind = ''
+    follow = untrack(() => live)
+    lastTop = 0
+    touched = false
+    again = false
+    spacer.cancel()
+  })
+
+  // A job queued at page load that starts later: follow it, unless the
+  // user has already chosen
+  $effect(() => {
+    if (live && !untrack(() => touched)) follow = true
   })
 
   function take(page: EventLogFetch, after: number) {
@@ -59,7 +98,27 @@
   // leaving them below the box's fold (#1499)
   async function showTail(id: string) {
     await tick()
-    if (id === jobId && body) body.scrollTop = body.scrollHeight
+    if (id !== jobId || !body) return
+    body.scrollTop = body.scrollHeight
+    lastTop = body.scrollTop
+  }
+
+  function scrolled() {
+    if (!body) return
+    // Content shrinking (a filter, a closed Details) clamps scrollTop to the
+    // bottom on its own; only a move up that leaves the bottom is the user's
+    const fromBottom = body.scrollHeight - body.clientHeight - body.scrollTop
+    if (body.scrollTop < lastTop - 1 && fromBottom > 2) {
+      follow = false
+      touched = true
+    }
+    lastTop = body.scrollTop
+  }
+
+  function toggleFollow() {
+    follow = !follow
+    touched = true
+    if (follow) showTail(jobId)
   }
 
   function failed(e: unknown) {
@@ -76,22 +135,54 @@
       const page = await fetchEventLog(id, after, EVENT_LOG_CAP)
       if (id !== jobId) return
       take(page, after)
-      if (live && page.events.length) await showTail(id)
+      if (follow && page.events.length) await showTail(id)
     } catch (e) {
       if (id === jobId) failed(e)
     } finally {
       if (id === jobId) loading = false
     }
+    if (id === jobId) readAgain()
   }
+
+  function readAgain() {
+    if (!again) return
+    again = false
+    if (destroyed || missing) return
+    // A job that ended takes its closing events at once; a live one waits
+    // out the gap
+    if (live) spacer.request()
+    else void load(lastSeq)
+  }
+
+  // A live job's new events: the page already hears each one on its stream
+  // (`pulse` counts them), so the log reads on from its last row on that
+  // beat rather than on a poll of its own. Reads start at least a second
+  // apart; beats inside that window, or while a read is out, fold into one
+  // more read. Nothing runs once the job ends (the ended read below takes
+  // the rest) or the page is left.
+  $effect(() => {
+    void pulse
+    untrack(() => {
+      if (!live || !open || !loaded || missing) return
+      spacer.request()
+    })
+  })
 
   // The job ended while its log was loaded: Refresh goes with `live`, so
   // read the events that came after the last one shown, the failure among
   // them, rather than leave the log short of its end
+  function endRead() {
+    spacer.cancel()
+    if (missing) return
+    // A load still in flight (the first one too) reads once more after it
+    if (loading) again = true
+    else if (loaded) void load(lastSeq)
+  }
   let wasLive = untrack(() => live)
   $effect(() => {
     const ended = wasLive && !live
     wasLive = live
-    if (ended) untrack(() => loaded && !missing && !loading && load(lastSeq))
+    if (ended) untrack(endRead)
   })
 
   function toggle() {
@@ -137,6 +228,16 @@
         </select>
       </label>
     {/if}
+    {#if open && loaded && !missing}
+      <button
+        class="togglechip"
+        class:on={follow}
+        aria-pressed={follow}
+        onclick={toggleFollow}
+      >
+        Follow new events
+      </button>
+    {/if}
     {#if open && live && loaded && !missing}
       <button
         class="quiet icon"
@@ -151,7 +252,7 @@
   </div>
 
   {#if open}
-    <div id="event-log-body" bind:this={body}>
+    <div id="event-log-body" bind:this={body} onscroll={scrolled}>
       {#if loading && !loaded}
         <p class="muted">Loading…</p>
       {:else if missing}
@@ -169,6 +270,7 @@
             </thead>
             <tbody>
               {#each shown as event (event.seq)}
+                {@const said = eventSummary(event)}
                 <tr>
                   <td class="num">{event.seq}</td>
                   <td class="num">
@@ -177,8 +279,11 @@
                       : ''}
                   </td>
                   <td class="kind">{eventKind(event)}</td>
-                  <td class="body" title={eventSummary(event)}>
-                    {eventSummary(event)}
+                  <td class="body">
+                    <span class="text" title={said.text}>{said.text}</span>
+                    {#if said.data}
+                      <Details summary="Event data" detail={said.data} />
+                    {/if}
                   </td>
                 </tr>
               {/each}
@@ -243,11 +348,15 @@
   .kind {
     white-space: nowrap;
   }
-  /* One line a row, so a long payload (a memory reading) does not push
-     the rows after it out of the box; the whole of it is in the title */
+  /* A row's text never widens the table, so a long payload (a memory
+     reading) does not push the rows after it out of the box; the whole of
+     it is in the title */
   .body {
     width: 100%;
     max-width: 0;
+  }
+  .text {
+    display: block;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

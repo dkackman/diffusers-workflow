@@ -309,6 +309,7 @@ class AssetFile(ApiModel):
         "when any do"
     )
     note: str = sometimes("The asset's note, when it has one.")
+    duration_seconds: int | float | None = sometimes("A/V length with `media=true`.")
 
 
 class ShadowedAsset(ApiModel):

@@ -78,6 +78,11 @@ const listAssets = vi.hoisted(() =>
       ),
   ),
 )
+// The background `media` read, kept apart so the listing's call counts
+// stay the listing's
+const assetDurations = vi.hoisted(() =>
+  vi.fn(() => Promise.resolve({ assets: [] as AssetFile[] })),
+)
 const deleteAsset = vi.hoisted(() =>
   vi.fn<(name: string) => Promise<void>>(() => Promise.resolve()),
 )
@@ -97,16 +102,23 @@ const uploadMedia = vi.hoisted(() =>
 const setNote = vi.hoisted(() => vi.fn())
 // What the server holds as the note a save reads first (its etag read)
 const noteHeld = vi.hoisted(() => ({ note: null as string | null }))
+// Answered at once by default: the note and Used by sit under the recipe's
+// read (RecipePanel's children), so a read that never lands hides them
+const NO_RECIPE = { metadata: null, job: null }
 const galleryMetadata = vi.hoisted(() =>
-  vi.fn<(reference: string) => Promise<unknown>>(() => new Promise(() => {})),
+  vi.fn<(reference: string) => Promise<unknown>>(() =>
+    Promise.resolve({ metadata: null, job: null }),
+  ),
 )
 vi.mock('../api', () => ({
   setNote: (t: string, n: string | null) => setNote(t, n),
   api: {
-    listAssets: () => listAssets(),
+    listAssets: (opts?: { media?: boolean }) =>
+      opts?.media ? assetDurations() : listAssets(),
     noteForSave: (target: string) =>
       Promise.resolve({ target, note: noteHeld.note, etag: '"e"' }),
     galleryMetadata: (reference: string) => galleryMetadata(reference),
+    getJob: () => new Promise(() => {}),
     deleteAsset: (name: string) => deleteAsset(name),
     archiveAssets: (names: string[]) => archiveAssets(names),
     uploadMedia: (
@@ -134,22 +146,28 @@ vi.mock('../toast', () => ({
 }))
 
 beforeEach(() => {
+  // The page's own place, with nothing in its query: the text filter and
+  // the open asset live there, and a test that set one would hand it to
+  // whatever renders next. A hash the router does not route (none) is
+  // sent to the overview, under the viewer
+  history.replaceState(null, '', `${location.pathname}#/ws/default/assets`)
   listing.assets = [asset('iris.png'), asset('cast/priya.jpg')]
   listing.libraries = [WORKSPACE_LIBRARY]
   listing.shadowed = []
   deleteAsset.mockResolvedValue(undefined)
   archiveAssets.mockResolvedValue(undefined)
 })
-afterEach(() => {
+afterEach(async () => {
   cleanup()
   listAssets.mockClear()
+  assetDurations.mockClear()
   // Reset, not clear: one test sets an implementation, and mockClear
   // leaves it in place for whatever runs next
   deleteAsset.mockReset()
   archiveAssets.mockReset()
   uploadMedia.mockClear()
   galleryMetadata.mockReset()
-  galleryMetadata.mockImplementation(() => new Promise(() => {}))
+  galleryMetadata.mockImplementation(() => Promise.resolve(NO_RECIPE))
   setNote.mockReset()
   notifyError.mockClear()
   notifySuccess.mockClear()
@@ -159,9 +177,6 @@ afterEach(() => {
   // would otherwise hand it to whatever renders next
   localStorage.clear()
   workspace.current = DEFAULT_WORKSPACE
-  // The text filter lives in the hash: a test that typed one would hand
-  // it to whatever renders next
-  history.replaceState(null, '', location.pathname)
 })
 
 async function renderAssets(first = 'iris.png', shared = false) {
@@ -177,6 +192,35 @@ function pressEscape() {
     new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
   )
 }
+
+/** The viewer, open on `name` */
+const viewer = (name: string) =>
+  screen.findByRole('dialog', { name: name.split('/').pop() })
+
+/** Opens an asset in the viewer by clicking its tile, and waits for it */
+async function openAsset(name: string) {
+  // The open pushes a hash entry: wait for its hashchange (and the
+  // viewer's own listener on it) here, not in a later test
+  await hashEvent(
+    () => void fireEvent.click(screen.getByLabelText(`Open ${name}`)),
+  )
+  return viewer(name)
+}
+
+/** Steps the viewer to the next or previous asset, and waits for it */
+async function step(to: 'Next file' | 'Previous file', name: string) {
+  await fireEvent.click(screen.getByRole('button', { name: to }))
+  return viewer(name)
+}
+
+const hashEvent = (change: () => void) =>
+  new Promise<void>((resolve) => {
+    window.addEventListener('hashchange', () => resolve(), { once: true })
+    change()
+  })
+
+const hashOpen = () =>
+  new URLSearchParams(location.hash.split('?')[1]).get('open')
 
 async function answerConfirm(accept: boolean) {
   const dialog = await waitFor(() => screen.getByRole('alertdialog'))
@@ -248,12 +292,158 @@ it('shows every asset, including one in a folder', async () => {
   expect(screen.getByText('priya.jpg')).toBeTruthy()
 })
 
-it('shows the reference, not the path, when an asset is selected', async () => {
+it('an asset opens in the viewer with its reference and a download', async () => {
   await renderAssets()
 
-  screen.getByLabelText('show details for iris.png').click()
+  const sheet = await openAsset('iris.png')
 
-  await waitFor(() => expect(screen.getByText('asset:iris.png')).toBeTruthy())
+  expect(sheet).toHaveTextContent('1 of 2')
+  expect(hashOpen()).toBe('iris.png')
+  const ref = within(sheet).getByText('asset:iris.png')
+  expect(ref.closest('.refchip')).not.toBeNull()
+  expect(
+    within(sheet).getByTitle('Copy the reference a workflow argument takes'),
+  ).toBeTruthy()
+  const download = within(sheet).getByRole('link', { name: 'Download' })
+  expect(download.getAttribute('href')).toBe('/inputs/iris.png')
+  expect(download.hasAttribute('download')).toBe(true)
+  // the asset's kind, size and date, as the old detail said them
+  expect(sheet).toHaveTextContent('image · 2 KB')
+  // the viewer walks the open library in the grid's order
+  await step('Next file', 'cast/priya.jpg')
+  expect(
+    within(await viewer('priya.jpg')).getByText('asset:cast/priya.jpg'),
+  ).toBeTruthy()
+})
+
+it('Back closes the viewer, and a Close on a link replaces open= away', async () => {
+  await renderAssets()
+  const before = history.length
+  await openAsset('iris.png')
+  // a pushed entry, so Back closes it
+  expect(history.length).toBe(before + 1)
+  await hashEvent(() => history.back())
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  expect(hashOpen()).toBeNull()
+
+  cleanup()
+  await hashEvent(
+    () => (location.hash = '#/ws/default/assets?open=cast%2Fpriya.jpg'),
+  )
+  await renderAssets()
+  expect(await viewer('priya.jpg')).toHaveTextContent('2 of 2')
+  // a deep link has no pushed entry, so Close replaces open= away
+  // (replaceState fires no hashchange, so there is nothing to wait for)
+  await fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  expect(location.hash).toBe('#/ws/default/assets')
+})
+
+it('open= survives Back', async () => {
+  await renderAssets()
+  await openAsset('cast/priya.jpg')
+  // leave for another page, then come Back to the open asset
+  cleanup()
+  await hashEvent(() => (location.hash = '#/ws/default/jobs'))
+  await hashEvent(() => history.back())
+  expect(hashOpen()).toBe('cast/priya.jpg')
+  await renderAssets()
+  expect(await viewer('priya.jpg')).toHaveTextContent('2 of 2')
+  // the entry the viewer pushed: Close goes Back, onto the page alone
+  await hashEvent(
+    () => void fireEvent.click(screen.getByRole('button', { name: 'Close' })),
+  )
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  expect(location.hash).toBe('#/ws/default/assets')
+})
+
+it('an open= naming a missing asset says so', async () => {
+  location.hash = '#/ws/default/assets?open=gone%2Fold.png'
+  await renderAssets()
+  const notice = await screen.findByText(
+    'old.png is not in this view any more.',
+  )
+  expect(screen.queryByRole('dialog')).toBeNull()
+  await waitFor(() => expect(hashOpen()).toBeNull())
+  await fireEvent.click(within(notice).getByRole('button', { name: 'Dismiss' }))
+  expect(screen.queryByText(/is not in this view any more/)).toBeNull()
+})
+
+it('an open= naming an asset in a shut folder opens it and the folder', async () => {
+  localStorage.setItem(
+    'dw-collapsed-asset-folders-workspace',
+    JSON.stringify({ cast: true }),
+  )
+  location.hash = '#/ws/default/assets?open=cast%2Fpriya.jpg'
+  await renderAssets()
+  expect(await viewer('priya.jpg')).toHaveTextContent('2 of 2')
+  expect(screen.getByLabelText('Open cast/priya.jpg')).toBeTruthy()
+})
+
+it('says which job it was saved from', async () => {
+  galleryMetadata.mockImplementation(() =>
+    Promise.resolve({
+      metadata: null,
+      job: { id: 'j1', status: 'succeeded', workflow: 'portrait' },
+      version: 3,
+    }),
+  )
+  await renderAssets()
+  const sheet = await openAsset('iris.png')
+  const line = await within(sheet).findByText(/Saved from/)
+  expect(line.textContent?.trim()).toBe('Saved from portrait v3')
+  expect(galleryMetadata).toHaveBeenCalledWith('asset:iris.png')
+})
+
+it('says nothing about where it came from for an asset with no job on record', async () => {
+  await renderAssets()
+  const sheet = await openAsset('iris.png')
+  await within(sheet).findByText('No recipe is saved with this file.')
+  expect(within(sheet).queryByText(/Saved from/)).toBeNull()
+})
+
+it('shows the asset note', async () => {
+  listing.assets = [{ ...asset('iris.png'), note: 'the hero face' }]
+  await renderAssets()
+  const sheet = await openAsset('iris.png')
+  await within(sheet).findByText('Your note on this asset')
+  // the tile carries it too, so look in the viewer's aside
+  expect(
+    within(sheet.querySelector('.asset-aside') as HTMLElement).getByText(
+      'the hero face',
+    ),
+  ).toBeTruthy()
+})
+
+it('the note and Used by show while the recipe read fails or never lands', async () => {
+  galleryMetadata.mockRejectedValueOnce(new Error('boom'))
+  await renderAssets()
+  const sheet = await openAsset('iris.png')
+  await within(sheet).findByText(/Couldn't load what made this file/)
+  expect(within(sheet).getByRole('button', { name: /edit note/i })).toBeTruthy()
+  expect(within(sheet).getByText('Used by', { exact: false })).toBeTruthy()
+})
+
+it('the note and Used by show while the recipe read is still pending', async () => {
+  galleryMetadata.mockImplementation(() => new Promise(() => {}))
+  await renderAssets()
+  const sheet = await openAsset('iris.png')
+  expect(within(sheet).getByRole('button', { name: /edit note/i })).toBeTruthy()
+  expect(within(sheet).getByText('Used by', { exact: false })).toBeTruthy()
+})
+
+it('a failed recipe read says so, with Retry, rather than nothing', async () => {
+  galleryMetadata.mockRejectedValueOnce(new Error('boom'))
+  await renderAssets()
+  const sheet = await openAsset('iris.png')
+  await within(sheet).findByText(/Couldn't load what made this file/)
+  galleryMetadata.mockImplementation(() =>
+    Promise.resolve({ metadata: null, job: { id: 'j1', workflow: 'p' } }),
+  )
+  await fireEvent.click(within(sheet).getByRole('button', { name: 'Retry' }))
+  await waitFor(() =>
+    expect(within(sheet).getByText(/Saved from p/)).toBeTruthy(),
+  )
 })
 
 // The search path is the page's top level: a library is a section, and
@@ -393,22 +583,22 @@ it('collapses a library section, and remembers it', async () => {
 
 it('deletes an asset once the confirmation is answered', async () => {
   await renderAssets()
-  screen.getByLabelText('show details for iris.png').click()
-  await waitFor(() =>
-    screen.getByLabelText('delete this asset from the library').click(),
-  )
+  const sheet = await openAsset('iris.png')
+  within(sheet).getByRole('button', { name: 'Delete' }).click()
 
   await answerConfirm(true)
 
   await waitFor(() => expect(deleteAsset).toHaveBeenCalledWith('iris.png'))
+  // gone from the listing, the viewer steps on to the one left
+  listing.assets = [asset('cast/priya.jpg')]
+  feed.move('default', 'assets')
+  expect(await viewer('priya.jpg')).toHaveTextContent('1 of 1')
 })
 
 it('deletes nothing when the confirmation is declined', async () => {
   await renderAssets()
-  screen.getByLabelText('show details for iris.png').click()
-  await waitFor(() =>
-    screen.getByLabelText('delete this asset from the library').click(),
-  )
+  const sheet = await openAsset('iris.png')
+  within(sheet).getByRole('button', { name: 'Delete' }).click()
 
   await answerConfirm(false)
 
@@ -416,22 +606,21 @@ it('deletes nothing when the confirmation is declined', async () => {
   expect(deleteAsset).not.toHaveBeenCalled()
 })
 
-it('offers no delete for a read-only examples asset', async () => {
+it('a read-only asset offers no delete', async () => {
   listing.libraries = [EXAMPLES_LIBRARY]
   listing.assets = [asset('demo/x.png', 'examples')]
   await renderAssets('x.png')
 
-  screen.getByLabelText('show details for demo/x.png').click()
+  const sheet = await openAsset('demo/x.png')
 
-  // By title, not by text: the section header says read-only too
-  await waitFor(() =>
-    expect(
-      screen.getByTitle('read-only: an examples library brought it'),
-    ).toBeTruthy(),
+  const mark = within(sheet).getByTitle(
+    'Read-only: an examples library brought it',
   )
-  expect(
-    screen.queryByLabelText('delete this asset from the library'),
-  ).toBeNull()
+  expect(mark.textContent?.trim()).toBe('Read-only')
+  expect(within(sheet).queryByRole('button', { name: 'Delete' })).toBeNull()
+  // the reference and the download are still there
+  expect(within(sheet).getByText('asset:demo/x.png')).toBeTruthy()
+  expect(within(sheet).getByRole('link', { name: 'Download' })).toBeTruthy()
 })
 
 it('filters by name', async () => {
@@ -459,19 +648,18 @@ it('refetches when the workspace changes, and watches only the new one', async (
 })
 
 // Escape means "close the thing on top". A confirm dialog answers it
-// itself, so the page must not also take the detail away underneath it
-it('leaves the detail open when Escape answers a confirm dialog', async () => {
+// itself, so the viewer must not also close underneath it
+it('leaves the viewer open when Escape answers a confirm dialog', async () => {
   await renderAssets()
-  screen.getByLabelText('show details for iris.png').click()
-  await waitFor(() => expect(screen.getByText('asset:iris.png')).toBeTruthy())
+  const sheet = await openAsset('iris.png')
 
-  screen.getByLabelText('delete this asset from the library').click()
+  within(sheet).getByRole('button', { name: 'Delete' }).click()
   await waitFor(() => expect(screen.getByRole('alertdialog')).toBeTruthy())
 
   pressEscape()
 
   await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
-  expect(screen.getByText('asset:iris.png')).toBeTruthy()
+  expect(screen.getByRole('dialog', { name: 'iris.png' })).toBeTruthy()
 })
 
 // The gallery's bulk actions, for the input side: tick files in the grid,
@@ -561,20 +749,21 @@ it('keeps an asset that would not delete in the selection', async () => {
   ).toBe(true)
 })
 
-it('clears the selection on Escape before it closes the detail', async () => {
+// The viewer is on top of the grid, so it takes the first Escape; the
+// selection behind it clears on the next
+it('Escape closes the viewer, then clears the selection', async () => {
   await renderAssets()
-  screen.getByLabelText('show details for iris.png').click()
-  await waitFor(() => expect(screen.getByText('asset:iris.png')).toBeTruthy())
   screen.getByLabelText('select iris.png').click()
   await waitFor(() => expect(screen.getByText('1 selected')).toBeTruthy())
+  await openAsset('iris.png')
+
+  // the viewer pushed its entry, so Escape goes Back
+  await hashEvent(pressEscape)
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  expect(screen.getByText('1 selected')).toBeTruthy()
 
   pressEscape()
   await waitFor(() => expect(screen.queryByText('1 selected')).toBeNull())
-  // The detail is the older state, so it survives the first press
-  expect(screen.getByText('asset:iris.png')).toBeTruthy()
-
-  pressEscape()
-  await waitFor(() => expect(screen.queryByText('asset:iris.png')).toBeNull())
 })
 
 it('selects all matching when a filter is on', async () => {
@@ -635,10 +824,8 @@ it('says what a shared delete costs', async () => {
   listing.libraries = [WORKSPACE_LIBRARY, SHARED_LIBRARY]
   listing.assets = [asset('shared/logo.png', 'common')]
   await renderAssets('logo.png')
-  screen.getByLabelText('show details for shared/logo.png').click()
-  await waitFor(() =>
-    screen.getByLabelText('delete this asset from the library').click(),
-  )
+  const sheet = await openAsset('shared/logo.png')
+  within(sheet).getByRole('button', { name: 'Delete' }).click()
 
   const dialog = await waitFor(() => screen.getByRole('alertdialog'))
   expect(dialog.textContent).toContain('Delete asset:shared/logo.png?')
@@ -765,16 +952,17 @@ it('lists every shared asset on the Shared assets page', async () => {
   expect(screen.getByRole('button', { name: /Upload to shared/ })).toBeTruthy()
 })
 
-it('names the workflows that use an asset in its details', async () => {
+it('names the workflows that use an asset beside it in the viewer', async () => {
   listing.libraries = [WORKSPACE_LIBRARY, SHARED_LIBRARY]
   listing.assets = [
     { ...asset('cast/priya.png', 'common'), used_by: ['portrait', 'ep/two'] },
   ]
   await renderAssets('priya.png')
-  screen.getByLabelText('show details for cast/priya.png').click()
+  const sheet = await openAsset('cast/priya.png')
 
-  const link = await waitFor(() => screen.getByRole('link', { name: 'ep/two' }))
+  const link = await within(sheet).findByRole('link', { name: 'ep/two' })
   expect(link.getAttribute('href')).toContain('workflows/ep/two')
+  expect(link.closest('p')?.textContent).toMatch(/^\s*Used by\s+portrait,/)
 })
 
 it('keeps a saved note on the asset when it is selected again', async () => {
@@ -784,7 +972,7 @@ it('keeps a saved note on the asset when it is selected again', async () => {
     note_source: null,
   })
   await renderAssets()
-  screen.getByLabelText('show details for iris.png').click()
+  await openAsset('iris.png')
   await fireEvent.click(
     await screen.findByRole('button', { name: /edit note/i }),
   )
@@ -793,9 +981,9 @@ it('keeps a saved note on the asset when it is selected again', async () => {
   })
   await fireEvent.click(screen.getByRole('button', { name: /save/i }))
   await waitFor(() => expect(screen.getByText('hero shot')).toBeTruthy())
-  screen.getByLabelText('show details for cast/priya.jpg').click()
+  await step('Next file', 'cast/priya.jpg')
   await waitFor(() => expect(screen.queryByText('hero shot')).toBeNull())
-  screen.getByLabelText('show details for iris.png').click()
+  await step('Previous file', 'iris.png')
   await waitFor(() => expect(screen.getByText('hero shot')).toBeTruthy())
 })
 
@@ -853,7 +1041,7 @@ it('a failed first load offers Retry and Retry loads', async () => {
   await waitFor(() => expect(screen.getByText('iris.png')).toBeTruthy())
 })
 
-// Where an asset came from, as the detail shows it
+// Where an asset came from, as the viewer's aside says it
 const keptFrom = (workflow: string) => ({
   metadata: null,
   job: { id: 'j1', workflow },
@@ -867,28 +1055,28 @@ it('switching assets never shows the previous asset provenance', async () => {
       : new Promise(() => {}),
   )
   await renderAssets()
-  screen.getByLabelText('show details for iris.png').click()
-  await screen.findByText('kept from paint')
-  screen.getByLabelText('show details for cast/priya.jpg').click()
+  await openAsset('iris.png')
+  await screen.findByText('Saved from paint')
+  await step('Next file', 'cast/priya.jpg')
   await waitFor(() =>
     expect(screen.getByText('asset:cast/priya.jpg')).toBeTruthy(),
   )
-  expect(screen.queryByText('kept from paint')).toBeNull()
+  expect(screen.queryByText('Saved from paint')).toBeNull()
 })
 
-it("a failed provenance read for the next asset is a load failure, not a refresh line over the last one's", async () => {
+it("a failed recipe read for the next asset is a load failure, not a refresh line over the last one's", async () => {
   galleryMetadata.mockImplementation((reference) =>
     reference === 'asset:iris.png'
       ? Promise.resolve(keptFrom('paint'))
       : Promise.reject(new Error('boom')),
   )
   await renderAssets()
-  screen.getByLabelText('show details for iris.png').click()
-  await screen.findByText('kept from paint')
-  screen.getByLabelText('show details for cast/priya.jpg').click()
-  await screen.findByText(/Couldn't load where this asset came from/)
+  await openAsset('iris.png')
+  await screen.findByText('Saved from paint')
+  await step('Next file', 'cast/priya.jpg')
+  await screen.findByText(/Couldn't load what made this file/)
   expect(screen.queryByText(/Couldn't refresh/)).toBeNull()
-  expect(screen.queryByText('kept from paint')).toBeNull()
+  expect(screen.queryByText('Saved from paint')).toBeNull()
 })
 
 async function saveIrisNote(note: string) {
@@ -907,11 +1095,11 @@ async function saveIrisNote(note: string) {
   await waitFor(() => expect(screen.getByText(note)).toBeTruthy())
 }
 
-it('saving a note does not read the provenance again', async () => {
+it('saving a note does not read the recipe again', async () => {
   galleryMetadata.mockImplementation(() => Promise.resolve(keptFrom('paint')))
   await renderAssets()
-  screen.getByLabelText('show details for iris.png').click()
-  await screen.findByText('kept from paint')
+  await openAsset('iris.png')
+  await screen.findByText('Saved from paint')
   const reads = galleryMetadata.mock.calls.length
   await saveIrisNote('hero shot')
   for (let i = 0; i < 3; i++) await new Promise((r) => setTimeout(r, 10))
@@ -920,7 +1108,7 @@ it('saving a note does not read the provenance again', async () => {
 
 it('a listing asked for before a note save cannot drop the note', async () => {
   await renderAssets()
-  screen.getByLabelText('show details for iris.png').click()
+  await openAsset('iris.png')
   // A read starts, and is held until after the save
   let answer: (value: unknown) => void = () => {}
   listAssets.mockImplementationOnce(
@@ -932,15 +1120,15 @@ it('a listing asked for before a note save cannot drop the note', async () => {
   // It lands carrying the note from before the save
   answer({ ...listing, folders: [] })
   for (let i = 0; i < 3; i++) await new Promise((r) => setTimeout(r, 10))
-  screen.getByLabelText('show details for cast/priya.jpg').click()
+  await step('Next file', 'cast/priya.jpg')
   await waitFor(() => expect(screen.queryByText('hero shot')).toBeNull())
-  screen.getByLabelText('show details for iris.png').click()
+  await step('Previous file', 'iris.png')
   await waitFor(() => expect(screen.getByText('hero shot')).toBeTruthy())
 })
 
 it('a listing asked for after a note save shows a note changed elsewhere', async () => {
   await renderAssets()
-  screen.getByLabelText('show details for iris.png').click()
+  await openAsset('iris.png')
   await saveIrisNote('hero shot')
   listing.assets = [
     { ...asset('iris.png'), note: 'from an agent' },
@@ -949,19 +1137,17 @@ it('a listing asked for after a note save shows a note changed elsewhere', async
   feed.move('default', 'assets')
   await waitFor(() => expect(listAssets).toHaveBeenCalledTimes(2))
   for (let i = 0; i < 3; i++) await new Promise((r) => setTimeout(r, 10))
-  screen.getByLabelText('show details for cast/priya.jpg').click()
+  await step('Next file', 'cast/priya.jpg')
   await waitFor(() => expect(screen.queryByText('hero shot')).toBeNull())
-  screen.getByLabelText('show details for iris.png').click()
+  await step('Previous file', 'iris.png')
   await waitFor(() => expect(screen.getByText('from an agent')).toBeTruthy())
 })
 
 it("the user's own note is not marked as another writer's change", async () => {
   await renderAssets()
   const tile = (name: string) =>
-    screen
-      .getByLabelText(`show details for ${name}`)
-      .closest('.cellwrap') as HTMLElement
-  screen.getByLabelText('show details for iris.png').click()
+    screen.getByLabelText(`Open ${name}`).closest('.cellwrap') as HTMLElement
+  await openAsset('iris.png')
   await saveIrisNote('hero shot')
   // the save's own move of the feed: the server now carries the note, and
   // an agent changed priya's
@@ -974,4 +1160,43 @@ it("the user's own note is not marked as another writer's change", async () => {
     expect(tile('cast/priya.jpg').classList).toContain('row-changed'),
   )
   expect(tile('iris.png').classList).not.toContain('row-changed')
+})
+
+it('the asset grid shows thumbnails, never the original or a video', async () => {
+  listing.assets = [
+    asset('iris.png'),
+    asset('cast/walk.mp4', 'workspace', 'video'),
+  ]
+  const { container } = render(AssetsPage)
+  await waitFor(() => expect(container.querySelectorAll('img').length).toBe(2))
+  expect(container.querySelector('video')).toBeNull()
+  const srcs = [...container.querySelectorAll('img')].map((img) =>
+    img.getAttribute('src'),
+  )
+  for (const src of srcs) {
+    expect(src).toMatch(/^\/api\/gallery\/asset(:|%3A).*\/thumbnail/)
+    expect(src).not.toContain('/inputs/')
+  }
+  expect(container.querySelector('.videobadge')).not.toBeNull()
+})
+
+it('asset clips and sounds show their length, from one background read', async () => {
+  listing.assets = [
+    asset('iris.png'),
+    asset('cast/walk.mp4', 'workspace', 'video'),
+    asset('hum.wav', 'workspace', 'audio'),
+  ]
+  assetDurations.mockResolvedValueOnce({
+    assets: [
+      { ...asset('cast/walk.mp4', 'workspace', 'video'), duration_seconds: 3 },
+      { ...asset('hum.wav', 'workspace', 'audio'), duration_seconds: 2.5 },
+    ],
+  })
+  const { container } = render(AssetsPage)
+  await waitFor(() =>
+    expect(container.querySelector('.tile-time')?.textContent).toBe('3.0s'),
+  )
+  expect(container.querySelector('.tile-length')?.textContent).toBe('2.5s')
+  expect(assetDurations).toHaveBeenCalledTimes(1)
+  expect(listAssets).toHaveBeenCalledTimes(1)
 })

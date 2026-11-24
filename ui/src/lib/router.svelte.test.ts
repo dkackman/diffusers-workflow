@@ -510,6 +510,37 @@ it('a hash with no query resets every box', async () => {
   expect(location.hash).toBe('#/ws/studio/gallery')
 })
 
+it('a list is written with a plain comma', async () => {
+  const { hashState, codec } = await loadRouter()
+  await go('#/ws/studio/gallery')
+  const { roles } = await boxes(() => ({
+    roles: hashState<string[]>('roles', ['final'], codec.list),
+  }))
+  roles.value = ['final', 'intermediate']
+  settleBoxes()
+  expect(location.hash).toBe('#/ws/studio/gallery?roles=final,intermediate')
+})
+
+it('an unknown value reads as the initial one', async () => {
+  const { hashState, codec } = await loadRouter()
+  await go('#/ws/studio/gallery?sort=sideways&roles=bogus,intermediate')
+  const box = await boxes(() => ({
+    sort: hashState('sort', 'newest', codec.oneOf(['newest', 'oldest'])),
+    roles: hashState<string[]>(
+      'roles',
+      ['final'],
+      codec.someOf(['final', 'intermediate'], ['final']),
+    ),
+  }))
+  expect(box.sort.value).toBe('newest')
+  // an unknown role is dropped; none known left reads as the initial list
+  expect(box.roles.value).toEqual(['intermediate'])
+  await go('#/ws/studio/gallery?sort=oldest&roles=bogus')
+  settleBoxes()
+  expect(box.sort.value).toBe('oldest')
+  expect(box.roles.value).toEqual(['final'])
+})
+
 // Scroll: Back and Forward go back to where each entry was left, even on
 // the same path; a new path starts at the top; typing a filter or a rename
 // never moves the page
