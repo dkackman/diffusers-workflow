@@ -23,7 +23,7 @@
     loadAssetLibrary,
   } from '../assetlib.svelte'
   import { ensureOutputLibrary } from '../outputlib.svelte'
-  import { ASSET, OUTPUT, referenceName } from '../references'
+  import { ASSET, OUTPUT, isReference, referenceName } from '../references'
   import {
     fieldRows,
     kindWithArticle,
@@ -221,7 +221,7 @@
   <div class="row1">
     <Suggest
       {id}
-      class="referencefield"
+      class={isReference(value) ? 'referencefield ref' : 'referencefield'}
       placeholder={placeholder ?? `type, drop or choose ${named}`}
       {value}
       complete={(text) => fieldRows(text, kind, earlier ?? [])}

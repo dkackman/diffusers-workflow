@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/svelte'
+import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
 import { VARIABLE } from '../references'
 import StepEditor from './StepEditor.svelte'
 
@@ -118,4 +118,35 @@ it('leaves a step with no torch_dtype unchanged on opening full', async () => {
   })
   await new Promise((r) => setTimeout(r, 50))
   expect(JSON.stringify(s)).toBe(before)
+})
+
+// The step's media arguments take the results of the steps before it
+it('offers an image argument the results of the steps before it', async () => {
+  const s = step()
+  s.name = 'use'
+  Object.assign(s.pipeline, { arguments: { image: '' } })
+  const workflow = {
+    steps: [
+      { name: 'still', result: { content_type: 'image/png' } },
+      s,
+      { name: 'later', result: { content_type: 'image/png' } },
+    ],
+  }
+  render(StepEditor, {
+    step: s,
+    index: 1,
+    workflow,
+    count: 3,
+    mode: 'full',
+    onremove: () => {},
+    onmove: () => {},
+  })
+  const input = screen.getByPlaceholderText('type, drop or choose an image')
+  await fireEvent.focus(input)
+  await fireEvent.input(input, { target: { value: '' } })
+  const text = (await screen.findAllByRole('option'))
+    .map((o) => o.textContent)
+    .join('\n')
+  expect(text).toContain('previous_result:still')
+  expect(text).not.toContain('previous_result:later')
 })

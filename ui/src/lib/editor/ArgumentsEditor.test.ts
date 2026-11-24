@@ -3,6 +3,7 @@ import { render, screen, fireEvent, cleanup } from '@testing-library/svelte'
 import ArgumentsEditor from './ArgumentsEditor.svelte'
 import { api } from '../api'
 import type { PipelineDescription } from '../types'
+import { earlierResults } from '../referenceField'
 
 // componentType='' keeps the resource that fetches a pipeline description
 // from ever asking (see ArgumentsEditor.svelte's `if (!wanted) return null`),
@@ -102,5 +103,57 @@ describe('ArgumentsEditor class description', () => {
       await screen.findByText(/show available arguments \(1\)/),
     ).toBeInTheDocument()
     expect(describe).toHaveBeenCalledWith('ProbeArgumentsPipeline')
+  })
+})
+
+const workflow = {
+  steps: [
+    { name: 'still', result: { content_type: 'image/png' } },
+    { name: 'clip', result: { content_type: 'video/mp4' } },
+    { name: 'use', result: { content_type: 'image/png' } },
+    { name: 'later', result: { content_type: 'image/png' } },
+  ],
+}
+
+async function optionsOf(args: Record<string, unknown>, index = 2) {
+  render(ArgumentsEditor, {
+    args,
+    componentType: '',
+    earlier: (kind) => earlierResults(workflow, index, kind),
+  })
+  const input = screen.getByRole('combobox') as HTMLInputElement
+  await fireEvent.focus(input)
+  await fireEvent.input(input, { target: { value: '' } })
+  return screen.findAllByRole('option')
+}
+
+describe('ArgumentsEditor earlier results', () => {
+  it("an image argument offers the earlier step's result first", async () => {
+    const options = await optionsOf({ image: '' })
+    expect(options[0]).toHaveTextContent('previous_result:still')
+  })
+
+  it('an image argument holding previous_result stays a reference field', () => {
+    render(ArgumentsEditor, {
+      args: { image: 'previous_result:still' },
+      componentType: '',
+      earlier: (kind) => earlierResults(workflow, 2, kind),
+    })
+    expect(screen.getByRole('button', { name: 'Upload…' })).toBeInTheDocument()
+    expect((screen.getByRole('combobox') as HTMLInputElement).value).toBe(
+      'previous_result:still',
+    )
+  })
+
+  it("a video step's frames are offered to an image argument", async () => {
+    const options = await optionsOf({ image: '' })
+    const text = options.map((o) => o.textContent).join('\n')
+    expect(text).toContain('previous_result:clip.frames')
+  })
+
+  it("a later step's result is never offered", async () => {
+    const options = await optionsOf({ image: '' })
+    const text = options.map((o) => o.textContent).join('\n')
+    expect(text).not.toContain('previous_result:later')
   })
 })

@@ -11,6 +11,7 @@
   // them and set how much of each shows
   let {
     steps = $bindable(),
+    workflow = {},
     modes,
     folder,
     flow,
@@ -19,6 +20,8 @@
     hovered = $bindable(),
   }: {
     steps: Record<string, any>[] | undefined
+    // The whole document, for what a step's arguments take from earlier steps
+    workflow?: Record<string, any>
     modes: StepModes
     // The folder the workflow saves into, which a sub-workflow step's
     // relative path resolves against
@@ -113,6 +116,7 @@
       <StepEditor
         bind:step={steps![index]}
         {index}
+        {workflow}
         count={steps!.length}
         references={stepReferences[index] ?? []}
         baseFolder={folder}

@@ -26,11 +26,13 @@
   } from '../editor'
   import type { StepFlow } from '../flow'
   import { BUILTIN, reference } from '../references'
+  import { earlierResults } from '../referenceField'
 
   let {
     step = $bindable(),
     index,
     count,
+    workflow = {},
     references = [],
     baseFolder = '',
     mode = 'full',
@@ -44,6 +46,9 @@
     step: Record<string, any>
     index: number
     count: number
+    // The document the step belongs to: what its media arguments take
+    // from the steps before it
+    workflow?: Record<string, any>
     references?: string[]
     baseFolder?: string
     mode?: 'collapsed' | 'compact' | 'full'
@@ -323,6 +328,7 @@
         bind:args={step.pipeline.arguments}
         componentType={configuration.component_type ?? ''}
         suggestions={references}
+        earlier={(kind) => earlierResults(workflow, index, kind)}
       />
 
       <PipelineOptions
@@ -347,6 +353,7 @@
         componentType={step.task.command}
         target="task"
         suggestions={references}
+        earlier={(kind) => earlierResults(workflow, index, kind)}
       />
     {:else if kind === 'workflow'}
       <div class="formgrid grid">
