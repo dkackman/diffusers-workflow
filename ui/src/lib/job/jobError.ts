@@ -21,7 +21,7 @@ const CASES: Array<[RegExp, JobErrorExplained]> = [
     },
   ],
   [
-    /divisible by 8|multiple of 8/i,
+    /divisible by 8\b|multiple of 8\b/i,
     {
       title: 'The width and height must be multiples of 8.',
       remedy: 'Run it again with a size divisible by 8.',

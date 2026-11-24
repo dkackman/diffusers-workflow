@@ -12,7 +12,17 @@
     job,
     step,
     onrerun,
-  }: { job: JobDetail; step: string | null; onrerun: () => void } = $props()
+    canRerun,
+    live,
+  }: {
+    job: JobDetail
+    step: string | null
+    onrerun: () => void
+    /** Whether the rerun dialog would have fields to change */
+    canRerun: boolean
+    /** The job failed while this page was open: only then is it announced */
+    live: boolean
+  } = $props()
 
   const explained = $derived(explainJobError(job.error ?? ''))
   // The error and the traceback, whole, whatever the lead says
@@ -22,11 +32,11 @@
   const rerun = action(async () => onrerun(), { doing: 'open the rerun form' })
 </script>
 
-<div class="panel error-edge" role="alert">
+<div class="panel error-edge" role={live ? 'alert' : undefined}>
   {#if step}<p class="step">Failed in step <code>{step}</code>.</p>{/if}
   <p class="lead">{explained.title}</p>
   {#if explained.remedy}<p class="remedy">{explained.remedy}</p>{/if}
-  {#if explained.action === 'rerun'}
+  {#if explained.action === 'rerun' && canRerun}
     <ActionButton act={rerun}>Run again with changes…</ActionButton>
   {:else if explained.action === 'models'}
     <a class="quiet" href={serverHref('models')}>Open Models</a>

@@ -250,7 +250,7 @@ it('puts Results straight after the header and the error, the notes under them',
   }
   const order = [
     at(document.querySelector('h1')),
-    at(screen.getByRole('alert')),
+    at(screen.getByText('The job stopped with an error.')),
     at(screen.getByRole('heading', { name: 'Results' })),
     at(screen.getByText('Your note on this job')),
     at(screen.getByText('warmer light on this one')),

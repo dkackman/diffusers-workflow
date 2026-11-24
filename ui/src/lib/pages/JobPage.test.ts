@@ -1308,6 +1308,7 @@ describe('after an outage', () => {
 const failedJob = (): JobDetail => ({
   ...job([]),
   status: 'failed',
+  arguments: { steps: 30 },
   error: 'torch.OutOfMemoryError: CUDA out of memory',
   traceback: 'Traceback (most recent call last):\n  boom',
   progress: { step: 'generate', parent_step: null } as JobDetail['progress'],
@@ -1317,7 +1318,10 @@ it('a failed job leads with what failed and the remedy, the traceback folded', a
   ran.definition = { steps: [{ name: 'generate', pipeline: {} }] }
   detail.job = failedJob()
   const { container } = render(JobPage, { jobId: 'j1' })
-  const alert = await screen.findByRole('alert')
+  const alert = (await screen.findByText('Failed in step', { exact: false }))
+    .parentElement!
+  // A job that loads already failed is no news: no live region
+  expect(alert).not.toHaveAttribute('role')
   expect(alert).toHaveTextContent('Failed in step generate.')
   expect(alert).toHaveTextContent('The card ran out of memory.')
   expect(alert).toHaveTextContent(
@@ -1332,10 +1336,31 @@ it('a failed job leads with what failed and the remedy, the traceback folded', a
   expect(folded.textContent).toContain('boom')
 })
 
+it('a failed job with nothing to change does not offer a rerun form', async () => {
+  detail.job = { ...failedJob(), arguments: {} }
+  render(JobPage, { jobId: 'j1' })
+  await screen.findByText('The card ran out of memory.')
+  expect(
+    screen.queryByRole('button', { name: 'Run again with changes…' }),
+  ).toBeNull()
+})
+
+it('announces a failure that happens while the page is open', async () => {
+  detail.job = { ...failedJob(), status: 'running', error: null }
+  render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(stream.onEvent).not.toBeNull())
+  expect(screen.queryByRole('alert')).toBeNull()
+  detail.job = failedJob()
+  stream.onEvent!({ seq: 1, event: 'job_status', status: 'failed' })
+  const alert = await screen.findByRole('alert')
+  expect(alert).toHaveTextContent('The card ran out of memory.')
+})
+
 it('an error no case knows still shows the engine text behind Details', async () => {
   detail.job = { ...failedJob(), error: 'KeyError: weird' }
   const { container } = render(JobPage, { jobId: 'j1' })
-  const alert = await screen.findByRole('alert')
+  const alert = (await screen.findByText('The job stopped with an error.'))
+    .parentElement!
   expect(alert).toHaveTextContent('The job stopped with an error.')
   expect(container.querySelector('details.engine-detail')).toHaveTextContent(
     'KeyError: weird',

@@ -238,6 +238,20 @@
       : undefined,
   )
   let rerunOpen = $state(false)
+  // The same condition RerunWithChanges shows its own button on: a run with
+  // no variables and no arguments has nothing for the dialog to change
+  const canRerun = $derived(
+    Object.keys({
+      ...(definition?.variables ?? {}),
+      ...(job?.arguments ?? {}),
+    }).length > 0,
+  )
+  // A job seen unfinished on this page and then failed is news to announce;
+  // one that loads already failed is not
+  let seenRunning = $state<string | null>(null)
+  $effect(() => {
+    if (running) seenRunning = jobId
+  })
   const failedMemberStep = $derived(
     failed ? activeMember(events as JobEvent[]) : undefined,
   )
@@ -336,6 +350,8 @@
         {job}
         step={failedNode ?? null}
         onrerun={() => (rerunOpen = true)}
+        {canRerun}
+        live={seenRunning === jobId}
       />
     {/if}
 

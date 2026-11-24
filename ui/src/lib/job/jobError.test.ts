@@ -22,6 +22,11 @@ describe('explainJobError', () => {
     })
   })
 
+  it('a size rule needs the whole number 8', () => {
+    expect(explainJobError('width must be divisible by 80').action).toBeNull()
+    expect(explainJobError('a multiple of 8x').action).toBeNull()
+  })
+
   it('a gated model', () => {
     for (const text of [
       'GatedRepoError: 403',
