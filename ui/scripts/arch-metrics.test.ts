@@ -11,6 +11,7 @@ import {
   isLoadState,
   measure,
   misclassified,
+  RAW_MEDIA_OWNERS,
   referencePrefixes,
   regressions,
   sourceFiles,
@@ -84,6 +85,7 @@ describe('the real tree', () => {
       'modules_in_import_cycles',
       'prefix_literals',
       'raw_error_toasts',
+      'raw_media',
       'unguarded_mutations',
       'unwatched_reads',
       'window_dialogs',
@@ -385,6 +387,31 @@ export { inner as removeInner }
       expect.stringMatching(/a\.svelte:7 held-review$/),
     ])
     expect(metrics.banned_terms).toBe(4)
+  })
+
+  it('raw_media counts img, video and audio outside OutputTile and MediaBody', async () => {
+    const { metrics, detail } = await measured({
+      'a.svelte': `<img src="a.png" alt="" />
+{#if x}
+  <video src="b.mp4"></video>
+{/if}
+<audio src="c.mp3" controls></audio>
+<picture></picture>
+`,
+    })
+    expect(metrics.raw_media).toBe(3)
+    expect(detail.raw_media).toEqual([
+      expect.stringMatching(/a\.svelte:1 img$/),
+      expect.stringMatching(/a\.svelte:3 video$/),
+      expect.stringMatching(/a\.svelte:5 audio$/),
+    ])
+  })
+
+  it('raw_media spares exactly OutputTile and MediaBody', () => {
+    expect([...RAW_MEDIA_OWNERS].sort()).toEqual([
+      'src/lib/ui/MediaBody.svelte',
+      'src/lib/ui/OutputTile.svelte',
+    ])
   })
 
   it('duplicate_blocks counts one shared 6-line run once per file', async () => {

@@ -2,6 +2,7 @@
   import { ImageOff, Pencil, Play, Star } from '@lucide/svelte'
   import { outputLibrary } from '../outputlib.svelte'
   import { api } from '../api'
+  import { kindGlyph } from '../media'
   import { untrack } from 'svelte'
   import { resource, type Resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
@@ -359,7 +360,7 @@
             </span>
           {:else}
             <span class="audio">
-              {file.kind === 'text' ? '¶' : '♪'}
+              {kindGlyph(file.kind)}
               {file.label}
             </span>
           {/if}

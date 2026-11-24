@@ -71,6 +71,9 @@
 //   whitespace collapsed, blank and TRIVIAL_LINE lines dropped; a 6-line
 //   window whose sha1 occurs in two or more files is shared, and each
 //   file's maximal runs of consecutive shared windows are counted.
+// - raw_media: every `<img>`, `<video>` and `<audio>` element in a .svelte
+//   file outside RAW_MEDIA_OWNERS (OutputTile and MediaBody); a media file
+//   is shown through them. Detail: `file:line tag`.
 // Known limits of those four rules:
 // - a write two or more imports away (a .ts helper that writes through
 //   another module) is not counted, nor a write through a `.svelte.ts`
@@ -168,6 +171,36 @@ export const NOT_READS = [
   'workflowDownloadUrl',
   'promptDownloadUrl',
 ]
+
+/** The only components that may hold a raw media element */
+export const RAW_MEDIA_OWNERS = new Set([
+  'src/lib/ui/OutputTile.svelte',
+  'src/lib/ui/MediaBody.svelte',
+])
+const MEDIA_TAGS = new Set(['img', 'video', 'audio'])
+
+/** `<img>`, `<video>` and `<audio>` outside RAW_MEDIA_OWNERS */
+function mediaRule(found) {
+  return {
+    create(context) {
+      if (
+        RAW_MEDIA_OWNERS.has(
+          relative(UI, context.filename).replaceAll('\\', '/'),
+        )
+      )
+        return {}
+      return {
+        SvelteElement(node) {
+          const tag = node.name?.name
+          if (MEDIA_TAGS.has(tag))
+            found.push(
+              `${relative(UI, context.filename)}:${node.loc.start.line} ${tag}`,
+            )
+        },
+      }
+    },
+  }
+}
 
 export const isLoadState = (file) =>
   relative(UI, file).replaceAll('\\', '/') === LOAD_STATE
@@ -576,6 +609,7 @@ export async function measure(
   const helperSites = []
   const writers = new Map()
   const banned = []
+  const rawMedia = []
   const collector = {
     rules: {
       dialogs: {
@@ -592,6 +626,7 @@ export async function measure(
       },
       mutations: unguardedRule(unguarded, helperSites, writers),
       copy: copyRule(banned),
+      media: mediaRule(rawMedia),
       toasts: {
         create(context) {
           return {
@@ -703,6 +738,7 @@ export async function measure(
           'arch/dialogs': 'error',
           'arch/mutations': 'error',
           'arch/copy': 'error',
+          'arch/media': 'error',
         },
       },
     ],
@@ -758,6 +794,7 @@ export async function measure(
       window_dialogs: dialogs.length,
       unguarded_mutations: unguarded.length,
       banned_terms: banned.length,
+      raw_media: rawMedia.length,
       duplicate_blocks: duplicates.length,
     },
     detail: {
@@ -769,6 +806,7 @@ export async function measure(
       window_dialogs: dialogs,
       unguarded_mutations: unguarded,
       banned_terms: banned,
+      raw_media: rawMedia,
       duplicate_blocks: duplicates,
     },
   }

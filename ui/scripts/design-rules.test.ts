@@ -55,6 +55,15 @@ it('location.replace appears only in the router', () => {
   expect(using).toEqual(['src/lib/router.svelte.ts'])
 })
 
+// What stands in for a picture is one map: `kindGlyph` in src/lib/media.ts.
+// A second spelling of a glyph is a second map to keep in step
+it('the kind glyphs are spelled only in media.ts', () => {
+  const using = sourceFiles()
+    .filter((f) => /[♪¶]/.test(readFileSync(f, 'utf8')))
+    .map((f) => f.slice(UI.length + 1).replaceAll('\\', '/'))
+  expect(using).toEqual(['src/lib/media.ts'])
+})
+
 // One look for a chosen segment and one for a chosen chip: the selected
 // styles live in Segmented.svelte and patterns.css, so no other component
 // restyles `aria-pressed` or `.activebtn`

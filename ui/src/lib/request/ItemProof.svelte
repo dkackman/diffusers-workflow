@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Check, CircleDashed, Clock, Lock, Play, X } from '@lucide/svelte'
   import { api } from '../api'
+  import { kindGlyph } from '../media'
   import type { LedgerOutput } from '../types'
 
   // What stands for a job in a request: its picture in a contact-sheet
@@ -70,7 +71,7 @@
       aria-label={alt || undefined}
       aria-hidden={alt ? undefined : 'true'}
     >
-      {output.kind === 'text' ? '¶' : '♪'}
+      {kindGlyph(output.kind)}
     </span>
   {:else if shown === 'running'}
     <span class="pulse-dot" aria-hidden="true"></span>

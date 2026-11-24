@@ -1,4 +1,5 @@
 import { assetThumbnailUrl, galleryThumbnailUrl } from './apiUrls'
+import { kindGlyph } from './media'
 import { assetLibrary, ensureAssetLibrary } from './assetlib.svelte'
 import { ensureOutputLibrary, outputLibrary } from './outputlib.svelte'
 import { promptLibrary } from './promptlib.svelte'
@@ -15,8 +16,6 @@ const BADGES: Partial<Record<AssetFile['origin'], string>> = {
   common: 'shared',
   examples: 'example',
 }
-// What stands in for a picture where the server makes no thumbnail
-const GLYPHS: Record<string, string> = { audio: '♪', lut: '¶', text: '¶' }
 
 /** Whether the server renders a thumbnail of `asset`: an image, or a
  * video's first frame. */
@@ -100,7 +99,7 @@ export function assetChoices(
     value: asset.name,
     label: asset.name,
     thumb: hasThumbnail(asset) ? assetThumbnailUrl(asset.name) : undefined,
-    glyph: GLYPHS[asset.kind],
+    glyph: kindGlyph(asset.kind),
     badge: BADGES[asset.origin],
   }))
 }
@@ -115,7 +114,7 @@ export function outputRow(file: GalleryFile, value = file.name): SuggestItem {
       .filter(Boolean)
       .join(' · '),
     thumb: hasThumbnail(file) ? galleryThumbnailUrl(file.name) : undefined,
-    glyph: GLYPHS[file.kind],
+    glyph: kindGlyph(file.kind),
     badge: file.version ? `v${file.version}` : undefined,
   }
 }

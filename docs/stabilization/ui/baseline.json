@@ -12,5 +12,6 @@
   "window_dialogs": 0,
   "unguarded_mutations": 0,
   "banned_terms": 0,
+  "raw_media": 27,
   "duplicate_blocks": 30
 }

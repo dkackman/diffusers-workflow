@@ -7,6 +7,7 @@
   // folder groups, a contact-sheet grid, a detail popout.
   import { FolderOpen } from '@lucide/svelte'
   import { api } from '../api'
+  import { kindGlyph } from '../media'
   import { untrack } from 'svelte'
   import { resource } from '../resource.svelte'
   import { applyEdits, noEdits, settleEdits, withPatch } from '../gallery/order'
@@ -421,7 +422,7 @@
                 <video src={asset.url} preload="metadata" muted></video>
               {:else}
                 <span class="audio">
-                  {asset.kind === 'audio' ? '♪' : '¶'}
+                  {kindGlyph(asset.kind)}
                   {leafName(asset.name)}
                 </span>
               {/if}

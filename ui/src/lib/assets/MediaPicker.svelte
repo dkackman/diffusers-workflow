@@ -8,6 +8,7 @@
   import GroupHeading from '../ui/GroupHeading.svelte'
   import { collapsedState } from '../collapsed.svelte'
   import { assetThumbnailUrl, galleryThumbnailUrl } from '../apiUrls'
+  import { kindGlyph } from '../media'
   import { assetLibrary, ensureAssetLibrary } from '../assetlib.svelte'
   import {
     ensureOutputLibrary,
@@ -46,7 +47,6 @@
     examples: 'Examples',
   }
   const ORDER: AssetFile['origin'][] = ['workspace', 'common', 'examples']
-  const GLYPHS: Record<string, string> = { audio: '♪' }
 
   const currentAsset = $derived(referenceName(current, ASSET))
   const currentOutput = $derived(referenceName(current, OUTPUT))
@@ -110,7 +110,7 @@
           thumb: hasThumbnail(asset)
             ? assetThumbnailUrl(asset.name)
             : undefined,
-          glyph: GLYPHS[asset.kind] ?? '¶',
+          glyph: kindGlyph(asset.kind),
           current: asset.name === currentAsset,
           pick: () => reference(ASSET, asset.name),
         })),
@@ -140,7 +140,7 @@
           thumb: hasThumbnail(file)
             ? galleryThumbnailUrl(file.name)
             : undefined,
-          glyph: GLYPHS[file.kind] ?? '¶',
+          glyph: kindGlyph(file.kind),
           current: file.name === marked,
           pick: () =>
             reference(OUTPUT, (followLatest && latestName(file)) || file.name),
