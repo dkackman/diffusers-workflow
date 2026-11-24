@@ -2,9 +2,15 @@
 // an asset, the one glyph map for a kind with no picture, and the only two
 // places a tile's thumbnail URL is built. The glyphs are spelled here and
 // nowhere else (scripts/design-rules.test.ts).
-import { assetThumbnailUrl, galleryThumbnailUrl } from './apiUrls'
+import { assetThumbnailUrl, galleryThumbnailUrl, outputUrl } from './apiUrls'
 import { leafName } from './names'
-import type { AssetFile, AssetKind, GalleryFile, OutputKind } from './types'
+import type {
+  AssetFile,
+  AssetKind,
+  GalleryFile,
+  LedgerOutput,
+  OutputKind,
+} from './types'
 
 export type MediaFile = {
   name: string
@@ -62,5 +68,23 @@ export function assetMedia(asset: AssetFile, workspace: string): MediaFile {
     thumb: hasPicture(asset.kind) ? assetThumbnailUrl(asset.name) : null,
     duration: asset.duration_seconds ?? null,
     stamp: `${asset.mtime}:${asset.size}`,
+  }
+}
+
+/** A request's job output (the ledger's name and kind) as a tile shows it,
+ * in the request's workspace */
+export function ledgerMedia(
+  output: LedgerOutput,
+  workspace: string,
+): MediaFile {
+  return {
+    name: output.name,
+    kind: output.kind,
+    url: outputUrl(output.name, undefined, workspace),
+    label: leafName(output.name),
+    workspace,
+    thumb: hasPicture(output.kind)
+      ? galleryThumbnailUrl(output.name, workspace)
+      : null,
   }
 }

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Film, Image, Layers, Music, Play, Plus } from '@lucide/svelte'
+  import { Film, Image, Layers, Music, Plus } from '@lucide/svelte'
   import { api } from '../api'
   import Segmented from '../ui/Segmented.svelte'
   import { resource } from '../resource.svelte'
@@ -12,6 +12,8 @@
   import { costFigure } from '../cost'
   import { observedText } from '../observed'
   import { latestProofs } from '../proofs'
+  import { outputMedia } from '../media'
+  import OutputTile from '../ui/OutputTile.svelte'
   import { sharedHref, wsHref } from '../routes'
   import { cardTitle } from '../workflowCard'
   import { workspace } from '../workspace.svelte'
@@ -55,10 +57,17 @@
   // through LoadState: the catalog reads fine without proofs, so a failed
   // read shows none
   const proofing = resource(
-    async () => latestProofs((await api.gallery()).files),
+    async () => {
+      const { files, workspace: home } = await api.gallery()
+      return { workspace: home, proofs: latestProofs(files) }
+    },
     { watch: ['gallery'] },
   )
-  const proofs = $derived<Record<string, GalleryFile>>(proofing.data ?? {})
+  const proofs = $derived<Record<string, GalleryFile>>(
+    proofing.data?.proofs ?? {},
+  )
+  // The proofs' own workspace, which their thumbnails name
+  const proofHome = $derived(proofing.data?.workspace ?? workspace.current)
 
   // The population this page is over: the workspace's own workflows (any
   // writable library), or - under `examples` - only the read-only ones. The
@@ -262,26 +271,12 @@
            there is something to look at. Card height ends up saying which
            workflows you have actually used. -->
         {#if proof}
-          <span class="frame cardframe">
-            {#if proof.kind === 'image'}
-              <img
-                src={api.galleryThumbnailUrl(proof.name)}
-                alt=""
-                loading="lazy"
-                decoding="async"
-              />
-            {:else}
-              <img
-                src={api.galleryThumbnailUrl(proof.name)}
-                alt=""
-                loading="lazy"
-                decoding="async"
-              />
-              <span class="videobadge" aria-hidden="true">
-                <Play size={11} />
-              </span>
-            {/if}
-          </span>
+          <OutputTile
+            file={outputMedia(proof, proofHome)}
+            size="card"
+            caption="none"
+            alt=""
+          />
         {/if}
         <span class="caption">
           <span class="cardname">{leafOf(name)}</span>
@@ -370,8 +365,7 @@
   /* A banner across the top of a card rather than a free-standing frame:
      the card's own border surrounds it, so it contributes only the rule
      that separates the picture from its caption */
-  .cardframe {
-    aspect-ratio: 4 / 3;
+  .card :global(.filetile) {
     border-width: 0 0 1px;
     border-radius: 0;
   }

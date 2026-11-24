@@ -13,6 +13,7 @@ import '../router.svelte'
 
 const data = vi.hoisted(() => ({
   files: [] as unknown[],
+  galleryWorkspace: 'studio',
   jobs: [] as unknown[],
   workflows: [] as string[],
   assets: [] as unknown[],
@@ -33,7 +34,10 @@ vi.mock('../api', () => ({
       hit('gallery'),
       data.galleryError
         ? Promise.reject(data.galleryError)
-        : Promise.resolve({ files: data.files })
+        : Promise.resolve({
+            files: data.files,
+            workspace: data.galleryWorkspace,
+          })
     ),
     // Filters the fixture the way the server does: `status` is one state
     // or a comma-separated set, `limit` keeps the newest (last) N
@@ -74,7 +78,6 @@ vi.mock('../api', () => ({
         workspace: 'default',
       })
     ),
-    galleryThumbnailUrl: (n: string) => `/thumb/${n}`,
     listWorkspaces: () =>
       Promise.resolve({
         workspace_root: '/ws',
@@ -100,6 +103,7 @@ vi.mock('../toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
 beforeEach(async () => {
   for (const k of Object.keys(calls)) delete calls[k]
   data.files = []
+  data.galleryWorkspace = 'studio'
   data.jobs = []
   data.workflows = []
   data.assets = []
@@ -131,7 +135,7 @@ it('an empty workspace shows empty states, not empty frames', async () => {
   await waitFor(() =>
     expect(screen.getByText(/nothing generated yet/i)).toBeTruthy(),
   )
-  expect(document.querySelectorAll('.frame')).toHaveLength(0)
+  expect(document.querySelectorAll('.filetile')).toHaveLength(0)
   expect(screen.getByText(/no jobs yet/i)).toBeTruthy()
   expect(screen.getByText(/no workflows yet/i)).toBeTruthy()
 })
@@ -163,7 +167,7 @@ it('one panel failing leaves the others', async () => {
     expect(screen.getByText(/couldn't load recent outputs/i)).toBeTruthy(),
   )
   expect(screen.getAllByRole('button', { name: 'Retry' })).toHaveLength(1)
-  expect(screen.getByRole('link', { name: 'j1' }).getAttribute('href')).toBe(
+  expect(screen.getByTitle('job j1').getAttribute('href')).toBe(
     '#/ws/studio/jobs/j1',
   )
   expect(screen.getByRole('link', { name: 'shot' })).toBeTruthy()
@@ -211,14 +215,14 @@ it('shows recent outputs, jobs and workflows, each linking to its page', async (
     },
   ]
   render(OverviewPage)
-  // the recent output's frame, and the workflow card's proof (also a .frame)
+  // the recent output's tile, and the workflow card's proof (also a tile)
   await waitFor(() =>
-    expect(document.querySelectorAll('.frame').length).toBe(2),
+    expect(document.querySelectorAll('.filetile').length).toBe(2),
   )
   expect(
     screen.getByRole('link', { name: /recent outputs/i }).getAttribute('href'),
   ).toBe('#/ws/studio/gallery')
-  expect(screen.getByRole('link', { name: 'j1' }).getAttribute('href')).toBe(
+  expect(screen.getByTitle('job j1').getAttribute('href')).toBe(
     '#/ws/studio/jobs/j1',
   )
   // the workflow with a proof sorts first and carries its picture
@@ -244,13 +248,11 @@ it('a deep queue does not hide the running job, and queued jobs are not "recent"
     ...[3, 4, 5, 6, 7, 8].map((n) => job(`queued${n}`, 'queued', n)),
   ]
   render(OverviewPage)
-  await waitFor(() =>
-    expect(screen.getByRole('link', { name: 'running1' })).toBeTruthy(),
-  )
+  await waitFor(() => expect(screen.getByTitle('job running1')).toBeTruthy())
   expect(document.querySelector('.row-live')).toBeTruthy()
-  expect(screen.getByRole('link', { name: 'done1' })).toBeTruthy()
+  expect(screen.getByTitle('job done1')).toBeTruthy()
   expect(document.querySelectorAll('.chip.queued')).toHaveLength(0)
-  expect(screen.queryByRole('link', { name: /^queued/ })).toBeNull()
+  expect(screen.queryByTitle(/^job queued/)).toBeNull()
 })
 
 it('delete is offered off the default and goes through the shared action', async () => {
@@ -399,11 +401,96 @@ it('a quiet reload that fails keeps the panel under a refresh line', async () =>
   data.files = [{ name: 'a.png', label: 'a', kind: 'image' }]
   render(OverviewPage)
   await waitFor(() =>
-    expect(document.querySelectorAll('.tile')).toHaveLength(1),
+    expect(document.querySelectorAll('.filetile')).toHaveLength(1),
   )
   data.galleryError = new Error('boom')
   feed.move('studio', 'gallery')
   await settle()
-  expect(document.querySelectorAll('.tile')).toHaveLength(1)
+  expect(document.querySelectorAll('.filetile')).toHaveLength(1)
   expect(screen.getByText(/couldn't refresh recent outputs/i)).toBeTruthy()
+})
+
+const output = (name: string, run_id: string, kind = 'image') => ({
+  name,
+  folder: name.split('/')[0],
+  subfolder: '',
+  run_id,
+  version: 1,
+  url: `/outputs/${name}`,
+  kind,
+  size: 1,
+  mtime: 2,
+  label: name.split('/').pop(),
+})
+const recentTiles = () => [
+  ...document.querySelectorAll<HTMLAnchorElement>('.strip a.filetile'),
+]
+
+it('a recent tile opens that file in the gallery', async () => {
+  data.files = [
+    output('shot/r1/a.png', 'r1'),
+    output('shot/r1/b.mp4', 'r1', 'video'),
+  ]
+  render(OverviewPage)
+  await waitFor(() => expect(recentTiles()).toHaveLength(2))
+  expect(recentTiles().map((a) => a.getAttribute('href'))).toEqual([
+    '#/ws/studio/gallery?open=shot%2Fr1%2Fa.png',
+    '#/ws/studio/gallery?open=shot%2Fr1%2Fb.mp4',
+  ])
+  // a clip carries its play badge
+  expect(recentTiles()[1].querySelector('.videobadge')).toBeTruthy()
+  expect(screen.getByRole('img', { name: 'a.png' })).toBeTruthy()
+})
+
+it('tiles keep the workspace they were listed in after a switch', async () => {
+  data.files = [output('shot/r1/a.png', 'r1')]
+  render(OverviewPage)
+  await waitFor(() => expect(recentTiles()).toHaveLength(1))
+  location.hash = '#/ws/default/overview'
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
+  // the listing that lands still says it is studio's
+  await waitFor(() => expect(calls.gallery).toBe(2))
+  await settle()
+  const [tile] = recentTiles()
+  expect(tile.getAttribute('href')).toBe(
+    '#/ws/studio/gallery?open=shot%2Fr1%2Fa.png',
+  )
+  expect(tile.querySelector('img')?.getAttribute('src')).toContain(
+    'workspace=studio',
+  )
+})
+
+it('a job row is one link, titled with its id', async () => {
+  data.files = [
+    output('shot/r1/a.wav', 'r1', 'audio'),
+    output('shot/r1/a.png', 'r1'),
+  ]
+  data.jobs = [
+    {
+      id: 'j1',
+      workflow: 'shot-id',
+      workflow_name: 'shots/shot',
+      status: 'succeeded',
+      run_id: 'r1',
+      created_at: 1,
+      started_at: 1,
+      finished_at: 2,
+      workspace: 'studio',
+    },
+  ]
+  render(OverviewPage)
+  await waitFor(() => expect(screen.getByTitle('job j1')).toBeTruthy())
+  const row = screen.getByTitle('job j1')
+  expect(row.tagName).toBe('A')
+  expect(row.getAttribute('href')).toBe('#/ws/studio/jobs/j1')
+  expect(row.querySelector('.chip.succeeded')).toBeTruthy()
+  expect(row.textContent).toContain('shot')
+  expect(row.textContent).not.toContain('j1')
+  // the run's proof, as a mini tile inside the one link
+  await waitFor(() =>
+    expect(row.querySelector('.tile-mini img')?.getAttribute('src')).toContain(
+      'shot/r1/a.png',
+    ),
+  )
+  expect(row.closest('li')?.querySelectorAll('a')).toHaveLength(1)
 })

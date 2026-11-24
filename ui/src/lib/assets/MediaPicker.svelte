@@ -7,8 +7,8 @@
   import Segmented from '../ui/Segmented.svelte'
   import GroupHeading from '../ui/GroupHeading.svelte'
   import { collapsedState } from '../collapsed.svelte'
-  import { assetThumbnailUrl, galleryThumbnailUrl } from '../apiUrls'
-  import { kindGlyph } from '../media'
+  import OutputTile from '../ui/OutputTile.svelte'
+  import { assetMedia, outputMedia, type MediaFile } from '../media'
   import { assetLibrary, ensureAssetLibrary } from '../assetlib.svelte'
   import {
     ensureOutputLibrary,
@@ -17,11 +17,10 @@
     outputLibrary,
     outputNamed,
   } from '../outputlib.svelte'
-  import { hasThumbnail } from '../refcomplete.svelte'
   import { ASSET, OUTPUT, reference, referenceName } from '../references'
-  import { leafName } from '../names'
   import { matchesWords } from '../ui/suggest'
   import type { AssetFile } from '../types'
+  import { workspace } from '../workspace.svelte'
 
   type Tab = 'assets' | 'outputs'
 
@@ -80,10 +79,8 @@
 
   type Tile = {
     key: string
-    caption: string
+    file: MediaFile
     sub: string
-    thumb?: string
-    glyph: string
     current: boolean
     pick: () => string
   }
@@ -105,12 +102,8 @@
         .sort((a, b) => a.name.localeCompare(b.name))
         .map((asset) => ({
           key: asset.name,
-          caption: leafName(asset.name),
+          file: assetMedia(asset, assetLibrary.workspace ?? workspace.current),
           sub: asset.folder,
-          thumb: hasThumbnail(asset)
-            ? assetThumbnailUrl(asset.name)
-            : undefined,
-          glyph: kindGlyph(asset.kind),
           current: asset.name === currentAsset,
           pick: () => reference(ASSET, asset.name),
         })),
@@ -133,14 +126,10 @@
         .filter((file) => file.folder === folder)
         .map((file) => ({
           key: file.name,
-          caption: leafName(file.name),
+          file: outputMedia(file, outputLibrary.workspace ?? workspace.current),
           sub: [file.version ? `v${file.version}` : '', file.subfolder]
             .filter(Boolean)
             .join(' · '),
-          thumb: hasThumbnail(file)
-            ? galleryThumbnailUrl(file.name)
-            : undefined,
-          glyph: kindGlyph(file.kind),
           current: file.name === marked,
           pick: () =>
             reference(OUTPUT, (followLatest && latestName(file)) || file.name),
@@ -213,22 +202,18 @@
       {#if !closed(section.key)}
         <div class="grid">
           {#each section.tiles as tile (tile.key)}
-            <button
-              class="tile"
-              class:current={tile.current}
+            {#snippet folder()}<span class="folder">{tile.sub}</span>{/snippet}
+            <OutputTile
+              file={tile.file}
+              size="strip"
+              alt=""
+              active={tile.current}
               aria-current={tile.current ? 'true' : undefined}
               onclick={() => choose(tile)}
               title={tile.key}
               aria-label="choose {tile.key}"
-            >
-              {#if tile.thumb}
-                <img src={tile.thumb} alt="" loading="lazy" />
-              {:else}
-                <span class="glyph" aria-hidden="true">{tile.glyph}</span>
-              {/if}
-              <span class="caption">{tile.caption}</span>
-              {#if tile.sub}<span class="folder muted">{tile.sub}</span>{/if}
-            </button>
+              meta={tile.sub ? folder : undefined}
+            />
           {/each}
         </div>
       {/if}
@@ -280,56 +265,15 @@
   }
   .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    grid-template-columns: repeat(auto-fill, 96px);
     gap: var(--space-2);
   }
-  .tile {
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-    padding: 0 0 var(--space-1);
-    border: 1px solid var(--line);
-    border-radius: var(--radius-frame);
-    background: var(--panel);
-    color: var(--ink);
-    overflow: hidden;
-    text-align: left;
-    cursor: pointer;
-  }
-  .tile:hover,
-  .tile:focus-visible {
-    border-color: var(--accent);
-    filter: none;
-  }
-  .tile.current {
-    border-color: var(--accent);
-    box-shadow: inset 0 0 0 1px var(--accent);
-  }
-  .tile img,
-  .glyph {
-    display: block;
-    width: 100%;
-    height: 96px;
-    object-fit: cover;
-    background: var(--panel-2);
-  }
-  .glyph {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1.6rem;
-    color: var(--muted);
-  }
-  .caption,
+  /* Where it is in its library: the folder, or which run */
   .folder {
-    padding: 0 var(--space-2);
+    display: block;
     font-family: var(--font-mono);
-    font-size: 0.75rem;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-  }
-  .folder {
-    font-size: 0.7rem;
   }
 </style>

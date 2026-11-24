@@ -29,8 +29,6 @@ vi.mock('../api', () => ({
         unreadable: data.unreadable,
       })
     },
-    galleryThumbnailUrl: (name: string, ws?: string) =>
-      `/thumb/${name}?ws=${ws}`,
   },
 }))
 
@@ -68,7 +66,11 @@ it('lists a request as one row: its pictures, what it wants, how far and what it
   expect(link.classList.contains('row')).toBe(true)
   expect(
     [...link.querySelectorAll('.cover img')].map((i) => i.getAttribute('src')),
-  ).toEqual(['/thumb/run/b.mp4?ws=studio', '/thumb/run/a.png?ws=studio'])
+  ).toEqual([
+    '/api/gallery/run/b.mp4/thumbnail?workspace=studio',
+    '/api/gallery/run/a.png/thumbnail?workspace=studio',
+  ])
+  expect(link.querySelectorAll('.cover .tile-mini')).toHaveLength(2)
   expect(link.querySelectorAll('.cover .videobadge')).toHaveLength(1)
   expect(screen.getByText('r1')).toBeTruthy()
   expect(link.querySelector('.tag')?.textContent).toBe('open')

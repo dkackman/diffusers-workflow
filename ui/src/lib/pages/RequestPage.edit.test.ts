@@ -47,7 +47,6 @@ vi.mock('../api', async () => ({
       world.ledger.put(body),
     addNote: (_ws: string, body: never) => world.ledger.addNote(body),
     notesChannel: async () => ({ listening: false, last_seen: null }),
-    galleryThumbnailUrl: (name: string) => `/thumb/${name}`,
     validate: (...args: unknown[]) => world.validate(...args),
     submitJob: (...args: unknown[]) => world.submitJob(...args),
     deleteRequest: (...args: unknown[]) => world.deleteRequest(...args),

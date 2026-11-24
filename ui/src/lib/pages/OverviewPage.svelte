@@ -6,11 +6,12 @@
     Images,
     Inbox,
     Layers,
-    Play,
     Plus,
     Trash2,
   } from '@lucide/svelte'
   import StatusChip from '../ui/StatusChip.svelte'
+  import OutputTile from '../ui/OutputTile.svelte'
+  import { outputMedia } from '../media'
   import { api } from '../api'
   import { attention, doneFigure } from '../request/attention'
   import { resource } from '../resource.svelte'
@@ -22,8 +23,9 @@
   import { formatBytes } from '../format'
   import { workflowName } from '../terms'
   import { hiddenWorkspaces, setHidden } from '../hiddenWorkspaces.svelte'
-  import { latestProofs } from '../proofs'
-  import { wsHref } from '../routes'
+  import { latestProofs, proofByRun } from '../proofs'
+  import { fileHref, jobHref, wsHref } from '../routes'
+  import type { JobSummary } from '../types'
   import {
     DEFAULT_WORKSPACE,
     invalidateWorkspaces,
@@ -50,8 +52,13 @@
   // Each reloads quietly when its own kind moves
   const gallery = resource(
     async () => {
-      const { files } = await api.gallery()
-      return { recent: files.slice(0, RECENT), proofs: latestProofs(files) }
+      const { files, workspace: listed } = await api.gallery()
+      return {
+        workspace: listed,
+        recent: files.slice(0, RECENT),
+        proofs: latestProofs(files),
+        runs: proofByRun(files),
+      }
     },
     { watch: ['gallery'] },
   )
@@ -106,6 +113,10 @@
   // The ones that have produced something first - the same order the catalog
   // uses, so the overview and the catalog agree on what is "recent"
   const proofs = $derived(gallery.data?.proofs ?? {})
+  const runs = $derived(gallery.data?.runs ?? {})
+  // The workspace the listing came from: every tile's thumbnail and link
+  // names it, so a switch never asks the new workspace for the old files
+  const listed = $derived(gallery.data?.workspace ?? name)
   const featured = $derived(
     [...(workflows.data ?? [])]
       .sort(
@@ -157,28 +168,46 @@
     {#snippet children({ recent })}
       <div class="strip">
         {#each recent as file (file.name)}
-          <a
-            class="plain frame tile"
-            href={wsHref(name, 'gallery')}
+          <OutputTile
+            file={outputMedia(file, listed)}
+            size="strip"
+            caption="none"
+            href={fileHref(listed, 'gallery', file.name)}
+            alt={file.label}
             title={file.label}
-          >
-            {#if file.kind === 'image' || file.kind === 'video'}<img
-                src={api.galleryThumbnailUrl(file.name)}
-                alt={file.label}
-                loading="lazy"
-              />{#if file.kind === 'video'}<span
-                  class="videobadge"
-                  aria-hidden="true"
-                >
-                  <Play size={11} />
-                </span>{/if}
-            {:else}<span class="muted">{file.label}</span>{/if}
-          </a>
+            aria-label={file.label}
+          />
         {/each}
       </div>
     {/snippet}
   </LoadState>
 </section>
+
+<!-- A job as one link: its status, its workflow and its run's proof -->
+{#snippet jobRow(job: JobSummary, live: boolean)}
+  {@const proof = job.run_id ? runs[job.run_id] : undefined}
+  <li class:row-live={live}>
+    <a
+      class="plain jobrow"
+      href={jobHref(job.id, job.workspace)}
+      title="job {job.id}"
+    >
+      <!-- A fixed slot, so the names line up with a proof or without -->
+      <span class="jobproof">
+        {#if proof}
+          <OutputTile
+            file={outputMedia(proof, listed)}
+            size="mini"
+            caption="none"
+            alt=""
+          />
+        {/if}
+      </span>
+      <StatusChip status={job.status} />
+      <span class="wf">{workflowName(job)}</span>
+    </a>
+  </li>
+{/snippet}
 
 {#if openRequests.length}
   <section class="panel">
@@ -219,22 +248,8 @@
       {#snippet emptyText()}No jobs yet.{/snippet}
       {#snippet children({ running, finished })}
         <ul class="jobs">
-          {#if running}
-            <li class="row-live">
-              <StatusChip status="running" />
-              <span class="wf">{workflowName(running)}</span>
-              <a class="plain" href={wsHref(name, 'jobs', running.id)}>
-                {running.id}
-              </a>
-            </li>
-          {/if}
-          {#each finished as job (job.id)}
-            <li>
-              <StatusChip status={job.status} />
-              <span class="wf">{workflowName(job)}</span>
-              <a class="plain" href={wsHref(name, 'jobs', job.id)}>{job.id}</a>
-            </li>
-          {/each}
+          {#if running}{@render jobRow(running, true)}{/if}
+          {#each finished as job (job.id)}{@render jobRow(job, false)}{/each}
         </ul>
       {/snippet}
     </LoadState>
@@ -273,19 +288,12 @@
             href={wsHref(name, 'workflows', ...wf.split('/'))}
           >
             {#if proofs[wf]}
-              <span class="frame cardframe">
-                <img
-                  src={api.galleryThumbnailUrl(proofs[wf].name)}
-                  alt=""
-                  loading="lazy"
-                />
-                {#if proofs[wf].kind !== 'image'}<span
-                    class="videobadge"
-                    aria-hidden="true"
-                  >
-                    <Play size={11} />
-                  </span>{/if}
-              </span>
+              <OutputTile
+                file={outputMedia(proofs[wf], listed)}
+                size="card"
+                caption="none"
+                alt=""
+              />
             {/if}
             <span class="cardname">{leaf(wf)}</span>
           </a>
@@ -366,11 +374,8 @@
   }
   .strip {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    grid-template-columns: repeat(auto-fill, 96px);
     gap: var(--space-2);
-  }
-  .tile {
-    aspect-ratio: 1;
   }
   .jobs {
     list-style: none;
@@ -380,12 +385,21 @@
     flex-direction: column;
     gap: var(--space-2);
   }
-  .jobs li {
+  .jobs li,
+  .jobrow {
     display: flex;
     align-items: center;
     gap: var(--space-3);
     font-family: var(--font-mono);
     font-size: var(--t-sm);
+  }
+  .jobrow {
+    flex: 1;
+    min-width: 0;
+  }
+  .jobproof {
+    flex: none;
+    width: 48px;
   }
   .jobs .wf {
     flex: 1;
@@ -395,6 +409,9 @@
   }
   .jobs .row-live {
     padding-left: var(--space-2);
+  }
+  .jobrow:hover .wf {
+    text-decoration: underline;
   }
   .cards {
     display: grid;
@@ -418,8 +435,9 @@
   .cardname {
     padding: 0 var(--space-2);
   }
-  .cardframe {
-    aspect-ratio: 4 / 3;
+  /* The proof is a banner across the card's top: the card's border is its
+     frame, so the tile keeps only the rule above the name */
+  .card :global(.filetile) {
     border-width: 0 0 1px;
     border-radius: 0;
   }

@@ -4,6 +4,7 @@ import {
   SERVER_SECTIONS,
   SHARED_SECTIONS,
   WS_SECTIONS,
+  fileHref,
   jobHref,
   legacyRedirect,
   resolveView,
@@ -162,5 +163,16 @@ describe('jobHref', () => {
   })
   it('keeps the legacy form where the caller has no workspace', () => {
     expect(jobHref('abc')).toBe('#/jobs/abc')
+  })
+})
+
+describe('fileHref', () => {
+  it('fileHref puts the name in open=', () => {
+    expect(fileHref('my studio', 'gallery', 'shot/r1/a b.png')).toBe(
+      '#/ws/my%20studio/gallery?open=shot%2Fr1%2Fa%20b.png',
+    )
+    expect(fileHref('studio', 'assets', 'cast/priya.png')).toBe(
+      '#/ws/studio/assets?open=cast%2Fpriya.png',
+    )
   })
 })

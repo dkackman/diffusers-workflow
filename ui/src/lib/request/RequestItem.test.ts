@@ -18,8 +18,6 @@ const api = vi.hoisted(() => ({
 vi.mock('../api', () => ({
   api: {
     ...api,
-    galleryThumbnailUrl: (name: string, ws?: string) =>
-      `/thumb/${name}?ws=${ws}`,
   },
 }))
 vi.mock('../confirm.svelte', () => ({ confirmDialog: vi.fn() }))
@@ -66,11 +64,14 @@ const withOutput = (key: string, output: typeof image | null) =>
 it('a done item shows its result as the proof, linked to the job', () => {
   const { container } = render(RequestItem, props([withOutput('a', image)]))
   const proof = screen.getByRole('img', { name: 'result of Opening shot' })
-  expect(proof.getAttribute('src')).toBe('/thumb/shot/a.png?ws=studio')
+  expect(proof.getAttribute('src')).toBe(
+    '/api/gallery/shot/a.png/thumbnail?workspace=studio',
+  )
   expect(proof.closest('a')?.getAttribute('href')).toBe(
     '#/ws/studio/jobs/job-a',
   )
-  expect(proof.closest('a')?.classList.contains('frame')).toBe(true)
+  expect(proof.closest('a')?.classList.contains('filetile')).toBe(true)
+  expect(proof.closest('a')?.classList.contains('tile-strip')).toBe(true)
   expect(chip(container)?.textContent).toBe('done')
   expect(chip(container)?.classList.contains('succeeded')).toBe(true)
   // measured minutes, so no tilde
@@ -89,7 +90,13 @@ it('marks a video proof as one, and stands a sound by a glyph', () => {
     props([withOutput('a', sound as never)]),
   )
   expect(container.querySelector('.proofcell img')).toBeNull()
-  expect(container.querySelector('.proofcell .glyph')?.textContent).toBe('♪')
+  expect(
+    container.querySelector('.proofcell .tile-glyph')?.textContent?.trim(),
+  ).toBe('♪')
+  // named where it stands alone
+  expect(
+    screen.getByRole('link', { name: 'result of Opening shot' }),
+  ).toBeTruthy()
 })
 
 it('a ready item says ready, with its estimate and an empty slot', () => {
@@ -99,10 +106,12 @@ it('a ready item says ready, with its estimate and an empty slot', () => {
   )
   expect(chip(container)?.textContent).toBe('ready')
   expect(chip(container)?.classList.contains('ready')).toBe(true)
-  expect(container.querySelector('.figure')?.textContent).toBe('est. about 6 min')
+  expect(container.querySelector('.figure')?.textContent).toBe(
+    'est. about 6 min',
+  )
   expect(container.querySelector('.proofcell .slot')).toBeTruthy()
-  // the slot is never a frame: the frame is only ever the picture
-  expect(container.querySelector('.proofcell .frame')).toBeNull()
+  // the slot is never a tile: the tile is only ever the file
+  expect(container.querySelector('.proofcell .filetile')).toBeNull()
   // no control is drawn that this increment cannot act on
   expect(screen.queryByRole('button', { name: /run/i })).toBeNull()
 })
@@ -224,7 +233,7 @@ it('marks the accepted take, and stays closed', async () => {
   await fireEvent.click(title('Cast sheet'))
   const takes = [...container.querySelectorAll('.strip .tile')]
   expect(takes[0].querySelector('.mark')?.textContent?.trim()).toBe('accepted')
-  expect(takes[0].querySelector('.picked')).toBeTruthy()
+  expect(takes[0].querySelector('.filetile.picked.tile-take')).toBeTruthy()
   expect(takes[2].querySelector('.mark')).toBeNull()
 })
 

@@ -57,7 +57,6 @@ vi.mock('../api', () => ({
     // the catalog's text, so the gallery answers empty and every card
     // renders in its no-output form.
     gallery: () => gallery(),
-    galleryThumbnailUrl: (name: string) => `/api/gallery/${name}/thumbnail`,
   },
 }))
 
@@ -367,4 +366,38 @@ it('a failed first load offers Retry and Retry loads', async () => {
   await screen.findByText(/Couldn't load workflows/)
   await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
   await waitFor(() => expect(card('tti')).toBeTruthy())
+})
+
+it("a card's proof is its tile, from the listing's workspace, inside the one link", async () => {
+  gallery.mockImplementationOnce(() =>
+    Promise.resolve({
+      workspace: 'studio',
+      files: [
+        {
+          name: 'templates/shot/r1/a.mp4',
+          folder: 'templates/shot',
+          subfolder: '',
+          run_id: 'r1',
+          version: 1,
+          url: '/outputs/a.mp4',
+          kind: 'video',
+          size: 1,
+          mtime: 1,
+          label: 'a.mp4',
+        },
+      ],
+    } as never),
+  )
+  await renderPage('shot')
+  await waitFor(() =>
+    expect(card('shot')?.querySelector('.filetile')).toBeTruthy(),
+  )
+  const tile = card('shot')!.querySelector('.filetile')!
+  expect(tile.classList).toContain('tile-card')
+  expect(tile.querySelector('.videobadge')).toBeTruthy()
+  expect(tile.querySelector('img')?.getAttribute('src')).toContain(
+    'workspace=studio',
+  )
+  expect(card('shot')!.querySelectorAll('a')).toHaveLength(0)
+  expect(card('tti')?.querySelector('.filetile')).toBeNull()
 })

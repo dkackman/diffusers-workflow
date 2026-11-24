@@ -59,7 +59,6 @@ vi.mock('../api', () => ({
     validate: vi.fn(),
     submitJob: vi.fn(),
     workflowDownloadUrl: vi.fn().mockReturnValue('/download'),
-    galleryThumbnailUrl: vi.fn().mockReturnValue('/thumb'),
   },
 }))
 
@@ -119,6 +118,47 @@ it('sets the tab title to the workflow, with Workflows as its back link', async 
   expect(
     screen.getByRole('link', { name: /^← (Workflows|Examples)$/ }),
   ).toBeTruthy()
+})
+
+it('a proof opens its file in the gallery', async () => {
+  vi.mocked(api.gallery).mockResolvedValueOnce({
+    workspace: 'studio',
+    files: [
+      {
+        name: 'templates/text-to-image/r1/a.mp4',
+        folder: 'templates/text-to-image',
+        subfolder: '',
+        run_id: 'r1',
+        version: 1,
+        url: '/outputs/a.mp4',
+        kind: 'video',
+        size: 1,
+        mtime: 1,
+        label: 'a.mp4',
+      },
+      {
+        name: 'other/r2/b.png',
+        folder: 'other',
+        subfolder: '',
+        run_id: 'r2',
+        version: 1,
+        url: '/outputs/b.png',
+        kind: 'image',
+        size: 1,
+        mtime: 1,
+        label: 'b.png',
+      },
+    ],
+  } as never)
+  await openPage()
+  const tiles = [...document.querySelectorAll('.proofs a.filetile')]
+  expect(tiles.map((a) => a.getAttribute('href'))).toEqual([
+    '#/ws/studio/gallery?open=templates%2Ftext-to-image%2Fr1%2Fa.mp4',
+  ])
+  expect(tiles[0].querySelector('.videobadge')).toBeTruthy()
+  expect(tiles[0].querySelector('img')?.getAttribute('src')).toContain(
+    'workspace=studio',
+  )
 })
 
 it('opens with an output: reference filled in from Use as input', async () => {

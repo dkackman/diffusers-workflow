@@ -27,6 +27,7 @@
     meta,
     title,
     'aria-label': ariaLabel,
+    'aria-current': ariaCurrent,
   }: {
     file: MediaFile
     size?: 'grid' | 'card' | 'strip' | 'take' | 'mini'
@@ -42,6 +43,8 @@
     /** The tile's own title and accessible name, when its content is not */
     title?: string
     'aria-label'?: string
+    /** The one a picker's field holds now */
+    'aria-current'?: 'true'
   } = $props()
 
   /** How many of a text file's lines the tile shows */
@@ -191,6 +194,7 @@
     {onclick}
     {title}
     aria-label={ariaLabel}
+    aria-current={ariaCurrent}
   >
     {@render body()}
   </a>
@@ -204,6 +208,7 @@
     {onclick}
     {title}
     aria-label={ariaLabel}
+    aria-current={ariaCurrent}
   >
     {@render body()}
   </button>

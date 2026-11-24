@@ -130,7 +130,7 @@
   }
   .tile {
     flex: none;
-    width: 120px;
+    width: 240px;
     display: flex;
     flex-direction: column;
     gap: 0.15rem;
