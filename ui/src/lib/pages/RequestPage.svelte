@@ -183,6 +183,7 @@
   // The page's own width, not the viewport's - the sidebar takes its share
   let page = $state<HTMLElement>()
   let header = $state<ReturnType<typeof RequestHeader>>()
+  let requestMenu = $state<ReturnType<typeof RequestMenu>>()
   let width = $state(0)
   $effect(() => {
     // jsdom has no ResizeObserver; the page then stays unfolded
@@ -270,6 +271,7 @@
           {/snippet}
           {#snippet menu()}
             <RequestMenu
+              bind:this={requestMenu}
               {request}
               {store}
               workspace={ws}
@@ -291,6 +293,7 @@
           onrun={(key) => (running = itemPlan(plan, key))}
           {countdown}
           onmove={(text, refs) => header?.takeNote(text, refs)}
+          onreopen={() => requestMenu?.setState('open')}
         />
       </div>
 

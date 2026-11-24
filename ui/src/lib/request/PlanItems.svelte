@@ -48,6 +48,7 @@
     countdown,
     onmove,
     changed,
+    onreopen,
   }: {
     store: PlanStore
     /** The request as the page shows it: the store's view */
@@ -71,7 +72,12 @@
     onmove?: (text: string, refs: LedgerNoteRef[]) => void
     /** The items a quiet read changed, by key: marked (`.row-changed`) */
     changed?: ReadonlySet<string>
+    /** Reopen a closed request: the header menu's own Reopen */
+    onreopen?: () => void
   } = $props()
+
+  // A closed request is read-only: no grip, Accept, row action or note box
+  const open = $derived(request.state === 'open')
 
   let list = $state<HTMLElement>()
   const keys = $derived(plan.live.map((row) => row.item.key))
@@ -211,6 +217,7 @@
       outputsHref:
         wsHref(workspace, 'gallery') + requestQuery(request.id, row.item.key),
       canRun: !!onrun,
+      open,
     })
 
   const shown = $derived(new Set(plan.items.map((row) => row.item.key)))
@@ -296,12 +303,12 @@
     {workspace}
     {onreload}
     {ongo}
-    handle={row.item.dropped ? undefined : handle}
-    action={rowAction}
+    handle={row.item.dropped || !open ? undefined : handle}
+    action={open ? rowAction : undefined}
     {menu}
     {notice}
-    onaccept={(take, job) => accept(row, take, job)}
-    onkeep={(take) => keep(row, take)}
+    onaccept={open ? (take, job) => accept(row, take, job) : undefined}
+    onkeep={open ? (take) => keep(row, take) : undefined}
     {countdown}
     {onmove}
     changed={changed?.has(row.item.key) ?? false}
@@ -322,6 +329,18 @@
     <ConflictNotice {conflict} ondismiss={() => store.dismiss(conflict.id)} />
   </div>
 {/each}
+
+{#if !open}
+  <div class="panel closed">
+    <p role="note">
+      This request is {request.state}. Reopen it to change the plan or leave a
+      note.
+    </p>
+    {#if onreopen}
+      <button type="button" onclick={onreopen}>Reopen</button>
+    {/if}
+  </div>
+{/if}
 
 {#if plan.items.length === 0}
   <p class="muted">The agent has not planned any items for this request yet.</p>
@@ -348,6 +367,16 @@
 <style>
   .above {
     margin-bottom: var(--space-3);
+  }
+  .closed {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+    margin: 0 0 var(--space-3);
+  }
+  .closed p {
+    margin: 0;
   }
   .onrow {
     padding: 0 0.8rem var(--space-3) calc(0.2rem + 24px + var(--space-3));

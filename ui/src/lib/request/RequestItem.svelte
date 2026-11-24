@@ -103,7 +103,7 @@
   )
   const figure = $derived(figureOf(row))
   const takes = $derived(takesLine(row))
-  const blocked = $derived(blockedLine(row))
+  const blocked = $derived(blockedLine(row, request.state === 'open'))
   const why = $derived(
     row.display === 'failed' || row.display === 'cancelled'
       ? failedLine(item)
@@ -285,7 +285,7 @@
         {item}
         {workspace}
         onaccept={item.dropped || !onaccept ? undefined : accept}
-        onnote={item.dropped ? undefined : noteTake}
+        onnote={item.dropped || request.state !== 'open' ? undefined : noteTake}
       />
     {/if}
     {#if row.after.length}

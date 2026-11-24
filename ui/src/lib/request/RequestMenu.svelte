@@ -58,18 +58,30 @@
       abandoned: (title) => `Abandoned "${title}"`,
     }
 
+  /** Undo's write, unless the agent reopened the request since: then there
+   * is nothing to take back, and it says so */
+  async function undo(
+    previous: LedgerRequest['state'],
+    state: LedgerRequest['state'],
+  ) {
+    const { title } = request
+    if (store.read?.state === 'open')
+      return void notify.success(`"${title}" is already open`)
+    await pushState(previous, state)
+  }
+
   /** Mark done and Abandon act at once and offer Undo, which writes the
    * state it had back through the same store path - only over the state
-   * this wrote, so a change the agent made since stays; Reopen just writes */
-  async function setState(state: LedgerRequest['state']) {
+   * this wrote, so a change the agent made since stays; Reopen just writes
+   * and says so. The page's closed line calls this for its Reopen button:
+   * one writer for both */
+  export async function setState(state: LedgerRequest['state']) {
     const { title, state: previous } = request
     const said = UNDONE[state]
-    if (!(await pushState(state)) || !said) return
-    undoToast(
-      said(title),
-      () => pushState(previous, state),
-      onThisRequest(store),
-    )
+    if (!(await pushState(state))) return
+    if (state === 'open') return void notify.success(`Reopened "${title}"`)
+    if (!said) return
+    undoToast(said(title), () => undo(previous, state), onThisRequest(store))
   }
 
   const REFUSED: Record<string, string> = {

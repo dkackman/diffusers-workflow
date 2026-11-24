@@ -59,9 +59,12 @@
   $effect(() => channel.hold())
 
   const shown = $derived(filter ? notes.filter(filter) : notes)
-  // A dropped item keeps its notes to read; the ledger takes no more
+  // A dropped item, or a closed request, keeps its notes to read; the
+  // ledger takes no more until it is reopened
   const editable = $derived(
-    item === null || request.items.some((i) => i.key === item && !i.dropped),
+    request.state === 'open' &&
+      (item === null ||
+        request.items.some((i) => i.key === item && !i.dropped)),
   )
   const live = $derived(request.items.filter((i) => !i.dropped))
   // The picker offers the items the new note is not yet about

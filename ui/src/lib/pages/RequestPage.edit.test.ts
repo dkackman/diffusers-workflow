@@ -921,3 +921,76 @@ it('a deep link to a take opens its row', async () => {
   await screen.findByRole('dialog')
   history.replaceState(history.state, '', '#/ws/studio/requests/r1')
 })
+
+/** A closed request with a take to accept, a ready item and a note */
+function closedRequest(state: LedgerRequest['state'] = 'done'): LedgerRequest {
+  const closed = make()
+  closed.state = state
+  closed.items[0].notes = [
+    { id: 'n1', text: 'kept words', created: 't', at: 't' },
+  ]
+  return closed
+}
+
+it('a closed request has no grips, Accept, Run or drop', async () => {
+  world.ledger = fakeLedger(closedRequest())
+  await start()
+  expect(document.querySelector('.grip')).toBeNull()
+  expect(screen.queryByRole('button', { name: /^Reorder / })).toBeNull()
+  expect(screen.queryByRole('button', { name: /^Accept/ })).toBeNull()
+  expect(
+    screen.queryByRole('button', { name: /^Run|^Another take/ }),
+  ).toBeNull()
+  expect(
+    screen.queryByRole('button', { name: 'Add a note for the agent' }),
+  ).toBeNull()
+  // the saved note is still there to read
+  expect(screen.getAllByText('kept words').length).toBeGreaterThan(0)
+  // a row's menu keeps only links (this one has takes: its jobs and outputs)
+  await fireEvent.click(
+    within(row('cast')).getByRole('button', { name: /^More actions for/ }),
+  )
+  const list = await screen.findByRole('dialog')
+  expect(
+    within(list)
+      .getAllByRole('link')
+      .map((a) => a.textContent),
+  ).toEqual(['Its jobs', 'Its outputs'])
+  expect(within(list).queryByRole('button')).toBeNull()
+})
+
+it('the closed line names its state', async () => {
+  world.ledger = fakeLedger(closedRequest('abandoned'))
+  await start()
+  expect(screen.getByRole('note').textContent?.replace(/\s+/g, ' ')).toContain(
+    'This request is abandoned. Reopen it to change the plan or leave a note.',
+  )
+})
+
+it("the closed line's Reopen opens the request and brings the editing back", async () => {
+  world.ledger = fakeLedger(closedRequest())
+  await start()
+  await fireEvent.click(screen.getByRole('button', { name: 'Reopen' }))
+  await saved(4)
+  expect(world.ledger.puts[0]).toMatchObject({ state: 'open', why: 'reopened' })
+  expect(world.notify.success).toHaveBeenCalledWith('Reopened "Launch posters"')
+  await waitFor(() => expect(screen.queryByRole('note')).toBeNull())
+  expect(document.querySelectorAll('.grip').length).toBeGreaterThan(0)
+  expect(
+    screen.getAllByRole('button', { name: 'Add a note for the agent' }).length,
+  ).toBeGreaterThan(0)
+})
+
+it('the header menu still offers Reopen on a closed request', async () => {
+  world.ledger = fakeLedger(closedRequest())
+  await start()
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'More actions for this request' }),
+  )
+  const list = await screen.findByRole('dialog')
+  expect(
+    within(list)
+      .getAllByRole('button')
+      .map((b) => b.textContent?.trim()),
+  ).toEqual(['Reopen', 'Delete…'])
+})

@@ -30,6 +30,8 @@ export type MenuContext = {
   outputsHref: string
   /** Whether this page can queue jobs (the run dialog is there) */
   canRun: boolean
+  /** Whether the request is open: a closed one's rows keep only the links */
+  open: boolean
 }
 
 const action = (
@@ -70,14 +72,16 @@ function moves(row: ItemState, total: number): MenuEntry[] {
 
 /** The menu's groups for a row, a rule between each: another take, where
  * its jobs and outputs are, the four moves, the note, the drop. A dropped
- * item keeps only the links - Restore is the row's own button. */
+ * item, or any item of a closed request, keeps only the links -
+ * Restore is the row's own button. */
 export function itemMenu(row: ItemState, context: MenuContext): MenuEntry[] {
   const groups: MenuEntry[][] = []
   const live = !row.item.dropped
-  if (live && context.canRun && row.canRetake)
+  const editing = live && context.open
+  if (editing && context.canRun && row.canRetake)
     groups.push([action('retake', 'Run another take…')])
   groups.push(links(row, context))
-  if (live) {
+  if (editing) {
     groups.push(moves(row, context.total))
     groups.push([action('note', 'Add a note for the agent')])
     groups.push([action('drop', 'Drop from plan', { danger: true })])

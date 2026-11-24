@@ -287,8 +287,10 @@ export function takesLine(state: ItemState): string | null {
 
 /** A failed row's line while it cannot run again: what it waits on. A
  * dependency that can never be done (dropped, or gone from the plan) says
- * so. Null for any other row. */
-export function blockedLine(state: ItemState): string | null {
+ * so. Null for any other row, for one with no stored workflow (only the
+ * agent can run it), and on a closed request, where nothing runs again. */
+export function blockedLine(state: ItemState, open = true): string | null {
+  if (!open || state.noWorkflow) return null
   if (state.display !== 'failed' || state.runnable) return null
   if (!state.blockers.length) return null
   const titles = state.blockers.map((dep) =>

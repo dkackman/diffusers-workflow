@@ -387,3 +387,19 @@ it('the warning follows the latest read', async () => {
   expect(screen.queryByText(STOPS)).toBeNull()
   expect(area().value).toBe('warmer')
 })
+
+it('a closed request keeps its notes and offers no box', () => {
+  render(NoteList, props({ request: req({}) }))
+  expect(
+    screen.getByRole('button', { name: 'Add a note for the agent' }),
+  ).toBeTruthy()
+  cleanup()
+  const closed = { ...req(), state: 'done' as const }
+  render(NoteList, props({ request: closed }))
+  expect(screen.getByText('warmer light')).toBeTruthy()
+  expect(screen.getByText('slower push-in')).toBeTruthy()
+  expect(
+    screen.queryByRole('button', { name: 'Add a note for the agent' }),
+  ).toBeNull()
+  expect(screen.queryByRole('button', { name: /^Edit/ })).toBeNull()
+})

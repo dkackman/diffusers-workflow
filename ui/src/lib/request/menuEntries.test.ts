@@ -8,6 +8,7 @@ const context = {
   jobsHref: '#jobs',
   outputsHref: '#outputs',
   canRun: true,
+  open: true,
 }
 const labels = (entries: MenuEntry[]) =>
   entries.map((e) => (e.kind === 'rule' ? '-' : e.label))
@@ -93,4 +94,13 @@ it('an open request can be closed either way; a closed one reopened or deleted',
       danger: true,
     })
   }
+})
+
+it("a closed request's row menu has only links", () => {
+  expect(labels(menu('c', { open: false }))).toEqual(['Its jobs'])
+  expect(labels(menu('a', { open: false }))).toEqual([
+    'Its jobs',
+    'Its outputs',
+  ])
+  expect(labels(menu('b', { open: false }))).toEqual([])
 })

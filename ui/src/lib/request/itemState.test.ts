@@ -418,7 +418,7 @@ it('a failed row says what it waits on', () => {
       failed('orphan', { depends_on: ['gone'] }),
     ]),
   )
-  expect(plan.items.map(blockedLine)).toEqual([
+  expect(plan.items.map((s) => blockedLine(s))).toEqual([
     null,
     null,
     'Failed. It can run again once Background plate is done.',
@@ -427,6 +427,33 @@ it('a failed row says what it waits on', () => {
     // a dependency that can never be done says so
     'Failed. It can run again once Old plate (dropped) is done.',
   ])
+})
+
+it('a closed request promises no run, and neither does a row with no workflow', () => {
+  const plan = planState(
+    request(
+      [
+        item('plate', { title: 'Plate', status: 'failed' }),
+        item('comp', {
+          status: 'failed',
+          attempts: [attempt('j', 'failed')],
+          depends_on: ['plate'],
+        }),
+        item('bare', {
+          status: 'failed',
+          workflow: null,
+          attempts: [attempt('k', 'failed')],
+          depends_on: ['plate'],
+        }),
+      ],
+      { state: 'abandoned' },
+    ),
+  )
+  const comp = plan.items[1]
+  expect(blockedLine(comp, false)).toBeNull()
+  expect(blockedLine(plan.items[2])).toBeNull()
+  // the same row on an open request keeps the plan's copy
+  expect(blockedLine(comp)).toMatch(/^Failed\. It can run again once/)
 })
 
 it('takes, not attempts, in the takes line', () => {

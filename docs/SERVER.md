@@ -380,7 +380,10 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
 
   The header's **more actions** menu marks the request **done**, **abandons**
   or **reopens** it - nothing can be run on a closed request - and deletes a
-  closed one from the ledger after a confirm (its jobs and outputs stay).
+  closed one from the ledger after a confirm (its jobs and outputs stay). A
+  closed request shows its plan read-only: no grips, Accept, row actions or
+  note boxes, saved notes still readable, and a line above the plan with a
+  **Reopen** button that writes the same state change as the menu's.
 
   The agent may rewrite the plan while you edit it. The page never sends
   back a plan it read earlier: it reads the request again and makes your
