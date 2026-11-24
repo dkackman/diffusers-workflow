@@ -103,6 +103,15 @@ it('shows each note with its line and what it is about, under one label', () => 
   expect(gone.closest('a')).toBeNull()
 })
 
+it('no notes, no heading', () => {
+  const { container } = render(NoteList, props({ notes: [] }))
+  expect(container.querySelector('.label')).toBeNull()
+  expect(screen.queryByText('Note for the agent')).toBeNull()
+  expect(
+    screen.getByRole('button', { name: 'Add a note for the agent' }),
+  ).toBeTruthy()
+})
+
 it('adds a note with the box’s references, then asks the page to read again', async () => {
   const given = props({ pendingRefs: [take2] })
   render(NoteList, given)

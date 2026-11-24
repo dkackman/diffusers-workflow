@@ -133,10 +133,10 @@ test('each item says its state in words: ready apart from waiting, with what it 
 
   // dropped: out of the plan, in its own closed group, with its failed take
   const group = page.locator('details.droppedgroup')
-  await expect(group.locator('summary')).toHaveText('Dropped (1)')
+  await expect(group.locator(':scope > summary')).toHaveText('Dropped (1)')
   const cut = item(page, 'Cut scene')
   await expect(cut).toBeHidden()
-  await group.locator('summary').click()
+  await group.locator(':scope > summary').click()
   await expect(cut.locator('.row .chip')).toHaveText('dropped')
   await expand(cut, 'Cut scene')
   await expect(cut.locator('.strip .tile')).toHaveCount(1)
@@ -234,7 +234,7 @@ test('a note for the agent says whether the agent is connected, and is in the le
   await expect(again.locator('.title')).toHaveAttribute('aria-expanded', 'true')
   await expect(again.getByText(text)).toBeVisible()
   // the other items came back as they were: the dropped one still dropped
-  await expect(page.locator('details.droppedgroup summary')).toHaveText(
+  await expect(page.locator('details.droppedgroup > summary')).toHaveText(
     'Dropped (1)',
   )
   await expect(item(page, 'Hero poster').locator('.row .chip')).toHaveText(
@@ -310,6 +310,41 @@ test("an item's jobs link narrows the Jobs page to that item", async ({
   await expect(page.getByTestId('req-filter')).toContainText(`${ID} › hero`)
   await expect(page.locator('.chip.succeeded')).toHaveCount(2)
   await expect(page.locator('.chip.failed')).toHaveCount(0)
+})
+
+test("the item menu's widest entry fits inside it", async ({ page }) => {
+  await page.goto(REQUEST)
+  const hero = item(page, 'Hero poster')
+  await hero.getByRole('button', { name: /^More actions for/ }).click()
+  const menu = page.getByRole('dialog')
+  const box = await menu.boundingBox()
+  const entries = menu.locator('.entries > li > :is(a, button)')
+  expect(await entries.count()).toBeGreaterThan(1)
+  for (const entry of await entries.all()) {
+    const own = await entry.boundingBox()
+    // inside the panel's padding, and its words inside its own box
+    expect(own!.x + own!.width).toBeLessThan(box!.x + box!.width - 1)
+    expect(await entry.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(
+      true,
+    )
+  }
+})
+
+test('a row at 1300 px keeps its title on one line', async ({ page }) => {
+  await page.setViewportSize({ width: 1300, height: 900 })
+  // the storyboard has open rows with takes and a held one
+  await page.goto('/#/ws/default/requests/e2e-board')
+  const lines = page.locator('li.item .titleline')
+  await expect(lines.first()).toBeVisible()
+  for (const line of await lines.all()) {
+    const title = (await line.locator('.title').boundingBox())!
+    const key = (await line.locator('.key').boundingBox())!
+    // the key beside the title, not under it, and the title one line
+    expect(key.y).toBeLessThan(title.y + title.height)
+    expect(
+      await line.locator('.name').evaluate((el) => el.getClientRects().length),
+    ).toBe(1)
+  }
 })
 
 // The specs below edit a plan, so they have a request of their own
@@ -453,8 +488,8 @@ test('dropping an item others wait on says what it does to them, and Restore put
 
   // out of the plan, in the dropped group, with the way back
   const group = page.locator('details.droppedgroup')
-  await expect(group.locator('summary')).toHaveText('Dropped (1)')
-  await group.locator('summary').click()
+  await expect(group.locator(':scope > summary')).toHaveText('Dropped (1)')
+  await group.locator(':scope > summary').click()
   put = written(page)
   await shot.getByRole('button', { name: 'Restore' }).click()
   expect((await put).status()).toBe(200)

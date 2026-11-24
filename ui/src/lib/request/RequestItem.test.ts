@@ -7,6 +7,7 @@ import {
 } from '@testing-library/svelte'
 import { afterEach, expect, it, vi } from 'vitest'
 import RequestItem from './RequestItem.svelte'
+import source from './RequestItem.svelte?raw'
 import { planState } from './itemState'
 import { attempt, doneItem, entry, item, request } from './fixtures'
 import type { LedgerItem, LedgerRequest } from '../types'
@@ -733,4 +734,45 @@ it('a failed row says why, collapsed or open, under what it waits on', () => {
   expect(container.textContent).toContain(
     'Take 1 failed: e2e: this attempt failed',
   )
+})
+
+it("an open row's proof cell takes no room", async () => {
+  // not `a`: a test above leaves a deep link to one of a's takes in the hash
+  const { container } = render(RequestItem, props([withOutput('p', image)]))
+  const row = container.querySelector('.row') as HTMLElement
+  expect(row.classList.contains('under')).toBe(false)
+  await fireEvent.click(title('Opening shot'))
+  // the takes below show the picture: its track is 0 and the title spans it
+  expect(row.classList.contains('under')).toBe(true)
+  expect(source).toMatch(/\.row\.under\s*\{\s*--proof:\s*0px;?\s*\}/)
+  expect(source).toMatch(/\.proofcell\.under\s*\{\s*display:\s*none;?\s*\}/)
+  // open with no takes, the slot keeps its place
+  cleanup()
+  const plain = render(RequestItem, props([item('b', { ready: true })]))
+  await fireEvent.click(title('Item b'))
+  expect(plain.container.querySelector('.row.under')).toBeNull()
+})
+
+it('under 900px of panel, the chip and figure go under the title', () => {
+  const narrow = source.match(
+    /@container \(max-width: 900px\)\s*\{([\s\S]*?)\n {2}\}/,
+  )
+  expect(narrow?.[1]).toMatch(/'handle proof main main tail'/)
+  expect(narrow?.[1]).toMatch(/'handle proof chip figure tail'/)
+})
+
+it('the bound references of a new note outlive a read', async () => {
+  const given = props([goodTakes()])
+  const view = render(RequestItem, given)
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Note take 1 of Shot 3 for the agent' }),
+  )
+  await view.rerender(props([goodTakes()]))
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Note take 2 of Shot 3 for the agent' }),
+  )
+  const chips = screen
+    .getByRole('list', { name: 'What the note is about' })
+    .querySelectorAll('.ref')
+  expect([...chips].map((c) => c.textContent)).toEqual(['take 1', 'take 2'])
 })

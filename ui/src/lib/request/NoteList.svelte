@@ -178,10 +178,11 @@
 
 {#if shown.length || editable}
   <section class="notes" aria-label="Notes for the agent on {about}">
-    <p class="label">
-      <MessageSquare size={13} aria-hidden="true" /> Note for the agent
-    </p>
+    <!-- With none saved, the box's button says it: no heading over it -->
     {#if shown.length}
+      <p class="label">
+        <MessageSquare size={13} aria-hidden="true" /> Note for the agent
+      </p>
       <ul class="list">
         {#each shown as note (note.id)}
           <li id={noteAnchor(note.id)} tabindex="-1">

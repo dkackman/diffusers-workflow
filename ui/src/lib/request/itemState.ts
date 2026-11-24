@@ -380,6 +380,8 @@ export function revisedLine(
 /** The DOM id of a row's title button: what a dependency name, a progress
  * segment or an announcement's follow-up focuses. */
 export const titleId = (key: string) => `req-item-${key}-title`
+/** The DOM id of a row's open half (ItemMore), which its title controls */
+export const moreId = (key: string) => `req-item-${key}-more`
 
 /** A progress segment's colour class (RequestProgress) */
 export type ProgressTone = 'done' | 'running' | 'failed' | 'queued' | 'rest'
