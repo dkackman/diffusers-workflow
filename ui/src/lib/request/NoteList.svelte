@@ -70,6 +70,9 @@
         request.items.some((i) => i.key === item && !i.dropped)),
   )
   const live = $derived(request.items.filter((i) => !i.dropped))
+  // What saving a note here would stop: the request's note every hold, an
+  // item's note that item's own
+  const stops = $derived(holdsStopped(request, item))
   // The picker offers the items the new note is not yet about
   const unpicked = $derived(
     live.filter(
@@ -197,7 +200,7 @@
               {editable}
               draftKey={draftKey(workspace, request.id, item, `@${note.id}`)}
               listening={channel.listening}
-              stops={holdsStopped(request)}
+              {stops}
               refs={collapseRefs(note.refs ?? [])}
               {chip}
               onsave={(text) => write(note.id, { edit: note, text })}
@@ -217,7 +220,7 @@
         line={null}
         draftKey={draftKey(workspace, request.id, item, refKey(pendingRefs))}
         listening={channel.listening}
-        stops={holdsStopped(request)}
+        {stops}
         refs={pendingRefs}
         {chip}
         onremoveref={unref}

@@ -397,6 +397,44 @@ it('the warning follows the latest read', async () => {
   expect(area().value).toBe('warmer')
 })
 
+it("an item's box counts only its own hold; the request's counts every hold", async () => {
+  const both = request([
+    item('s3', { title: 'Shot 3', ...held('holding') }),
+    item('s5', { title: 'Shot 5' }),
+    item('s7', { title: 'Shot 7', ...held('due') }),
+  ])
+  const open = async (about: string) => {
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Add a note for the agent' }),
+    )
+    await screen.findByLabelText(`Note for the agent on ${about}`)
+  }
+  // a held item: its note stops its own hold, not Shot 7's
+  render(NoteList, props({ notes: [], request: both }))
+  await open('Shot 3')
+  expect(screen.getByText(STOPS)).toBeTruthy()
+  cleanup()
+  // an unheld item: its note stops nothing
+  render(
+    NoteList,
+    props({ notes: [], request: both, item: 's5', about: 'Shot 5' }),
+  )
+  await open('Shot 5')
+  expect(screen.queryByText(/Saving this note stops/)).toBeNull()
+  cleanup()
+  // the request's note redirects every hold
+  render(
+    NoteList,
+    props({ notes: [], request: both, item: null, about: 'this request' }),
+  )
+  await open('this request')
+  expect(
+    screen.getByText(
+      'Saving this note stops 2 items waiting for your OK from starting on their own.',
+    ),
+  ).toBeTruthy()
+})
+
 it('a closed request keeps its notes and offers no box', () => {
   render(NoteList, props({ request: req({}) }))
   expect(

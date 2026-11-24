@@ -115,11 +115,18 @@ export function holdNews(group: HoldGroup): string {
 }
 
 /** How many live items a new note would stop from starting on their own:
- * those still `holding` or `due`, not already `redirected` */
-export function holdsStopped(request: LedgerRequest): number {
+ * those still `holding` or `due`, not already `redirected`. The server
+ * redirects an item's hold on that item's own notes or the request's
+ * (ledger_views `_hold`): a note on the request (`item` null) stops every
+ * hold, a note on an item only that item's */
+export function holdsStopped(
+  request: LedgerRequest,
+  item: string | null = null,
+): number {
   return request.items.filter(
     (i) =>
       !i.dropped &&
+      (item === null || i.key === item) &&
       (i.review?.state === 'holding' || i.review?.state === 'due'),
   ).length
 }

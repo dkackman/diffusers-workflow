@@ -169,6 +169,13 @@ it('holdsStopped counts holding and due, not redirected', () => {
     ],
   } as never
   expect(holdsStopped(req)).toBe(2)
+  expect(holdsStopped(req, null)).toBe(2)
+  // an item's note redirects only that item's hold (ledger_views._hold)
+  expect(holdsStopped(req, 'a')).toBe(1)
+  expect(holdsStopped(req, 'b')).toBe(1)
+  expect(holdsStopped(req, 'c')).toBe(0)
+  expect(holdsStopped(req, 'd')).toBe(0)
+  expect(holdsStopped(req, 'e')).toBe(0)
 })
 
 it('the held chip says waiting for your OK', () => {

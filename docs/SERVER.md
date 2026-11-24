@@ -352,9 +352,10 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   When the agent holds items for your review, a banner says how many are
   held, counts down to the deadline, and says whether an agent session is
   listening ([the notes channel](MCP.md#the-notes-channel)); with none, it
-  says nothing will run at the deadline. A note you leave redirects the hold,
-  and the note box warns before you save that it stops the held items from
-  starting on their own. The banner then says so, and whether the agent is
+  says nothing will run at the deadline. A note you leave on the request
+  redirects every hold, and one on an item redirects only that item's; the
+  note box warns before you save how many held items it stops from starting
+  on their own. The banner then says so, and whether the agent is
   connected to read the note. **Run now…** is offered in every state but due
   with the agent connected; it opens the priced dialog below, and the page
   never starts a held item itself.

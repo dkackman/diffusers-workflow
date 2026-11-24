@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-11-22-ui-quality-design.md`. This plan covers:
 - the phase-6 row of *Phases*: RQ-1..4, RQ-7..11, RQ-13..21, the building block "the server's take error and summary fields", and the journey gate `review-a-request.spec.ts`;
-- decision 2 (*The hold and notes*, approved): keep the rule that any note redirects a hold, warn before saving, keep **Run now…** in the banner;
+- decision 2 (*The hold and notes*, approved): keep the server's rule (a note on the item or on the request redirects that item's hold; a note on another item does not), warn before saving, keep **Run now…** in the banner;
 - decision 5 (*Requests made by hand*, approved): requests are written by an agent, and no "New request" UI is built;
 - the ★ vocabulary row **Accept**: accepting also stars the file (`ui/GLOSSARY.md` marks it phase 6);
 - the phase-5 carry-over: the request run dialog adopts `verdictOf` (RQ-10).
@@ -65,7 +65,7 @@ The requests reviewer's full report (finding text, repro, screenshots under the 
 
 | ID | State today | Where |
 |---|---|---|
-| RQ-1 | open: any note redirects (server rule, kept); no warning while writing; the redirected banner says "the agent will revise" whether or not it is connected; `runNowKeys` offers nothing on `redirected` | `request/reviewText.ts:60-92`, `request/ItemNote.svelte`, `dw/ledger_views.py:_review` |
+| RQ-1 | open: an item's own notes and the request's notes redirect its hold (server rule, kept); no warning while writing; the redirected banner says "the agent will revise" whether or not it is connected; `runNowKeys` offers nothing on `redirected` | `request/reviewText.ts:60-92`, `request/ItemNote.svelte`, `dw/ledger_views.py:_review` |
 | RQ-2 | open: `needsOf` counts every `failed` display, runnable or not | `request/itemState.ts:121-146` |
 | RQ-3 | open: `LedgerAttempt` has no error; `request_jobs` does not select `error` | `dw/server/api_models_library.py:406`, `dw/server/job_history.py:593`, `request/AttemptStrip.svelte` |
 | RQ-4 | open: one line, first match wins; `LedgerSummary` has no hold, choose or notes counts; idle wording is engine speak | `request/attention.ts:34-87`, `dw/ledger_views.py:summary_view` |
@@ -88,7 +88,7 @@ The requests reviewer's full report (finding text, repro, screenshots under the 
 
 **Decisions the spec left open** (taken here; questions are separate):
 1. **Held replaces ready.** An item with a review hold counts as `held` ("waiting for your OK"), not `ready` or `revised`, so one item is never two needs. A failed item counts only when it can be run again from the page (dependencies done, a stored workflow); a cancelled one, as today, does not count.
-2. **The hold warning is a line in the note box**, not a confirm: decision 2 says "warn before saving", and a modal on every note would punish the common case. It shows in every note box of the request while an item is `holding` or `due`, because any note redirects.
+2. **The hold warning is a line in the note box**, not a confirm: decision 2 says "warn before saving", and a modal on every note would punish the common case. The request's box counts every live item that is `holding` or `due`, because a request note redirects them all; an item's box counts only that item's hold, because the server redirects an item's hold only on its own notes or the request's (`ledger_views._hold`). (Corrected in the final fix wave: this first read "any note redirects".)
 3. **Run now… stays offered** on a redirected hold, connected or not (decision 2).
 4. **A closed request is read-only on the page**: no grips, moves, drop, Accept, retake or note boxes; existing notes stay readable. The server still accepts writes; the agent never hears a note on a closed request (`note_waiting` needs `open`).
 5. **Failed items join the ready dialog unticked**, under their own heading, so retrying three failed shots is one dialog and never an accident.
@@ -123,7 +123,7 @@ The requests reviewer's full report (finding text, repro, screenshots under the 
   - **A take's reason**: under a failed or cancelled take, its `reason`, one line, the whole in `title`; the row's line `Take <n> failed: <reason>` or `Take <n> was cancelled: <reason>` (the newest such take).
   - **List row** (`attention`): with `needs`, the needs sentence above, tone `needs`; otherwise `running`, `queued`, `<n> planned, nothing running`, `all done, still open`, `nothing planned yet`; the figure `<n> <note|notes> waiting for the agent` when `notes_waiting` > 0.
   - **Request filter chip**: `request: <title>`, with an item `request: <title> › <item key>`; titled `<id> - open this request`; the id alone while the title is unknown.
-  - **Hold**: chip holding `waiting for your OK · <MM:SS>`, redirected `on hold: note left`, due `review time up`. Banner redirected and connected: `You left a note after these were held, so they won't start on their own. The agent will read it and may revise them; run them here if they're right as they are.` Redirected and not connected: `You left a note after these were held, so they won't start on their own, and the agent isn't connected. Run them here, or wait for the agent.` Live news for redirected: `The held items won't start on their own: you left a note.` Note-box warning, while any live item is `holding` or `due`: `Saving this note stops <1 item|<n> items> waiting for your OK from starting on their own.`
+  - **Hold**: chip holding `waiting for your OK · <MM:SS>`, redirected `on hold: note left`, due `review time up`. Banner redirected and connected: `You left a note after these were held, so they won't start on their own. The agent will read it and may revise them; run them here if they're right as they are.` Redirected and not connected: `You left a note after these were held, so they won't start on their own, and the agent isn't connected. Run them here, or wait for the agent.` Live news for redirected: `The held items won't start on their own: you left a note.` Note-box warning, while a hold the box's note would redirect is `holding` or `due` (the request's box: any live item; an item's box: that item): `Saving this note stops <1 item|<n> items> waiting for your OK from starting on their own.`
   - **Accept**: the button `Accept` (default button style) / `Accepted` (pressed, with the check); the toast `Accepted take <n> for <title> and starred it`, with Undo; a star that fails: `notify.failure('star the accepted take', e)`.
   - **Closed request**: above the plan `This request is <done|abandoned>. Reopen it to change the plan or leave a note.`, followed by a **Reopen** button (the same action as the header menu's **Reopen**, which stays); after Reopen the toast `Reopened "<title>"`; Undo over an already reopened request `"<title>" is already open`.
   - **Row chrome**: an item with no notes shows only the button `Add a note for the agent` (no heading); what it runs is one fold, summary `Runs <workflow>` plus ` with <n> <argument|arguments>` when it has any, body the arguments or `No arguments.`
