@@ -3,9 +3,14 @@
   import StatusChip from '../ui/StatusChip.svelte'
   import ItemProof from './ItemProof.svelte'
   import { takesOf, type Take } from './itemState'
+  import { COMPARE_MAX } from '../compare'
   import { formatSpent } from '../format'
-  import { wsHref } from '../routes'
+  import { hasPicture, jobMedia, type MediaFile } from '../media'
+  import { openInHash } from '../mediaViewer'
+  import { compareHref, jobHref } from '../routes'
   import type { LedgerItem } from '../types'
+  import MediaViewer from '../ui/MediaViewer.svelte'
+  import RecipePanel from '../ui/RecipePanel.svelte'
 
   // An item's takes - every job linked to it - oldest to newest, as
   // pictures: which one is the result, and whether the user chose it or it
@@ -37,6 +42,37 @@
     latest: 'latest take',
   }
 
+  // The takes that have a file, oldest to newest: what the viewer steps
+  // through, each file read through its own job (the same name in two runs is two files)
+  const files = $derived(
+    takes.flatMap((take) => {
+      const out = take.attempt.output
+      return out
+        ? [
+            {
+              take,
+              file: jobMedia(out.name, out.kind, take.attempt.job, workspace),
+            },
+          ]
+        : []
+    }),
+  )
+  const items = $derived(files.map((f) => f.file))
+  const takeOf = (file: MediaFile) =>
+    files.find((f) => f.file.name === file.name)?.take
+  let open = $state<string | null>(openInHash())
+  const openTake = (name: string) => () => (open = name)
+  // Two or more takes with a picture or clip: the newest few side by side
+  const compared = $derived(
+    files
+      .filter((f) => hasPicture(f.file.kind))
+      .slice(-COMPARE_MAX)
+      .map((f) => f.file.name),
+  )
+  const comparable = $derived(
+    files.filter((f) => hasPicture(f.file.kind)).length >= 2,
+  )
+
   // The newest take is the one being looked for: the strip starts at its end
   let strip = $state<HTMLElement>()
   $effect(() => {
@@ -52,6 +88,13 @@
     {#if onaccept}Accept another to settle it.{/if}
   </p>
 {/if}
+{#if comparable}
+  <p class="head">
+    <a class="quiet compare" href={compareHref(workspace, compared)}>
+      Compare takes
+    </a>
+  </p>
+{/if}
 <ul class="strip" bind:this={strip} aria-label="Takes of {item.title}">
   {#each takes as take (take.attempt.job)}
     {@const attempt = take.attempt}
@@ -63,13 +106,20 @@
         output={attempt.output}
         state={attempt.status}
         {workspace}
-        href={wsHref(workspace, 'jobs', attempt.job)}
+        href={jobHref(attempt.job, workspace)}
+        onopen={attempt.output ? openTake(attempt.output.name) : undefined}
         alt="take {take.n} of {item.title}"
         size="take"
         picked={take.mark === 'accepted'}
       />
       <span class="caption">
-        <span class="n">take {take.n}</span>
+        <a
+          class="n plain"
+          href={jobHref(attempt.job, workspace)}
+          title="open the job"
+        >
+          take {take.n}
+        </a>
         {#if attempt.status !== 'succeeded'}
           <StatusChip status={attempt.status} />
         {/if}
@@ -119,7 +169,38 @@
   {/each}
 </ul>
 
+{#snippet actions(file: MediaFile)}
+  {@const take = takeOf(file)}
+  {#if take}
+    {#if onaccept && take.attempt.status === 'succeeded'}
+      <button
+        type="button"
+        class="quiet"
+        aria-pressed={chosen(take)}
+        onclick={() => onaccept(take, chosen(take) ? null : take.attempt.job)}
+      >
+        {chosen(take) ? 'Accepted' : 'Accept'}
+      </button>
+    {/if}
+    <a class="quiet" href={jobHref(take.attempt.job, workspace)}>
+      Open the job
+    </a>
+  {/if}
+{/snippet}
+
+{#snippet aside(file: MediaFile)}
+  {#key file.name}
+    <RecipePanel name={file.name} source="output" workspace={file.workspace} />
+  {/key}
+{/snippet}
+
+<MediaViewer {items} bind:open {actions} {aside} />
+
 <style>
+  .head {
+    margin: 0 0 var(--space-2);
+    font-size: var(--t-sm);
+  }
   .strip {
     list-style: none;
     margin: 0;

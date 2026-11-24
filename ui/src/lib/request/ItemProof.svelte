@@ -12,6 +12,7 @@
     state: shown,
     workspace,
     href = null,
+    onopen,
     alt,
     size = 'row',
     picked = false,
@@ -23,6 +24,9 @@
     workspace: string
     /** The job it leads to; a proof inside a link passes none */
     href?: string | null
+    /** Makes the tile a button that opens the file large, in place of the
+     * link to the job; a slot still links */
+    onopen?: () => void
     alt: string
     size?: 'row' | 'take' | 'cover'
     /** The take the user accepted: the tile's picked edge */
@@ -54,11 +58,16 @@
         file={ledgerMedia(output, workspace)}
         size={TILE_SIZES[size]}
         caption="none"
-        href={href ?? undefined}
+        href={onopen ? undefined : (href ?? undefined)}
+        onclick={onopen}
         {alt}
         {picked}
-        title={href ? 'open the job' : undefined}
-        aria-label={href && alt ? alt : undefined}
+        title={onopen
+          ? 'open this file large'
+          : href
+            ? 'open the job'
+            : undefined}
+        aria-label={(onopen || href) && alt ? alt : undefined}
       />
     </span>
   {/key}

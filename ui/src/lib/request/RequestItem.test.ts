@@ -584,3 +584,65 @@ it('marks a held row with a chip: its countdown, a note left, or time up', () =>
   const { container } = render(RequestItem, props([item('a')]))
   expect(container.querySelector('.chip.held')).toBeNull()
 })
+
+const proofOf = (n: number) => ({
+  name: `run/take${n}.png`,
+  kind: 'image' as const,
+})
+const filedTakes = (over: Partial<LedgerItem> = {}) =>
+  doneItem('a', {
+    title: 'Shot 3',
+    attempts: [
+      attempt('j1', 'succeeded', { output: proofOf(1) }),
+      attempt('j2', 'failed'),
+      attempt('j3', 'succeeded', { output: proofOf(3) }),
+    ],
+    result: { job: 'j3', run_id: 'r3', output: proofOf(3) },
+    ...over,
+  })
+
+it('a take opens in the viewer, and Accept there accepts it', async () => {
+  const onaccept = vi.fn()
+  render(RequestItem, { ...props([filedTakes()]), onaccept })
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'take 1 of Shot 3' }),
+  )
+  const viewer = screen.getByRole('dialog')
+  expect(
+    within(viewer)
+      .getByRole('link', { name: 'Open the job' })
+      .getAttribute('href'),
+  ).toBe('#/ws/studio/jobs/j1')
+  await fireEvent.click(within(viewer).getByRole('button', { name: 'Accept' }))
+  expect(onaccept).toHaveBeenCalledWith(expect.objectContaining({ n: 1 }), 'j1')
+  expect(location.hash).toContain('open=')
+})
+
+it('the caption of a take links its job', () => {
+  render(RequestItem, props([filedTakes()]))
+  expect(
+    screen.getByRole('link', { name: 'take 3' }).getAttribute('href'),
+  ).toBe('#/ws/studio/jobs/j3')
+})
+
+it('Compare takes opens the newest four', () => {
+  const attempts = [1, 2, 3, 4, 5].map((n) =>
+    attempt(`j${n}`, 'succeeded', { output: proofOf(n) }),
+  )
+  render(RequestItem, props([filedTakes({ attempts })]))
+  const href = screen
+    .getByRole('link', { name: 'Compare takes' })
+    .getAttribute('href')
+  expect(href).toBe(
+    '#/ws/studio/compare/' +
+      [2, 3, 4, 5].map((n) => encodeURIComponent(`run/take${n}.png`)).join('/'),
+  )
+})
+
+it('a take with no file stays a slot and does not open', () => {
+  render(RequestItem, props([filedTakes()]))
+  expect(screen.queryByRole('button', { name: 'take 2 of Shot 3' })).toBeNull()
+  expect(
+    screen.getAllByRole('button', { name: /^take \d of Shot 3$/ }),
+  ).toHaveLength(2)
+})
