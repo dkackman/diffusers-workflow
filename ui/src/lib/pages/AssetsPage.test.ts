@@ -1200,3 +1200,10 @@ it('asset clips and sounds show their length, from one background read', async (
   expect(assetDurations).toHaveBeenCalledTimes(1)
   expect(listAssets).toHaveBeenCalledTimes(1)
 })
+
+it('an empty asset library says where to go', async () => {
+  listing.assets = []
+  render(AssetsPage, { shared: false })
+  const link = await screen.findByRole('link', { name: 'Gallery' })
+  expect(link.getAttribute('href')).toMatch(/^#\/ws\/[^/]+\/gallery$/)
+})

@@ -1057,3 +1057,11 @@ it('a request filter change starts at the first page', async () => {
   )
   location.hash = ''
 })
+
+it('an empty jobs page says where to go', async () => {
+  data.jobs = []
+  location.hash = '#/ws/default/jobs'
+  render(JobsPage)
+  const link = await screen.findByRole('link', { name: 'Pick a workflow' })
+  expect(link.getAttribute('href')).toBe('#/ws/default/workflows')
+})

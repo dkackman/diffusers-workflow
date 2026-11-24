@@ -180,16 +180,20 @@ it('reads the contents off the payload, as send builds the refusal', async () =>
   )
 })
 
-it('does not ask without the starred count: a failed gallery read is reported', async () => {
-  deleteWorkspace.mockRejectedValueOnce(
-    await holds({ outputs: { files: 2, bytes: 1 } }),
-  )
+it('a gallery that cannot be read still asks, without the count', async () => {
+  deleteWorkspace
+    .mockRejectedValueOnce(await holds({ outputs: { files: 2, bytes: 1 } }))
+    .mockResolvedValueOnce({ name: 'studio', deleted: true })
   gallery.mockRejectedValueOnce(
     new (await import('./apiErrors')).NetworkError('Failed to fetch'),
   )
+  confirm.mockResolvedValue(true)
   const { deleteWorkspaceWithConfirm } = await import('./workspaceActions')
-  expect(await deleteWorkspaceWithConfirm('studio')).toBe(false)
-  expect(confirm).not.toHaveBeenCalled()
-  expect(failureToast).toHaveBeenCalled()
-  expect(deleteWorkspace).toHaveBeenCalledTimes(1)
+  expect(await deleteWorkspaceWithConfirm('studio')).toBe(true)
+  expect(confirm).toHaveBeenCalledWith(
+    expect.stringContaining("The starred count couldn't be read."),
+    expect.anything(),
+  )
+  expect(failureToast).not.toHaveBeenCalled()
+  expect(deleteWorkspace).toHaveBeenCalledTimes(2)
 })

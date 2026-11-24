@@ -23,6 +23,7 @@
     runningProgress,
   } from '../jobsListing'
   import { loadWorkspaces, workspace } from '../workspace.svelte'
+  import { wsHref } from '../routes'
   import {
     rerunRestartBatchWithConfirm,
     restartBanners,
@@ -288,7 +289,8 @@
   onclear={clearFilters}
 >
   {#snippet emptyIcon()}<Inbox size={36} strokeWidth={1.5} />{/snippet}
-  {#snippet emptyText()}No jobs yet — pick a workflow and run it.{/snippet}
+  {#snippet emptyText()}No jobs yet.
+    <a href={wsHref(workspace.current, 'workflows')}>Pick a workflow</a> and run it.{/snippet}
   {#if visible.length > 0}
     <div class="panel list">
       {#each visible as job (job.id)}

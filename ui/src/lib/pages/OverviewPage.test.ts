@@ -661,3 +661,17 @@ it('the overview shows the card until it is dismissed', async () => {
   )
   expect(screen.queryByText('New here? Make your first picture')).toBeNull()
 })
+
+it('an empty overview says where to go', async () => {
+  render(OverviewPage)
+  await waitFor(() => expect(screen.getAllByText(/no jobs yet/i)).toBeTruthy())
+  const hrefs = (text: string) =>
+    screen
+      .getAllByRole('link', { name: text })
+      .map((a) => a.getAttribute('href'))
+  expect(hrefs('Run a workflow')).toHaveLength(2)
+  for (const href of hrefs('Run a workflow'))
+    expect(href).toMatch(/^#\/ws\/[^/]+\/workflows$/)
+  expect(hrefs('Create one in the editor')[0]).toMatch(/^#\/ws\/[^/]+\/edit$/)
+  expect(hrefs('start from an example')).toEqual(['#/shared/examples'])
+})

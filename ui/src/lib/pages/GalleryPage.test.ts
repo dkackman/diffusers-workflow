@@ -1810,3 +1810,11 @@ it('a double click on Star sends one round', async () => {
   expect(setStarred).toHaveBeenCalledTimes(2)
   expect(notifyUndo).toHaveBeenCalledTimes(1)
 })
+
+it('an empty gallery says where to go', async () => {
+  location.hash = '#/ws/default/gallery'
+  listing.files = []
+  render(GalleryPage)
+  const link = await screen.findByRole('link', { name: 'Run a workflow' })
+  expect(link.getAttribute('href')).toMatch(/^#\/ws\/[^/]+\/workflows$/)
+})

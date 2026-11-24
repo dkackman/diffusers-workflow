@@ -25,7 +25,7 @@
   import { workflowName } from '../terms'
   import { hiddenWorkspaces, setHidden } from '../hiddenWorkspaces.svelte'
   import { latestProofs, proofByRun } from '../proofs'
-  import { fileHref, jobHref, wsHref } from '../routes'
+  import { fileHref, jobHref, sharedHref, wsHref } from '../routes'
   import type { JobSummary } from '../types'
   import {
     DEFAULT_WORKSPACE,
@@ -173,7 +173,9 @@
         label="loading recent outputs"
       />{/snippet}
     {#snippet emptyIcon()}<Images size={36} strokeWidth={1.5} />{/snippet}
-    {#snippet emptyText()}Nothing generated yet — run a workflow.{/snippet}
+    {#snippet emptyText()}Nothing generated yet.
+      <a href={wsHref(name, 'workflows')}>Run a workflow</a> and what it makes lands
+      here.{/snippet}
     {#snippet children({ recent })}
       <div class="strip">
         {#each recent as file (file.name)}
@@ -267,7 +269,8 @@
         !jobs.data.running}
     >
       {#snippet emptyIcon()}<Inbox size={36} strokeWidth={1.5} />{/snippet}
-      {#snippet emptyText()}No jobs yet.{/snippet}
+      {#snippet emptyText()}No jobs yet.
+        <a href={wsHref(name, 'workflows')}>Run a workflow</a> to start one.{/snippet}
       {#snippet children({ running, finished })}
         <ul class="jobs">
           {#if running}{@render jobRow(running, true)}{/if}
@@ -301,8 +304,9 @@
       empty={workflows.data?.names.length === 0}
     >
       {#snippet emptyIcon()}<Layers size={36} strokeWidth={1.5} />{/snippet}
-      {#snippet emptyText()}No workflows yet — create one in the editor, or run
-        an example.{/snippet}
+      {#snippet emptyText()}No workflows yet.
+        <a href={wsHref(name, 'edit')}>Create one in the editor</a>, or
+        <a href={sharedHref('examples')}>start from an example</a>.{/snippet}
       <div class="cards">
         {#each featured as wf (wf)}
           <a

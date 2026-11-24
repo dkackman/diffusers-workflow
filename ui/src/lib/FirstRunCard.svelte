@@ -2,6 +2,7 @@
   // The introduction a newcomer sees on the Overview of any workspace, until
   // "Got it" in this browser. Storage that throws just means it shows again
   // next load: the flag keeps it hidden for the session
+  import { tick } from 'svelte'
   import { FIRST_RUN_KEY, type FirstRunLink } from './firstRun'
   import { storageGet, storageSet } from './storage'
 
@@ -9,9 +10,15 @@
 
   let dismissed = $state(storageGet(FIRST_RUN_KEY, false))
 
-  function dismiss() {
+  // The button leaves with the card: focus goes to the page's h1 (focusable
+  // by script, as PageHeader makes it) rather than falling to the body
+  async function dismiss() {
     dismissed = true
     storageSet(FIRST_RUN_KEY, true)
+    await tick()
+    document
+      .querySelector<HTMLElement>('main h1, h1')
+      ?.focus({ preventScroll: true })
   }
 </script>
 

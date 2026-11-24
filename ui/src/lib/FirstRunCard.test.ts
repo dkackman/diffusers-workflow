@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import FirstRunCard from './FirstRunCard.svelte'
 import { FIRST_RUN_KEY } from './firstRun'
@@ -66,4 +72,23 @@ it('a dismissed card stays hidden', () => {
   localStorage.setItem('dw-' + FIRST_RUN_KEY, 'true')
   render(FirstRunCard, { link })
   expect(screen.queryByRole('region')).toBeNull()
+})
+
+it('Got it moves focus to the page heading, not the body', async () => {
+  const main = document.createElement('main')
+  main.innerHTML = '<h1 tabindex="-1">studio</h1>'
+  document.body.append(main)
+  try {
+    render(FirstRunCard, { link })
+    const button = screen.getByRole('button', {
+      name: 'Dismiss this introduction',
+    })
+    button.focus()
+    await fireEvent.click(button)
+    await waitFor(() =>
+      expect(document.activeElement).toBe(main.querySelector('h1')),
+    )
+  } finally {
+    main.remove()
+  }
 })

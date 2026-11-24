@@ -31,7 +31,7 @@
   import { collapsedState, type Collapsed } from '../collapsed.svelte'
   import type { AssetFile, AssetLibrary, ShadowedAsset } from '../types'
   import { workspace } from '../workspace.svelte'
-  import { sharedHref } from '../routes'
+  import { sharedHref, wsHref } from '../routes'
   import { hashState } from '../router.svelte'
   import { assetLibrary } from '../assetlib.svelte'
   import {
@@ -421,8 +421,9 @@
   >
     {#snippet emptyIcon()}<FolderOpen size={36} strokeWidth={1.5} />{/snippet}
     {#snippet emptyText()}
-      Nothing in the asset library yet — upload a file, or keep one from the
-      gallery.
+      Nothing in the asset library yet. Upload a file, or open one in the
+      <a href={wsHref(workspace.current, 'gallery')}>Gallery</a> and Save as
+      asset.
       {#if !shared && elsewhereCount}
         The <a href={sharedHref('assets')}>shared library</a> has {elsewhereCount}
         more.

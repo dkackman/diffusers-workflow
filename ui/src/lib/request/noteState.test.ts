@@ -5,6 +5,7 @@ import {
   LISTENING_LINE,
   NOT_LISTENING_LINE,
   noteAnswered,
+  noteListShows,
   noteLine,
   noteWaiting,
   notesWaiting,
@@ -155,4 +156,17 @@ it('no write after it, no answer', () => {
     history: [entry(4, 'agent', 'before the note'), entry(9, 'user', 'x')],
   })
   expect(answerOf(note, req)).toBeNull()
+})
+
+it('a dropped item with no notes shows no list', () => {
+  const req = request([item('c', { dropped: true, status: 'dropped' })])
+  expect(noteListShows(req, 'c', 0)).toBe(false)
+  expect(noteListShows(request([item('c')]), 'c', 0)).toBe(true)
+})
+
+it('a dropped item keeps its notes to read', () => {
+  const req = request([
+    item('c', { dropped: true, status: 'dropped', notes: [note] }),
+  ])
+  expect(noteListShows(req, 'c', 1)).toBe(true)
 })

@@ -6,7 +6,13 @@
   import NoteRef from './NoteRef.svelte'
   import { draftKey, refKey } from './draft'
   import { listening } from './listening.svelte'
-  import { answerOf, noteAnchor, noteLine } from './noteState'
+  import {
+    answerOf,
+    noteAnchor,
+    noteListEditable,
+    noteListShows,
+    noteLine,
+  } from './noteState'
   import { holdsStopped } from './reviewText'
   import { addRef, collapseRefs, writtenRefs } from './noteRefs'
   import { action } from '../action.svelte'
@@ -64,11 +70,7 @@
   const shown = $derived(filter ? notes.filter(filter) : notes)
   // A dropped item, or a closed request, keeps its notes to read; the
   // ledger takes no more until it is reopened
-  const editable = $derived(
-    request.state === 'open' &&
-      (item === null ||
-        request.items.some((i) => i.key === item && !i.dropped)),
-  )
+  const editable = $derived(noteListEditable(request, item))
   const live = $derived(request.items.filter((i) => !i.dropped))
   // What saving a note here would stop: the request's note every hold, an
   // item's note that item's own
@@ -182,7 +184,7 @@
   {/if}
 {/snippet}
 
-{#if shown.length || editable}
+{#if noteListShows(request, item, shown.length)}
   <section class="notes" aria-label="Notes for the agent on {about}">
     <!-- With none saved, the box's button says it: no heading over it -->
     {#if shown.length}

@@ -193,3 +193,13 @@ it('the cache confirms name the cache or entry once, in the title, and count fil
     danger: false,
   })
 })
+
+it('an unknown starred count is said', () => {
+  expect(
+    workspaceConfirm('studio', { outputs: { files: 2, bytes: MB } }, null)
+      .message,
+  ).toBe(
+    'This permanently removes 2 outputs (1.0 MB). The prompt library and ' +
+      "the shared asset library are kept. The starred count couldn't be read.",
+  )
+})

@@ -21,7 +21,7 @@
   import type { GalleryFile, OutputRole } from '../types'
   import { workspace } from '../workspace.svelte'
   import { codec, goHref, hashState } from '../router.svelte'
-  import { compareHref } from '../routes'
+  import { compareHref, wsHref } from '../routes'
   import { collapsedState } from '../collapsed.svelte'
   import GalleryFind, { findState } from '../gallery/GalleryFind.svelte'
   import GalleryCell from '../gallery/GalleryCell.svelte'
@@ -359,7 +359,9 @@
       No outputs for this request{reqItem ? ' item' : ''} yet — remove the request
       filter to see everything.
     {:else}
-      Nothing generated yet — outputs land here as workflows run.
+      Nothing generated yet.
+      <a href={wsHref(workspace.current, 'workflows')}>Run a workflow</a> and what
+      it makes lands here.
     {/if}
   {/snippet}
   <!-- Remounted per grouping: FolderGroups reads its shut state once -->
