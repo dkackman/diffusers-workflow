@@ -9,7 +9,10 @@ export type Finding = { tone: 'bad' | 'warn'; text: string }
  * rest, for the general list. */
 export type PlacedFindings = {
   byVariable: Record<string, Finding[]>
+  /** Errors and the bare refusal, which name no field the form shows */
   general: Finding[]
+  /** Warnings that name no shown variable: for whoever wrote the workflow */
+  author: Finding[]
 }
 
 // `arguments.<name>` or `variables.<name>`, the name as
@@ -37,7 +40,7 @@ export function placeFindings(
   shown: Iterable<string>,
 ): PlacedFindings {
   const names = new Set(shown)
-  const placed: PlacedFindings = { byVariable: {}, general: [] }
+  const placed: PlacedFindings = { byVariable: {}, general: [], author: [] }
   if (!result) return placed
 
   const place = (
@@ -54,7 +57,10 @@ export function placeFindings(
       const text = rest ? `${rest}: ${message}` : message
       ;(placed.byVariable[match[1]] ??= []).push({ tone, text })
     } else {
-      placed.general.push({ tone, text: whole })
+      ;(tone === 'bad' ? placed.general : placed.author).push({
+        tone,
+        text: whole,
+      })
     }
   }
 
@@ -67,7 +73,7 @@ export function placeFindings(
   for (const warning of result.warnings ?? []) {
     const match = VARIABLE_WARNING.exec(warning)
     if (match) place('warn', match[1], match[2], warning)
-    else placed.general.push({ tone: 'warn', text: warning })
+    else placed.author.push({ tone: 'warn', text: warning })
   }
   return placed
 }

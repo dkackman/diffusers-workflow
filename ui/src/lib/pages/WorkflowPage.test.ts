@@ -183,9 +183,9 @@ describe('WorkflowPage run check', () => {
       arguments: {},
       sizes: false,
     })
-    const plan = screen.getByLabelText('what a job will do')
+    const plan = screen.getByText('What a job will do').closest('details')!
     expect(plan.textContent).toContain('about 2 min on mps')
-    expect(screen.getByText('a job would be admitted')).toBeTruthy()
+    expect(screen.getByText('Ready to run.')).toBeTruthy()
   })
 
   it('asks about exactly the arguments Run sends, blanks dropped', async () => {
@@ -259,7 +259,7 @@ describe('WorkflowPage run check', () => {
     answerSizes(refusal)
     await advance()
     expect(screen.queryByText(/stale refusal/)).toBeNull()
-    expect(screen.getByText('a job would be admitted')).toBeTruthy()
+    expect(screen.getByText('Ready to run.')).toBeTruthy()
     // and the signal it was handed was aborted
     const sizesCall = validateCalls().find(
       (c) => (c[0] as { sizes?: boolean }).sizes === true,
@@ -296,13 +296,17 @@ describe('WorkflowPage run check', () => {
 
     const general = screen.getByLabelText('findings')
     expect(general.textContent).toContain('model_name: unknown model')
-    expect(general.textContent).toContain(
-      'cost estimate withheld: not priced from templates/x',
-    )
     expect(general.textContent).not.toContain('must be at most 8')
     expect(general.querySelector('.bad')!.textContent).toContain('model_name')
-    expect(general.querySelector('.warn')!.textContent).toContain('withheld')
-    expect(screen.getByText('a job would be refused')).toBeTruthy()
+    // a warning naming no field is the workflow author's, behind its fold
+    expect(general.textContent).not.toContain('withheld')
+    expect(
+      screen.getByText("1 note for the workflow's author").closest('details')!
+        .textContent,
+    ).toContain('cost estimate withheld: not priced from templates/x')
+    expect(
+      screen.getByText('A job would be refused: 2 issues to fix.'),
+    ).toBeTruthy()
   })
 
   it('clears a field error once the value is fixed', async () => {
@@ -358,9 +362,11 @@ describe('WorkflowPage run check', () => {
       warnings: ['<img src=x onerror="alert(1)"> warned'],
     } as unknown as ValidationResult)
     await openPage()
-    const general = screen.getByLabelText('findings')
-    expect(general.textContent).toContain('<img src=x onerror="alert(1)">')
-    expect(general.querySelector('img')).toBeNull()
+    const notes = screen
+      .getByText("1 note for the workflow's author")
+      .closest('details')!
+    expect(notes.textContent).toContain('<img src=x onerror="alert(1)">')
+    expect(notes.querySelector('img')).toBeNull()
   })
 
   it('names a check the server refused outright in the general list', async () => {
@@ -441,7 +447,7 @@ describe('WorkflowPage recovery', () => {
     await advance()
     await advance()
     expect(screen.queryByText(/Couldn't load/)).toBeNull()
-    expect(screen.getByText('a job would be admitted')).toBeTruthy()
+    expect(screen.getByText('Ready to run.')).toBeTruthy()
   })
 
   it('a missing workflow is named in its 404', async () => {

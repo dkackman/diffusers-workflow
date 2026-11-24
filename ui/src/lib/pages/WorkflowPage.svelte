@@ -26,9 +26,8 @@
   import { resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
   import PageHeader from '../ui/PageHeader.svelte'
-  import { describePlan } from '../plan'
   import { placeFindings } from '../findings'
-  import { RunCheck } from '../runCheck.svelte'
+  import { RunCheck, verdictOf } from '../runCheck.svelte'
   import RunCheckPanel from '../workflow/RunCheckPanel.svelte'
   import { WORKFLOW_PREFILL_KEY } from '../chainActions'
   import RemoteNotice from '../ui/RemoteNotice.svelte'
@@ -170,8 +169,8 @@
       variables.map(([key]) => key),
     ),
   )
-  const planLines = $derived(
-    runCheck.validation?.plan ? describePlan(runCheck.validation.plan) : [],
+  const verdict = $derived(
+    verdictOf(runCheck.validation, runCheck.error, placed),
   )
 
   function newFrom() {
@@ -279,11 +278,12 @@
   {#if workflow}
     <RemoteNotice shown={read.changed.has(name)} />
     <RunCheckPanel
-      verdict={runCheck.verdict}
+      {verdict}
       checking={runCheck.checking}
-      {planLines}
+      plan={runCheck.validation?.plan ?? null}
       checkError={runCheck.error}
       findings={placed.general}
+      author={placed.author}
     />
 
     {#if workflow.description}

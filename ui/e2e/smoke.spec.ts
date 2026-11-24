@@ -136,7 +136,7 @@ test('editor validates, saves into a new folder, and deletes', async ({
   test.setTimeout(60_000)
   await page.goto('/#/edit/models/z-image')
   await page.getByRole('button', { name: 'Validate' }).click()
-  await expect(page.getByText('schema-valid')).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByText('Ready to run.')).toBeVisible({ timeout: 30_000 })
 
   // save into a folder that does not exist yet - the "new folder…" flow
   // exercises the {name:path} route and the server's directory creation
@@ -405,24 +405,19 @@ test('the workflow page checks a run as you edit, and places each finding', asyn
   })
   await page.goto('/#/workflows/models/z-image')
   const check = page.getByRole('region', { name: 'run check' })
-  await expect(
-    check.getByText('a job would be admitted, with warnings'),
-  ).toBeVisible()
-  await expect(check.getByLabel('what a job will do')).toContainText(
-    'about 3 min',
-  )
+  await expect(check.getByText('Ready to run.')).toBeVisible()
+  await expect(check).toContainText('about 3 min')
   expect(asked[0].body.workflow_path).toBe('models/z-image')
   expect(asked[0].url).toContain('sizes=false')
   // a hostile warning prints as text
-  await expect(
-    check.getByLabel('findings').getByText(/<img src=x onerror=/),
-  ).toBeVisible()
+  await check.getByText(/note for the workflow's author/).click()
+  await expect(check.getByText(/<img src=x onerror=/)).toBeVisible()
   expect(
     await page.evaluate(() => (window as { __pwned?: number }).__pwned),
   ).toBeUndefined()
 
   await page.getByLabel('num_inference_steps').fill('0')
-  await expect(check.getByText('a job would be refused')).toBeVisible()
+  await expect(check.getByText(/A job would be refused/)).toBeVisible()
   await expect(
     page.locator('[data-findings-for="num_inference_steps"]'),
   ).toContainText('must be at least 1')

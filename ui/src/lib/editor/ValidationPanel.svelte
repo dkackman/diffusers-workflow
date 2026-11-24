@@ -1,14 +1,20 @@
 <script lang="ts">
   import { CircleCheck, TriangleAlert, X } from '@lucide/svelte'
-  import { describePlan } from '../plan'
+  import { placeFindings } from '../findings'
+  import { verdictOf } from '../runCheck.svelte'
   import type { ValidationResult } from '../types'
+  import PlanLines from '../workflow/PlanLines.svelte'
 
   // The verdict on the definition as it stands, and under it, whenever the
-  // server sent a plan, what a run will do
+  // server sent a plan, what a run will do. The reader is the author, so
+  // every warning stays visible: nothing is split off for one
   let {
     validation,
     ondismiss,
   }: { validation: ValidationResult; ondismiss: () => void } = $props()
+
+  const placed = $derived(placeFindings(validation, []))
+  const verdict = $derived(verdictOf(validation, null, placed))
 </script>
 
 <div
@@ -25,39 +31,26 @@
   >
     <X size={13} />
   </button>
-  {#if validation.valid && !validation.warnings.length}
-    <span class="ok">
-      <CircleCheck size={14} /> schema-valid, no argument warnings
-    </span>
-  {:else}
-    {#if !validation.valid}
-      {#if validation.errors && validation.errors.length}
-        {#each validation.errors as e, i (i)}
-          <div class="error">{e.path ?? 'root'}: {e.message}</div>
-        {/each}
-      {:else}
-        <div class="error">{validation.error}</div>
-      {/if}
-    {/if}
-    {#each validation.warnings ?? [] as warning, i (i)}
-      <div class="warn"><TriangleAlert size={14} /> {warning}</div>
-    {/each}
+  {#if verdict}
+    <div class="verdict {verdict.tone}">
+      {#if verdict.tone === 'good'}<CircleCheck size={14} />{/if}
+      {verdict.text}
+      {#if verdict.remedy}<span class="muted">{verdict.remedy}</span>{/if}
+    </div>
   {/if}
+  {#each placed.general as finding, i (i)}
+    <div class="error">{finding.text}</div>
+  {/each}
+  {#each placed.author as finding, i (i)}
+    <div class="warn"><TriangleAlert size={14} /> {finding.text}</div>
+  {/each}
   {#if validation.plan}
     <!-- What a run of this definition, with these defaults, will do -
          the figure to expect before pressing Run, and the weights it
          would pull first, which the cost block never counts. Shown whenever
          the server sent one: a repo that isn't there makes the answer
          invalid but keeps its plan, under the error that names it -->
-    <ul
-      class="plan"
-      aria-label="what a job will do"
-      title="from the workflow's own cost block and this server's model cache - a plan, not a promise"
-    >
-      {#each describePlan(validation.plan) as line, i (i)}
-        <li class:warn={line.tone === 'warn'}>{line.text}</li>
-      {/each}
-    </ul>
+    <PlanLines plan={validation.plan} />
   {/if}
 </div>
 
@@ -76,31 +69,18 @@
     border: 0;
     padding: 0.2rem 0.3rem;
   }
-  .ok {
-    color: var(--good);
-    display: inline-flex;
+  .verdict {
+    display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 0.4rem;
+  }
+  .verdict.good {
+    color: var(--good);
   }
   .warn {
     display: flex;
     align-items: center;
     gap: 0.4rem;
-  }
-  /* The plan under the verdict: figures the engine resolves, so mono, and
-     quiet - a warn line is the one that changes the number to expect */
-  .plan {
-    list-style: none;
-    margin: var(--space-2) 0 0;
-    padding: 0;
-    font-family: var(--font-mono);
-    font-size: var(--t-xs);
-    color: var(--muted);
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.2rem var(--space-3);
-  }
-  .plan .warn {
-    display: inline;
   }
 </style>

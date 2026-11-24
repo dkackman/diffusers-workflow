@@ -202,9 +202,9 @@ describe('EditorPage validation plan', () => {
     await screen.getByRole('button', { name: /validate/i }).click()
 
     await waitFor(() =>
-      expect(screen.getByLabelText('what a job will do')).toBeTruthy(),
+      expect(screen.getByText('What a job will do')).toBeTruthy(),
     )
-    const plan = screen.getByLabelText('what a job will do')
+    const plan = screen.getByText('What a job will do').closest('details')!
     expect(plan.textContent).toContain('3 steps (shots: 2)')
     expect(plan.textContent).toContain('about 12 min on cuda')
     expect(plan.textContent).toContain('0 of 3 steps cached')
