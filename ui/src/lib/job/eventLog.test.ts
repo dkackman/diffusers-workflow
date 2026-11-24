@@ -108,6 +108,23 @@ describe('row text', () => {
     )
   })
 
+  it('a log row is its message, said once', () => {
+    expect(eventSummary({ seq: 3, event: 'log', message: 'muxing' })).toEqual({
+      text: 'muxing',
+      data: null,
+    })
+    expect(
+      eventSummary({ seq: 3, event: 'log', message: 'muxing', level: 'info' }),
+    ).toEqual({ text: 'muxing', data: '{\n  "level": "info"\n}' })
+  })
+
+  it('a missing count or message leaves no broken row', () => {
+    expect(said({ seq: 1, event: 'pipeline_step', step: 3 })).toBe('Denoise 3')
+    expect(said({ seq: 1, event: 'warning' })).toBe('warning')
+    expect(said({ seq: 1, event: 'log' })).toBe('log')
+    expect(said({ seq: 1, event: 'log', message: '' })).toBe('log')
+  })
+
   it('leaves no data when the sentence says all of the payload', () => {
     expect(eventSummary({ seq: 1, event: 'step_start', step: 'gen' })).toEqual({
       text: 'Started gen',

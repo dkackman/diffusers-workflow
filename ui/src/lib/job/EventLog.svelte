@@ -18,7 +18,11 @@
     type EventLogFetch,
   } from './eventLog'
 
-  let { jobId, live }: { jobId: string; live: boolean } = $props()
+  let {
+    jobId,
+    live,
+    pulse = 0,
+  }: { jobId: string; live: boolean; pulse?: number } = $props()
 
   let open = $state(false)
   let loaded = $state(false)
@@ -36,6 +40,11 @@
   // component makes (always to the bottom) never read as the user's.
   let follow = $state(untrack(() => live))
   let lastTop = 0
+  // The user has set the toggle (or scrolled up): a job that starts later
+  // no longer turns Follow on for them
+  let touched = false
+  // A refresh asked for while one was in flight: read once more after it
+  let again = false
 
   // Another job is another log: drop this one's and close
   $effect(() => {
@@ -52,6 +61,14 @@
     kind = ''
     follow = untrack(() => live)
     lastTop = 0
+    touched = false
+    again = false
+  })
+
+  // A job queued at page load that starts later: follow it, unless the
+  // user has already chosen
+  $effect(() => {
+    if (live && !untrack(() => touched)) follow = true
   })
 
   function take(page: EventLogFetch, after: number) {
@@ -74,12 +91,19 @@
 
   function scrolled() {
     if (!body) return
-    if (body.scrollTop < lastTop - 1) follow = false
+    // Content shrinking (a filter, a closed Details) clamps scrollTop to the
+    // bottom on its own; only a move up that leaves the bottom is the user's
+    const fromBottom = body.scrollHeight - body.clientHeight - body.scrollTop
+    if (body.scrollTop < lastTop - 1 && fromBottom > 2) {
+      follow = false
+      touched = true
+    }
     lastTop = body.scrollTop
   }
 
   function toggleFollow() {
     follow = !follow
+    touched = true
     if (follow) showTail(jobId)
   }
 
@@ -103,7 +127,29 @@
     } finally {
       if (id === jobId) loading = false
     }
+    if (id === jobId) readAgain()
   }
+
+  function readAgain() {
+    if (!again) return
+    again = false
+    if (live && !missing) void load(lastSeq)
+  }
+
+  // A live job's new events: the page already hears each one on its stream
+  // (`pulse` counts them), so the log reads on from its last row on that
+  // beat rather than on a timer of its own. Beats that land while a read is
+  // out fold into one more read after it. Nothing runs once the job ends
+  // (`live` goes false, and the ended read below takes the rest) or the
+  // page is left.
+  $effect(() => {
+    void pulse
+    untrack(() => {
+      if (!live || !open || !loaded || missing) return
+      if (loading) again = true
+      else void load(lastSeq)
+    })
+  })
 
   // The job ended while its log was loaded: Refresh goes with `live`, so
   // read the events that came after the last one shown, the failure among

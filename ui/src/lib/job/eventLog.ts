@@ -48,6 +48,10 @@ export async function fetchEventLog(
 // The fields a row already shows in its own columns
 const ROW_FIELDS = new Set(['seq', 'event', 'at', 'kind'])
 
+/** A row that is its own message; with none, the event's name */
+const said = (name: string) => (e: JobEvent) =>
+  typeof e.message === 'string' && e.message ? e.message : name
+
 type Sentence = { text: (event: JobEvent) => string; used: string[] }
 
 const word = (value: unknown) => String(value ?? '')
@@ -58,13 +62,17 @@ const SENTENCES: Record<string, Sentence> = {
   step_start: { text: (e) => `Started ${word(e.step)}`, used: ['step'] },
   step_end: { text: (e) => `Finished ${word(e.step)}`, used: ['step'] },
   pipeline_step: {
-    text: (e) => `Denoise ${word(e.step)} of ${word(e.total_steps)}`,
+    text: (e) =>
+      e.total_steps == null
+        ? `Denoise ${word(e.step)}`
+        : `Denoise ${word(e.step)} of ${word(e.total_steps)}`,
     used: ['step', 'total_steps'],
   },
   workflow_start: { text: () => 'Started the workflow', used: [] },
   job_status: { text: (e) => `Status: ${word(e.status)}`, used: ['status'] },
   queue_wait: { text: () => 'Waiting for a card', used: [] },
-  warning: { text: (e) => word(e.message), used: ['message'] },
+  warning: { text: said('warning'), used: ['message'] },
+  log: { text: said('log'), used: ['message'] },
 }
 
 /** What a row says beyond its seq, time and kind: a sentence for the events

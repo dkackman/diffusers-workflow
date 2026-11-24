@@ -1144,7 +1144,147 @@ describe('event log (#1478)', () => {
     expect(nodeFor(container, 'mux').classList.contains('active')).toBe(false)
   })
 
-  it('follows a live job until the user scrolls up', async () => {
+  it('a log row shows its message, not the word log', async () => {
+    detail.job = job([])
+    eventLog.events = [
+      { seq: 0, event: 'log', message: 'loading the model' },
+      { seq: 1, event: 'step_end', step: 'gen' },
+    ]
+    const { container } = render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(logToggle()).toBeTruthy())
+    await fireEvent.click(logToggle())
+    await waitFor(() => expect(logRows(container).length).toBe(2))
+    expect(logRows(container)[0]).toEqual(['0', '', 'log', 'loading the model'])
+    expect(container.querySelector('.eventlog details')).toBeNull()
+  })
+
+  it('a finished job starts with Follow off', async () => {
+    detail.job = job([])
+    eventLog.events = [{ seq: 0, event: 'log', message: 'one' }]
+    render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(logToggle()).toBeTruthy())
+    await fireEvent.click(logToggle())
+    const follow = await screen.findByRole('button', {
+      name: 'Follow new events',
+    })
+    expect(follow.getAttribute('aria-pressed')).toBe('false')
+  })
+
+  it('a job that starts after the page loads turns Follow on, unless the user chose', async () => {
+    detail.job = { ...job([]), status: 'queued', finished_at: null }
+    eventLog.events = [{ seq: 0, event: 'log', message: 'one' }]
+    const { rerender } = render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(logToggle()).toBeTruthy())
+    await fireEvent.click(logToggle())
+    const follow = await screen.findByRole('button', {
+      name: 'Follow new events',
+    })
+    expect(follow.getAttribute('aria-pressed')).toBe('true')
+    // `live` was false while the record loaded, then turned true: Follow
+    // came on with it. Once the user has chosen, a later re-read of the
+    // same live job leaves their choice alone
+    await fireEvent.click(follow)
+    expect(follow.getAttribute('aria-pressed')).toBe('false')
+    await rerender({ jobId: 'j1' })
+    expect(follow.getAttribute('aria-pressed')).toBe('false')
+  })
+
+  it('a job change resets the Follow toggle', async () => {
+    detail.job = { ...job([]), status: 'running', finished_at: null }
+    eventLog.events = [{ seq: 0, event: 'log', message: 'one' }]
+    const { rerender } = render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(logToggle()).toBeTruthy())
+    await fireEvent.click(logToggle())
+    let follow = await screen.findByRole('button', {
+      name: 'Follow new events',
+    })
+    await fireEvent.click(follow)
+    expect(follow.getAttribute('aria-pressed')).toBe('false')
+    detail.job = { ...detail.job!, id: 'j2' }
+    await rerender({ jobId: 'j2' })
+    await waitFor(() =>
+      expect(logToggle().getAttribute('aria-expanded')).toBe('false'),
+    )
+    await fireEvent.click(logToggle())
+    follow = await screen.findByRole('button', { name: 'Follow new events' })
+    expect(follow.getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('shrinking content does not turn Follow off', async () => {
+    detail.job = { ...job([]), status: 'running', finished_at: null }
+    eventLog.events = [
+      { seq: 0, event: 'log', message: 'one' },
+      { seq: 1, event: 'warning', kind: 'audio_clipped', message: 'clip' },
+    ]
+    const { container } = render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(logToggle()).toBeTruthy())
+    await fireEvent.click(logToggle())
+    const follow = await screen.findByRole('button', {
+      name: 'Follow new events',
+    })
+    const box = container.querySelector('#event-log-body') as HTMLElement
+    let top = 900
+    let height = 900
+    Object.defineProperty(box, 'scrollHeight', { get: () => height })
+    Object.defineProperty(box, 'clientHeight', { value: 300 })
+    Object.defineProperty(box, 'scrollTop', {
+      get: () => top,
+      set: (v: number) => (top = v),
+    })
+    await fireEvent.scroll(box)
+    // A narrower filter shortens the box; the browser clamps to its bottom
+    height = 400
+    top = 100
+    await fireEvent.scroll(box)
+    expect(follow.getAttribute('aria-pressed')).toBe('true')
+    // A real move up leaves the bottom
+    height = 900
+    top = 300
+    await fireEvent.scroll(box)
+    expect(follow.getAttribute('aria-pressed')).toBe('true')
+    top = 100
+    await fireEvent.scroll(box)
+    expect(follow.getAttribute('aria-pressed')).toBe('false')
+  })
+
+  it("reads a live job's new events as the stream brings them, in view only while following", async () => {
+    detail.job = { ...job([]), status: 'running', finished_at: null }
+    eventLog.events = [{ seq: 0, event: 'log', message: 'one' }]
+    const { container } = render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(stream.onEvent).not.toBeNull())
+    await fireEvent.click(logToggle())
+    const follow = await screen.findByRole('button', {
+      name: 'Follow new events',
+    })
+    const box = container.querySelector('#event-log-body') as HTMLElement
+    let top = 0
+    Object.defineProperty(box, 'scrollHeight', { value: 900 })
+    Object.defineProperty(box, 'clientHeight', { value: 300 })
+    Object.defineProperty(box, 'scrollTop', {
+      get: () => top,
+      set: (v: number) => (top = v),
+    })
+    const arrive = (seq: number) => {
+      eventLog.events.push({ seq, event: 'log', message: `line ${seq}` })
+      stream.onEvent!({ seq, event: 'log', message: `line ${seq}` })
+    }
+
+    arrive(1)
+    await waitFor(() => expect(logRows(container).length).toBe(2))
+    await waitFor(() => expect(top).toBe(900))
+    expect(logRows(container)[1][3]).toBe('line 1')
+
+    top = 100
+    await fireEvent.scroll(box)
+    expect(follow.getAttribute('aria-pressed')).toBe('false')
+    arrive(2)
+    await waitFor(() => expect(logRows(container).length).toBe(3))
+    expect(top).toBe(100)
+    // Every row once, in order
+    expect(logRows(container).map((r) => r[0])).toEqual(['0', '1', '2'])
+  })
+
+  it('the event log follows a live job until the user scrolls up', async () => {
     detail.job = { ...job([]), status: 'running', finished_at: null }
     eventLog.events = [{ seq: 0, event: 'log', message: 'one' }]
     const { container } = render(JobPage, { jobId: 'j1' })

@@ -465,7 +465,7 @@
       </div>
     {/if}
 
-    <EventLog {jobId} live={running} />
+    <EventLog {jobId} live={running} pulse={events.length} />
   {/if}
 </LoadState>
 
