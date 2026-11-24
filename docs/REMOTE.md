@@ -57,8 +57,10 @@ Open `http://<box>:8765`. Click the key icon in the header and paste the
 token once; it is kept in the browser's `localStorage` and sent with every
 request. On a network bind the Server → Status page shows the server's
 addresses and the `claude mcp add` line (with the token header only when a
-token is required), ready to copy; on a loopback bind it shows neither and
-gives the restart command instead. The UI is compressed and cached,
+token is required), ready to copy. On a loopback bind read from a page on
+another hostname (the reverse proxy below, or a tunnel), it builds both from
+the address the page was loaded from and advises no rebind; read on the box
+itself, it shows neither and gives the restart command instead. The UI is compressed and cached,
 and a reload after an upgrade picks up the new version.
 
 <picture>

@@ -145,7 +145,11 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   first, and a **New workflow** button), its asset count and disk usage. Each
   panel loads and fails on its own, so a slow gallery does not hold the jobs
   list back and an error shows in place of that panel. **Manage** deletes
-  the workspace (disabled for `default`).
+  the workspace (disabled for `default`). Until **Got it** is pressed in
+  this browser, a first-run card at the top says what dw is and links
+  `templates/text-to-image` (the Examples page, or the Workflows page, when
+  the listing lacks it); storage that throws keeps the dismissal for the
+  session (`ui/src/lib/firstRun.ts`).
 - **Workflows** - every workflow on the workspace's own `--workflow-dir`, as
   cards with the last image it made, its summary, the server's observed run
   time, and `configures` / read-only marks. Shape buttons and trait chips
@@ -213,7 +217,11 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   ![The editor in split view: the variables as a form beside the workflow JSON](img/ui-editor.png)
 
 - **Jobs** - the workspace's queue and run history (history persists in
-  `~/.diffusers_helper/jobs.sqlite`), filterable by status. A job queued or
+  `~/.diffusers_helper/jobs.sqlite`), filterable by status. The list holds
+  every live job and the newest 50 finished ones; **Show older** loads the
+  next 50. The status filter and the search see only what is loaded, and
+  say so ("Searching the newest N of M jobs.") with a **Search all** button
+  that loads the rest (`ui/src/lib/jobsListing.ts`). A job queued or
   running when the server stopped is listed as `cancelled` with `error`
   starting `server restart:` ([After a restart](#after-a-restart)). A failed or cancelled row shows its `reason` on a muted line under the workflow name, cut to one line with the full text on hover. When loaded rows hold restart tombstones (`restart_batch`) that no loaded row's `rerun_of` names, a banner per batch, newest first, says "N jobs were cancelled by a server restart" with a **Rerun…** button (hidden under a status filter that hides cancelled rows). Only the click calls the batch route - the poll never does: its preview lists what would be queued with each estimate and a total, and what is skipped with why; confirming resends with `acknowledged_cost: true`, cancelling queues nothing, and a preview with nothing left to rerun says so and hides that banner for the session (`ui/src/lib/restartBatches.ts`). A waiting job
   shows its place in line, can be moved (the place is in the whole queue, so a list narrowed to a workspace or a request asks the server how many jobs are queued rather than counting its own rows), and shows `waiting_for` while held
@@ -501,7 +509,11 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   reports them), a **Runtime** panel (Python, torch, CUDA, driver and package
   versions, with a copy button), bind address and LAN addresses, whether a token is required, whether
   `/mcp` is mounted, a **Connect from another machine** panel with the
-  browser URL and the `claude mcp add` line for a chosen address, the
+  browser URL and the `claude mcp add` line (its token header only when a
+  token is required) for a chosen address (on a loopback bind: built from
+  the page's own address when it was reached through a reverse proxy or a
+  tunnel, with no rebind advice; read on the box itself, the command that
+  restarts it bound to the network, with a token, in their place), the
   resolved directories, and the Caches panel (below) - then the queue and
   history across every workspace, with a workspace filter. A request filter
   there (`req=`) is read in one workspace - the one picked, else the current
