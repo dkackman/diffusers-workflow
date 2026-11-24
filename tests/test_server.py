@@ -3370,6 +3370,62 @@ def test_the_asset_library_lists_what_it_holds(asset_server, tmp_path):
     assert body["folders"] == ["", "gyre"]
 
 
+def test_the_asset_listing_adds_durations_only_when_asked(
+    asset_server, tmp_path, monkeypatch
+):
+    """`media=true` probes the audio and video assets through the gallery's
+    memo; without it the payload is key for key what it was, so the MCP
+    tools that list assets see nothing new."""
+    from dw.server.routes import gallery as gallery_routes
+
+    library = tmp_path / "assets"
+    (library / "iris.png").write_bytes(b"png")
+    (library / "voice.wav").write_bytes(b"riff")
+    (library / "clip.mp4").write_bytes(b"mp4")
+    calls = []
+
+    def probe(path):
+        calls.append(os.path.basename(path))
+        return {"duration_seconds": 2.5}
+
+    gallery_routes._probe_at.cache_clear()
+    monkeypatch.setattr(gallery_routes, "probe_media", probe)
+
+    with asset_server(success_script) as client:
+        plain = client.get("/api/assets").json()
+        media = client.get("/api/assets", params={"media": "true"}).json()
+        client.get("/api/assets", params={"media": "true"})
+
+    assert set(plain) == {
+        "workspace",
+        "libraries",
+        "assets",
+        "folders",
+        "shadowed",
+        "total",
+        "shadowed_total",
+    }
+    for entry in plain["assets"]:
+        assert set(entry) == {
+            "name",
+            "reference",
+            "folder",
+            "kind",
+            "size",
+            "mtime",
+            "origin",
+            "writable",
+            "url",
+        }
+    durations = {e["name"]: e.get("duration_seconds") for e in media["assets"]}
+    assert durations == {"iris.png": None, "voice.wav": 2.5, "clip.mp4": 2.5}
+    assert "duration_seconds" not in next(
+        e for e in media["assets"] if e["name"] == "iris.png"
+    )
+    # The memo answers the second media listing; the plain one probed nothing
+    assert sorted(calls) == ["clip.mp4", "voice.wav"]
+
+
 def test_the_asset_listing_names_its_libraries(tmp_path):
     """'libraries' is the search path with the origin and writability a client
     needs to explain why one entry can be deleted and another can't - the

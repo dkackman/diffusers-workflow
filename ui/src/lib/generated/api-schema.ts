@@ -29,6 +29,10 @@ export interface paths {
          *     `used_by` names the workspace's own workflows that reference an asset
          *     (`asset_users`) - what lets a workspace show the shared assets it
          *     actually uses rather than the whole shared library.
+         *
+         *     `media=true` adds `duration_seconds` to the audio and video assets
+         *     returned (after `limit`), the gallery's probe and its memo; off, the
+         *     payload is unchanged.
          */
         get: operations["list_assets_api_assets_get"];
         put?: never;
@@ -2150,6 +2154,11 @@ export interface components {
         AssetFile: {
             /** Absolute Url */
             absolute_url?: string;
+            /**
+             * Duration Seconds
+             * @description A/V length with `media=true`.
+             */
+            duration_seconds?: number | null;
             /** Folder */
             folder: string;
             /**
@@ -5405,6 +5414,8 @@ export interface operations {
                 limit?: number | null;
                 /** @description Only assets whose name starts with this, e.g. a folder such as 'cast/' */
                 prefix?: string | null;
+                /** @description Add `duration_seconds` to each audio and video asset listed, probed and memoised as the gallery's `media=true` is */
+                media?: boolean;
                 workspace?: string | null;
             };
             header?: never;

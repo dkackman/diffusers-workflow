@@ -46,6 +46,7 @@ from ...security import (
 from ...library import ReadOnlyLibraryError, shadowed_listing
 from ...workspace import Workspace, forget_workspace_usage
 from ..preconditions import check_write_preconditions
+from .gallery import _probed as probed_media
 from ..changes import (
     ASSETS,
     NO_CHANGE,
@@ -283,6 +284,36 @@ async def upload_media(
     return result
 
 
+def _media_names(root, found):
+    """The names of the media files under `root`, each recorded in `found`
+    as (root, name) -> (folder, kind, stat, path)."""
+    try:
+        files = list(iter_gallery_files(root, group_runs=False, extra_kinds=LUT_KINDS))
+    except OSError:
+        return []
+    names = []
+    for relative, folder, _subfolder, _run_id, kind, path in files:
+        try:
+            stat = os.stat(path)
+        except OSError:
+            continue
+        found[(root, relative)] = (folder, kind, stat, path)
+        names.append(relative)
+    return names
+
+
+def _add_durations(assets, winners, found):
+    """`media=true`: each audio and video asset's `duration_seconds`, set in
+    place, from the gallery's memoised probe (validated against its root)."""
+    for entry in assets:
+        if entry["kind"] not in ("audio", "video"):
+            continue
+        root = winners[entry["name"]].root
+        probed = probed_media(found[(root, entry["name"])][3], root)
+        if probed is not None:
+            entry["duration_seconds"] = probed.get("duration_seconds")
+
+
 @router.get("/api/assets", response_model=AssetList, response_model_exclude_unset=True)
 def list_assets(
     request: Request,
@@ -296,6 +327,11 @@ def list_assets(
         default=None,
         description="Only assets whose name starts with this, e.g. a folder "
         "such as 'cast/'",
+    ),
+    media: bool = Query(
+        default=False,
+        description="Add `duration_seconds` to each audio and video asset "
+        "listed, probed and memoised as the gallery's `media=true` is",
     ),
 ):
     """The asset library: the input media an 'asset:' reference names.
@@ -314,6 +350,10 @@ def list_assets(
     `used_by` names the workspace's own workflows that reference an asset
     (`asset_users`) - what lets a workspace show the shared assets it
     actually uses rather than the whole shared library.
+
+    `media=true` adds `duration_seconds` to the audio and video assets
+    returned (after `limit`), the gallery's probe and its memo; off, the
+    payload is unchanged.
     """
     library = workspace_asset_library(request.app.state, ws)
     if not library.roots():
@@ -329,25 +369,7 @@ def list_assets(
     # hands to `entries` - which decides the winner of each name and what it
     # hid, exactly as 'asset:' resolution does
     found = {}
-
-    def media_names(root):
-        try:
-            files = list(
-                iter_gallery_files(root, group_runs=False, extra_kinds=LUT_KINDS)
-            )
-        except OSError:
-            return []
-        names = []
-        for relative, folder, _subfolder, _run_id, kind, path in files:
-            try:
-                stat = os.stat(path)
-            except OSError:
-                continue
-            found[(root, relative)] = (folder, kind, stat, path)
-            names.append(relative)
-        return names
-
-    winners, hidden = library.entries(media_names)
+    winners, hidden = library.entries(lambda root: _media_names(root, found))
 
     def summary(name, root):
         folder, kind, stat, _path = found[(root.root, name)]
@@ -396,6 +418,8 @@ def list_assets(
     folders = sorted({entry["folder"] for entry in assets} | {""})
     if limit is not None:
         assets, shadowed = assets[:limit], shadowed[:limit]
+    if media:
+        _add_durations(assets, winners, found)
     return {
         "workspace": ws.name,
         "libraries": library.describe(),

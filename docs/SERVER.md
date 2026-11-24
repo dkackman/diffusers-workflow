@@ -1336,7 +1336,9 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
   `used_by` when any of the workspace's own (writable) workflows names it in
   an `asset:` string, variable defaults included - a reference a run passes
   as an argument is not seen; the web UI shows a workspace only the shared
-  assets its workflows use. The workflow and prompt
+  assets its workflows use. `?media=true` adds `duration_seconds` to each
+  audio and video asset returned, through the gallery's memoised probe; a
+  caller that does not send it gets the keys above. The workflow and prompt
   listings carry the same `libraries` and `shadowed` (`[{name, origin,
   shadowed_by}]`); a filter narrows `shadowed` with the entries. Upload, keep
   and delete answer 409 `This workspace has no asset library` when there is

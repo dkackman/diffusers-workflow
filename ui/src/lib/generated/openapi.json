@@ -107,6 +107,21 @@
             "title": "Absolute Url",
             "type": "string"
           },
+          "duration_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A/V length with `media=true`.",
+            "title": "Duration Seconds"
+          },
           "folder": {
             "title": "Folder",
             "type": "string"
@@ -7648,7 +7663,7 @@
   "paths": {
     "/api/assets": {
       "get": {
-        "description": "The asset library: the input media an 'asset:' reference names.\n\nReported by reference rather than by path - 'asset:uploads/x.png' is\nwhat a workflow argument carries, and a client that only ever sees\nreferences cannot accidentally write a path that means something\nelse on another machine. Empty, not an error, on a server with no\nlibrary configured: nothing is wrong, there is just nowhere for an\nasset to be.\n\n`prefix` keeps the assets (and shadowed names) whose name starts with\nit; `limit` then keeps the newest that many. `total` is what matched\nbefore the cut, so a caller can tell a bounded answer from a complete one.\n\n`used_by` names the workspace's own workflows that reference an asset\n(`asset_users`) - what lets a workspace show the shared assets it\nactually uses rather than the whole shared library.",
+        "description": "The asset library: the input media an 'asset:' reference names.\n\nReported by reference rather than by path - 'asset:uploads/x.png' is\nwhat a workflow argument carries, and a client that only ever sees\nreferences cannot accidentally write a path that means something\nelse on another machine. Empty, not an error, on a server with no\nlibrary configured: nothing is wrong, there is just nowhere for an\nasset to be.\n\n`prefix` keeps the assets (and shadowed names) whose name starts with\nit; `limit` then keeps the newest that many. `total` is what matched\nbefore the cut, so a caller can tell a bounded answer from a complete one.\n\n`used_by` names the workspace's own workflows that reference an asset\n(`asset_users`) - what lets a workspace show the shared assets it\nactually uses rather than the whole shared library.\n\n`media=true` adds `duration_seconds` to the audio and video assets\nreturned (after `limit`), the gallery's probe and its memo; off, the\npayload is unchanged.",
         "operationId": "list_assets_api_assets_get",
         "parameters": [
           {
@@ -7686,6 +7701,18 @@
               ],
               "description": "Only assets whose name starts with this, e.g. a folder such as 'cast/'",
               "title": "Prefix"
+            }
+          },
+          {
+            "description": "Add `duration_seconds` to each audio and video asset listed, probed and memoised as the gallery's `media=true` is",
+            "in": "query",
+            "name": "media",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Add `duration_seconds` to each audio and video asset listed, probed and memoised as the gallery's `media=true` is",
+              "title": "Media",
+              "type": "boolean"
             }
           },
           {
