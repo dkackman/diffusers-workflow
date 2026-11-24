@@ -6,7 +6,7 @@
   // Progress list, the flow view and its chips read - never sees these rows.
   // Collapsed by default, and nothing is fetched until it is first opened.
   import { ChevronDown, ChevronRight, RefreshCw } from '@lucide/svelte'
-  import { tick, untrack } from 'svelte'
+  import { onDestroy, tick, untrack } from 'svelte'
   import { ApiError } from '../api'
   import { formatDuration } from '../format'
   import type { JobEvent } from '../types'
@@ -17,6 +17,7 @@
     fetchEventLog,
     type EventLogFetch,
   } from './eventLog'
+  import { createReadSpacer } from './eventLogReader'
 
   let {
     jobId,
@@ -45,6 +46,18 @@
   let touched = false
   // A refresh asked for while one was in flight: read once more after it
   let again = false
+  let destroyed = false
+  // A live job's reads start at least this far apart
+  const READ_GAP_MS = 1000
+  const spacer = createReadSpacer(READ_GAP_MS, () => {
+    if (destroyed || missing) return
+    if (loading) again = true
+    else void load(lastSeq)
+  })
+  onDestroy(() => {
+    destroyed = true
+    spacer.cancel()
+  })
 
   // Another job is another log: drop this one's and close
   $effect(() => {
@@ -63,6 +76,7 @@
     lastTop = 0
     touched = false
     again = false
+    spacer.cancel()
   })
 
   // A job queued at page load that starts later: follow it, unless the
@@ -133,32 +147,41 @@
   function readAgain() {
     if (!again) return
     again = false
-    if (live && !missing) void load(lastSeq)
+    if (destroyed || missing) return
+    // A job that ended takes its closing events at once; a live one waits
+    // out the gap
+    if (live) spacer.request()
+    else void load(lastSeq)
   }
 
   // A live job's new events: the page already hears each one on its stream
   // (`pulse` counts them), so the log reads on from its last row on that
-  // beat rather than on a timer of its own. Beats that land while a read is
-  // out fold into one more read after it. Nothing runs once the job ends
-  // (`live` goes false, and the ended read below takes the rest) or the
-  // page is left.
+  // beat rather than on a poll of its own. Reads start at least a second
+  // apart; beats inside that window, or while a read is out, fold into one
+  // more read. Nothing runs once the job ends (the ended read below takes
+  // the rest) or the page is left.
   $effect(() => {
     void pulse
     untrack(() => {
       if (!live || !open || !loaded || missing) return
-      if (loading) again = true
-      else void load(lastSeq)
+      spacer.request()
     })
   })
 
   // The job ended while its log was loaded: Refresh goes with `live`, so
   // read the events that came after the last one shown, the failure among
   // them, rather than leave the log short of its end
+  function endRead() {
+    spacer.cancel()
+    if (!loaded || missing) return
+    if (loading) again = true
+    else void load(lastSeq)
+  }
   let wasLive = untrack(() => live)
   $effect(() => {
     const ended = wasLive && !live
     wasLive = live
-    if (ended) untrack(() => loaded && !missing && !loading && load(lastSeq))
+    if (ended) untrack(endRead)
   })
 
   function toggle() {

@@ -1270,7 +1270,9 @@ describe('event log (#1478)', () => {
     }
 
     arrive(1)
-    await waitFor(() => expect(logRows(container).length).toBe(2))
+    await waitFor(() => expect(logRows(container).length).toBe(2), {
+      timeout: 3000,
+    })
     await waitFor(() => expect(top).toBe(900))
     expect(logRows(container)[1][3]).toBe('line 1')
 
@@ -1278,7 +1280,10 @@ describe('event log (#1478)', () => {
     await fireEvent.scroll(box)
     expect(follow.getAttribute('aria-pressed')).toBe('false')
     arrive(2)
-    await waitFor(() => expect(logRows(container).length).toBe(3))
+    // Reads start a second apart, so this one waits out the gap
+    await waitFor(() => expect(logRows(container).length).toBe(3), {
+      timeout: 3000,
+    })
     expect(top).toBe(100)
     // Every row once, in order
     expect(logRows(container).map((r) => r[0])).toEqual(['0', '1', '2'])
