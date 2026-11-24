@@ -92,10 +92,12 @@
   }
 
   /** Whether a variable is a file field: it takes a kind of file (override
-   * mode), or holds an asset: or output: reference */
+   * mode), or declares an asset: or output: reference. The widget follows
+   * the declared default, never what is being typed, so typing a reference
+   * does not swap the input out from under the cursor. */
   function isFileField(key: string): boolean {
     if (mode === 'override' && Object.hasOwn(kinds, key)) return true
-    const value = effective(key)
+    const value = variables[key]
     return (
       referenceName(value, ASSET) !== null ||
       referenceName(value, OUTPUT) !== null

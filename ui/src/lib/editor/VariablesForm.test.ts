@@ -412,4 +412,29 @@ describe('VariablesForm file fields', () => {
     )
     expect(chooseButtons()).toHaveLength(2)
   })
+
+  it('typing a reference into a plain text variable keeps the same input and its focus', async () => {
+    render(VariablesForm, override())
+    const field = document.getElementById('v-note') as HTMLTextAreaElement
+    field.focus()
+    for (const text of ['a', 'as', 'asset:', 'asset:cast/p.png']) {
+      await fireEvent.input(field, { target: { value: text } })
+      await tick()
+      expect(document.getElementById('v-note')).toBe(field)
+      expect(document.activeElement).toBe(field)
+    }
+  })
+
+  it('editing away an asset default keeps the same input and its focus', async () => {
+    render(
+      VariablesForm,
+      override({ variables: { image: 'asset:cast/p.png', note: 'x' } }),
+    )
+    const field = document.getElementById('v-image') as HTMLInputElement
+    field.focus()
+    await fireEvent.input(field, { target: { value: 'a' } })
+    await tick()
+    expect(document.getElementById('v-image')).toBe(field)
+    expect(document.activeElement).toBe(field)
+  })
 })
