@@ -3,7 +3,8 @@
   // them in the Results order, with what takes it further (its star, Save
   // as asset, Use as input…, its reference), a download, and "Note this
   // file" for a finished take of a request item; beside it what made it
-  // (RecipePanel, its one read). The open file is open= in the job route's
+  // (RecipePanel, its one read, which also says whether the file is
+  // starred: the star waits for it). The open file is open= in the job route's
   // hash, written the way Back expects (mediaViewer.ts)
   import { tick } from 'svelte'
   import { FilePen } from '@lucide/svelte'
@@ -22,19 +23,24 @@
   let {
     items,
     open = $bindable(null),
-    starredAtRead,
     onnote,
   }: {
     items: MediaFile[]
     open: string | null
-    /** Whether a file was starred when its metadata was read, if it was */
-    starredAtRead: (name: string) => boolean
     onnote?: (file: string) => void
   } = $props()
 
-  // The stars set from here, over what the read said
+  // Whether each file is starred, as RecipePanel's read says, and the stars
+  // set from here over it. Null until read: a toggle whose prior state is a
+  // guess would offer an Undo that unstars a file starred elsewhere
+  let starRead = $state<Record<string, boolean>>({})
   let starSet = $state<Record<string, boolean>>({})
-  const starredNow = (name: string) => starSet[name] ?? starredAtRead(name)
+  const starredNow = (name: string): boolean | null =>
+    starSet[name] ?? starRead[name] ?? null
+  function toggleStar(name: string) {
+    const now = starredNow(name)
+    if (now !== null) starring.run(name, !now)
+  }
   async function writeStar(name: string, next: boolean) {
     await api.setStarred(name, next)
     starSet[name] = next
@@ -73,7 +79,7 @@
     {file}
     starred={starredNow(file.name)}
     saving={saving.busy}
-    onstar={() => starring.run(file.name, !starredNow(file.name))}
+    onstar={() => toggleStar(file.name)}
     onsave={() => saving.run(file)}
     onuse={() => {
       useInput = file
@@ -95,7 +101,12 @@
 
 {#snippet aside(file: MediaFile)}
   {#key file.name}
-    <RecipePanel name={file.name} source="output" workspace={file.workspace} />
+    <RecipePanel
+      name={file.name}
+      source="output"
+      workspace={file.workspace}
+      onread={(m) => (starRead[file.name] = m.starred === true)}
+    />
   {/key}
 {/snippet}
 

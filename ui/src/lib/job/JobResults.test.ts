@@ -51,18 +51,26 @@ const timeline = {
 
 // What the metadata route embeds for a file, by name (a timeline otherwise)
 const embedded = vi.hoisted(() => ({}) as Record<string, unknown>)
+// Whether the metadata route says a file is starred, by name
+const starredOn = vi.hoisted(() => new Set<string>())
+const notifyUndo = vi.hoisted(() => vi.fn())
+// Reads that never land, while set
+const held = vi.hoisted(() => ({ reads: false }))
 vi.mock('../api', () => ({
   api: {
     galleryMetadata: vi.fn((name: string) =>
-      Promise.resolve({
-        name,
-        metadata: embedded[name] ?? null,
-        media: name.endsWith('.otioz') ? timeline : null,
-        inputs: [],
-        job: null,
-        findings: [],
-        linked_jobs: [],
-      }),
+      held.reads
+        ? new Promise(() => {})
+        : Promise.resolve({
+            name,
+            metadata: embedded[name] ?? null,
+            media: name.endsWith('.otioz') ? timeline : null,
+            inputs: [],
+            job: null,
+            findings: [],
+            linked_jobs: [],
+            ...(starredOn.has(name) && { starred: true }),
+          }),
     ),
     getJob: vi.fn(() => new Promise(() => {})),
     archiveOutputs: vi.fn(() => Promise.resolve()),
@@ -72,17 +80,26 @@ vi.mock('../api', () => ({
   outputUrl: (path: string) => `/outputs/${path}`,
 }))
 vi.mock('../toast', () => ({
-  notify: { error: vi.fn(), success: vi.fn(), failure: vi.fn() },
+  notify: {
+    error: vi.fn(),
+    success: vi.fn(),
+    failure: vi.fn(),
+    undo: notifyUndo,
+  },
 }))
 
 beforeEach(() => {
   vi.mocked(api.galleryMetadata).mockClear()
   vi.mocked(api.archiveOutputs).mockClear()
+  vi.mocked(api.setStarred).mockClear()
+  notifyUndo.mockClear()
   history.replaceState(null, '', `${location.pathname}#/ws/w/jobs/j1`)
 })
 afterEach(() => {
   cleanup()
   for (const key of Object.keys(embedded)) delete embedded[key]
+  starredOn.clear()
+  held.reads = false
 })
 
 const hashEvent = (change: () => void) =>
@@ -302,4 +319,90 @@ it("a folder at the job's top reads (top folder)", () => {
       .map((h) => h.textContent?.trim()),
   ).toEqual(['final/', '(top folder)'])
   expect(screen.queryByText('(run root)')).toBeNull()
+})
+
+const clips = {
+  job,
+  fileGroups: [group('film', ['run1/s3.mp4'])],
+  unsaved: [],
+  kinds: { 'run1/s3.mp4': 'video' },
+  seedVariable: null,
+}
+
+it('a starred clip shows as starred once its recipe is read', async () => {
+  starredOn.add('run1/s3.mp4')
+  render(JobResults, clips)
+  const sheet = await openOutput('run1/s3.mp4')
+  const star = await within(sheet).findByRole('button', {
+    name: 'unstar this file',
+  })
+  expect(star.getAttribute('aria-pressed')).toBe('true')
+  expect((star as HTMLButtonElement).disabled).toBe(false)
+})
+
+it('the star waits for the read that says whether the file is starred', async () => {
+  held.reads = true
+  render(JobResults, clips)
+  const sheet = await openOutput('run1/s3.mp4')
+  const star = within(sheet).getByRole('button', { name: 'star this file' })
+  expect((star as HTMLButtonElement).disabled).toBe(true)
+  expect(star.title).toBe('reading whether this file is starred')
+  expect(star.hasAttribute('aria-pressed')).toBe(false)
+  await fireEvent.click(star)
+  expect(api.setStarred).not.toHaveBeenCalled()
+})
+
+it("the star's Undo puts back a star the user did not just add", async () => {
+  starredOn.add('run1/s3.mp4')
+  render(JobResults, clips)
+  const sheet = await openOutput('run1/s3.mp4')
+  await fireEvent.click(
+    await within(sheet).findByRole('button', { name: 'unstar this file' }),
+  )
+  await waitFor(() =>
+    expect(api.setStarred).toHaveBeenCalledWith('run1/s3.mp4', false),
+  )
+  await waitFor(() => expect(notifyUndo).toHaveBeenCalled())
+  expect(notifyUndo.mock.calls[0][0]).toBe('Unstarred s3.mp4')
+  notifyUndo.mock.calls[0][1]()
+  await waitFor(() => expect(api.setStarred).toHaveBeenCalledTimes(2))
+  expect(vi.mocked(api.setStarred).mock.calls[1]).toEqual(['run1/s3.mp4', true])
+})
+
+it('an open= naming no output is said once the job has finished, and cleared', async () => {
+  history.replaceState(
+    null,
+    '',
+    `${location.pathname}#/ws/w/jobs/j1?open=run1/gone.png`,
+  )
+  const view = render(JobResults, { ...clips, running: true })
+  // while the job runs the file may still arrive: the link is kept
+  expect(screen.queryByText(/is not in this view any more/)).toBeNull()
+  expect(location.hash).toContain('open=')
+  await view.rerender({ ...clips, running: false })
+  await waitFor(() =>
+    expect(
+      screen.getByText(/gone\.png is not in this view any more\./),
+    ).toBeTruthy(),
+  )
+  await waitFor(() => expect(location.hash).not.toContain('open='))
+  expect(screen.queryByRole('dialog')).toBeNull()
+})
+
+it('a running job opens the file open= names once it arrives', async () => {
+  history.replaceState(
+    null,
+    '',
+    `${location.pathname}#/ws/w/jobs/j1?open=run1/s3.mp4`,
+  )
+  const view = render(JobResults, {
+    ...clips,
+    fileGroups: [],
+    kinds: {},
+    running: true,
+  })
+  expect(screen.queryByRole('dialog')).toBeNull()
+  await view.rerender({ ...clips, running: true })
+  expect(await screen.findByRole('dialog', { name: 's3.mp4' })).toBeTruthy()
+  expect(screen.queryByText(/is not in this view any more/)).toBeNull()
 })

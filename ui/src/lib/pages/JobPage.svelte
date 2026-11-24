@@ -304,16 +304,6 @@
   requestGone={linked?.gone ?? false}
 />
 
-{#if linked && linkItem}
-  <LinkedNotes
-    bind:this={agentNotes}
-    {linked}
-    item={linkItem}
-    filter={aboutJob}
-    refs={[{ item: linkItem, job: jobId }]}
-  />
-{/if}
-
 <LoadState of={record} label="job {jobId}" what="job {jobId}">
   {#if job}
     {#if job.warnings.length}
@@ -343,6 +333,7 @@
             {unsaved}
             {kinds}
             {seedVariable}
+            {running}
             onnote={linked?.request && linkItem && !running
               ? noteFile
               : undefined}
@@ -368,6 +359,18 @@
             job && record.adopt({ ...job, note: note ?? undefined })}
         />
       </div>
+    {/if}
+
+    <!-- The note for the agent sits with the job's own, under Results:
+         "Note this file" opens its box below the tiles it came from -->
+    {#if linked && linkItem}
+      <LinkedNotes
+        bind:this={agentNotes}
+        {linked}
+        item={linkItem}
+        filter={aboutJob}
+        refs={[{ item: linkItem, job: jobId }]}
+      />
     {/if}
 
     {#if definition}

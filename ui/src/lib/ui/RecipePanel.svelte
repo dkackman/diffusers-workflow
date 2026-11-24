@@ -27,6 +27,7 @@
     source,
     workspace,
     children: aside,
+    onread,
   }: {
     /** The file's name: an output's path, or an asset's name unprefixed */
     name: string
@@ -36,6 +37,9 @@
     /** The page's own lines, under the recipe, from the same read, and
      * the read again (after a note is saved beside it) */
     children?: Snippet<[GalleryMetadata, () => Promise<GalleryMetadata | null>]>
+    /** Handed each read as it lands, for a control beside the panel whose
+     * state the reply holds (the job viewer's star) */
+    onread?: (m: GalleryMetadata) => void
   } = $props()
 
   // Read through the name and workspace alone: a page handing in a new
@@ -55,6 +59,11 @@
           watch: ['assets'],
           workspace: own,
         })
+
+  $effect(() => {
+    const m = meta.status === 'ready' ? meta.data : null
+    if (m) untrack(() => onread?.(m))
+  })
 
   // Read the file again: the fresh read, or null when it failed or a
   // later read overtook it (still loading), so nothing from before is

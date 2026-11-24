@@ -233,3 +233,31 @@ it('tells when the agent answers a note added here, once', async () => {
     'The agent updated Launch posters after your note: “slowed the push-in”',
   )
 })
+
+it('puts Results straight after the header and the error, the notes under them', async () => {
+  held.job = job({
+    request: 'r1',
+    item: 's3',
+    status: 'failed',
+    error: 'boom',
+    run_dir: 'shot/run-1',
+  })
+  render(JobPage, { jobId: 'j2' })
+  await screen.findByText('warmer light on this one')
+  const at = (el: Element | null) => {
+    expect(el).toBeTruthy()
+    return el!
+  }
+  const order = [
+    at(document.querySelector('h1')),
+    at(screen.getByRole('heading', { name: 'Error' })),
+    at(screen.getByRole('heading', { name: 'Results' })),
+    at(screen.getByText('Your note on this job')),
+    at(screen.getByText('warmer light on this one')),
+  ]
+  for (let i = 1; i < order.length; i++)
+    expect(
+      order[i - 1].compareDocumentPosition(order[i]) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+})

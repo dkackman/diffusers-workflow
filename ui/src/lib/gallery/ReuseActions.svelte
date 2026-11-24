@@ -17,7 +17,8 @@
     onuse,
   }: {
     file: MediaFile
-    starred: boolean
+    /** Null while the file's state is still being read: the star waits */
+    starred: boolean | null
     /** A save is under way */
     saving: boolean
     onstar: () => void
@@ -30,9 +31,14 @@
   type="button"
   class="quiet icon"
   onclick={onstar}
-  aria-pressed={starred}
+  disabled={starred === null}
+  aria-pressed={starred ?? undefined}
   aria-label={starred ? 'unstar this file' : 'star this file'}
-  title={starred ? 'starred - press S to unstar' : 'star this file - press S'}
+  title={starred === null
+    ? 'reading whether this file is starred'
+    : starred
+      ? 'starred - press S to unstar'
+      : 'star this file - press S'}
 >
   <Star size={16} fill={starred ? 'currentColor' : 'none'} />
 </button>

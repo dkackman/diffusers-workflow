@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import { api, outputUrl } from '../api'
   import { jobMedia, type MediaFile } from '../media'
   import { openInHash } from '../mediaViewer'
@@ -13,6 +14,7 @@
     type UnsavedStep,
   } from '../results'
   import type { GalleryInput, JobDetail, OutputKind } from '../types'
+  import MissingFile from '../ui/MissingFile.svelte'
   import OutputTile from '../ui/OutputTile.svelte'
   import RoleTag from '../gallery/RoleTag.svelte'
   import { ASSET, OUTPUT, referenceName } from '../references'
@@ -34,6 +36,7 @@
     unsaved,
     kinds,
     seedVariable,
+    running = false,
     onnote,
   }: {
     job: JobDetail
@@ -41,6 +44,8 @@
     unsaved: UnsavedStep[]
     kinds: Record<string, string | null>
     seedVariable: string | null
+    /** The job is still running, so a file open= names may yet arrive */
+    running?: boolean
     /** Given for a finished take of a request item: "Note this file"
      * opens the page's note for the agent about that file */
     onnote?: (file: string) => void
@@ -69,7 +74,6 @@
     { watch: ['gallery'], workspace: () => job.workspace },
   )
   const fileMeta = $derived(run.data?.meta ?? {})
-  const starredAtRead = (file: string) => run.data?.starred[file] === true
   const fileMedia = $derived(run.data?.media ?? {})
   const runInputs = $derived(run.data?.inputs ?? [])
 
@@ -108,6 +112,18 @@
     ordered.map(tileOf).filter((t): t is MediaFile => t !== null),
   )
   let open = $state<string | null>(openInHash())
+  // An open= that names no output: while the job runs the file may still
+  // arrive, and the viewer opens on it then; once it has finished, said
+  // under the head and cleared, as the Gallery does
+  let missing = $state('')
+  $effect(() => {
+    const name = open
+    if (!name || running || items.some((item) => item.name === name)) return
+    untrack(() => {
+      missing = leafName(name)
+      open = null
+    })
+  })
 
   // Two runs of a workflow write the same file names, so the job id rides
   // along - without it the browser shows this job the image it cached from
@@ -129,6 +145,7 @@
 </script>
 
 <ResultsHead files={ordered} {items} workspace={job.workspace} />
+<MissingFile bind:leaf={missing} />
 {#if allReused}
   <p class="muted reusednote">
     Served from the step cache: every step matched an earlier job with the same
@@ -260,7 +277,7 @@
   </ul>
 {/if}
 
-<JobViewer {items} bind:open {starredAtRead} {onnote} />
+<JobViewer {items} bind:open {onnote} />
 
 <style>
   .roles details {
