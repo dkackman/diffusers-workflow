@@ -153,10 +153,13 @@
   $effect(() => () => reorder.destroy())
 
   // The star is the accept's own: Undo takes back the acceptance only, and
-  // a star that fails leaves the acceptance (notify.failure says so)
-  const starring = action((name: string) => api.setStarred(name, true), {
-    doing: 'star the accepted take',
-  })
+  // a star that fails leaves the acceptance (notify.failure says so). One
+  // action per accept: a shared one would drop a second accept's star while
+  // the first is on its way, under a toast that says it was starred
+  const star = (name: string) =>
+    action(() => api.setStarred(name, true), {
+      doing: 'star the accepted take',
+    }).run()
 
   function accept(row: ItemState, take: Take, job: string | null) {
     const { key, title } = row.item
@@ -174,7 +177,7 @@
     if (starred && file)
       void write
         .then((outcome) => {
-          if (outcome.status === 'saved') void starring.run(file)
+          if (outcome.status === 'saved') void star(file)
         })
         .catch(() => undefined)
   }

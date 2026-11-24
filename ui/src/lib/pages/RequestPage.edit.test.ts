@@ -982,6 +982,41 @@ it('a failed star leaves the acceptance', async () => {
   expect(world.ledger.current.items[0].accepted?.job).toBe('j1')
 })
 
+it('two quick Accepts both star, the first star still on its way', async () => {
+  const out = (name: string) => ({ name, kind: 'image' as const })
+  const filed = (key: string, title: string, file: string) =>
+    doneItem(key, {
+      title,
+      attempts: [
+        attempt(`${key}1`, 'succeeded', { output: out(file) }),
+        attempt(`${key}2`, 'succeeded'),
+      ],
+      result: { job: `${key}1`, run_id: `${key}r`, output: out(file) },
+    })
+  world.ledger = fakeLedger(
+    request([
+      filed('cast', 'Cast sheet', 'run1/a.png'),
+      filed('poster', 'Poster', 'run2/b.png'),
+    ]),
+  )
+  // the first star never lands while the second is asked for
+  world.setStarred.mockReturnValueOnce(new Promise(() => {}))
+  await start()
+  await accept(1)
+  await saved(4)
+  await waitFor(() => expect(world.setStarred).toHaveBeenCalledTimes(1))
+  await fireEvent.click(
+    within(row('poster')).getByRole('button', {
+      name: 'Accept take 1 for Poster',
+    }),
+  )
+  await saved(5)
+  await waitFor(() =>
+    expect(world.setStarred).toHaveBeenCalledWith('run2/b.png', true),
+  )
+  expect(world.setStarred).toHaveBeenCalledWith('run1/a.png', true)
+})
+
 it('Undo takes back the acceptance and keeps the star', async () => {
   filedWorld()
   await start()
