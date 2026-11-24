@@ -66,3 +66,7 @@ The piece each concept is built from. Reach for it before writing new markup or 
 | A workflow's search | `catalogMatches` | `src/lib/workflow/catalogSearch.ts` |
 | What a request wants from the person | `needsParts` (the header's parts, each going to its first item), `needsLine` (the sentence, from the server's `needs` on the list) | `src/lib/request/standing.ts` |
 | What the agent changed in a plan | `planDiff`, said by `lineOf` | `src/lib/request/planDiff.ts` |
+| The first-run orientation | `FirstRunCard`, its link from `firstRunLink` | `src/lib/FirstRunCard.svelte`, `src/lib/firstRun.ts` |
+| The JSON editor | Monaco through `monaco.ts` only; the ESLint rule refuses the whole `monaco-editor` package | `src/lib/monaco.ts` |
+| A workspace switch | `switchHref` | `src/lib/routes.ts` |
+| A list longer than a page | `JOBS_PAGE`, `mergeListings`: show a page and say how many of how many | `src/lib/jobsListing.ts` |
