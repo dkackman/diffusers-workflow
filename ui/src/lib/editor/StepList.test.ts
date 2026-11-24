@@ -147,6 +147,29 @@ it("a rename keeps the step's mode and its references", async () => {
   )
 })
 
+it('a rename rewrites a reference inside a preset, and counts it', async () => {
+  const steps = [taskStep('a'), taskStep('b')]
+  const workflow = {
+    presets: { quick: { image: 'previous_result:a' } },
+    steps,
+  }
+  render(StepList, {
+    steps,
+    workflow,
+    modes: new StepModes(() => 'test-step-modes'),
+    folder: '',
+    flow: [],
+    problemsByStep: new Map(),
+    stepReferences: [],
+    hovered: null,
+  })
+  await renameIn('a', 'base')
+  expect(workflow.presets).toEqual({ quick: { image: 'previous_result:base' } })
+  expect(notify.success).toHaveBeenCalledWith(
+    'Renamed step a to base, and 1 reference to it',
+  )
+})
+
 it('a refused rename keeps the old name and says why', async () => {
   const steps = [taskStep('a'), taskStep('b')]
   render(StepList, {

@@ -82,8 +82,8 @@
     )
   }
 
-  /** Step `index` called `to`, and every reference to it in the steps and
-   * the variables with it. Each step is changed in place, so its editor -
+  /** Step `index` called `to`, and every reference to it in the steps, the
+   * variables and the presets with it. Each step is changed in place, so its editor -
    * focus, open sections - stays as it was. */
   function rename(index: number, to: string) {
     const list = steps ?? []
@@ -97,8 +97,15 @@
       if (JSON.stringify(next) !== JSON.stringify($state.snapshot(list[at])))
         Object.assign(list[at], next)
     })
-    if (workflow.variables !== undefined)
-      workflow.variables = result.workflow.variables
+    // Everything else the rename rewrote (variables, presets, ...) goes back
+    // on the document, so what the toast counts is what the document holds.
+    for (const [key, next] of Object.entries(result.workflow)) {
+      if (key === 'steps') continue
+      if (
+        JSON.stringify(next) !== JSON.stringify($state.snapshot(workflow[key]))
+      )
+        workflow[key] = next
+    }
     modes.rename(from, to)
     const n = result.count
     const carried =
