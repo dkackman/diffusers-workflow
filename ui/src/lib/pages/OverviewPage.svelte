@@ -207,7 +207,14 @@
       </span>
       <StatusChip status={job.status} />
       <span class="wf">{workflowName(job)}</span>
-      {#if when !== null}<span class="when">{formatMtime(when)}</span>{/if}
+      <span class="when">
+        {#if when !== null}<span class="at">{formatMtime(when)}</span><span
+            class="sep"
+            aria-hidden="true"
+          >
+            &nbsp;·&nbsp;
+          </span>{/if}<span class="jid">{job.id}</span>
+      </span>
     </a>
   </li>
 {/snippet}
@@ -410,9 +417,30 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  /* "<time> · <id>": the id tells apart jobs that finish in one minute, so
+     it is the part that ellipsizes last; a phone drops the time first */
   .jobs .when {
-    flex: none;
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 45%;
+    display: flex;
     color: var(--muted);
+    white-space: pre;
+  }
+  .jobs .when .at,
+  .jobs .when .sep {
+    flex: none;
+  }
+  .jobs .when .jid {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  @media (max-width: 600px) {
+    .jobs .when .at,
+    .jobs .when .sep {
+      display: none;
+    }
   }
   .jobs .row-live {
     padding-left: var(--space-2);

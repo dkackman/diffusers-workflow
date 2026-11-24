@@ -486,7 +486,7 @@ it('a job row is one link, titled with its id', async () => {
   expect(row.getAttribute('href')).toBe('#/ws/studio/jobs/j1')
   expect(row.querySelector('.chip.succeeded')).toBeTruthy()
   expect(row.textContent).toContain('shot')
-  expect(row.textContent).not.toContain('j1')
+  expect(row.textContent).toContain('j1')
   // the run's proof, as a mini tile inside the one link
   await waitFor(() =>
     expect(row.querySelector('.tile-mini img')?.getAttribute('src')).toContain(
@@ -519,10 +519,40 @@ it('a job with no proof draws the cover slot, and same-workflow rows differ', as
   expect(b.querySelector('.slot.as-cover')).toBeTruthy()
   // same workflow and status, told apart by when they finished
   expect(a.textContent).not.toBe(b.textContent)
-  expect(a.querySelector('.when')?.textContent).toBe(formatMtime(1_700_000_000))
+  expect(a.querySelector('.when')?.textContent).toBe(
+    `${formatMtime(1_700_000_000)}\u00a0·\u00a0j1`,
+  )
   const names = screen
     .getAllByRole('link')
     .filter((l) => l.getAttribute('title')?.startsWith('job '))
     .map((l) => l.textContent?.replace(/\s+/g, ' ').trim())
   expect(new Set(names).size).toBe(2)
+})
+
+it('same-workflow jobs finishing in one minute differ by their id', async () => {
+  const job = (id: string, finished: number) => ({
+    id,
+    workflow: 'text-to-image',
+    workflow_name: 'text-to-image',
+    status: 'succeeded',
+    run_id: null,
+    created_at: finished - 10,
+    started_at: finished - 5,
+    finished_at: finished,
+    workspace: 'studio',
+  })
+  data.files = []
+  data.jobs = [job('abc123', 1_700_000_000), job('def456', 1_700_000_020)]
+  render(OverviewPage)
+  await waitFor(() => expect(screen.getByTitle('job abc123')).toBeTruthy())
+  const a = screen.getByTitle('job abc123')
+  const b = screen.getByTitle('job def456')
+  expect(a.querySelector('.when')?.textContent).toBe(
+    `${formatMtime(1_700_000_000)}\u00a0·\u00a0abc123`,
+  )
+  expect(a.textContent).not.toBe(b.textContent)
+  const name = (l: HTMLElement) => l.textContent?.replace(/\s+/g, ' ').trim()
+  expect(name(a)).toContain(formatMtime(1_700_000_000))
+  expect(name(a)).toContain('abc123')
+  expect(name(a)).not.toBe(name(b))
 })
