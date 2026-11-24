@@ -71,9 +71,14 @@
 //   whitespace collapsed, blank and TRIVIAL_LINE lines dropped; a 6-line
 //   window whose sha1 occurs in two or more files is shared, and each
 //   file's maximal runs of consecutive shared windows are counted.
-// - raw_media: every `<img>`, `<video>` and `<audio>` element in a .svelte
-//   file outside RAW_MEDIA_OWNERS (OutputTile and MediaBody); a media file
-//   is shown through them. Detail: `file:line tag`.
+// - raw_media: media elements outside RAW_MEDIA_OWNERS (OutputTile and
+//   MediaBody), in .svelte and .ts files; a media file is shown through
+//   them. Counted forms: `<img>`, `<video>`, `<audio>`, `<source>`,
+//   `<picture>`; `<svelte:element this="img">` with a static `this` (a
+//   dynamic `this={expr}` is not resolved); `X.createElement('img')` (also
+//   video, audio, source, picture) with a static name; `new Audio()` and
+//   `new Image()`; and `{@html expr}` whose expression text holds one of
+//   those tags. Detail: `file:line form`.
 // Known limits of those four rules:
 // - a write two or more imports away (a .ts helper that writes through
 //   another module) is not counted, nor a write through a `.svelte.ts`
@@ -177,9 +182,22 @@ export const RAW_MEDIA_OWNERS = new Set([
   'src/lib/ui/OutputTile.svelte',
   'src/lib/ui/MediaBody.svelte',
 ])
-const MEDIA_TAGS = new Set(['img', 'video', 'audio'])
+const MEDIA_TAGS = new Set(['img', 'video', 'audio', 'source', 'picture'])
+const MEDIA_HTML = /<\s*(img|video|audio|source|picture)\b/i
+const MEDIA_CONSTRUCTORS = new Set(['Audio', 'Image'])
 
-/** `<img>`, `<video>` and `<audio>` outside RAW_MEDIA_OWNERS */
+/** The static text of a string literal or an expression-free template */
+function staticText(node) {
+  if (node?.type === 'Literal' && typeof node.value === 'string')
+    return node.value
+  if (node?.type === 'TemplateLiteral' && node.expressions.length === 0)
+    return node.quasis.map((q) => q.value.cooked ?? q.value.raw).join('')
+  return null
+}
+
+/** Media elements outside RAW_MEDIA_OWNERS, however they are written: markup,
+ * `<svelte:element this="img">`, `document.createElement('video')`,
+ * `new Audio()` / `new Image()`, and an `{@html}` string holding a media tag */
 function mediaRule(found) {
   return {
     create(context) {
@@ -189,13 +207,42 @@ function mediaRule(found) {
         )
       )
         return {}
+      const add = (node, what) =>
+        found.push(
+          `${relative(UI, context.filename)}:${node.loc.start.line} ${what}`,
+        )
       return {
         SvelteElement(node) {
           const tag = node.name?.name
-          if (MEDIA_TAGS.has(tag))
-            found.push(
-              `${relative(UI, context.filename)}:${node.loc.start.line} ${tag}`,
-            )
+          if (MEDIA_TAGS.has(tag)) return add(node, tag)
+          if (tag !== 'svelte:element') return
+          const attr = node.startTag?.attributes?.find(
+            (a) => a.type === 'SvelteAttribute' && a.key?.name === 'this',
+          )
+          const v = attr?.value?.[0]
+          const name = v?.type === 'SvelteLiteral' ? v.value : null
+          if (MEDIA_TAGS.has(name)) add(node, name)
+        },
+        SvelteMustacheTag(node) {
+          if (
+            node.kind === 'raw' &&
+            MEDIA_HTML.test(context.sourceCode.getText(node.expression))
+          )
+            add(node, 'html')
+        },
+        CallExpression(node) {
+          const c = node.callee
+          if (c.type !== 'MemberExpression' || c.computed) return
+          if (c.property.name !== 'createElement') return
+          const tag = staticText(node.arguments[0])?.toLowerCase()
+          if (MEDIA_TAGS.has(tag)) add(node, tag)
+        },
+        NewExpression(node) {
+          if (
+            node.callee.type === 'Identifier' &&
+            MEDIA_CONSTRUCTORS.has(node.callee.name)
+          )
+            add(node, `new ${node.callee.name}`)
         },
       }
     },
