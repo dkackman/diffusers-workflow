@@ -9,6 +9,8 @@ import { connection } from '../connection.svelte'
 import { ApiError, NetworkError } from '../apiErrors'
 import type { ValidationResult } from '../types'
 import { feed } from '../test/feedMock'
+import { workspace } from '../workspace.svelte'
+import { storageGet } from '../storage'
 
 // Monaco cannot boot in jsdom, and this page only mounts it on "show JSON"
 vi.mock('../editor/JsonEditor.svelte', async () => ({
@@ -706,5 +708,39 @@ describe('WorkflowPage run form', () => {
     await openPage()
     expect(field('prompt').value).toBe('')
     expect(localStorage.length).toBe(0)
+  })
+
+  it('a workspace change reseeds from that workspace, leaving the first draft alone', async () => {
+    const home = workspace.current
+    try {
+      await openPage()
+      await type('prompt', 'a dog')
+      await advance(300)
+      const homeKey = `run-draft:${home}:templates/text-to-image`
+      const before = storageGet(homeKey, null)
+      expect(before).toEqual({ prompt: 'a dog' })
+      workspace.current = 'other'
+      await tick()
+      await advance(300)
+      expect(field('prompt').value).toBe('')
+      expect(storageGet(homeKey, null)).toEqual(before)
+      expect(
+        storageGet('run-draft:other:templates/text-to-image', null),
+      ).toBeNull()
+    } finally {
+      workspace.current = home
+    }
+  })
+
+  it('a Run keeps the draft', async () => {
+    vi.mocked(api.submitJob).mockResolvedValue({ id: 'job-1' } as never)
+    await openPage()
+    await type('prompt', 'a dog')
+    await advance(300)
+    await fireEvent.click(screen.getByRole('button', { name: 'Run' }))
+    await advance(300)
+    expect(api.submitJob).toHaveBeenCalledTimes(1)
+    expect(localStorage.length).toBe(1)
+    expect(localStorage.key(0)).toContain('run-draft:')
   })
 })

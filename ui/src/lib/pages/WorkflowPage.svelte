@@ -105,7 +105,7 @@
   })
 
   let restored = $state(false)
-  let seeded = '' // the name whose draft is in `overrides`
+  let seeded = '' // the draft key (workspace and name) held in `overrides`
   const saver = new form.DraftSaver()
 
   $effect(() => {
@@ -117,20 +117,20 @@
   })
 
   $effect(() => {
-    if (!workflow || seeded === name) return
-    seeded = name
+    const key = form.draftKey(workspace.current, name)
+    if (!workflow || seeded === key) return
+    seeded = key
     untrack(() => {
       saver.flush()
       const opened = form.openingValues(workspace.current, name, workflow)
-      restored = opened.restored
-      overrides = opened.overrides
+      ;({ restored, overrides } = opened)
     })
   })
 
   $effect(() => {
     const values = $state.snapshot(overrides)
-    if (seeded === name)
-      saver.schedule(form.draftKey(workspace.current, name), values)
+    const key = form.draftKey(workspace.current, name)
+    if (seeded === key) saver.schedule(key, values)
   })
 
   onDestroy(saver.flush)
