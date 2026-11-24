@@ -14,6 +14,8 @@ export type MediaFile = {
   workspace: string
   thumb?: string | null
   duration?: number | null
+  /** The file's mtime and size: what changes when it is rewritten */
+  stamp?: string
   starred?: boolean
   note?: string
 }
@@ -43,6 +45,7 @@ export function outputMedia(file: GalleryFile, workspace: string): MediaFile {
       ? galleryThumbnailUrl(file.name, workspace)
       : null,
     duration: file.duration_seconds ?? null,
+    stamp: `${file.mtime}:${file.size}`,
     starred: file.starred,
     note: file.note,
   }
@@ -57,5 +60,7 @@ export function assetMedia(asset: AssetFile, workspace: string): MediaFile {
     label: leafName(asset.name),
     workspace,
     thumb: hasPicture(asset.kind) ? assetThumbnailUrl(asset.name) : null,
+    duration: asset.duration_seconds ?? null,
+    stamp: `${asset.mtime}:${asset.size}`,
   }
 }

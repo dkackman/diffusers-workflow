@@ -59,7 +59,7 @@ const PAGE_TABLE: Record<string, Freshness[]> = {
   'job/ChainSegments.svelte': [{ watch: ['workflows'] }],
   'job/JobResults.svelte': [{ watch: ['gallery'] }],
   'job/RerunWithChanges.svelte': [{ watch: ['workflows'] }],
-  'pages/AssetsPage.svelte': [{ watch: ['assets'] }],
+  'pages/AssetsPage.svelte': [{ watch: ['assets'] }, { watch: ['assets'] }],
   'pages/ComparePage.svelte': [{ watch: ['gallery'] }],
   'pages/EditorPage.svelte': [{ watch: ['workflows'] }],
   'pages/GalleryPage.svelte': [{ watch: ['gallery'] }, { watch: ['gallery'] }],

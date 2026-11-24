@@ -360,9 +360,10 @@ export const api = {
         (shared ? '&shared=true' : ''),
       { method: 'POST', body: file, headers: preconditionHeaders(pre) },
     ),
-  /** The asset library, spanning the workspace's own, the shared `common`
-   * one and any example library - each entry tagged with which. */
-  listAssets: () => request<AssetList>('/api/assets'),
+  /** The asset library: the workspace's own, the shared `common` one and any
+   * example library, each entry tagged with which; `media` adds A/V lengths */
+  listAssets: (opts?: { media?: boolean }) =>
+    request<AssetList>(opts?.media ? '/api/assets?media=true' : '/api/assets'),
   /** Download a multi-file asset selection as one zip - the gallery's bulk
    * download, for the input side. Spans every library on the search path,
    * since the grid does. */

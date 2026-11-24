@@ -78,6 +78,11 @@ const listAssets = vi.hoisted(() =>
       ),
   ),
 )
+// The background `media` read, kept apart so the listing's call counts
+// stay the listing's
+const assetDurations = vi.hoisted(() =>
+  vi.fn(() => Promise.resolve({ assets: [] as AssetFile[] })),
+)
 const deleteAsset = vi.hoisted(() =>
   vi.fn<(name: string) => Promise<void>>(() => Promise.resolve()),
 )
@@ -103,7 +108,8 @@ const galleryMetadata = vi.hoisted(() =>
 vi.mock('../api', () => ({
   setNote: (t: string, n: string | null) => setNote(t, n),
   api: {
-    listAssets: () => listAssets(),
+    listAssets: (opts?: { media?: boolean }) =>
+      opts?.media ? assetDurations() : listAssets(),
     noteForSave: (target: string) =>
       Promise.resolve({ target, note: noteHeld.note, etag: '"e"' }),
     galleryMetadata: (reference: string) => galleryMetadata(reference),
@@ -143,6 +149,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   listAssets.mockClear()
+  assetDurations.mockClear()
   // Reset, not clear: one test sets an implementation, and mockClear
   // leaves it in place for whatever runs next
   deleteAsset.mockReset()
@@ -992,4 +999,25 @@ it('the asset grid shows thumbnails, never the original or a video', async () =>
     expect(src).not.toContain('/inputs/')
   }
   expect(container.querySelector('.videobadge')).not.toBeNull()
+})
+
+it('asset clips and sounds show their length, from one background read', async () => {
+  listing.assets = [
+    asset('iris.png'),
+    asset('cast/walk.mp4', 'workspace', 'video'),
+    asset('hum.wav', 'workspace', 'audio'),
+  ]
+  assetDurations.mockResolvedValueOnce({
+    assets: [
+      { ...asset('cast/walk.mp4', 'workspace', 'video'), duration_seconds: 3 },
+      { ...asset('hum.wav', 'workspace', 'audio'), duration_seconds: 2.5 },
+    ],
+  })
+  const { container } = render(AssetsPage)
+  await waitFor(() =>
+    expect(container.querySelector('.tile-time')?.textContent).toBe('3.0s'),
+  )
+  expect(container.querySelector('.tile-length')?.textContent).toBe('2.5s')
+  expect(assetDurations).toHaveBeenCalledTimes(1)
+  expect(listAssets).toHaveBeenCalledTimes(1)
 })

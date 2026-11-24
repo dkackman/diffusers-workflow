@@ -73,6 +73,20 @@
       },
     },
   )
+  // Each clip's and sound's length: the listing again with `media`, read in
+  // the background so the grid never waits on the probe (the gallery's
+  // durations); a tile takes its duration from here by name
+  const durations = resource(
+    async () => {
+      const result = await api.listAssets({ media: true })
+      return new Map(result.assets.map((a) => [a.name, a.duration_seconds]))
+    },
+    { watch: ['assets'] },
+  )
+  const tileOf = (asset: AssetFile) => ({
+    ...assetMedia(asset, list.data?.workspace ?? workspace.current),
+    duration: durations.data?.get(asset.name) ?? null,
+  })
   // A note saved here, until a listing begun after the save lands (the
   // gallery's edits, gallery/order.ts)
   let noteEdits = $state(noEdits<AssetFile>())
@@ -410,10 +424,7 @@
               />
             {/if}
             <OutputTile
-              file={assetMedia(
-                asset,
-                list.data?.workspace ?? workspace.current,
-              )}
+              file={tileOf(asset)}
               active={selected?.name === name}
               picked={picks.has(name)}
               onclick={() => (selected = asset)}

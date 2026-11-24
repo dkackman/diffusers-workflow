@@ -60,9 +60,15 @@
   )
   const noteLine = $derived(file.note ? file.note.split('\n')[0] : '')
 
-  // A text file's first lines, read once, when the tile first scrolls into
-  // view: a grid of hundreds never reads the ones nobody scrolls to
+  // A text file's first lines, read when the tile first scrolls into view
+  // (a grid of hundreds never reads the ones nobody scrolls to), and again
+  // only when the file's stamp moves - a Replace, a rewrite - never because
+  // a listing was read again. Deriveds, so a new object for the same file
+  // is no new question
   let seen = $state(false)
+  const url = $derived(file.url)
+  const stamp = $derived(file.stamp ?? '')
+  const home = $derived(file.workspace)
   let face = $state<HTMLElement | null>(null)
   const excerpt = textExcerpt()
 
@@ -70,12 +76,14 @@
     if (file.kind !== 'text') return null
     return resource(
       async () => {
+        // The stamp is part of the question, though the read needs only the URL
+        const question = { url, stamp }
         if (!seen) return null
-        const text = await api.fileText(file.url)
+        const text = await api.fileText(question.url)
         if (!text.trim()) return '(empty)'
         return text.split('\n').slice(0, EXCERPT_LINES).join('\n')
       },
-      { watch: [], workspace: () => file.workspace },
+      { watch: [], workspace: () => home },
     )
   }
 
@@ -123,14 +131,21 @@
     {:else if file.kind === 'audio'}
       <span class="tile-sound">
         {@render glyph()}
-        <span class="tile-name">{file.label}</span>
+        <!-- The caption carries the name; this copy is for the eye -->
+        <span
+          class="tile-name"
+          aria-hidden={caption === 'none' ? undefined : 'true'}
+        >
+          {file.label}
+        </span>
         {#if duration}<span class="tile-length">{duration}</span>{/if}
       </span>
     {:else if file.kind === 'text'}
       <span class="tile-text">
         {@render glyph()}
         {#if typeof excerpt?.data === 'string'}
-          <span class="tile-excerpt">{excerpt.data}</span>
+          <!-- The file's lines are not its name: hidden from the name -->
+          <span class="tile-excerpt" aria-hidden="true">{excerpt.data}</span>
         {/if}
       </span>
     {:else}

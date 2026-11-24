@@ -207,3 +207,69 @@ it('is a button with an onclick, a link with an href, and inert with neither', a
   const inert = render(OutputTile, { props: { file: media({}), dim: true } })
   expect(inert.container.querySelector('div.filetile.dim')).not.toBeNull()
 })
+
+it("a tile's accessible name is its file name, never its contents", async () => {
+  const observer = stubObserver()
+  const text = render(OutputTile, {
+    props: {
+      file: media({ kind: 'text', label: 'prompt.txt', thumb: null }),
+      onclick: () => {},
+    },
+  })
+  observer.show()
+  await waitFor(() =>
+    expect(text.container.querySelector('.tile-excerpt')).not.toBeNull(),
+  )
+  expect(
+    text.container.querySelector('.tile-excerpt')?.getAttribute('aria-hidden'),
+  ).toBe('true')
+  expect(text.getByRole('button').textContent).toContain('one')
+  text.getByRole('button', { name: 'prompt.txt' })
+  text.unmount()
+  const audio = render(OutputTile, {
+    props: {
+      file: media({ kind: 'audio', label: 'tone.wav', thumb: null }),
+      onclick: () => {},
+    },
+  })
+  // The face repeats the name the caption carries; only the caption is read
+  audio.getByRole('button', { name: 'tone.wav' })
+  audio.unmount()
+  // With no caption, the face's name is the only one, and is read
+  const bare = render(OutputTile, {
+    props: {
+      file: media({ kind: 'audio', label: 'tone.wav', thumb: null }),
+      caption: 'none',
+      onclick: () => {},
+    },
+  })
+  bare.getByRole('button', { name: 'tone.wav' })
+})
+
+it("a text tile reads its lines again when the file's stamp changes", async () => {
+  const observer = stubObserver()
+  const text = (stamp: string) =>
+    media({ kind: 'text', label: 'notes.txt', thumb: null, stamp })
+  const { container, rerender } = render(OutputTile, {
+    props: { file: text('1:10') },
+  })
+  observer.show()
+  await waitFor(() =>
+    expect(container.querySelector('.tile-excerpt')?.textContent).toBe(
+      'one\ntwo\nthree',
+    ),
+  )
+  // A listing read again hands the tile a new object for the same file
+  await rerender({ file: text('1:10') })
+  await new Promise((r) => setTimeout(r, 10))
+  expect(fileText).toHaveBeenCalledTimes(1)
+  // Replaced: a new mtime and size
+  fileText.mockResolvedValueOnce('new first\nnew second\n')
+  await rerender({ file: text('2:22') })
+  await waitFor(() =>
+    expect(container.querySelector('.tile-excerpt')?.textContent).toBe(
+      'new first\nnew second\n',
+    ),
+  )
+  expect(fileText).toHaveBeenCalledTimes(2)
+})
