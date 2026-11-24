@@ -143,6 +143,22 @@ it('a row with needs says the needs sentence', () => {
   ).toBe('running')
 })
 
+it('a failed item the needs do not count is never "all done"', () => {
+  // all cancelled, waiting on a dropped dependency, or no workflow: failed,
+  // yet not something to run, so `needs` leaves it out
+  const stuck = (status_counts: Record<string, number>) =>
+    attention(summary({ status_counts, needs: { ...NONE } }))
+  expect(stuck({ done: 2, failed: 1 })).toEqual({
+    kind: 'failed',
+    text: '1 failed',
+    live: false,
+  })
+  // something in flight still comes first
+  expect(stuck({ running: 1, failed: 1 }).text).toBe('running')
+  expect(stuck({ queued: 1, failed: 2 }).text).toBe('queued')
+  expect(stuck({ done: 1 }).text).toBe('all done, still open')
+})
+
 it('held requests come first', () => {
   const rows = [
     summary({ id: 'ready', needs: { ...NONE, ready: 1 } }),

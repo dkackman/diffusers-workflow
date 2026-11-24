@@ -48,14 +48,23 @@ const needsOf = (summary: LedgerSummary) =>
 export const notesWaiting = (summary: LedgerSummary) =>
   summary.needs?.notes_waiting ?? 0
 
+/** What is in flight or failed, in the order the row says it. From a server
+ * that sends no `needs`, failed comes first; with `needs` a countable
+ * failed item is in the needs sentence, and one the needs leave out (all
+ * cancelled, waiting on a dropped dependency, no workflow) is still not
+ * done, said after what is in flight */
+const FAILED_FIRST = ['failed', 'running', 'queued'] as const
+const IN_FLIGHT_FIRST = ['running', 'queued', 'failed'] as const
+
 function openLine(summary: LedgerSummary): [AttentionKind, string] {
   const needs = needsOf(summary)
   const sentence = needs && needsLine(needs)
   if (sentence) return ['needs', sentence]
-  const failed = of(summary, 'failed')
-  if (!needs && failed) return ['failed', `${failed} failed`]
-  if (of(summary, 'running')) return ['running', 'running']
-  if (of(summary, 'queued')) return ['queued', 'queued']
+  const first = (needs ? IN_FLIGHT_FIRST : FAILED_FIRST).find((status) =>
+    of(summary, status),
+  )
+  if (first === 'failed') return [first, `${of(summary, first)} failed`]
+  if (first) return [first, first]
   const planned = of(summary, 'planned') + of(summary, 'revised')
   if (planned) return ['idle', `${planned} planned, nothing running`]
   return liveItems(summary)
@@ -65,8 +74,9 @@ function openLine(summary: LedgerSummary): [AttentionKind, string] {
 
 /** The row's one line, the first that holds: what needs the user (the
  * server's `needs`, said as the request header says it), else, from a server
- * that sends none, something failed; then running, queued, planned items
- * sitting idle, everything done and the request still open. A closed
+ * that sends none, something failed; then running, queued, a failed item
+ * the needs do not count, planned items sitting idle, everything done and
+ * the request still open. A closed
  * request says nothing: its state tag does. */
 export function attention(summary: LedgerSummary): Attention {
   const live = of(summary, 'running') > 0
