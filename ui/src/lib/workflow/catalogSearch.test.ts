@@ -58,3 +58,16 @@ it('a name that holds the words beats a description that mentions them', () => {
     'animatic',
   ])
 })
+
+it('a shallower workflow ranks ahead of a same-named one in a folder', () => {
+  const list = [
+    'templates/flux3/text-to-image',
+    'templates/ltx/text-to-image',
+    'templates/text-to-image',
+  ]
+  expect(catalogMatches(list, {}, 'text to image')).toEqual([
+    'templates/text-to-image',
+    'templates/flux3/text-to-image',
+    'templates/ltx/text-to-image',
+  ])
+})

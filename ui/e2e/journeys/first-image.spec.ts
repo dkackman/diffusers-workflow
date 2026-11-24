@@ -19,9 +19,10 @@ test('find a workflow, check it, run it and fill a file field', async ({
   await expect(page.getByText(/^\d+ of \d+ workflows$/)).toBeVisible()
   const cards = page.locator('a.card')
   await expect(cards.first().locator('.cardname')).toHaveText('text-to-image')
-  // Three templates share the name, so searching puts each one's folder on
-  // its card; the baseline is the one in templates/ itself
-  const baseline = page.locator('a.card[href$="/templates/text-to-image"]')
+  // Three templates share the name, so each card carries its folder; the
+  // shallowest, the one in templates/ itself, is the first
+  const baseline = cards.first()
+  await expect(baseline).toHaveAttribute('href', /\/templates\/text-to-image$/)
   await expect(baseline.locator('.cardfolder')).toHaveText('templates')
 
   // 2. Open it: the check says it will work, the rarely changed fields are

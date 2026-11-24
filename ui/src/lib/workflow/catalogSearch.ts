@@ -35,10 +35,14 @@ function textOf(name: string, card: WorkflowCard | undefined): string {
     .toLowerCase()
 }
 
+/** How many folders deep a workflow sits: the generic one outranks a
+ * same-named one inside a model's folder. */
+const depthOf = (name: string) => name.split('/').length
+
 /** The workflows that answer a query by words, best first. A workflow's score
  * is how many of the query's words its text holds; only the highest score
  * above zero is kept, so `flux image` lists what holds both words and `video
- * of a cat` lists the video workflows, ties by how much of the query the name holds, then by name. A query with no
+ * of a cat` lists the video workflows, ties by how much of the query the name holds, then by how shallow its folder is, then by name. A query with no
  * meaningful word matches everything, in the order given. */
 export function catalogMatches(
   names: string[],
@@ -65,7 +69,9 @@ export function catalogMatches(
     .filter((entry) => entry.score === best)
     .sort(
       (left, right) =>
-        right.inName - left.inName || left.name.localeCompare(right.name),
+        right.inName - left.inName ||
+        depthOf(left.name) - depthOf(right.name) ||
+        left.name.localeCompare(right.name),
     )
     .map((entry) => entry.name)
 }
