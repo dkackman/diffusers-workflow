@@ -74,11 +74,36 @@ test('below the breakpoint the sidebar becomes a drawer opened from the header',
 })
 
 test('the models table shows size at 390px', async ({ page }) => {
+  // The listing is this test's own: the fixture's seeded repo is deleted by a
+  // journey, so the test answers a one-row cache itself, whatever ran before.
+  await page.route('**/api/models', async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback()
+    await route.fulfill({
+      json: {
+        cache_dir: '/tmp/e2e-hub',
+        disk_free: null,
+        disk_total: null,
+        size_on_disk: 4096,
+        warnings: [],
+        repos: [
+          {
+            repo_id: 'e2e/tiny',
+            repo_type: 'model',
+            size_on_disk: 4096,
+            nb_files: 3,
+            last_accessed: null,
+            last_job_use: null,
+            last_modified: null,
+            revisions: [],
+          },
+        ],
+      },
+    })
+  })
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/#/models')
   await page.waitForLoadState('networkidle')
   const size = page.getByRole('columnheader', { name: 'size' })
-  // the fixture seeds e2e/tiny, so a row is always listed
   await expect(
     page.getByRole('cell', { name: /e2e\/tiny/ }).first(),
   ).toBeVisible()
