@@ -1734,3 +1734,70 @@ it('a delete confirm counts only the picks that are shown', async () => {
   await waitFor(() => expect(deleteOutput).toHaveBeenCalledTimes(3))
   expect(deleteOutput).not.toHaveBeenCalledWith('demo/c.png')
 })
+
+it('stars a selection, offers Undo, and marks nothing changed', async () => {
+  listing.files = [{ ...file('a.png'), starred: true }, file('b.png')]
+  await renderGallery()
+  checkbox('a.png').click()
+  checkbox('b.png').click()
+  await waitFor(() => expect(screen.getByText('2 selected')).toBeTruthy())
+  await fireEvent.click(screen.getByRole('button', { name: 'Star' }))
+
+  await waitFor(() => expect(notifyUndo).toHaveBeenCalledTimes(1))
+  expect(notifyUndo.mock.calls[0][0]).toBe('Starred 2 files')
+  await waitFor(() => expect(starMark('b.png')).toBeTruthy())
+  // the server now says so, in a listing that lands after the star
+  listing.files = listing.files.map((f) => ({ ...f, starred: true }))
+  feed.move(DEFAULT_WORKSPACE, 'gallery')
+  await settle()
+  expect(marked('a.png')).toBe(false)
+  expect(marked('b.png')).toBe(false)
+  // Undo puts a back starred and b back unstarred
+  notifyUndo.mock.calls[0][1]()
+  await waitFor(() => expect(setStarred).toHaveBeenCalledWith('b.png', false))
+  expect(setStarred).toHaveBeenLastCalledWith('b.png', false)
+  expect(setStarred).toHaveBeenCalledWith('a.png', true)
+  await waitFor(() => expect(starMark('b.png')).toBeNull())
+  expect(starMark('a.png')).toBeTruthy()
+})
+
+it('names the files a bulk star could not star', async () => {
+  await renderGallery()
+  checkbox('a.png').click()
+  checkbox('b.png').click()
+  setStarred.mockImplementationOnce(() => Promise.reject(new Error('gone')))
+  await fireEvent.click(await screen.findByRole('button', { name: 'Star' }))
+
+  await waitFor(() => expect(notifyFailure).toHaveBeenCalled())
+  expect(notifyFailure.mock.calls[0][3]).toContain('a.png')
+  expect(notifyUndo.mock.calls[0][0]).toBe('Starred 1 file')
+})
+
+it('refuses a bulk star Undo after a workspace switch', async () => {
+  await renderGallery()
+  checkbox('a.png').click()
+  await fireEvent.click(await screen.findByRole('button', { name: 'Star' }))
+  await waitFor(() => expect(notifyUndo).toHaveBeenCalledTimes(1))
+  setStarred.mockClear()
+  workspace.current = 'elsewhere'
+  notifyUndo.mock.calls[0][1]()
+  await settle()
+  expect(setStarred).not.toHaveBeenCalled()
+  expect(notifyError).toHaveBeenCalledWith(
+    'Nothing undone: another workspace is open now.',
+  )
+})
+
+it('a double click on Star sends one round', async () => {
+  await renderGallery()
+  checkbox('a.png').click()
+  checkbox('b.png').click()
+  const star = await screen.findByRole('button', { name: 'Star' })
+  star.click()
+  star.click()
+
+  await waitFor(() => expect(setStarred).toHaveBeenCalledTimes(2))
+  await settle()
+  expect(setStarred).toHaveBeenCalledTimes(2)
+  expect(notifyUndo).toHaveBeenCalledTimes(1)
+})

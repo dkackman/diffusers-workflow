@@ -214,6 +214,15 @@
     }),
   })
   const byName = $derived(new Map(visible.map((f) => [f.name, f])))
+  // Each pick's star as the grid holds it, so Undo restores each as it was
+  const starringPicked = picks.star(api.setStarred, 'file', {
+    was: (name) => !!byName.get(name)?.starred,
+    applied: (name, next) => patch(name, { starred: next }),
+    target: STAR_TARGET,
+  })
+  const allStarred = $derived(
+    picks.names.length > 0 && picks.names.every((n) => byName.get(n)?.starred),
+  )
   // What the viewer steps through: the grid, in its order
   const items = $derived(shown.map(tileOf))
 
@@ -352,7 +361,9 @@
   {picks}
   visible={shown.length}
   {filterActive}
-  busy={downloading.busy || removingPicked.busy}
+  busy={downloading.busy || removingPicked.busy || starringPicked.busy}
+  {allStarred}
+  onstar={starringPicked.run}
   noun="file"
   ondownload={downloading.run}
   ondelete={removePicked}

@@ -1,6 +1,7 @@
 import { SvelteSet } from 'svelte/reactivity'
 import { action } from './action.svelte'
 import { describeError } from './apiErrors'
+import type { UndoTarget } from './destructive'
 import { notify } from './toast'
 
 /** A tick-the-grid selection, for a contact sheet with bulk actions.
@@ -56,6 +57,74 @@ export class Picks {
       run: () => {
         const picked = this.names
         if (picked.length) void downloading.run(picked)
+      },
+    }
+  }
+
+  /** The bulk bar's Star and Unstar: `set` each pick to `next`, one batch
+   * per click (the handle's action drops a double click). Failures are one
+   * toast naming the files. The Undo puts each file back as `was` read it
+   * before, not to `!next` - a mixed selection has files on both sides -
+   * and only the files that were set, and only in the place it was made
+   * (`target`). With nothing set, no Undo is offered. */
+  star(
+    set: (name: string, next: boolean) => Promise<unknown>,
+    noun: string,
+    opts: {
+      was?: (name: string) => boolean
+      /** Told after each write lands, so a page can hold it as its own */
+      applied?: (name: string, next: boolean) => void
+      target?: UndoTarget
+    } = {},
+  ) {
+    const was = opts.was ?? (() => false)
+    const put = async (name: string, next: boolean) => {
+      await set(name, next)
+      opts.applied?.(name, next)
+    }
+    const files = (n: number) => `${noun}${n === 1 ? '' : 's'}`
+    const starring = action(
+      async (picked: string[], next: boolean) => {
+        const before = Object.fromEntries(
+          picked.map((name) => [name, was(name)]),
+        )
+        const failures = await actOnEach(picked, (name) => put(name, next))
+        reportFailures(
+          next ? 'star' : 'unstar',
+          failures,
+          picked.length,
+          files(picked.length),
+        )
+        const bad = failures.map((f) => f.name)
+        const done = picked.filter((name) => !bad.includes(name))
+        return done.length ? { done, next, before } : null
+      },
+      {
+        doing: `${noun} star`,
+        undo: ({ done, next, before }) => ({
+          message: `${next ? 'Starred' : 'Unstarred'} ${done.length} ${files(done.length)}`,
+          revert: async () => {
+            const failures = await actOnEach(done, (name) =>
+              put(name, before[name] ?? !next),
+            )
+            reportFailures(
+              'put back',
+              failures,
+              done.length,
+              files(done.length),
+            )
+          },
+          target: opts.target,
+        }),
+      },
+    )
+    return {
+      get busy() {
+        return starring.busy
+      },
+      run: (next: boolean) => {
+        const picked = this.names
+        if (picked.length) void starring.run(picked, next)
       },
     }
   }

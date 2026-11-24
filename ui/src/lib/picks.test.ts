@@ -145,3 +145,49 @@ it('does not hold the grid order it was built with', () => {
   expect(order).toHaveBeenCalled()
   expect(picks.names).toEqual(['a'])
 })
+
+it('stars every pick once, and Undo puts each back as it was', async () => {
+  const picks = picksOver('a', 'b', 'c')
+  const held: Record<string, boolean> = { a: true, b: false, c: false }
+  const set = vi.fn((name: string, next: boolean) => {
+    held[name] = next
+    return Promise.resolve()
+  })
+  const undo = vi.fn()
+  const notify = (await import('./toast')).notify
+  vi.spyOn(notify, 'undo').mockImplementation((_m, run) => undo(_m, run))
+  picks.selectAll()
+  const star = picks.star(set, 'file', { was: (n) => held[n] })
+
+  star.run(true)
+  star.run(true)
+  await vi.waitFor(() => expect(undo).toHaveBeenCalledTimes(1))
+
+  expect(set.mock.calls).toEqual([
+    ['a', true],
+    ['b', true],
+    ['c', true],
+  ])
+  expect(undo.mock.calls[0][0]).toBe('Starred 3 files')
+  undo.mock.calls[0][1]()
+  await vi.waitFor(() => expect(set).toHaveBeenCalledTimes(6))
+  expect(held).toEqual({ a: true, b: false, c: false })
+})
+
+it('a star that fails for some names them and undoes only the rest', async () => {
+  const picks = picksOver('a', 'b')
+  const set = vi.fn((name: string) =>
+    name === 'b' ? Promise.reject(new Error('gone')) : Promise.resolve(),
+  )
+  const notifyMod = (await import('./toast')).notify
+  const failure = vi.spyOn(notifyMod, 'failure').mockImplementation(() => {})
+  const undo = vi.spyOn(notifyMod, 'undo').mockImplementation(() => {})
+  picks.selectAll()
+  picks.star(set, 'file').run(true)
+
+  await vi.waitFor(() => expect(failure).toHaveBeenCalledTimes(1))
+  expect(failure.mock.calls[0][3]).toContain('b:')
+  await vi.waitFor(() =>
+    expect(undo).toHaveBeenCalledWith('Starred 1 file', expect.any(Function)),
+  )
+})
