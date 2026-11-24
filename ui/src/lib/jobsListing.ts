@@ -4,6 +4,7 @@
 import { api } from './api'
 import { ApiError } from './apiErrors'
 import type { RequestFilter } from './requestFilter'
+import { workflowName } from './terms'
 import type { JobSummary } from './types'
 
 /** The workspace a Jobs listing asks for; '' is every workspace. A
@@ -44,22 +45,78 @@ export function queueLength(jobs: JobSummary[], queued = 0): number {
 }
 
 /** The listing a Jobs page's filters name: `ws` ('' for every workspace)
- * narrowed to a request, or one item of it. Only while the page's search
- * has text (`searching`) does it ask for each job's submitted prompt
- * (`prompts`) to match on: the listing is polled, and nothing else reads it */
-export const listJobs = (
-  ws: string,
-  scoped: RequestFilter,
-  searching = false,
-) =>
+ * narrowed to a request, or one item of it, with each job's submitted
+ * prompt (`prompts`) when asked. */
+export const listJobs = (ws: string, scoped: RequestFilter, prompts = true) =>
   api.listJobs(
     ws || undefined,
     undefined,
     undefined,
     scoped.request || undefined,
     scoped.item || undefined,
-    { prompts: searching },
+    { prompts },
   )
+
+/** The listing, and each job's prompt, without paying for prompts on every
+ * poll: a job's prompt never changes, so `known` (job id -> prompt, kept by
+ * the page) holds what was read, and the listing is asked again with
+ * `prompts` only when a job it names is not in it - the first read, or a
+ * job that arrived since. */
+export async function listWithPrompts(
+  ws: string,
+  scoped: RequestFilter,
+  known: Map<string, string>,
+) {
+  const first = known.size === 0
+  let list = await listJobs(ws, scoped, first)
+  if (!first && list.jobs.some((job) => !known.has(job.id)))
+    list = await listJobs(ws, scoped, true)
+  for (const job of list.jobs)
+    if (list.prompts || !known.has(job.id))
+      known.set(job.id, list.prompts?.[job.id] ?? known.get(job.id) ?? '')
+  return { list, prompts: Object.fromEntries(known) as Record<string, string> }
+}
+
+/** The first non-empty line of a prompt or note, trimmed */
+export const firstLine = (text: string) =>
+  text.split('\n').find((line) => line.trim())?.trim() ?? ''
+
+/** Whether every word of `query` is in the job's name, id, note or prompt */
+export function jobMatches(
+  job: JobSummary,
+  prompt: string,
+  query: string,
+): boolean {
+  const hay = [workflowName(job), job.id, job.note ?? '', prompt]
+    .join('\n')
+    .toLowerCase()
+  return query
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .every((word) => hay.includes(word))
+}
+
+/** Whole percent of each running job's denoise loop, from its own detail:
+ * a job with no loop yet, or one that cannot be read, has none. */
+export async function runningProgress(
+  rows: JobSummary[],
+): Promise<Record<string, number>> {
+  const out: Record<string, number> = {}
+  await Promise.all(
+    rows
+      .filter((job) => job.status === 'running')
+      .map(async (job) => {
+        const p = (await api.getJob(job.id).catch(() => null))?.progress
+        if (p?.denoise_step != null && p.denoise_total_steps)
+          out[job.id] = Math.min(
+            100,
+            Math.round((100 * p.denoise_step) / p.denoise_total_steps),
+          )
+      }),
+  )
+  return out
+}
 
 /** The server's count of every queued job, asked for only by a narrowed
  * listing that shows a waiting one: an unnarrowed listing holds the whole

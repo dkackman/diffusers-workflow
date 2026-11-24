@@ -1,7 +1,10 @@
 import { expect, it, vi } from 'vitest'
 import { ApiError } from './apiErrors'
 import {
+  firstLine,
+  jobMatches,
   listJobs,
+  listWithPrompts,
   listingRefused,
   listingWorkspace,
   queueLength,
@@ -45,8 +48,8 @@ vi.mock('./api', () => ({
   },
 }))
 
-it("the Jobs page's listing asks for each job's prompt only while searching", async () => {
-  await listJobs('studio', { request: 'r1', item: 'alpha' }, true)
+it("the Jobs page's listing asks for each job's prompt unless told not to", async () => {
+  await listJobs('studio', { request: 'r1', item: 'alpha' })
   expect(listed.at(-1)).toEqual([
     'studio',
     undefined,
@@ -55,8 +58,38 @@ it("the Jobs page's listing asks for each job's prompt only while searching", as
     'alpha',
     { prompts: true },
   ])
-  await listJobs('studio', { request: '', item: '' })
+  await listJobs('studio', { request: '', item: '' }, false)
   expect(listed.at(-1)?.at(-1)).toEqual({ prompts: false })
+})
+
+it('a poll asks for prompts only when a job is new to the page', async () => {
+  const known = new Map<string, string>()
+  const none = { request: '', item: '' }
+  const first = await listWithPrompts('', none, known)
+  expect(listed.at(-1)?.at(-1)).toEqual({ prompts: true })
+  expect(first.prompts).toEqual({})
+  known.set('j1', 'a fox')
+  const before = listed.length
+  await listWithPrompts('', none, known)
+  expect(listed.length).toBe(before + 1)
+  expect(listed.at(-1)?.at(-1)).toEqual({ prompts: false })
+})
+
+it('a search matches word by word across name, id, note and prompt', () => {
+  const job = {
+    id: 'job-77',
+    workflow: 'wf/text-to-image.json',
+    note: 'Keeper',
+  } as JobSummary
+  expect(jobMatches(job, 'a red fox', 'fox 77')).toBe(true)
+  expect(jobMatches(job, 'a red fox', 'keeper image')).toBe(true)
+  expect(jobMatches(job, 'a red fox', 'whale')).toBe(false)
+  expect(jobMatches(job, '', '  ')).toBe(true)
+})
+
+it('the first line of a prompt skips blank lines', () => {
+  expect(firstLine('\n  a fox \nmore')).toBe('a fox')
+  expect(firstLine('')).toBe('')
 })
 
 const at = (...positions: Array<number | undefined>) =>
