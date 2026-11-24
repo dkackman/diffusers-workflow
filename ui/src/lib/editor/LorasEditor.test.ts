@@ -230,3 +230,27 @@ it('LorasEditor shows a LoRA saved elsewhere', async () => {
   expect(screen.getByText('a-lora')).toBeTruthy()
   expect(screen.queryByText('Loading catalog suggestions…')).toBeNull()
 })
+
+it('every LoRA field has a label', async () => {
+  respond()
+  mount(pipe({ model_name: 'org/model' }, [{ model_name: 'org/x', scale: 1 }]))
+  expect(
+    (await screen.findByLabelText('Model')).getAttribute('placeholder'),
+  ).toBe('org/lora-repo or path')
+  expect(screen.getByLabelText('Weight file')).toBeTruthy()
+  expect(screen.getByLabelText('Scale')).toBeTruthy()
+})
+
+it('remove names the LoRA', async () => {
+  respond()
+  mount(
+    pipe({ model_name: 'org/model' }, [
+      { model_name: 'org/x', scale: 1 },
+      { model_name: '', scale: 1 },
+    ]),
+  )
+  expect(
+    await screen.findByRole('button', { name: 'remove org/x' }),
+  ).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'remove this LoRA' })).toBeTruthy()
+})
