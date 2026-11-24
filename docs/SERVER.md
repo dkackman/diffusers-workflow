@@ -1199,6 +1199,9 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
   /api/workspaces/{name}/requests/{id}?revision=N` — the requests ledger
   ([WORKSPACES.md](WORKSPACES.md#requests) has the rules). Reads derive from
   the jobs linked through `POST /api/jobs` `request`/`item`.
+  `GET` and `PUT` of one request take `reasons=true` (the web page sends it):
+  a failed or cancelled attempt then carries `reason`, the first line of the
+  job's error. Without it no attempt does, so the agent's reads are unchanged.
 
   **Writing.** `PUT` takes one request's whole plan:
 

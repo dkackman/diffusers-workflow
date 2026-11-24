@@ -1,9 +1,7 @@
 """Response models for the library routes - workspaces, workflows, prompts,
 enhancer presets, LoRAs, the asset library, the requests ledger, and the
-gallery's marks and request links on one file. Part of
-the UI's response contract that `dw/server/api_models.py` describes; it
-re-exports every name here.
-"""
+gallery's marks and request links on one file. Part of the UI's response
+contract `dw/server/api_models.py` describes; it re-exports every name."""
 
 from typing import Any, Literal
 
@@ -104,9 +102,8 @@ class WorkflowCost(ApiModel):
 
 
 class WorkflowCard(ApiModel):
-    """One workflow's entry in the full listing (the agent's
-    `view=compact` answer is a different, smaller shape outside this
-    model)."""
+    """One workflow's entry in the full listing (the agent's `view=compact`
+    answer is a different, smaller shape outside this model)."""
 
     kinds: list[str]
     steps: int
@@ -407,6 +404,10 @@ class LedgerAttempt(ApiModel):
     job: str
     status: JobStatus
     note: str = sometimes("The job's note.")
+    reason: str = sometimes(
+        "Only with reasons=true: why a failed or cancelled job ended, "
+        "the first line of its error."
+    )
     minutes: int | float | None = Field(
         description="Run time; null until the job has started."
     )
@@ -730,8 +731,7 @@ class AssetDeleted(ApiModel):
 
 
 class GalleryLinkedJob(ApiModel):
-    """A job linked to a request item that published the file - wrote it or
-    republished it from the step cache."""
+    """A job linked to a request item that wrote or republished the file."""
 
     id: str
     request: str

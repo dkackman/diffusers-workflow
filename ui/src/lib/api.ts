@@ -381,7 +381,7 @@ export const api = {
     ),
   getRequest: (workspace: string, id: string) =>
     request<LedgerRequest>(
-      `/api/workspaces/${encodeURIComponent(workspace)}/requests/${encodeURIComponent(id)}`,
+      `/api/workspaces/${encodeURIComponent(workspace)}/requests/${encodeURIComponent(id)}?reasons=true`,
       undefined,
       { scope: false },
     ),
@@ -389,7 +389,7 @@ export const api = {
    * by the user. A stale revision is a 409 ApiError. */
   putRequest: (workspace: string, id: string, body: RequestWriteBody) =>
     request<LedgerRequest>(
-      `/api/workspaces/${encodeURIComponent(workspace)}/requests/${encodeURIComponent(id)}`,
+      `/api/workspaces/${encodeURIComponent(workspace)}/requests/${encodeURIComponent(id)}?reasons=true`,
       {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },

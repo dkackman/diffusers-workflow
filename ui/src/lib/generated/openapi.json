@@ -1431,7 +1431,7 @@
       },
       "GalleryLinkedJob": {
         "additionalProperties": false,
-        "description": "A job linked to a request item that published the file - wrote it or\nrepublished it from the step cache.",
+        "description": "A job linked to a request item that wrote or republished the file.",
         "properties": {
           "attempt": {
             "anyOf": [
@@ -2942,6 +2942,11 @@
               }
             ],
             "description": "The job's first final image or video, else its first sound or text; null when it wrote none or its run is gone."
+          },
+          "reason": {
+            "description": "Only with reasons=true: why a failed or cancelled job ended, the first line of its error.",
+            "title": "Reason",
+            "type": "string"
           },
           "status": {
             "enum": [
@@ -7011,7 +7016,7 @@
       },
       "WorkflowCard": {
         "additionalProperties": false,
-        "description": "One workflow's entry in the full listing (the agent's\n`view=compact` answer is a different, smaller shape outside this\nmodel).",
+        "description": "One workflow's entry in the full listing (the agent's `view=compact`\nanswer is a different, smaller shape outside this model).",
         "properties": {
           "configures": {
             "description": "For a model config: the template it is a tuned instance of; '' for a template. Absent when the file could not be read.",
@@ -11015,7 +11020,7 @@
     },
     "/api/requests": {
       "get": {
-        "description": "Every workspace's open requests, without their items, newest change\nfirst: the one read a notes channel makes when it watches the whole\nserver. Marked `X-DW-Notes-Channel: 1`, it counts as a poll of every\nworkspace. `unreadable` names a workspace whose requests.json is there\nbut is not a ledger, or that could not be resolved while it was listed;\nthe others still list, and a watcher keeps what it knew of the named\nones rather than taking them for closed.",
+        "description": "Every workspace's open requests, without items, newest change first:\nthe one read a notes channel makes to watch the whole server. Marked\n`X-DW-Notes-Channel: 1`, it polls every workspace. `unreadable` names a\nworkspace whose requests.json is not a ledger or could not be resolved;\nthe others still list, and a watcher keeps what it knew of the named\nones rather than taking them for closed.",
         "operationId": "list_open_requests_api_requests_get",
         "responses": {
           "200": {
@@ -12253,7 +12258,7 @@
         "summary": "Delete Request Note"
       },
       "post": {
-        "description": "Add one of the user's notes for the agent, on an item or (no `item`)\non the request itself; answers the note and the request's new revision.\nEach of `refs` names an item (the note's own, for an item note; any live\nitem, for a request note) and optionally a job linked to it and one file\nof that job's manifest; the server adds the file's `kind`. 422\n`invalid_note_ref` for a ref that does not hold, `too_many_refs`,\n`unknown_item`, `item_dropped` or `too_many_notes`; 404\n`unknown_request`.",
+        "description": "Add one of the user's notes for the agent, on an item or (no `item`)\non the request; answers the note and the request's new revision. Each\nof `refs` names an item (the note's own, or any live item for a request\nnote), optionally a job linked to it and one file of its manifest; the\nserver adds the file's `kind`. 422\n`invalid_note_ref` for a ref that does not hold, `too_many_refs`,\n`unknown_item`, `item_dropped` or `too_many_notes`; 404\n`unknown_request`.",
         "operationId": "add_request_note_api_workspaces__name__request_notes_post",
         "parameters": [
           {
@@ -12449,7 +12454,7 @@
         "summary": "Delete Request"
       },
       "get": {
-        "description": "One request: its plan, every item with its derived status, and its\nhistory. 409 `ledger_unreadable` when requests.json is not a ledger.",
+        "description": "One request: its plan, items with derived status, and its\nhistory; `reasons=true` adds a failed take's `reason`. 409\n`ledger_unreadable` when requests.json is no ledger.",
         "operationId": "get_request_api_workspaces__name__requests__request_id__get",
         "parameters": [
           {
@@ -12468,6 +12473,16 @@
             "schema": {
               "title": "Request Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "reasons",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Reasons",
+              "type": "boolean"
             }
           }
         ],
@@ -12496,7 +12511,7 @@
         "summary": "Get Request"
       },
       "put": {
-        "description": "Write one request's whole plan. `revision` is the revision it was\nread at, or 0 to create it; a write against any other revision is 409\n`stale_revision`, with `current_revision` in the detail. `prompt` is\nset on create only (a later change is 422 `prompt_is_write_once`). An\nitem left out is deleted, or kept as dropped when jobs link to it.",
+        "description": "Write one request's whole plan. `revision` is the revision it was\nread at, or 0 to create it; any other is 409 `stale_revision` with\n`current_revision`. `prompt` is set on create only (422\n`prompt_is_write_once`). An item left out is deleted, or kept as dropped\nwhen jobs link to it. `reasons=true` adds a failed take's `reason`.",
         "operationId": "put_request_api_workspaces__name__requests__request_id__put",
         "parameters": [
           {
@@ -12515,6 +12530,16 @@
             "schema": {
               "title": "Request Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "reasons",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Reasons",
+              "type": "boolean"
             }
           }
         ],

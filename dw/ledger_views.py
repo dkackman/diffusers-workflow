@@ -385,6 +385,7 @@ def item_view(
             "job": job.get("job"),
             "status": job.get("status"),
             **({"note": job["note"]} if job.get("note") else {}),
+            **({"reason": job["reason"]} if job.get("reason") else {}),
             "minutes": _minutes(job),
             "output": _output(job),
         }

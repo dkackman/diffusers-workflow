@@ -1421,11 +1421,10 @@ export interface paths {
         };
         /**
          * List Open Requests
-         * @description Every workspace's open requests, without their items, newest change
-         *     first: the one read a notes channel makes when it watches the whole
-         *     server. Marked `X-DW-Notes-Channel: 1`, it counts as a poll of every
-         *     workspace. `unreadable` names a workspace whose requests.json is there
-         *     but is not a ledger, or that could not be resolved while it was listed;
+         * @description Every workspace's open requests, without items, newest change first:
+         *     the one read a notes channel makes to watch the whole server. Marked
+         *     `X-DW-Notes-Channel: 1`, it polls every workspace. `unreadable` names a
+         *     workspace whose requests.json is not a ledger or could not be resolved;
          *     the others still list, and a watcher keeps what it knew of the named
          *     ones rather than taking them for closed.
          */
@@ -1956,10 +1955,10 @@ export interface paths {
         /**
          * Add Request Note
          * @description Add one of the user's notes for the agent, on an item or (no `item`)
-         *     on the request itself; answers the note and the request's new revision.
-         *     Each of `refs` names an item (the note's own, for an item note; any live
-         *     item, for a request note) and optionally a job linked to it and one file
-         *     of that job's manifest; the server adds the file's `kind`. 422
+         *     on the request; answers the note and the request's new revision. Each
+         *     of `refs` names an item (the note's own, or any live item for a request
+         *     note), optionally a job linked to it and one file of its manifest; the
+         *     server adds the file's `kind`. 422
          *     `invalid_note_ref` for a ref that does not hold, `too_many_refs`,
          *     `unknown_item`, `item_dropped` or `too_many_notes`; 404
          *     `unknown_request`.
@@ -2006,17 +2005,18 @@ export interface paths {
         };
         /**
          * Get Request
-         * @description One request: its plan, every item with its derived status, and its
-         *     history. 409 `ledger_unreadable` when requests.json is not a ledger.
+         * @description One request: its plan, items with derived status, and its
+         *     history; `reasons=true` adds a failed take's `reason`. 409
+         *     `ledger_unreadable` when requests.json is no ledger.
          */
         get: operations["get_request_api_workspaces__name__requests__request_id__get"];
         /**
          * Put Request
          * @description Write one request's whole plan. `revision` is the revision it was
-         *     read at, or 0 to create it; a write against any other revision is 409
-         *     `stale_revision`, with `current_revision` in the detail. `prompt` is
-         *     set on create only (a later change is 422 `prompt_is_write_once`). An
-         *     item left out is deleted, or kept as dropped when jobs link to it.
+         *     read at, or 0 to create it; any other is 409 `stale_revision` with
+         *     `current_revision`. `prompt` is set on create only (422
+         *     `prompt_is_write_once`). An item left out is deleted, or kept as dropped
+         *     when jobs link to it. `reasons=true` adds a failed take's `reason`.
          */
         put: operations["put_request_api_workspaces__name__requests__request_id__put"];
         post?: never;
@@ -2686,8 +2686,7 @@ export interface components {
         };
         /**
          * GalleryLinkedJob
-         * @description A job linked to a request item that published the file - wrote it or
-         *     republished it from the step cache.
+         * @description A job linked to a request item that wrote or republished the file.
          */
         GalleryLinkedJob: {
             /**
@@ -3358,6 +3357,11 @@ export interface components {
             note?: string;
             /** @description The job's first final image or video, else its first sound or text; null when it wrote none or its run is gone. */
             output: components["schemas"]["LedgerOutput"] | null;
+            /**
+             * Reason
+             * @description Only with reasons=true: why a failed or cancelled job ended, the first line of its error.
+             */
+            reason?: string;
             /**
              * Status
              * @enum {string}
@@ -5122,9 +5126,8 @@ export interface components {
         };
         /**
          * WorkflowCard
-         * @description One workflow's entry in the full listing (the agent's
-         *     `view=compact` answer is a different, smaller shape outside this
-         *     model).
+         * @description One workflow's entry in the full listing (the agent's `view=compact`
+         *     answer is a different, smaller shape outside this model).
          */
         WorkflowCard: {
             /**
@@ -8198,7 +8201,9 @@ export interface operations {
     };
     get_request_api_workspaces__name__requests__request_id__get: {
         parameters: {
-            query?: never;
+            query?: {
+                reasons?: boolean;
+            };
             header?: never;
             path: {
                 name: string;
@@ -8230,7 +8235,9 @@ export interface operations {
     };
     put_request_api_workspaces__name__requests__request_id__put: {
         parameters: {
-            query?: never;
+            query?: {
+                reasons?: boolean;
+            };
             header?: never;
             path: {
                 name: string;
