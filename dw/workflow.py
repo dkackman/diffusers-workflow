@@ -206,6 +206,10 @@ class Workflow:
     # deep-copied them again; the child's one copy is _owned_arguments, on
     # entry. None for a workflow nothing composed
     _handed_arguments = None
+    # The seed of the parent run that composed this workflow, used when the
+    # child's own seed resolves to None - a declared `variable:seed` left at
+    # its null default (#1641). None for a workflow nothing composed
+    _inherited_seed = None
     # The pipeline keys the enclosing runs' steps hold, handed down when a
     # parent composes this workflow: a release_models task inside a child
     # must not evict a model a parent step loaded and a later parent step
@@ -890,8 +894,13 @@ class Workflow:
         # A child left to itself draws its own random seed, which makes the
         # parent's seed stop short of the work it delegates. Inheriting it
         # keeps one seed reproducing the whole run; a child that names its
-        # own still wins, the same way a step overrides its workflow
+        # own still wins, the same way a step overrides its workflow.
+        # The key alone is not "naming one": every catalog template writes
+        # "seed": "variable:seed" with a null default, so the inherited
+        # seed also stands in when the child's own resolves to None
+        # (prepare_definition, #1641)
         workflow.workflow_definition.setdefault("seed", default_seed)
+        workflow._inherited_seed = default_seed
         # A seedless parent injects a seed that is fresh every run, so no
         # step of the child can ever hit - the child must not pay the
         # cache's deepcopy and Result pinning for it

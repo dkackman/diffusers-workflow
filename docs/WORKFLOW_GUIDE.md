@@ -3319,7 +3319,10 @@ arrives as a string and is converted to the declared type. A string that is not 
 `variable:` reference is rejected by the schema.
 
 The seed also reaches sub-workflows: a delegated `workflow` step runs the child under
-the parent's seed unless the child names its own. Without that a child draws its own
+the parent's seed unless the child names its own. Declaring `"seed": "variable:seed"`
+with a `null` default, as every catalog template does, is not naming one: the parent's
+seed stands in until the child's seed variable is set, by its own default or by `seed`
+in the step's `arguments`, and either of those wins. Without that a child draws its own
 random seed, and a workflow whose real generation happens inside a sub-workflow would
 not reproduce from the seed it was given.
 
