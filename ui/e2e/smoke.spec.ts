@@ -175,7 +175,9 @@ test('the editor back link walks back to the workflow it opened', async ({
   await expect(page).toHaveURL(/#\/ws\/default\/edit\/models\/z-image$/)
   // the way back to the read-only page, which the bare "← workflows"
   // link never offered
-  await page.getByRole('link', { name: '← z-image', exact: true }).click()
+  await page
+    .getByRole('link', { name: '← models/z-image', exact: true })
+    .click()
   await expect(page).toHaveURL(/#\/ws\/default\/workflows\/models\/z-image$/)
   await expect(
     page.getByRole('heading', { name: 'models/z-image' }),

@@ -107,17 +107,14 @@
   loadWorkspaces()
 
   // The way out: a saved workflow's own page, else the Workflows list
-  const back = $derived(
-    current
-      ? {
-          href: wsHref(workspace.current, 'workflows', ...current.split('/')),
-          label: leafOf(current),
-        }
-      : {
-          href: wsHref(workspace.current, 'workflows'),
-          label: SECTION_LABELS.ws.workflows,
-        },
-  )
+  const back = $derived({
+    href: wsHref(
+      workspace.current,
+      'workflows',
+      ...current.split('/').filter(Boolean),
+    ),
+    label: current || SECTION_LABELS.ws.workflows,
+  })
 
   // The data-flow graph and per-step reference problems drive the rail's
   // producer/consumer chips and inline warnings - promptLibrary.names stays

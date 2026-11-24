@@ -170,6 +170,64 @@ describe('EditorPage primary action', () => {
   })
 })
 
+describe('EditorPage primary action in every state', () => {
+  const primaryNow = () =>
+    within(
+      screen
+        .getByRole('heading', { level: 1 })
+        .closest('.pagehead') as HTMLElement,
+    )
+      .getAllByRole('button')
+      .filter((b) => b.matches('.withicon:not(.quiet, .bare)'))
+      .map((b) => b.textContent?.trim())
+
+  it('the back link is the full path', async () => {
+    render(EditorPage, { name: 'models/z-image' })
+    await waitFor(() =>
+      expect(
+        screen.getByRole('link', { name: '← models/z-image' }),
+      ).toBeTruthy(),
+    )
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(
+      'models/z-image',
+    )
+  })
+
+  it('Run is the primary button when dirty, on an example and while running', async () => {
+    vi.mocked(api.getWorkflow).mockResolvedValueOnce({
+      definition: { id: 'Ex', steps: [{ name: 'generate', pipeline: {} }] },
+      origin: 'builtin',
+      writable: false,
+      etag: '"e1"',
+    })
+    render(EditorPage, { name: 'models/z-image' })
+    await waitFor(() =>
+      expect(screen.getByText(/This is an example/)).toBeTruthy(),
+    )
+    expect(primaryNow()).toEqual(['Run'])
+    expect(screen.getByRole('button', { name: /^Save/ })).toHaveClass('quiet')
+    cleanup()
+
+    render(EditorPage, { name: 'e2e-card' })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Run' })))
+    await fireEvent.input(screen.getByLabelText('workflow id'), {
+      target: { value: 'Changed' },
+    })
+    expect(screen.getByText('unsaved')).toBeTruthy()
+    expect(primaryNow()).toEqual(['Run'])
+    vi.mocked(api.submitJob).mockReturnValueOnce(new Promise(() => {}))
+    await screen.getByRole('button', { name: 'Run' }).click()
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('button', { name: /^Save/ }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(true),
+    )
+    expect(primaryNow()).toEqual(['Run'])
+    expect(screen.getByRole('button', { name: /^Save/ })).toHaveClass('quiet')
+  })
+})
+
 describe('EditorPage validation plan', () => {
   it('validates the definition it opened, without the transport metadata', async () => {
     render(EditorPage, { name: 'models/z-image' })

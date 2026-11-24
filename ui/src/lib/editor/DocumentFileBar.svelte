@@ -5,6 +5,7 @@
   import RemoteChanged from '../ui/RemoteChanged.svelte'
   import CopyButton from '../CopyButton.svelte'
   import type { DocumentEditor } from '../editorShell.svelte'
+  import { workspace } from '../workspace.svelte'
 
   // Where a document saves, and what it says about itself: the full fields
   // while open, a path chip once it has a name - and, above them, that the
@@ -54,20 +55,26 @@
 
 {#if ed.remote === 'diverged'}
   <RemoteChanged
-    label={ed.loadedPath ?? `this ${noun}`}
+    label={ed.loadedPath ?? 'this file'}
     ontheirs={() => ed.takeTheirs()}
     onmine={() => ed.keepMine()}
   />
+{/if}
+{#if ed.loadState === 'loaded' && !ed.writable}
+  <p class="hint">
+    This is an example, so it can't be changed in place. Save makes your own
+    copy in {workspace.current}.
+  </p>
 {/if}
 {#if open}
   <div class="filebar panel">
     <div class="formgrid filegrid">
       {@render extra?.()}
 
-      <label for="wf-folder">folder</label>
+      <label for="doc-folder">folder</label>
       <div class="folderrow">
         <FolderPicker
-          id="wf-folder"
+          id="doc-folder"
           bind:folder={ed.folder}
           bind:newFolder={ed.newFolder}
           {folders}
@@ -75,10 +82,10 @@
         />
       </div>
 
-      <label for="wf-savename">file name</label>
+      <label for="doc-savename">file name</label>
       <div class="namerow">
         <input
-          id="wf-savename"
+          id="doc-savename"
           class="savename"
           bind:value={ed.saveName}
           placeholder={noun === 'prompt' ? 'MyPrompt' : 'MyWorkflow'}
@@ -93,7 +100,7 @@
           spellcheck="true"
           value={ed.doc.description ?? ''}
           placeholder="shown on the workflow card"
-          title="a short description of what this workflow does"
+          title="a short description of what this file does"
           oninput={(e) => {
             const v = e.currentTarget.value
             if (v) ed.doc.description = v
