@@ -6,6 +6,7 @@ import { presetView, requiredVariables } from '../editor'
 import { PROMPT, VARIABLE, referenceName } from '../references'
 import { storageGet, storageRemove, storageSet } from '../storage'
 import { WORKFLOW_PREFILL_KEY } from '../chainActions'
+import { typedArguments } from './typedArguments'
 import type { WorkflowCard, WorkflowDefinition } from '../types'
 
 /** Free text: a string default that is empty, holds whitespace, or is a
@@ -17,15 +18,15 @@ export function isFreeText(value: unknown): boolean {
   )
 }
 
-/** The arguments a Run sends: the overrides with every blank dropped, so a
- * blank field leaves the workflow's own default in place. Validate asks
- * about exactly these, so its answer predicts the Run click. */
+/** The arguments a Run sends: the overrides typed as their declared
+ * defaults, blanks dropped, so a blank field leaves the workflow's own
+ * default in place. Validate asks about exactly these, so its answer
+ * predicts the Run click. */
 export function runArguments(
   overrides: Record<string, string>,
+  declared: Record<string, unknown>,
 ): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(overrides).filter(([, v]) => v !== ''),
-  )
+  return typedArguments(overrides, declared)
 }
 
 /** What Enhance starts from: what is typed, else the default - unless that

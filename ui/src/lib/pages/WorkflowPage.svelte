@@ -139,7 +139,7 @@
 
   const variables = $derived(Object.entries(workflow?.variables ?? {}))
 
-  const runArguments = () => form.runArguments(overrides)
+  const runArguments = () => form.runArguments(overrides, workflow?.variables ?? {})
 
   /** The check beside Run, asked about exactly what Run would send. */
   const runCheck = new RunCheck((sizes, signal) =>

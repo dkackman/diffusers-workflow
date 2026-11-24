@@ -254,6 +254,18 @@ describe('WorkflowPage run check', () => {
     })
   })
 
+  it('Run sends 30 as a number where the default is a number', async () => {
+    vi.mocked(api.submitJob).mockResolvedValue({ id: 'job-1' } as never)
+    await openPage()
+    await type('num_images_per_prompt', '30')
+    await fireEvent.click(screen.getByRole('button', { name: /Run/ }))
+    await advance()
+    expect(vi.mocked(api.submitJob).mock.calls[0][0]).toEqual({
+      workflow_path: 'templates/text-to-image',
+      arguments: { num_images_per_prompt: 30 },
+    })
+  })
+
   it('a double click sends one request', async () => {
     vi.mocked(api.submitJob).mockResolvedValue({ id: 'job-1' } as never)
     await openPage()
