@@ -610,6 +610,11 @@ it('collapses a library section, and remembers it', async () => {
 it('deletes an asset once the confirmation is answered', async () => {
   await renderAssets()
   const sheet = await openAsset('iris.png')
+  expect(
+    within(sheet)
+      .getByRole('button', { name: 'Delete' })
+      .classList.contains('danger'),
+  ).toBe(true)
   within(sheet).getByRole('button', { name: 'Delete' }).click()
 
   await answerConfirm(true)
@@ -743,6 +748,27 @@ it('deletes every ticked asset and refetches once', async () => {
   ])
 })
 
+it('a double press deletes the picked once', async () => {
+  await renderAssets()
+
+  screen.getByLabelText('select iris.png').click()
+  screen.getByLabelText('select cast/priya.jpg').click()
+  const button = await screen.findByRole('button', {
+    name: /^delete the selected/i,
+  })
+  button.click()
+  button.click()
+  await answerConfirm(true)
+
+  await waitFor(() => expect(api.deleteAsset).toHaveBeenCalled())
+  for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 10))
+  expect(api.deleteAsset.mock.calls.map((c) => c[0])).toEqual([
+    'iris.png',
+    'cast/priya.jpg',
+  ])
+  expect(screen.queryByRole('alertdialog')).toBeNull()
+})
+
 // A read-only asset answers 403. Whatever could not go stays ticked, so a
 // retry needs no re-ticking and the failure is visible rather than dropped
 it('keeps an asset that would not delete in the selection', async () => {
@@ -856,7 +882,7 @@ it('says what a shared delete costs', async () => {
   const dialog = await waitFor(() => screen.getByRole('alertdialog'))
   expect(dialog.textContent).toContain('Delete asset:shared/logo.png?')
   expect(dialog.textContent).toContain(
-    'This removes it on disk. It is in the shared library, so every ' +
+    'This removes it on disk. It is in the shared asset library, so every ' +
       'workspace under this root loses it, and any workflow still carrying ' +
       'that reference stops loading.',
   )
@@ -900,7 +926,7 @@ it('counts the shared assets in a bulk delete confirm', async () => {
   const dialog = await waitFor(() => screen.getByRole('alertdialog'))
   expect(dialog.textContent).toContain('Delete 3 assets?')
   expect(dialog.textContent).toContain(
-    'This removes them on disk. 2 of them are in the shared library and go ' +
+    'This removes them on disk. 2 of them are in the shared asset library and go ' +
       'away for every workspace. Any workflow still carrying one of those ' +
       'references stops loading.',
   )
@@ -1142,9 +1168,16 @@ it('a listing asked for before a note save cannot drop the note', async () => {
   )
   feed.move('default', 'assets')
   await waitFor(() => expect(listAssets).toHaveBeenCalledTimes(2))
+  const before = { ...listing, folders: [] }
   await saveIrisNote('hero shot')
-  // It lands carrying the note from before the save
-  answer({ ...listing, folders: [] })
+  // The server carries the note from here on
+  listing.assets = [
+    { ...asset('iris.png'), note: 'hero shot' },
+    asset('cast/priya.jpg'),
+  ]
+  // The held reply lands carrying the note from before the save
+  answer(before)
+  await waitFor(() => expect(listAssets).toHaveBeenCalledTimes(3))
   for (let i = 0; i < 3; i++) await new Promise((r) => setTimeout(r, 10))
   await step('Next file', 'cast/priya.jpg')
   await waitFor(() => expect(screen.queryByText('hero shot')).toBeNull())
@@ -1339,4 +1372,30 @@ it('Newest names a foldered asset by its leaf, its folder a chip', async () => {
     ]),
   )
   expect(chips()).toEqual(['cast', 'people', 'pets'])
+})
+
+it('a deleted asset stays gone when a reload begun before the delete lands', async () => {
+  await renderAssets()
+  const sheet = await openAsset('iris.png')
+  const before = {
+    ...listing,
+    assets: [...listing.assets],
+    folders: [],
+  } as never
+  let land!: (value: never) => void
+  listAssets.mockImplementationOnce(
+    () => new Promise((resolve) => (land = resolve)),
+  )
+  feed.move('default', 'assets')
+  await waitFor(() => expect(listAssets).toHaveBeenCalledTimes(2))
+  listing.assets = [asset('cast/priya.jpg')]
+  within(sheet).getByRole('button', { name: 'Delete' }).click()
+  await answerConfirm(true)
+  await waitFor(() => expect(screen.queryByText('iris.png')).toBeNull())
+
+  land(before)
+
+  await waitFor(() => expect(listAssets).toHaveBeenCalledTimes(3))
+  await new Promise((r) => setTimeout(r, 10))
+  expect(screen.queryByText('iris.png')).toBeNull()
 })

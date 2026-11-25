@@ -1,6 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest'
 import { openPrompt, savePromptAt } from './promptFile'
 import type { DocumentEditor } from './editorShell.svelte'
+import type { PromptDefinition } from './types'
 import { api } from './test/apiMock'
 import { saveDocument } from './documentSave'
 
@@ -15,7 +16,7 @@ function fakeEditor() {
     load: vi.fn(),
     failLoad: vi.fn(),
     serialized: vi.fn(() => '{"text":"on screen"}'),
-  } as unknown as DocumentEditor
+  } as unknown as DocumentEditor<PromptDefinition>
 }
 
 beforeEach(() => vi.clearAllMocks())

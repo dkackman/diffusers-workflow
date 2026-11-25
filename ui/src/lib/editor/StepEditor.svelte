@@ -29,12 +29,18 @@
   import { BUILTIN, reference } from '../references'
   import { earlierResults } from '../referenceField'
   import { stepNameProblem } from '../stepRename'
+  import type {
+    FromPretrainedArguments,
+    PipelineConfiguration,
+    WorkflowDefinition,
+    WorkflowStep,
+  } from '../types'
 
   let {
     step = $bindable(),
     index,
     count,
-    workflow = {},
+    workflow,
     references = [],
     baseFolder = '',
     mode = 'full',
@@ -46,12 +52,12 @@
     onmove,
     onrename = undefined,
   }: {
-    step: Record<string, any>
+    step: WorkflowStep
     index: number
     count: number
     // The document the step belongs to: what its media arguments take
     // from the steps before it
-    workflow?: Record<string, any>
+    workflow: WorkflowDefinition
     references?: string[]
     baseFolder?: string
     mode?: 'collapsed' | 'compact' | 'full'
@@ -72,8 +78,8 @@
     const to = field.value
     if (to === step.name) return
     const others = (workflow.steps ?? [])
-      .filter((s: Record<string, any>) => s !== step && s?.name !== step.name)
-      .map((s: Record<string, any>) => s?.name)
+      .filter((s) => s !== step && s?.name !== step.name)
+      .map((s) => s?.name)
     nameProblem = stepNameProblem(to, others)
     if (nameProblem) field.value = step.name
     else onrename?.(to)
@@ -170,8 +176,28 @@
     target.status === 'ready' ? (target.data ?? []) : [],
   )
 
-  const configuration = $derived(step.pipeline?.configuration ?? {})
-  const pretrained = $derived(step.pipeline?.from_pretrained_arguments ?? {})
+  // What the fields read. A write goes through the helpers below, which
+  // create the block on the step - never into this stand-in
+  const configuration = $derived<PipelineConfiguration>(
+    step.pipeline?.configuration ?? {},
+  )
+  const pretrained = $derived<FromPretrainedArguments>(
+    step.pipeline?.from_pretrained_arguments ?? {},
+  )
+
+  function setConfiguration(key: 'component_type' | 'offload', value: string) {
+    const pipeline = step.pipeline
+    if (!pipeline) return
+    pipeline.configuration ??= {}
+    pipeline.configuration[key] = value
+  }
+
+  function setPretrained(key: 'model_name' | 'torch_dtype', value: string) {
+    const pipeline = step.pipeline
+    if (!pipeline) return
+    pipeline.from_pretrained_arguments ??= {}
+    pipeline.from_pretrained_arguments[key] = value
+  }
 </script>
 
 <div class="panel step">
@@ -237,7 +263,7 @@
           },
           { value: 'full', label: 'full', title: 'every field, editable' },
         ]}
-        onselect={(picked) => setModeInternal(picked as 'compact' | 'full')}
+        onselect={(picked) => setModeInternal(picked)}
       />
     {/if}
     <button
@@ -276,9 +302,9 @@
   {#each problems as problem (problem)}
     <div class="stepwarn"><TriangleAlert size={13} /> {problem}</div>
   {/each}
-  {#if (flow?.resolvedRefs ?? 0) > 1}
+  {#if flow && flow.resolvedRefs > 1}
     <div class="muted hint cartesian">
-      {flow!.resolvedRefs} previous_result inputs - iterations multiply (every combination
+      {flow.resolvedRefs} previous_result inputs - iterations multiply (every combination
       runs)
     </div>
   {/if}
@@ -286,20 +312,24 @@
   {#if mode === 'compact'}
     <StepDigestList lines={digest.lines} onopen={openFull} />
   {:else if mode === 'full'}
-    {#if kind === 'pipeline'}
+    {#if step.pipeline}
       <div class="formgrid grid">
         <label for={'ct-' + index}>pipeline</label>
         <Suggest
           id={'ct-' + index}
           suggestions={editorLists.pipelines}
-          bind:value={configuration.component_type}
+          bind:value={
+            () => configuration.component_type ?? '',
+            (v) => setConfiguration('component_type', v)
+          }
           placeholder="e.g. FluxPipeline"
         />
 
         <label for={'model-' + index}>model</label>
         <input
           id={'model-' + index}
-          bind:value={pretrained.model_name}
+          value={pretrained.model_name ?? ''}
+          oninput={(e) => setPretrained('model_name', e.currentTarget.value)}
           placeholder="org/model-name or local path"
         />
 
@@ -311,12 +341,13 @@
           value={pretrained.torch_dtype ?? ''}
           onchange={(e) => {
             const v = e.currentTarget.value
-            if (v) pretrained.torch_dtype = v
-            else delete pretrained.torch_dtype
+            if (v) setPretrained('torch_dtype', v)
+            else delete step.pipeline?.from_pretrained_arguments?.torch_dtype
           }}
         >
           <option value="">default</option>
-          {#each optionsWith(TORCH_DTYPES, pretrained.torch_dtype) as dtype (dtype)}<option>
+          {#each optionsWith(TORCH_DTYPES, pretrained.torch_dtype) as dtype (dtype)}<option
+            >
               {dtype}
             </option>{/each}
         </select>
@@ -327,8 +358,8 @@
           value={configuration.offload ?? ''}
           onchange={(e) => {
             const v = e.currentTarget.value
-            if (v) configuration.offload = v
-            else delete configuration.offload
+            if (v) setConfiguration('offload', v)
+            else delete step.pipeline?.configuration?.offload
           }}
         >
           <option value="">none (resident)</option>
@@ -348,7 +379,8 @@
           }}
         >
           <option value="">don't save</option>
-          {#each contentTypeOptions(step.result?.content_type) as contentType (contentType)}<option>
+          {#each contentTypeOptions(step.result?.content_type) as contentType (contentType)}<option
+            >
               {contentType}
             </option>{/each}
         </select>
@@ -368,31 +400,41 @@
         {openSection}
         {references}
       />
-    {:else if kind === 'task'}
+    {:else if step.task}
       <div class="formgrid grid">
         <label for={'task-' + index}>command</label>
         <Suggest
           id={'task-' + index}
           suggestions={editorLists.taskCommands}
-          bind:value={step.task.command}
+          bind:value={
+            () => step.task?.command ?? '',
+            (v) => {
+              if (step.task) step.task.command = v
+            }
+          }
           placeholder="e.g. upscale"
         />
       </div>
       <h3>arguments</h3>
       <ArgumentsEditor
         bind:args={step.task.arguments}
-        componentType={step.task.command}
+        componentType={step.task.command ?? ''}
         target="task"
         suggestions={references}
         earlier={(kind) => earlierResults(workflow, index, kind)}
       />
-    {:else if kind === 'workflow'}
+    {:else if step.workflow}
       <div class="formgrid grid">
         <label for={'wfpath-' + index}>path</label>
         <Suggest
           id={'wfpath-' + index}
           suggestions={workflowPaths}
-          bind:value={step.workflow.path}
+          bind:value={
+            () => step.workflow?.path ?? '',
+            (v) => {
+              if (step.workflow) step.workflow.path = v
+            }
+          }
           placeholder="Other.json, flux/FluxDev.json or builtin:h3_context_ir.json"
         />
       </div>

@@ -111,3 +111,14 @@ it("a filename's dot does not end the title", async () => {
   resolveChoice(null)
   await done
 })
+
+it.each([
+  ['Delete it? notes.txt stays.', 'Delete it?'],
+  ['Replace a vs. b? Neither is kept.', 'Replace a vs. b?'],
+  ['Remove drafts, e.g. old ones? They go.', 'Remove drafts, e.g. old ones?'],
+])('titles "%s" with its first sentence', async (message, title) => {
+  const done = confirmDialog(message)
+  expect(confirmState.title).toBe(title)
+  resolveChoice(null)
+  await done
+})

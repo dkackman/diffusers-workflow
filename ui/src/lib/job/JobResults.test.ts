@@ -9,7 +9,9 @@ import {
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import JobResults from './JobResults.svelte'
 import { api } from '../test/apiMock'
+import { feed } from '../test/feedMock'
 import type { JobDetail } from '../types'
+import { workspace } from '../workspaceState.svelte'
 
 const timeline = {
   kind: 'timeline',
@@ -55,25 +57,30 @@ const embedded = vi.hoisted(() => ({}) as Record<string, unknown>)
 const starredOn = vi.hoisted(() => new Set<string>())
 const notifyUndo = vi.hoisted(() => vi.fn())
 // Reads that never land, while set
-const held = vi.hoisted(() => ({ reads: false }))
+const held = vi.hoisted(() => ({ reads: false, fail: false }))
 vi.mock('../api', async () =>
   (await import('../test/apiMock')).apiModule({
     outputUrl: (path: string) => `/outputs/${path}`,
   }),
 )
+vi.mock('../changes.svelte', async () => ({
+  changes: (await import('../test/feedMock')).feed.changes,
+}))
 api.galleryMetadata.mockImplementation((name: string) =>
   held.reads
     ? new Promise(() => {})
-    : Promise.resolve({
-        name,
-        metadata: embedded[name] ?? null,
-        media: name.endsWith('.otioz') ? timeline : null,
-        inputs: [],
-        job: null,
-        findings: [],
-        linked_jobs: [],
-        ...(starredOn.has(name) && { starred: true }),
-      }),
+    : held.fail
+      ? Promise.reject(new Error('read failed'))
+      : Promise.resolve({
+          name,
+          metadata: embedded[name] ?? null,
+          media: name.endsWith('.otioz') ? timeline : null,
+          inputs: [],
+          job: null,
+          findings: [],
+          linked_jobs: [],
+          ...(starredOn.has(name) && { starred: true }),
+        }),
 )
 api.getJob.mockImplementation(() => new Promise(() => {}))
 api.archiveOutputs.mockImplementation(() => Promise.resolve())
@@ -91,6 +98,7 @@ vi.mock('../toast', () => ({
 }))
 
 beforeEach(() => {
+  workspace.current = 'w'
   api.galleryMetadata.mockClear()
   api.archiveOutputs.mockClear()
   api.setStarred.mockClear()
@@ -102,6 +110,7 @@ afterEach(() => {
   for (const key of Object.keys(embedded)) delete embedded[key]
   starredOn.clear()
   held.reads = false
+  held.fail = false
 })
 
 const hashEvent = (change: () => void) =>
@@ -272,7 +281,13 @@ it('Compare takes the first four pictures, finals first', async () => {
   const compare = screen.getByRole('button', { name: 'Compare' })
   expect(compare.getAttribute('title')).toBe('Compares the first 4')
   await hashEvent(() => void fireEvent.click(compare))
-  expect(location.hash).toBe('#/ws/w/compare/f1.mp4/f2.mp4/b1.png/b2.png')
+  const [path, query] = location.hash.split('?')
+  expect(path).toBe('#/ws/w/compare/f1.mp4/f2.mp4/b1.png/b2.png')
+  // the link carries the job, so Compare's back link returns to it
+  expect(JSON.parse(new URLSearchParams(query).get('back') ?? '')).toEqual({
+    href: '#/ws/w/jobs/j1',
+    label: 'Job',
+  })
 })
 
 it('offers no Compare for fewer than two pictures or clips', () => {
@@ -340,7 +355,7 @@ it('a starred clip shows as starred once its recipe is read', async () => {
     pressed: true,
   })
   expect(star.getAttribute('aria-pressed')).toBe('true')
-  expect((star as HTMLButtonElement).disabled).toBe(false)
+  expect(star.getAttribute('aria-disabled')).toBe('false')
 })
 
 it('the star waits for the read that says whether the file is starred', async () => {
@@ -348,11 +363,102 @@ it('the star waits for the read that says whether the file is starred', async ()
   render(JobResults, clips)
   const sheet = await openOutput('run1/s3.mp4')
   const star = within(sheet).getByRole('button', { name: 'Star' })
-  expect((star as HTMLButtonElement).disabled).toBe(true)
+  expect(star.getAttribute('aria-disabled')).toBe('true')
   expect(star.title).toBe('Reading whether this file is starred')
   expect(star.hasAttribute('aria-pressed')).toBe(false)
   await fireEvent.click(star)
   expect(api.setStarred).not.toHaveBeenCalled()
+})
+
+it('the star is enabled from the listing when the recipe read fails', async () => {
+  starredOn.add('run1/a.png')
+  render(JobResults, {
+    ...clips,
+    fileGroups: [group('gen', ['run1/a.png'])],
+    kinds: { 'run1/a.png': 'image' },
+  })
+  // let the listing's own read land, then fail the viewer's
+  await waitFor(() => expect(api.galleryMetadata).toHaveBeenCalled())
+  await new Promise((r) => setTimeout(r, 50))
+  held.fail = true
+  const sheet = await openOutput('run1/a.png')
+  const star = await within(sheet).findByRole('button', {
+    name: 'Star',
+    pressed: true,
+  })
+  expect(star.getAttribute('aria-disabled')).toBe('false')
+})
+
+// The route names `starred` only for a starred file, so a listing read
+// without it says the file is not starred
+it('the star of an unstarred file is enabled from the listing when the recipe read fails', async () => {
+  render(JobResults, {
+    ...clips,
+    fileGroups: [group('gen', ['run1/a.png'])],
+    kinds: { 'run1/a.png': 'image' },
+  })
+  await waitFor(() => expect(api.galleryMetadata).toHaveBeenCalled())
+  await new Promise((r) => setTimeout(r, 50))
+  held.fail = true
+  const sheet = await openOutput('run1/a.png')
+  const star = await within(sheet).findByRole('button', {
+    name: 'Star',
+    pressed: false,
+  })
+  expect(star.getAttribute('aria-disabled')).toBe('false')
+  await fireEvent.click(star)
+  await waitFor(() =>
+    expect(api.setStarred).toHaveBeenCalledWith('run1/a.png', true),
+  )
+})
+
+it('a video-only run stars its first file from the listing when the recipe read fails', async () => {
+  render(JobResults, clips)
+  await waitFor(() => expect(api.galleryMetadata).toHaveBeenCalled())
+  await new Promise((r) => setTimeout(r, 50))
+  held.fail = true
+  const sheet = await openOutput('run1/s3.mp4')
+  const star = await within(sheet).findByRole('button', {
+    name: 'Star',
+    pressed: false,
+  })
+  expect(star.getAttribute('aria-disabled')).toBe('false')
+})
+
+// The listing is read once: it must not take back a star set since
+it('a star set in the viewer stands when the listing is rebuilt', async () => {
+  const one = {
+    ...clips,
+    fileGroups: [group('gen', ['run1/a.png'])],
+    kinds: { 'run1/a.png': 'image' },
+  }
+  const view = render(JobResults, one)
+  const sheet = await openOutput('run1/a.png')
+  await fireEvent.click(
+    await within(sheet).findByRole('button', { name: 'Star', pressed: false }),
+  )
+  await within(sheet).findByRole('button', { name: 'Star', pressed: true })
+  await view.rerender({
+    ...one,
+    fileGroups: [group('gen', ['run1/a.png', 'run1/b.png'])],
+    kinds: { 'run1/a.png': 'image', 'run1/b.png': 'image' },
+  })
+  await new Promise((r) => setTimeout(r, 50))
+  expect(within(sheet).getByRole('button', { name: 'Star' }).ariaPressed).toBe(
+    'true',
+  )
+})
+
+it("the viewer's star follows the record on a quiet reload", async () => {
+  render(JobResults, clips)
+  const sheet = await openOutput('run1/s3.mp4')
+  await within(sheet).findByRole('button', { name: 'Star', pressed: false })
+  starredOn.add('run1/s3.mp4')
+  feed.move('w', 'gallery')
+  await within(sheet).findByRole('button', { name: 'Star', pressed: true })
+  starredOn.delete('run1/s3.mp4')
+  feed.move('w', 'gallery')
+  await within(sheet).findByRole('button', { name: 'Star', pressed: false })
 })
 
 it("the star's Undo puts back a star the user did not just add", async () => {
@@ -392,6 +498,20 @@ it('an open= naming no output is said once the job has finished, and cleared', a
   expect(screen.queryByRole('dialog')).toBeNull()
 })
 
+it('an open= on a job with no files at all is said, not silent', async () => {
+  history.replaceState(
+    null,
+    '',
+    `${location.pathname}#/ws/w/jobs/j1?open=run1/gone.png`,
+  )
+  render(JobResults, { ...clips, fileGroups: [], running: false })
+  await waitFor(() =>
+    expect(
+      screen.getByText(/gone\.png is not in this view any more\./),
+    ).toBeTruthy(),
+  )
+})
+
 it('a running job opens the file open= names once it arrives', async () => {
   history.replaceState(
     null,
@@ -408,4 +528,32 @@ it('a running job opens the file open= names once it arrives', async () => {
   await view.rerender({ ...clips, running: true })
   expect(await screen.findByRole('dialog', { name: 's3.mp4' })).toBeTruthy()
   expect(screen.queryByText(/is not in this view any more/)).toBeNull()
+})
+
+// A read that left before a star write may answer after it, with the old star
+it('a recipe read asked before a star write does not undo the star', async () => {
+  render(JobResults, clips)
+  const sheet = await openOutput('run1/s3.mp4')
+  const star = await within(sheet).findByRole('button', {
+    name: 'Star',
+    pressed: false,
+  })
+  const original = api.galleryMetadata.getMockImplementation()!
+  const answers: (() => void)[] = []
+  api.galleryMetadata.mockImplementation((name: string) => {
+    // what the server held when the read was asked
+    const before = original(name)
+    return new Promise((resolve) => answers.push(() => resolve(before)))
+  })
+  try {
+    feed.move('w', 'gallery')
+    await waitFor(() => expect(answers.length).toBeGreaterThan(0))
+    await fireEvent.click(star)
+    await waitFor(() => expect(api.setStarred).toHaveBeenCalled())
+    answers.forEach((answer) => answer())
+    await new Promise((r) => setTimeout(r, 30))
+    expect(star.getAttribute('aria-pressed')).toBe('true')
+  } finally {
+    api.galleryMetadata.mockImplementation(original)
+  }
 })

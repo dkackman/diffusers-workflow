@@ -19,7 +19,7 @@
  * recorded"), or a chain run with `check` off (no `attempts` - no measure
  * cells at all). Pure, so the rules are tested without a DOM. */
 
-import type { ManifestEntry } from './types'
+import type { ManifestEntry, WorkflowDefinition } from './types'
 import { MEMBER_SEPARATOR, VARIABLE, referenceName } from './references'
 
 type Shot = NonNullable<ManifestEntry['shots']>[number]
@@ -300,7 +300,7 @@ export function measureText(cell: MeasureCell): string {
 
 // ---- reading the chain's settings off the definition the job ran ----
 
-type Definition = Record<string, any> | null | undefined
+type Definition = WorkflowDefinition | null | undefined
 
 /** A value as the run resolved it: a literal, or a `variable:` the job's
  * arguments (or the definition's own default) supplied. Anything else -
@@ -320,7 +320,7 @@ export function definitionStep(definition: Definition, step: string) {
   const at = step.indexOf(MEMBER_SEPARATOR)
   const name = at === -1 ? step : step.slice(0, at)
   const steps = Array.isArray(definition?.steps) ? definition.steps : []
-  return steps.find((s: any) => s?.name === name) ?? null
+  return steps.find((s) => s?.name === name) ?? null
 }
 
 /** The step's frame rate and `retries`, best effort: a step the definition
@@ -331,20 +331,18 @@ export function chainContext(
   args?: Record<string, unknown> | null,
 ): ChainContext {
   const found = definitionStep(definition, step)
-  const pipeline = found?.pipeline ?? found ?? {}
-  const chain = pipeline.chain ?? {}
-  const call = pipeline.arguments ?? {}
+  const pipeline = found?.pipeline ?? found?.pipeline_reference
+  const chain = pipeline?.chain ?? {}
+  const call = pipeline?.arguments ?? {}
   const number = (value: unknown) => {
     const v = resolved(value, definition, args)
     return isNumber(v) ? v : null
   }
+  // The schema's default is 0; a reference the UI cannot follow is unknown
+  const retries = () =>
+    chain.retries === undefined ? 0 : number(chain.retries)
   return {
     fps: number(call.frame_rate) ?? number(call.fps),
-    // The schema's default is 0; a reference the UI cannot follow is unknown
-    retries: found
-      ? chain.retries === undefined
-        ? 0
-        : number(chain.retries)
-      : null,
+    retries: found ? retries() : null,
   }
 }

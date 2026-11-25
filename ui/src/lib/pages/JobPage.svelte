@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { WorkflowDefinition } from '../types'
   import { Braces } from '@lucide/svelte'
   import { TERMINAL_STATUSES, api } from '../api'
   import { untrack } from 'svelte'
@@ -7,6 +8,7 @@
   import LoadState from '../ui/LoadState.svelte'
   import { replaceRoute, route } from '../router.svelte'
   import { wsHref } from '../routes'
+  import { openInHash } from '../mediaViewer'
   import { groupResultFiles, unsavedSteps } from '../results'
   import {
     activeMember,
@@ -17,13 +19,8 @@
     nodeDurations,
     stepDurations,
   } from '../runstate'
-  import { formatDuration } from '../format'
-  import {
-    estimateEta,
-    nextStepTimes,
-    stepProgress,
-    activeStall,
-  } from '../progress'
+  import { estimateEta, stepProgress, activeStall } from '../progress'
+  import { RunView } from '../job/runView.svelte'
   import FlowView from '../editor/FlowView.svelte'
   import JsonEditor from '../editor/JsonEditor.svelte'
   import JobHeader from '../job/JobHeader.svelte'
@@ -37,7 +34,7 @@
   import LinkedNotes from '../request/LinkedNotes.svelte'
   import { LinkedRequest } from '../request/linkedRequest.svelte'
   import RemoteNotice from '../ui/RemoteNotice.svelte'
-  import type { JobEvent, LedgerNote } from '../types'
+  import type { LedgerNote } from '../types'
 
   let { jobId }: { jobId: string } = $props()
 
@@ -93,8 +90,7 @@
   const definitionMoved = $derived(
     ranRead.changed.has(jobId) && !ranRead.changed.has('realized'),
   )
-  // The run note's box is open: its own notice says a newer note, so the
-  // page's line would be a second, and a wrong one (the box did not move)
+  // The run note's box is open: its own notice says it, not the page's
   let noteEditing = $state(false)
   // Keep mine or Use theirs answered the change in the box: the line stays
   // down for the rest of the change's mark, after the box closes too
@@ -109,24 +105,21 @@
   const noteMoved = $derived(
     record.changed.has('note') && !noteEditing && noteResolvedAt === null,
   )
-  const definition = $derived<Record<string, any> | null>(
-    ran?.definition ?? null,
+  const definition = $derived<WorkflowDefinition | null>(
+    (ran?.definition as WorkflowDefinition | undefined) ?? null,
   )
   const seedVariable = $derived(ran?.seed_variable ?? null)
   const realized = $derived(ran?.realized ?? false)
-  // The JSON view of that definition - off until asked, since the flow graph
-  // already answers "what did this run do" for most readers
+  // The JSON view of that definition - off until asked
   let showJson = $state(false)
-  let events = $state<JobEvent[]>([])
-  // arrival clocks for pipeline_step events, for the ETA estimate
-  let stepTimes = $state<number[]>([])
+  // What the event stream has said so far (job/runView.svelte.ts)
+  let run = $state.raw(new RunView())
 
   followJob(
     () => jobId,
     record,
     (event) => {
-      events.push(event)
-      stepTimes = nextStepTimes(stepTimes, event, performance.now())
+      run.apply(event, performance.now())
       if (
         event.event === 'job_status' ||
         event.event === 'queue_wait' ||
@@ -135,8 +128,7 @@
         void record.reload()
     },
     () => {
-      events = []
-      stepTimes = []
+      run = new RunView()
       showJson = false
     },
   )
@@ -174,15 +166,11 @@
       void agentNotes?.noteAbout([{ item: linkItem, job: jobId, output: file }])
   }
 
-  const steps = $derived(
-    (events.find((e) => e.event === 'workflow_start')?.steps as string[]) ?? [],
-  )
+  const steps = $derived((run.workflowStart?.steps as string[]) ?? [])
   // The step_start the run is on, as the engine named it: a for_each member
   // keeps its '@', a sub-workflow's inner step its own name. The Progress
   // list is written in these names, so it reads off this one.
-  const stepStart = $derived(
-    [...events].reverse().find((e) => e.event === 'step_start'),
-  )
+  const stepStart = $derived(run.stepStart)
   const currentStep = $derived(stepStart?.step as string | undefined)
   // The same step in the name the definition gives it, which is what the
   // flow graph's nodes are called - see runstate.ts for why the two differ
@@ -197,63 +185,44 @@
   const listStep = $derived(
     steps.includes(currentStep ?? '') ? currentStep : activeNode,
   )
-  const finishedSteps = $derived(finishedNodes(events as JobEvent[], steps))
+  const finishedSteps = $derived(finishedNodes(run.marks, steps))
   // run times off the events' own clocks; a historical job streams none,
   // so its graph shows only the header's total
-  const nodeTimes = $derived(nodeDurations(events as JobEvent[]))
-  const memberTimes = $derived(stepDurations(events as JobEvent[]))
+  const nodeTimes = $derived(nodeDurations(run.marks))
+  const memberTimes = $derived(stepDurations(run.marks))
   // Scoped to the step now running: its phase, and its own denoise counter
-  const progress = $derived(stepProgress(events as JobEvent[]))
+  const progress = $derived(stepProgress(run.window))
   const denoise = $derived(progress.denoise)
-  const stall = $derived(activeStall(events as JobEvent[]))
-  // each line led by its clock - seconds since the job started, which every
-  // event carries - so the log says where the time went
-  const logs = $derived(
-    events
-      .filter((e) => e.event === 'log')
-      .map((e) =>
-        typeof e.at === 'number'
-          ? `${('+' + formatDuration(e.at)).padStart(8)}  ${e.message}`
-          : (e.message as string),
-      ),
-  )
+  const stall = $derived(activeStall(run.last ? [run.last] : []))
   // A job read from history has no events: its record keeps the seed it was
   // queued with, under the variable the workflow draws it into
   const seed = $derived.by(() => {
-    const drawn = events.find((e) => e.event === 'workflow_start')?.seed
+    const drawn = run.workflowStart?.seed
     if (typeof drawn === 'number') return drawn
     const queued = seedVariable ? job?.arguments?.[seedVariable] : undefined
     return typeof queued === 'number' ? queued : undefined
   })
-  // The record's number once the job has one; while it runs, the run_start
-  // event says it first - so the page names the run the moment it opens
+  // The record's number, or run_start's while it runs
   const runVersion = $derived(
-    job?.run_version ??
-      (events.find((e) => e.event === 'run_start')?.version as
-        number | undefined),
+    job?.run_version ?? (run.runStart?.version as number | undefined),
   )
-  const etaSeconds = $derived(estimateEta(stepTimes, denoise))
-  // Files grouped by producing step, streamed first, then confirmed by manifest
-  const fileGroups = $derived(
-    groupResultFiles(job?.manifest, events as JobEvent[]),
-  )
+  const etaSeconds = $derived(estimateEta(run.stepTimes, denoise))
+  const fileGroups = $derived(groupResultFiles(job?.manifest, run.marks))
 
   // Steps that ran and wrote no file, with the definition's reason for each.
   // Without this a workflow that keeps most of its steps in memory shows a
   // short Results list and no word about the rest, which reads as outputs
   // that went missing rather than as a choice the workflow made
-  const unsaved = $derived(
-    unsavedSteps(job?.manifest, events as JobEvent[], definition),
-  )
+  const unsaved = $derived(unsavedSteps(job?.manifest, run.marks, definition))
   const running = $derived(
     job !== null && !TERMINAL_STATUSES.includes(job.status),
   )
   // One grain finer than the group: which entries of a for_each step have
   // finished and which is running, in the engine's own `group@entry` names
-  const finishedMemberSteps = $derived(finishedMembers(events as JobEvent[]))
-  const segments = $derived(chainSegments(events as JobEvent[]))
+  const finishedMemberSteps = $derived(finishedMembers(run.marks))
+  const segments = $derived(chainSegments(run.marks))
   const activeMemberStep = $derived(
-    running ? activeMember(events as JobEvent[]) : undefined,
+    running ? activeMember(run.marks) : undefined,
   )
   // Where a failed run stopped: the step it had started and never ended,
   // drawn red on the graph so the reader does not have to match the error
@@ -273,22 +242,20 @@
       : undefined,
   )
   let rerunOpen = $state(false)
-  // The same condition RerunWithChanges shows its own button on: a run with
-  // no variables and no arguments has nothing for the dialog to change
+  // RerunWithChanges' own condition: something to change
   const canRerun = $derived(
     Object.keys({
       ...(definition?.variables ?? {}),
       ...(job?.arguments ?? {}),
     }).length > 0,
   )
-  // A job seen unfinished on this page and then failed is news to announce;
-  // one that loads already failed is not
+  // Seen unfinished here, then failed: news to announce
   let seenRunning = $state<string | null>(null)
   $effect(() => {
     if (running) seenRunning = jobId
   })
   const failedMemberStep = $derived(
-    failed ? activeMember(events as JobEvent[]) : undefined,
+    failed ? activeMember(run.marks) : undefined,
   )
 
   // A graph node opens what that step left behind: its files, or its line
@@ -319,18 +286,10 @@
   // checkpoint to catch it until that phase finishes - without this the UI
   // goes silent for however long that takes, and looks hung rather than
   // "on its way out"
-  const cancelPending = $derived(
-    running && events.some((e) => e.event === 'cancel_pending'),
-  )
+  const cancelPending = $derived(running && run.cancelRequested)
 
-  // The detail classifies the manifest; a running job's step_end events
-  // classify each output before there is a manifest
-  const kinds = $derived.by(() => {
-    const found: Record<string, string | null> = {}
-    for (const event of events)
-      Object.assign(found, (event.output_kinds as typeof found) ?? {})
-    return { ...found, ...(job?.output_kinds ?? {}) }
-  })
+  // The manifest's kinds; a running job's step_end events say them first
+  const kinds = $derived({ ...run.kinds, ...(job?.output_kinds ?? {}) })
 </script>
 
 <!-- A running job leads with this; a finished one has it as one line,
@@ -387,7 +346,7 @@
       />
     {/if}
 
-    {#if fileGroups.length || unsaved.length}
+    {#if fileGroups.length || unsaved.length || (!running && openInHash())}
       <div class="panel">
         {#key job.id}
           <JobResults
@@ -491,14 +450,17 @@
 
     {#if !running}{@render progressPanel()}{/if}
 
-    {#if logs.length}
+    {#if run.logs.length}
       <div class="panel">
         <h2>Log</h2>
-        <pre>{logs.join('\n')}</pre>
+        <pre>{run.logs.join('\n')}</pre>
       </div>
     {/if}
 
-    <EventLog {jobId} live={running} pulse={events.length} />
+    <!-- Another job is another log: its rows, filter and Follow start over -->
+    {#key jobId}
+      <EventLog {jobId} live={running} pulse={run.count} />
+    {/key}
   {/if}
 </LoadState>
 

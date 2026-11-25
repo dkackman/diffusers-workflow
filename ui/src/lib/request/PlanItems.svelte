@@ -13,7 +13,7 @@
   import ConflictNotice from './ConflictNotice.svelte'
   import { dropWarnings, restoredText } from './dropConfirm'
   import ItemMenu from './ItemMenu.svelte'
-  import { itemMenu } from './menuEntries'
+  import { itemMenu, type ItemAction } from './menuEntries'
   import {
     nextTake,
     titleId,
@@ -33,7 +33,6 @@
     placeBefore,
     runsAfter,
     titlesOf,
-    type Direction,
     type Move,
   } from './reorderMath'
   import RequestItem from './RequestItem.svelte'
@@ -219,11 +218,11 @@
     }
   }
 
-  function select(row: ItemState, id: string, note: () => void) {
+  function select(row: ItemState, id: ItemAction, note: () => void) {
     if (id === 'note') return note()
     if (id === 'drop') return void drop(row)
     if (id === 'retake') return onrun?.(row.item.key)
-    const move = moveTarget(keys, row.item.key, id as Direction)
+    const move = moveTarget(keys, row.item.key, id)
     if (!move) return
     moved(row, move)
     store.commit()
@@ -314,7 +313,7 @@
     <div class="onrow">
       <ConflictNotice
         {conflict}
-        onagain={() => answer(conflict.id)}
+        onagain={open ? () => answer(conflict.id) : undefined}
         ondismiss={() => store.dismiss(conflict.id)}
       />
     </div>
@@ -411,9 +410,6 @@
   }
   .onrow {
     padding: 0 0.8rem var(--space-3) calc(0.2rem + 24px + var(--space-3));
-  }
-  .list {
-    padding: 0.3rem;
   }
   .items {
     list-style: none;

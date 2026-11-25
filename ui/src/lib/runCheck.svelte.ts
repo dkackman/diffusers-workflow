@@ -38,19 +38,9 @@ function refused(placed: PlacedFindings): Verdict {
   return { tone: 'bad', text, issues }
 }
 
-/** What a validate answer says about running now, in plain words - the one
- * verdict the run check and the editor both show. It reads `valid`,
- * `errors`, `access_blocked`, `not_found` and what `placed` holds, and
- * derives nothing else. */
-export function verdictOf(
-  validation: ValidationResult | null,
-  error: unknown,
-  placed: PlacedFindings,
-): Verdict | null {
-  if (error !== null && error !== undefined)
-    return { tone: 'bad', text: "Couldn't check this workflow.", issues: 0 }
-  if (!validation) return null
-  if (!validation.valid) return refused(placed)
+/** The verdict a plan's downloads force, when one does: a model this box
+ * cannot reach or cannot find. */
+function downloadVerdict(validation: ValidationResult): Verdict | null {
   const downloads = validation.plan?.downloads_required ?? []
   if (downloads.some((d) => d.access_blocked)) {
     return {
@@ -69,17 +59,32 @@ export function verdictOf(
       issues: 0,
     }
   }
+  return null
+}
+
+/** What a validate answer says about running now, in plain words - the one
+ * verdict the run check and the editor both show. It reads `valid`,
+ * `errors`, `access_blocked`, `not_found` and what `placed` holds, and
+ * derives nothing else. */
+export function verdictOf(
+  validation: ValidationResult | null,
+  error: unknown,
+  placed: PlacedFindings,
+): Verdict | null {
+  if (error !== null && error !== undefined)
+    return { tone: 'bad', text: "Couldn't check this workflow.", issues: 0 }
+  if (!validation) return null
+  if (!validation.valid) return refused(placed)
+  const blocked = downloadVerdict(validation)
+  if (blocked) return blocked
   const noted = Object.values(placed.byVariable).filter((list) =>
     list.some((f) => f.tone === 'warn'),
   ).length
-  if (noted) {
-    return {
-      tone: 'warn',
-      text: `Ready to run. Read the notes under ${plural(noted, 'field', 'fields')}.`,
-      issues: 0,
-    }
-  }
-  return { tone: 'good', text: 'Ready to run.', issues: 0 }
+  const text = noted
+    ? `Ready to run. Read the notes under ${plural(noted, 'field', 'fields')}.`
+    : 'Ready to run.'
+  const tone = noted || placed.author.length ? 'warn' : 'good'
+  return { tone, text, issues: 0 }
 }
 
 export class RunCheck {
@@ -88,6 +93,9 @@ export class RunCheck {
    * caught: shown through ErrorLine, never as its raw message. */
   error = $state<unknown>(null)
   checking = $state(false)
+  /** The values changed and their answer has not landed: what `validation`
+   * holds is the answer to an earlier form */
+  pending = $state(false)
 
   // Not state: bookkeeping for which answer is still wanted
   #ask: (sizes: boolean, signal?: AbortSignal) => Promise<ValidationResult>
@@ -125,6 +133,7 @@ export class RunCheck {
     this.#generation += 1
     this.#checkedFor = ''
     this.checking = false
+    this.pending = false
   }
 
   /** The page's word that `name` would now run with `args`: checks at once
@@ -135,6 +144,7 @@ export class RunCheck {
     if (key === this.#checkedFor) return
     const first = !this.#checkedFor.startsWith(`${name}\n`)
     this.#checkedFor = key
+    this.pending = true
     if (first) {
       this.validation = null
       this.error = null
@@ -162,11 +172,13 @@ export class RunCheck {
       this.#appliedCall = call
       this.validation = answer
       this.error = null
+      this.pending = false
     } catch (e) {
       if (stale() || isAbort(e)) return
       this.#appliedCall = call
       this.validation = null
       this.error = e
+      this.pending = false
     } finally {
       if (mine === this.#generation) this.checking = false
     }

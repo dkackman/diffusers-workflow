@@ -99,7 +99,9 @@ test('schema page renders a browsable tree from the live schema', async ({
   page,
 }) => {
   await page.goto('/#/schema')
-  await expect(page.getByRole('heading', { name: 'Schema' })).toBeVisible()
+  await expect(
+    page.getByRole('heading', { name: 'Schema', exact: true }),
+  ).toBeVisible()
   await expect(page).toHaveTitle('Schema · diffusers-workflow')
   // the document root is open and shows the top-level properties
   await expect(page.getByText('steps', { exact: true })).toBeVisible()

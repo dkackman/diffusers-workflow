@@ -2,7 +2,8 @@
 // before the dialog offers to spend (three at a time, dropped when the
 // dialog closes), and on confirm each is submitted in plan order with a
 // cost acknowledgement bound to the plan it was quoted. Nothing here is
-// optimistic: a row is queued only when the server has said so.
+// optimistic: a row is queued only when the server has said so. A row the
+// plan has moved past since it was offered (`stale`) is not sent.
 import { ApiError, describeError } from '../apiErrors'
 import type { JobSubmitBody, ValidateRequest } from '../apiRequest'
 import { placeFindings } from '../findings'
@@ -98,11 +99,18 @@ function unchecked(error: unknown): string {
 const detailOf = (error: unknown) => describeError(error).detail ?? null
 
 /** The current plan a 409 on a bound acknowledgement carries */
-function repriced(error: unknown): Record<string, unknown> | null {
+function repriced(error: unknown) {
   if (!(error instanceof ApiError) || error.status !== 409) return null
-  const detail = error.detail
-  return detail?.plan && detail.acknowledge ? detail : null
+  const { plan, acknowledge } = error.detail ?? {}
+  if (!isRecord(plan) || !isRecord(acknowledge)) return null
+  return {
+    plan: plan as Plan,
+    acknowledge: acknowledge as RunRow['acknowledge'],
+  }
 }
+
+const isRecord = (value: unknown): value is object =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
 
 export class RunQueue {
   rows = $state<RunRow[]>([])
@@ -111,13 +119,21 @@ export class RunQueue {
   #api: RunApi
   #workspace: string
   #request: string
+  #stale: (candidate: Candidate) => string | null
   #abort = new AbortController()
   #sending: Promise<void> = Promise.resolve()
 
   constructor(
     candidates: Candidate[],
-    options: { workspace: string; requestId: string; api: RunApi },
+    options: {
+      workspace: string
+      requestId: string
+      api: RunApi
+      /** Why a candidate no longer matches the live plan, or null */
+      stale?: (candidate: Candidate) => string | null
+    },
   ) {
+    this.#stale = options.stale ?? (() => null)
     this.#api = options.api
     this.#workspace = options.workspace
     this.#request = options.requestId
@@ -138,9 +154,17 @@ export class RunQueue {
   get settled() {
     return this.rows.every((row) => row.state !== 'pricing')
   }
+  /** Why this row may no longer be sent, read off the plan as it is now.
+   * Null for one sent or queued here: its own job is what moved the plan */
+  staleOf(row: RunRow): string | null {
+    if (row.state === 'sending' || row.state === 'queued') return null
+    return this.#stale(row.candidate)
+  }
   /** The rows the Run button would queue */
   get chosen() {
-    return this.rows.filter((row) => row.ticked && row.state === 'priced')
+    return this.rows.filter(
+      (row) => row.ticked && row.state === 'priced' && !this.staleOf(row),
+    )
   }
   /** Something was sent: the choice of rows is closed */
   get started() {
@@ -218,6 +242,8 @@ export class RunQueue {
     try {
       for (const row of this.chosen) {
         if (this.#abort.signal.aborted) return
+        // the plan may have moved while the rows before it were sent
+        if (this.staleOf(row)) continue
         await this.#send(row, row.plan ?? true)
       }
     } finally {
@@ -230,6 +256,7 @@ export class RunQueue {
     const row = this.rows.find((r) => r.candidate.key === key)
     if (this.busy || row?.state !== 'repriced' || !row.acknowledge)
       return Promise.resolve()
+    if (this.staleOf(row)) return Promise.resolve()
     return this.#hold(this.#sendAccepted(row, row.acknowledge))
   }
 
@@ -269,8 +296,8 @@ export class RunQueue {
     } catch (error) {
       const moved = repriced(error)
       if (moved) {
-        row.plan = moved.plan as Plan
-        row.acknowledge = moved.acknowledge as RunRow['acknowledge']
+        row.plan = moved.plan
+        row.acknowledge = moved.acknowledge
         row.state = 'repriced'
       } else {
         row.error = refusal(error)

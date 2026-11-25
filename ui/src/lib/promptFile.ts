@@ -11,7 +11,7 @@ import type { PromptDefinition, PromptList } from './types'
  * prompt once it is loaded; null when the read failed (the error is left
  * on `ed`) or `stale()` says the page has moved on to another prompt. */
 export async function openPrompt(
-  ed: DocumentEditor,
+  ed: DocumentEditor<PromptDefinition>,
   name: string,
   stale: () => boolean = () => false,
 ): Promise<PromptDefinition | null> {
@@ -19,7 +19,7 @@ export async function openPrompt(
   try {
     const { prompt, etag, writable } = await api.getPrompt(name)
     if (stale()) return null
-    ed.load(prompt as Record<string, any>, { etag, path: name, writable })
+    ed.load(prompt, { etag, path: name, writable })
     return prompt
   } catch (error) {
     if (!stale()) ed.failLoad(error)
@@ -31,13 +31,15 @@ export async function openPrompt(
  * agent's or another tab's write reloads it, or raises the banner over
  * unsaved edits, or says it was deleted (DocumentEditor.watchRemote). Call
  * during component init */
-export function watchPrompt(ed: DocumentEditor): DocumentEditor {
+export function watchPrompt(
+  ed: DocumentEditor<PromptDefinition>,
+): DocumentEditor<PromptDefinition> {
   ed.watchRemote({
     kind: 'prompts',
     read: () =>
       goneOn404(async () => {
         const read = await api.getPrompt(ed.loadedPath ?? '')
-        const doc = read.prompt as Record<string, any>
+        const doc = read.prompt
         return { doc, etag: read.etag, writable: read.writable }
       }),
   })
@@ -47,7 +49,7 @@ export function watchPrompt(ed: DocumentEditor): DocumentEditor {
 /** Save the prompt on screen to `path`, asking before it replaces a file
  * it did not read or one that changed since. */
 export function savePromptAt(
-  ed: DocumentEditor,
+  ed: DocumentEditor<PromptDefinition>,
   path: string,
 ): Promise<SaveOutcome> {
   return saveDocument(ed, {

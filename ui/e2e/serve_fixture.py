@@ -18,13 +18,13 @@ Extra arguments (--port ...) pass through to dw.serve. The process replaces
 itself with the server so Playwright's shutdown signal reaches it directly.
 """
 
-import os
 import base64
 import json
+import os
 import shutil
 import sqlite3
-import sys
 import struct
+import sys
 import tempfile
 import wave
 import zlib
@@ -483,13 +483,22 @@ ledger.put_request(
     linked_jobs=lambda _request, key: review_linked.get(key, []),
 )
 
+# The first import of a pipeline module, done on the main thread before the
+# server reports ready, so no spec waits out or races it (#1603, #1640)
+SERVE = (
+    "from dw.introspection import load_allowed_class;"
+    "load_allowed_class('FluxPipeline');"
+    "from dw.serve import main;"
+    "main()"
+)
+
 os.chdir(root)
 os.execv(
     sys.executable,
     [
         sys.executable,
-        "-m",
-        "dw.serve",
+        "-c",
+        SERVE,
         "--workspace",
         scratch,
         "--workflow-dir",

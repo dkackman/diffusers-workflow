@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick, type Snippet } from 'svelte'
+  import { onMount, tick, type Snippet } from 'svelte'
   import { X } from '@lucide/svelte'
   import { confirmDialog } from '../confirm.svelte'
   import { destroyConfirm } from '../destructive'
@@ -90,6 +90,7 @@
     name: 'this note',
     noun: 'note',
     consequence: 'The agent has not had the chance to read it.',
+    place: 'ledger',
   })
 
   const saved = $derived(note?.text ?? null)
@@ -126,6 +127,11 @@
     await tick()
     box?.focus()
   }
+  // A draft restored from the tab's storage: its row opens with it, so a
+  // read cannot close the row over it
+  onMount(() => {
+    if (draft.kept) onopen?.()
+  })
   async function focusOpener() {
     await tick()
     opener?.focus()
@@ -137,6 +143,13 @@
   function reload() {
     refused = null
     onreload()
+  }
+  /** Typing went on while a new note was out: the box keeps only the new
+   * words, and closes when only blank ones came after */
+  function keepTyped(sent: string) {
+    if (!draft.text.startsWith(sent)) return
+    draft.text = draft.text.slice(sent.length).trim()
+    if (!draft.text) draft.done('')
   }
   /** Send `sent` (the box as it was at the press) through `write` */
   async function store(write: () => Promise<void>, sent: string) {
@@ -150,10 +163,7 @@
       // Words typed while it was out stay in the box
       if (draft.done(sent)) {
         if (open) void focusOpener()
-      } else if (note === null && draft.text.startsWith(sent)) {
-        // Typing went on while it was out: the box keeps only the new words
-        draft.text = draft.text.slice(sent.length).trim()
-      }
+      } else if (note === null) keepTyped(sent)
       if (note === null) onsaved?.()
     } catch (e) {
       refused = saveFailure(e)
@@ -172,7 +182,9 @@
     if (note && ondelete) return remove(sent)
   }
   async function remove(sent: string) {
+    // The agent's answer line is what says it read the note
     if (
+      !answer &&
       !line?.answered &&
       !(await confirmDialog(unreadNote.message, unreadNote))
     )
@@ -238,7 +250,7 @@
         <p class="hint">{NEEDS_WORDS}</p>
       {/if}
       {#if stops > 0}
-        <p class="hint" role="status">
+        <p class="hint" role="alert">
           Saving this note stops {stops === 1 ? '1 item' : `${stops} items`}
           waiting for your OK from starting on their own.
         </p>

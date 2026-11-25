@@ -10,6 +10,7 @@ import {
 } from '@testing-library/svelte'
 import EditorPage from './EditorPage.svelte'
 import { api } from '../test/apiMock'
+import { route } from '../router.svelte'
 import { ApiError } from '../apiErrors'
 import { chooseDialog, confirmDialog } from '../confirm.svelte'
 import { changeOnBlur } from '../test/changeOnBlur'
@@ -569,6 +570,19 @@ describe('EditorPage new workflow origin', () => {
     ).toBe('ZImage')
   })
 
+  it('the example banner goes after Save', async () => {
+    vi.mocked(api.listWorkflows).mockResolvedValue(withExample as never)
+    render(EditorPage, { name: '' })
+    await waitFor(() => expect(startFrom().options.length).toBe(2))
+    await fireEvent.change(startFrom(), { target: { value: 'templates/tti' } })
+    await waitFor(() => expect(startFrom().value).toBe('templates/tti'))
+    await fireEvent.click(screen.getByRole('button', { name: /^Save/ }))
+    await waitFor(() => expect(api.saveWorkflow).toHaveBeenCalled())
+    await waitFor(() =>
+      expect(screen.queryByLabelText('start from')).toBeNull(),
+    )
+  })
+
   it('a draft started from an example is checked at once', async () => {
     vi.mocked(api.listWorkflows).mockResolvedValue(withExample as never)
     render(EditorPage, { name: '' })
@@ -638,6 +652,33 @@ describe('EditorPage new workflow origin', () => {
     await waitFor(() => expect(location.hash).toBe('#/ws/studio/edit'))
     await waitFor(() => expect(picker().value).toBe('studio'))
     expect(fileName().value).toBe('Keep')
+  })
+
+  it('moves unsaved edits without asking, and they stay unsaved', async () => {
+    vi.mocked(api.listWorkflows).mockResolvedValue(withExample as never)
+    location.hash = '#/ws/default/edit'
+    // the router has heard it before anything is edited
+    await waitFor(() =>
+      expect(`#/${route.parts.join('/')}`).toBe('#/ws/default/edit'),
+    )
+    render(EditorPage, { name: '' })
+    const picker = () => screen.getByLabelText('workspace') as HTMLSelectElement
+    const id = () => screen.getByLabelText('workflow id') as HTMLInputElement
+    await waitFor(() => expect(picker().options.length).toBe(2))
+    await fireEvent.input(id(), { target: { value: 'Edited' } })
+    expect(screen.getByText('unsaved')).toBeTruthy()
+    vi.mocked(confirmDialog).mockClear()
+
+    await fireEvent.change(picker(), { target: { value: 'studio' } })
+
+    // the picker shows the choice at once: wait for the editor to take the draft
+    await waitFor(() =>
+      expect(Object.keys(sessionStorage)).toEqual(['dw-scrolls']),
+    )
+    expect(location.hash).toBe('#/ws/studio/edit')
+    expect(confirmDialog).not.toHaveBeenCalled()
+    expect(id().value).toBe('Edited')
+    expect(screen.getByText('unsaved')).toBeTruthy()
   })
 })
 

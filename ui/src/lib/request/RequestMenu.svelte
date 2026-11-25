@@ -5,7 +5,7 @@
   import { notify } from '../toast'
   import type { LedgerRequest } from '../types'
   import ItemMenu from './ItemMenu.svelte'
-  import { requestMenu } from './menuEntries'
+  import { requestMenu, type RequestAction } from './menuEntries'
   import { onThisRequest, type PlanStore } from './planStore.svelte'
 
   // The request's own actions, in its header: mark it done, abandon it,
@@ -121,14 +121,15 @@
           name: `"${title}"`,
           noun: 'request',
           consequence:
-            'Its plan, notes and history go from the ledger for good. Its jobs and their outputs are kept.',
+            'Its plan, notes and history are deleted from the ledger. Its jobs and their outputs are kept.',
+          place: 'ledger',
         }),
     },
   )
   const remove = () => removing.run(request)
 
-  const select = (id: string) =>
-    id === 'delete' ? remove() : setState(id as LedgerRequest['state'])
+  const select = (id: RequestAction) =>
+    id === 'delete' ? remove() : setState(id)
 </script>
 
 <ItemMenu

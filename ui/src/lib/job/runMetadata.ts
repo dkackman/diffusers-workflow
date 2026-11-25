@@ -15,6 +15,10 @@ export interface RunMetadata {
   meta: Record<string, Fields>
   media: Record<string, Fields>
   inputs: GalleryInput[]
+  /** Whether each file read is starred, as that read says: the route
+   * names `starred` only when it is, so a read without it says no. Read
+   * once, so it is the viewer's stand-in, never a tile's badge */
+  starred: Record<string, boolean>
 }
 
 export const isBundle = (file: string) => file.toLowerCase().endsWith('.otioz')
@@ -53,7 +57,10 @@ export function runMetadataReader() {
     const replies = await Promise.all(
       [...wanted, ...probe].map((file) => ask(file, workspace)),
     )
-    const found: RunMetadata = { meta: {}, media: {}, inputs: [] }
+    const found: RunMetadata = { meta: {}, media: {}, inputs: [], starred: {} }
+    ;[...wanted, ...probe].forEach((file, i) => {
+      if (replies[i]) found.starred[file] = replies[i]!.starred === true
+    })
     wanted.forEach((file, i) => {
       found.meta[file] = (replies[i]?.metadata as Fields) ?? null
       if (isBundle(file))

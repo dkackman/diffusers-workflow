@@ -156,7 +156,7 @@ H3 wants Context-IR, MiniMax's format (`get_prompt` shows it):
 
 Write the whole script first. Repeat a speaker's voice description verbatim across shots.
 Several characters: one cropped reference each, never a group picture (`references/per-character.md`).
-Lines: `references/dialogue.md` (length, what not to name, a line per chain segment). Check a draft: `references/prompt-lint.md`.
+Lines: `references/dialogue.md` (length, what not to name, a line per chain segment, an off-screen radio/phone voice). Check a draft: `references/prompt-lint.md`.
 A wanted look (clay, paper): `references/style.md`. Film-term camera or look: the `cinematography` skill.
 
 ## Run and judge

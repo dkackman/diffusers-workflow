@@ -1,30 +1,5 @@
-<script lang="ts" module>
-  // The server checks a download with huggingface_hub's validate_repo_id
-  // (dw/hub_cache.py); this is that rule, so the field never refuses a repo
-  // the server takes nor sends one it refuses. Pinned by
-  // tests/test_ui_twins.py. A part is 1-96 word, "-" or "." characters,
-  // opening and closing on a word character; the namespace is optional
-  const PART = String.raw`[A-Za-z0-9_](?:[A-Za-z0-9_.-]{0,94}[A-Za-z0-9_])?`
-  const REPO_ID = new RegExp(`^(?:${PART}/)?${PART}$`)
-
-  const REPO_ID_HINT =
-    'A repo id is org/name, like black-forest-labs/FLUX.1-dev.'
-
-  /** Why a download field's value cannot be sent, or null when it is empty
-   * or a repo id the server accepts */
-  export function repoIdHint(value: string): string | null {
-    const repo = value.trim()
-    if (!repo) return null
-    const valid =
-      REPO_ID.test(repo) &&
-      !repo.includes('--') &&
-      !repo.includes('..') &&
-      !repo.endsWith('.git')
-    return valid ? null : REPO_ID_HINT
-  }
-</script>
-
 <script lang="ts">
+  import { repoIdHint } from '../repoId'
   import { resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
   import DiskMeter from '../ui/DiskMeter.svelte'
@@ -69,7 +44,7 @@
   let wasActive = 0
   $effect(() => {
     const now = active
-    if (now < wasActive) void cacheRead.reload()
+    if (now < wasActive) void cacheRead.refresh()
     wasActive = now
   })
   // An update started or finished elsewhere (another tab, an agent) moves
@@ -537,8 +512,11 @@
   .sizenum {
     position: relative;
   }
+  /* A repo and its revisions are one group: no rule between them */
+  tbody > tr:has(+ tr.revision) > :global(td) {
+    border-bottom: none;
+  }
   .revision td {
-    border-top: none;
     padding-top: 0.1rem;
     padding-bottom: 0.1rem;
     font-size: 0.82rem;

@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
+import { tick } from 'svelte'
 import PipelineOptionsHarness from './PipelineOptionsHarness.svelte'
 import PipelineOptions from './PipelineOptions.svelte'
 import { api } from '../api'
@@ -59,7 +60,7 @@ it('offers the slots StableDiffusionPipeline takes', async () => {
   await vi.waitFor(() =>
     expect(describe).toHaveBeenCalledWith('StableDiffusionPipeline', 'init'),
   )
-  const select = screen.getByRole('combobox', { name: '' })
+  const select = screen.getByRole('combobox', { name: 'component to add' })
   await vi.waitFor(() =>
     expect([...select.querySelectorAll('option')].map((o) => o.value)).toEqual([
       '',
@@ -98,7 +99,7 @@ it('a constructor slot added from the pipeline shows, removes and leaves the sel
   render(PipelineOptionsHarness, {
     initial: { configuration: { component_type: 'SafetyProbePipeline' } },
   })
-  const select = screen.getByRole('combobox', { name: '' })
+  const select = screen.getByRole('combobox', { name: 'component to add' })
   await vi.waitFor(() =>
     expect(
       [...select.querySelectorAll('option')].map((o) => o.value),
@@ -132,4 +133,51 @@ it('shows a component key outside the known slots', () => {
     references: [],
   })
   expect(screen.getByText('safety_checker')).toBeInTheDocument()
+})
+
+it('keeps a fold the person opened when the class lookup answers', async () => {
+  let answer: (d: PipelineDescription) => void = () => {}
+  const describe = vi
+    .spyOn(api, 'describeClass')
+    .mockReturnValue(
+      new Promise<PipelineDescription>((resolve) => (answer = resolve)),
+    )
+  render(PipelineOptions, {
+    pipeline: { configuration: { component_type: 'SlowProbePipeline' } },
+    index: 0,
+    openSection: '',
+    references: [],
+  })
+  await vi.waitFor(() => expect(describe).toHaveBeenCalled())
+  expect(screen.getByText('reading the pipeline…')).toBeInTheDocument()
+  const fold = screen
+    .getByText('LoRAs')
+    .closest('details') as HTMLDetailsElement
+  fold.open = true
+  answer(sdDescription)
+  expect(await screen.findByText('add component…')).toBeInTheDocument()
+  expect(fold.open).toBe(true)
+})
+
+const cacheType = () => screen.getByLabelText('cache type') as HTMLSelectElement
+
+it('shows a cache type the list does not hold', () => {
+  render(PipelineOptionsHarness, {
+    initial: { configuration: { cache: { type: 'brand_new_cache' } } },
+  })
+  expect(cacheType().value).toBe('brand_new_cache')
+})
+
+it('writes no cache type into a cache that has none', async () => {
+  const cache: Record<string, unknown> = { threshold: 0.1 }
+  const initial = { configuration: { cache } }
+  render(PipelineOptions, {
+    pipeline: initial,
+    index: 0,
+    openSection: 'acceleration',
+    references: [],
+  })
+  await tick()
+  expect(cacheType().value).toBe('')
+  expect(cache).toEqual({ threshold: 0.1 })
 })

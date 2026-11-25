@@ -16,6 +16,7 @@ import {
   reference,
   referenceName,
 } from './references'
+import type { WorkflowDefinition, WorkflowStep } from './types'
 import { chainSummary, type ChainSummary } from './flowChain'
 
 export interface StepFlow {
@@ -43,8 +44,8 @@ interface EarlierStep {
 /** The named steps before `index`: the only producers a step can read,
  * since the engine resolves in order. */
 function earlierSteps(
-  workflow: Record<string, any>,
-  steps: Array<Record<string, any>>,
+  workflow: WorkflowDefinition,
+  steps: WorkflowStep[],
   index: number,
 ): EarlierStep[] {
   return steps
@@ -82,13 +83,10 @@ function resolveName(earlier: EarlierStep[], reference: string) {
 /** The entries a for_each value iterates: a `variable:` reference is
  * read through the declared variables, as the engine substitutes it before
  * comparing; anything else is the entries themselves. */
-function forEachEntries(
-  workflow: Record<string, any>,
-  value: unknown,
-): unknown {
+function forEachEntries(workflow: WorkflowDefinition, value: unknown): unknown {
   const name = referenceName(value, VARIABLE)
   return name !== null && name in (workflow.variables ?? {})
-    ? workflow.variables[name]
+    ? workflow.variables?.[name]
     : value
 }
 
@@ -153,8 +151,8 @@ function refTarget(
   return reference === null ? null : resolveName(earlier, reference)
 }
 
-export function flowGraph(workflow: Record<string, any>): StepFlow[] {
-  const steps: Array<Record<string, any>> = workflow.steps ?? []
+export function flowGraph(workflow: WorkflowDefinition): StepFlow[] {
+  const steps: WorkflowStep[] = workflow.steps ?? []
   const graph: StepFlow[] = steps.map((s) => ({
     name: s.name ?? '',
     inputs: [],
@@ -252,7 +250,7 @@ export interface DataFlowGraph {
   fanIn: Map<string, { producers: string[]; label: string }>
 }
 
-function stepKindAndDetail(step: Record<string, any>): [StepKind, string] {
+function stepKindAndDetail(step: WorkflowStep): [StepKind, string] {
   if (step.pipeline) {
     const type = step.pipeline.configuration?.component_type
     return ['pipeline', type ?? 'pipeline']
@@ -269,7 +267,7 @@ function stepKindAndDetail(step: Record<string, any>): [StepKind, string] {
 /** A literal `num_images_per_prompt` on the step's own pipeline arguments,
  * when it is a plain number in the JSON (not a `variable:` reference,
  * which can't be resolved without running the workflow). */
-function producedCount(step: Record<string, any>): number | null {
+function producedCount(step: WorkflowStep): number | null {
   const n = step.pipeline?.arguments?.num_images_per_prompt
   return typeof n === 'number' ? n : null
 }
@@ -283,8 +281,8 @@ const FOR_EACH_KEY = 'for_each'
  * keys are what the engine appends to the step name: an entry's `name`,
  * else its index (`_entry_keys`, dw/for_each.py). */
 function forEachMembers(
-  workflow: Record<string, any>,
-  step: Record<string, any>,
+  workflow: WorkflowDefinition,
+  step: WorkflowStep,
 ): string[] | null {
   const value = step[FOR_EACH_KEY]
   let entries: unknown[] | null = null
@@ -312,8 +310,8 @@ function forEachMembers(
  * more than one upstream producer, where the cartesian product
  * (docs/WORKFLOW_GUIDE.md; 4 images x 3 masks = 12) applies - called out explicitly since
  * that multiplication is invisible reading the JSON step by step. */
-export function dataFlowGraph(workflow: Record<string, any>): DataFlowGraph {
-  const steps: Array<Record<string, any>> = workflow.steps ?? []
+export function dataFlowGraph(workflow: WorkflowDefinition): DataFlowGraph {
+  const steps: WorkflowStep[] = workflow.steps ?? []
   const nodes: FlowNode[] = steps.map((step, index) => {
     const [kind, detail] = stepKindAndDetail(step)
     return {
@@ -464,13 +462,13 @@ function referenceProblem(
 }
 
 export function danglingReferenceDetails(
-  workflow: Record<string, any>,
+  workflow: WorkflowDefinition,
   promptNames?: string[],
 ): DanglingReference[] {
   const problems: DanglingReference[] = []
   const variables = new Set(Object.keys(workflow.variables ?? {}))
   const prompts = promptNames === undefined ? null : new Set(promptNames)
-  const steps: Array<Record<string, any>> = workflow.steps ?? []
+  const steps: WorkflowStep[] = workflow.steps ?? []
 
   steps.forEach((step, index) => {
     const earlier = earlierSteps(workflow, steps, index)
@@ -510,11 +508,11 @@ export function danglingReferenceDetails(
  * - `plainRefused`: the earlier for_each steps a plain `previous_result:`
  *   may not name from here (anywhere but a for_each over the same list). */
 export function forEachReferences(
-  workflow: Record<string, any>,
+  workflow: WorkflowDefinition,
   index: number,
 ): { suggestions: string[]; plainRefused: Set<string> } {
-  const steps: Array<Record<string, any>> = workflow.steps ?? []
-  const step = steps[index] ?? {}
+  const steps: WorkflowStep[] = workflow.steps ?? []
+  const step: Partial<WorkflowStep> = steps[index] ?? {}
   const own =
     FOR_EACH_KEY in step
       ? forEachEntries(workflow, step[FOR_EACH_KEY])

@@ -6,7 +6,8 @@
   // The gallery file's notes for the agent: one box per take that
   // published the file. A file a step-cache hit republished belongs to more
   // than one take, so the user says which first; a file no take of a
-  // request item published has no box
+  // request item published has no box. The page keys the aside by file, so
+  // the chosen take starts over with each one
   let {
     file,
     linkedJobs,
@@ -21,10 +22,6 @@
 
   const takes = $derived(linkedJobs.filter((job) => job.item))
   let chosen = $state('')
-  $effect(() => {
-    void file
-    chosen = ''
-  })
   const take = $derived(
     takes.length === 1
       ? takes[0]

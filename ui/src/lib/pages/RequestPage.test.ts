@@ -7,6 +7,7 @@ import {
   within,
 } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import RequestRoute from '../request/RequestRoute.svelte'
 import RequestPage from './RequestPage.svelte'
 import { workspace } from '../workspaceState.svelte'
 import { ACTIVE_MS, IDLE_MS } from '../request/refresh'
@@ -371,7 +372,7 @@ it('drops a request that lands after the page moved to another', async () => {
   api.getRequest.mockImplementationOnce(
     () => new Promise((resolve) => (land = resolve)) as never,
   )
-  const view = render(RequestPage, { requestId: 'r1' })
+  const view = render(RequestRoute, { requestId: 'r1' })
   data.request = { ...make(), id: 'r2', title: 'Second ask' }
   await view.rerender({ requestId: 'r2' })
   await screen.findByText('Second ask')
@@ -384,6 +385,10 @@ it('drops a request that lands after the page moved to another', async () => {
 // Only the interval is faked, so findBy/waitFor keep their own real timers
 const fakeInterval = () =>
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+
+/** Let the read that drew the page finish: until it has, a tick is owed to
+ * it rather than read at once (resource.svelte.ts) */
+const readSettled = () => new Promise((resolve) => setTimeout(resolve))
 
 /** The plan after the agent queued the first job of item b, at revision 4 */
 function queued(): LedgerRequest {
@@ -460,6 +465,7 @@ it('an open request refreshes on its interval and a closed one on the feed', asy
   data.request = { ...make(), state: 'open', revision: 5 }
   feed.move('studio', 'requests')
   await atRevision(5)
+  await readSettled()
   // open again, it is on its idle timer, and still on the feed
   calls = reads()
   vi.advanceTimersByTime(IDLE_MS)
@@ -469,6 +475,7 @@ it('an open request refreshes on its interval and a closed one on the feed', asy
   data.request = { ...queued(), revision: 6 }
   feed.move('studio', 'requests')
   await atRevision(6)
+  await readSettled()
   calls = reads()
   vi.advanceTimersByTime(ACTIVE_MS)
   expect(reads()).toBe(calls + 1)
@@ -552,7 +559,7 @@ it('a switch to another request marks against that request, never the one left',
   const first = make()
   first.revision = 6
   data.request = first
-  const view = render(RequestPage, { requestId: 'r1' })
+  const view = render(RequestRoute, { requestId: 'r1' })
   await atRevision(6)
   // another request, younger: its revision is below the one left
   const second = { ...make(), id: 'r2', title: 'Second ask', revision: 1 }
@@ -576,7 +583,7 @@ it('a switch to another request marks against that request, never the one left',
 
 it('a switch away from a request that failed shows the skeleton, not its failure', async () => {
   data.getError = { status: 404, message: 'no such request' }
-  const view = render(RequestPage, { requestId: 'gone' })
+  const view = render(RequestRoute, { requestId: 'gone' })
   await screen.findByText(/This request no longer exists/)
   data.getError = null
   let land: (reply: unknown) => void = () => {}
@@ -705,7 +712,7 @@ it('tells again for the same note id on another request, and never on its first 
   }
   const first = noted('b', 'more red', 3)
   data.request = first
-  const view = render(RequestPage, { requestId: 'r1' })
+  const view = render(RequestRoute, { requestId: 'r1' })
   await loaded()
   data.request = answerOf(first, 4, 'retook b')
   vi.advanceTimersByTime(IDLE_MS)

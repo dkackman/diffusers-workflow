@@ -512,8 +512,10 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   browser URL and the `claude mcp add` line (its token header only when a
   token is required) for a chosen address (on a loopback bind: built from
   the page's own address when it was reached through a reverse proxy or a
-  tunnel, with no rebind advice; read on the box itself, the command that
-  restarts it bound to the network, with a token, in their place), the
+  tunnel, with no rebind advice, only to keep the bind it has; read on the
+  box itself - which a plain `ssh -L` to `localhost` also looks like - the
+  command that restarts it bound to the network, with a token, in their
+  place, and `ssh -L` named as the safer way), the
   resolved directories, and the Caches panel (below) - then the queue and
   history across every workspace, with a workspace filter. A request filter
   there (`req=`) is read in one workspace - the one picked, else the current
@@ -1441,7 +1443,7 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
   body (no multipart). 200MB ceiling, checked from `Content-Length` before a
   byte is read and again on the body; the extension is held to the allowed
   image, video, audio and `.cube` list. Saved under the asset library's
-  `uploads/` - the shared library at `<root>/common/assets` when
+  `uploads/` - the shared asset library at `<root>/common/assets` when
   `shared=true`, else this workspace's own - with a generated name, or as
   `uploads/<asset_name>` (folders allowed, the file's extension assumed,
   confined the way `keep_output`'s name is). Answers 201 with `reference`
@@ -1572,7 +1574,8 @@ metadata and need no `acknowledged_cost`.
 etag in the `ETag` header too: a strong tag over the note's text, `""` for
 none. A PUT that sends `If-Match` with it writes only if the note is still
 that text, else answers 409 `stale_write` with the current `etag` and
-writes nothing, the way a workflow save does. The header is opt-in: without
+writes nothing, the way a workflow save does. `If-Match: *` always matches a
+note, since a note is never missing. The header is opt-in: without
 it a PUT is last-writer-wins, as MCP's `set_note` is.
 
 Notes are set at creation too:

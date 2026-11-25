@@ -14,11 +14,19 @@
     ATTENTION_BACKENDS,
     CACHE_TYPES,
     COMPONENT_SLOTS,
+    OPTION_KEYS,
     classDescription,
     isReference,
     emptyComponent,
-    setNumber,
+    optionsWith,
+    finiteNumber,
   } from '../editor'
+  import { setNumber } from './commit'
+  import type {
+    PipelineBlock,
+    PipelineComponent,
+    PipelineConfiguration,
+  } from '../types'
 
   // A pipeline step's optional blocks, each a <details> that opens on its
   // own when the step sets it or a compact digest line jumped to it
@@ -28,45 +36,40 @@
     openSection,
     references,
   }: {
-    pipeline: Record<string, any>
+    pipeline: PipelineBlock
     index: number
     openSection: string
     references: string[]
   } = $props()
 
-  const configuration = $derived(pipeline.configuration ?? {})
+  // What the fields read. A write that may be the block's first goes
+  // through writable(), so it lands on the pipeline, never on this stand-in
+  const configuration = $derived<PipelineConfiguration>(
+    pipeline.configuration ?? {},
+  )
+
+  function writable(): PipelineConfiguration {
+    pipeline.configuration ??= {}
+    return pipeline.configuration
+  }
 
   // ---- optional blocks: components, loras, scheduler, acceleration ----
 
-  // The pipeline's own option keys (schema $defs/pipeline); any other key
-  // whose value carries from_pretrained_arguments is a component the engine
-  // loads under that name
-  const OPTION_KEYS = new Set([
-    'configuration',
-    'shared_components',
-    'reused_components',
-    'scheduler',
-    'audio_scheduler',
-    'controlnet',
-    'loras',
-    'ip_adapter',
-    'from_pretrained_arguments',
-    'remote_text_encoder',
-    'seed',
-    'chain',
-    'arguments',
-  ])
+  // Any key outside COMPONENT_SLOTS and OPTION_KEYS whose value carries
+  // from_pretrained_arguments is a component the engine loads under that name
   const activeSlots = $derived.by(() => {
     if (!pipeline) return []
     const known: readonly string[] = COMPONENT_SLOTS
-    const extra = Object.keys(pipeline).filter(
-      (key) =>
-        !known.includes(key) &&
-        !OPTION_KEYS.has(key) &&
-        pipeline[key] !== null &&
-        typeof pipeline[key] === 'object' &&
-        'from_pretrained_arguments' in pipeline[key],
-    )
+    const extra = Object.entries(pipeline)
+      .filter(
+        ([key, value]) =>
+          !known.includes(key) &&
+          !(OPTION_KEYS as readonly string[]).includes(key) &&
+          value !== null &&
+          typeof value === 'object' &&
+          'from_pretrained_arguments' in value,
+      )
+      .map(([key]) => key)
     return [...known.filter((slot) => slot in pipeline), ...extra]
   })
   let addSlot = $state('')
@@ -89,6 +92,12 @@
     slotsFrom(
       classLookup.status === 'ready' ? (classLookup.data ?? null) : null,
     ),
+  )
+  // The class's own list is on its way: say so rather than offer the
+  // schema's, which the answer may then narrow
+  const slotsLoading = $derived(
+    !!pipeline?.configuration?.component_type &&
+      classLookup.status === 'loading',
   )
   const offeredSlots = $derived(
     (pipelineSlots ?? [...COMPONENT_SLOTS]).filter(
@@ -119,6 +128,7 @@
 
   function setSchedulerType(key: SchedulerKey, value: string) {
     const scheduler = pipeline[key]
+    if (!scheduler) return
     if (!value) {
       delete scheduler.configuration
     } else if (scheduler.configuration) {
@@ -130,20 +140,21 @@
   }
 
   function setShift(key: SchedulerKey, raw: string) {
+    const scheduler = pipeline[key]
+    if (!scheduler) return
     const value = raw.trim()
-    const parsed = Number(value)
-    if (!value) delete pipeline[key].shift
-    else pipeline[key].shift = Number.isNaN(parsed) ? value : parsed
+    if (!value) delete scheduler.shift
+    else scheduler.shift = finiteNumber(value) ?? value
   }
 
   function toggleCache(enabled: boolean) {
     if (enabled) {
-      configuration.cache = configuration.cache ?? {
+      writable().cache ??= {
         type: 'first_block',
         threshold: 0.1,
       }
     } else {
-      delete configuration.cache
+      delete pipeline.configuration?.cache
     }
   }
 
@@ -181,14 +192,24 @@
       {/if}
       <ComponentEditor
         {slot}
-        bind:component={pipeline[slot]}
+        bind:component={
+          () => pipeline[slot] as PipelineComponent,
+          (component) => (pipeline[slot] = component)
+        }
         suggestions={references}
         onremove={() => delete pipeline[slot]}
       />
     {/each}
     <div class="addrow">
-      <select bind:value={addSlot}>
-        <option value="">add component…</option>
+      <!-- The loading label is a block of its own: an attribute or a text
+           bound to the lookup would share the effect that sets each fold's
+           `open`, and its answer would shut a fold the person just opened -->
+      <select bind:value={addSlot} aria-label="component to add">
+        {#if slotsLoading}
+          <option value="">reading the pipeline…</option>
+        {:else}
+          <option value="">add component…</option>
+        {/if}
         {#each offeredSlots as slot (slot)}
           <option value={slot}>{slot}</option>
         {/each}
@@ -216,7 +237,7 @@
 </details>
 
 {#snippet schedulerFields(key: SchedulerKey)}
-  {@const scheduler = pipeline[key]}
+  {@const scheduler = pipeline[key] ?? {}}
   <label for={`${key}type-${index}`}>scheduler_type</label>
   <div>
     <Suggest
@@ -307,17 +328,28 @@
           }}
         />
       {:else if configuration.cache}
-        <select bind:value={configuration.cache.type}>
-          {#each CACHE_TYPES as cacheType (cacheType)}<option>
+        {@const cache = configuration.cache}
+        <!-- Not bound: a bound select writes its first option into an
+             absent type on mount, marking the document unsaved -->
+        <select
+          aria-label="cache type"
+          value={cache.type ?? ''}
+          onchange={(e) => (cache.type = e.currentTarget.value)}
+        >
+          {#if !cache.type}<option value="" disabled>choose a type</option>{/if}
+          {#each optionsWith(CACHE_TYPES, cache.type) as cacheType (cacheType)}<option
+            >
               {cacheType}
             </option>{/each}
         </select>
         <input
           class="num"
           placeholder="threshold"
-          value={configuration.cache.threshold ?? ''}
-          onchange={(e) =>
-            setNumber(configuration.cache, 'threshold', e.currentTarget.value)}
+          value={cache.threshold ?? ''}
+          onchange={(e) => {
+            const input = e.currentTarget
+            input.value = setNumber(cache, 'threshold', input.value)
+          }}
         />
       {/if}
     </div>
@@ -330,8 +362,8 @@
         value={current}
         onchange={(e) => {
           if (e.currentTarget.value)
-            configuration.attention_backend = e.currentTarget.value
-          else delete configuration.attention_backend
+            writable().attention_backend = e.currentTarget.value
+          else delete pipeline.configuration?.attention_backend
         }}
       >
         <option value="">pipeline default</option>
@@ -351,8 +383,8 @@
         value={configuration.attention_backend ?? ''}
         placeholder="pipeline default"
         onchange={(v) => {
-          if (v) configuration.attention_backend = v
-          else delete configuration.attention_backend
+          if (v) writable().attention_backend = v
+          else delete pipeline.configuration?.attention_backend
         }}
       />
     {/if}
@@ -364,8 +396,8 @@
       class="check"
       checked={!!configuration.prompt_weighting}
       onchange={(e) => {
-        if (e.currentTarget.checked) configuration.prompt_weighting = true
-        else delete configuration.prompt_weighting
+        if (e.currentTarget.checked) writable().prompt_weighting = true
+        else delete pipeline.configuration?.prompt_weighting
       }}
     />
   </div>

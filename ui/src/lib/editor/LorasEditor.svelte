@@ -1,13 +1,13 @@
 <script lang="ts">
-  import { setNumber } from '../editor'
+  import { setNumber } from './commit'
   import { catalogFor } from './loraCatalog'
   import { latestOnly } from '../latest'
   import { sleep } from '../poll'
   import { resource } from '../resource.svelte'
-  import type { LoraRow } from '../types'
+  import type { LoraEntry, LoraRow, PipelineBlock } from '../types'
   import { Plus, Trash2 } from '@lucide/svelte'
 
-  let { pipeline = $bindable() }: { pipeline: Record<string, any> } = $props()
+  let { pipeline = $bindable() }: { pipeline: PipelineBlock } = $props()
 
   const uid = $props.id()
   const loras = $derived(pipeline.loras ?? [])
@@ -51,14 +51,14 @@
 
   function isAdded(row: LoraRow) {
     return loras.some(
-      (lora: Record<string, any>) =>
+      (lora) =>
         lora.model_name === row.model_name &&
         (lora.weight_name ?? undefined) === (row.weight_name ?? undefined),
     )
   }
 
   function addFromCatalog(row: LoraRow) {
-    const item: Record<string, any> = { model_name: row.model_name }
+    const item: LoraEntry = { model_name: row.model_name }
     if (row.weight_name) item.weight_name = row.weight_name
     if (row.revision) item.revision = row.revision
     item.scale = row.scale?.default ?? 1.0
@@ -84,8 +84,8 @@
   }
 
   function remove(index: number) {
-    pipeline.loras.splice(index, 1)
-    if (pipeline.loras.length === 0) delete pipeline.loras
+    pipeline.loras?.splice(index, 1)
+    if (pipeline.loras?.length === 0) delete pipeline.loras
   }
 </script>
 
@@ -169,7 +169,10 @@
           class="scale"
           value={lora.scale ?? ''}
           placeholder="scale"
-          onchange={(e) => setNumber(lora, 'scale', e.currentTarget.value)}
+          onchange={(e) => {
+            const input = e.currentTarget
+            input.value = setNumber(lora, 'scale', input.value)
+          }}
         />
       </div>
       <button

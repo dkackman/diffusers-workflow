@@ -144,8 +144,8 @@
   // A section the person shut stays shut next time, except while a search is
   // on: a shut section hiding matches would make the search look broken
   // and per workspace and tab, since a library's names are its own
-  const shut = $derived(
-    collapsedState(`collapsed-media-picker:${workspace.current}:${tab}`),
+  const shut = collapsedState(
+    () => `collapsed-media-picker:${workspace.current}:${tab}`,
   )
   const closed = (key: string) => !query && shut.has(key)
   const searching = 'Showing every match while the search is on'
@@ -158,7 +158,7 @@
   }
 </script>
 
-<Modal bind:open label="choose a file" large>
+<Modal bind:open label="choose a file" size="large">
   <div class="head">
     <h2>Choose {kindWithArticle(kind)}</h2>
     <Segmented
@@ -168,7 +168,7 @@
         { value: 'assets', label: 'Assets' },
         { value: 'outputs', label: 'Earlier jobs' },
       ]}
-      onselect={(picked) => (tab = picked as typeof tab)}
+      onselect={(picked) => (tab = picked)}
     />
     <input
       class="search"
@@ -178,7 +178,7 @@
     />
   </div>
   {#if tab === 'outputs'}
-    <label class="latest muted">
+    <label class="latest">
       <input type="checkbox" bind:checked={followLatest} />
       <span>
         Follow the newest run that has the file (<code>latest</code>), not the

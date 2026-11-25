@@ -1,9 +1,10 @@
 <script lang="ts">
   import { AlertDialog } from 'bits-ui'
   import { confirmState, resolveChoice } from '../confirm.svelte'
-  import { holdLayer } from './layers.svelte'
+  import { holdLayer, portalTarget } from './layers.svelte'
 
   const uid = $props.id()
+  const portal = portalTarget(() => confirmState.open)
 
   $effect(() => {
     if (confirmState.open) return holdLayer()
@@ -42,7 +43,7 @@
     if (!open) resolveChoice(null)
   }}
 >
-  <AlertDialog.Portal>
+  <AlertDialog.Portal to={portal.to}>
     <AlertDialog.Overlay class="ui-overlay ui-ask" />
     <AlertDialog.Content
       class="ui-sheet panel ui-ask"

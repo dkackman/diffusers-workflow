@@ -15,6 +15,7 @@ import {
   planSaid,
   quoteLine,
   readyPlan,
+  staleReason,
 } from './runPlan'
 
 // cast done; s3 running; s4 and title ready; s5 waits on s4; cut waits on
@@ -62,6 +63,7 @@ it('runs what is ready, in plan order, with what each job would run', () => {
       title: 'Shot 4',
       workflow: 'shot',
       arguments: { seed: 4 },
+      jobs: [],
       planMinutes: 6,
     },
     {
@@ -69,6 +71,7 @@ it('runs what is ready, in plan order, with what each job would run', () => {
       title: 'Title card',
       workflow: 'card',
       arguments: {},
+      jobs: [],
       planMinutes: null,
     },
   ])
@@ -331,4 +334,41 @@ it('one revised item runs a new take, and says what stands meanwhile', () => {
   expect(run.retake).toBe(
     'Take 1 stays the accepted result until you accept another.',
   )
+})
+
+it('says why a row offered earlier no longer matches the plan', () => {
+  const before = item('a', { ready: true, arguments: { seed: 1, size: 2 } })
+  const offered = readyPlan(planState(request([before]))).candidates[0]
+  const now = (over: Parameters<typeof item>[1]) =>
+    staleReason(offered, planState(request([{ ...before, ...over }])))
+
+  expect(now({})).toBeNull()
+  // the same arguments written in another order are the same arguments
+  expect(now({ arguments: { size: 2, seed: 1 } })).toBeNull()
+  expect(staleReason(offered, planState(request([])))).toBe(
+    'It is no longer in the plan.',
+  )
+  expect(now({ dropped: true, status: 'dropped' })).toBe(
+    'It was dropped from the plan.',
+  )
+  for (const status of ['queued', 'running', 'succeeded', 'failed'] as const)
+    expect(now({ attempts: [attempt('new', status)] })).toBe(
+      'A job was queued for it after this opened.',
+    )
+  expect(now({ arguments: { seed: 2, size: 2 } })).toMatch(/arguments changed/)
+  expect(now({ workflow: 'other' })).toMatch(/workflow or arguments changed/)
+  expect(now({ ready: false, depends_on: ['gone'] })).toBe(
+    'It can no longer be run: waits on gone (dropped).',
+  )
+})
+
+it('keeps another take and a retry offered while only their own past jobs stand', () => {
+  const state = planState(
+    request([
+      doneItem('d'),
+      item('f', { status: 'failed', attempts: [attempt('jf', 'failed')] }),
+    ]),
+  )
+  for (const key of ['d', 'f'])
+    expect(staleReason(itemPlan(state, key).candidates[0], state)).toBeNull()
 })

@@ -56,7 +56,10 @@ function props(
 const chip = (container: HTMLElement) => container.querySelector('.row .chip')
 const title = (name: string) => screen.getByRole('button', { name })
 const image = { name: 'shot/a.png', kind: 'image' as const }
-const withOutput = (key: string, output: typeof image | null) =>
+const withOutput = (
+  key: string,
+  output: { name: string; kind: 'image' | 'video' | 'audio' } | null,
+) =>
   doneItem(key, {
     title: 'Opening shot',
     attempts: [attempt(`job-${key}`, 'succeeded', { output })],
@@ -84,14 +87,11 @@ it('a done item shows its result as the proof, linked to the job', () => {
 
 it('marks a video proof as one, and stands a sound by a glyph', () => {
   const video = { name: 'shot/clip.mp4', kind: 'video' as const }
-  const view = render(RequestItem, props([withOutput('a', video as never)]))
+  const view = render(RequestItem, props([withOutput('a', video)]))
   expect(view.container.querySelector('.proofcell .videobadge')).toBeTruthy()
   cleanup()
   const sound = { name: 'shot/a.wav', kind: 'audio' as const }
-  const { container } = render(
-    RequestItem,
-    props([withOutput('a', sound as never)]),
-  )
+  const { container } = render(RequestItem, props([withOutput('a', sound)]))
   expect(container.querySelector('.proofcell img')).toBeNull()
   expect(
     container.querySelector('.proofcell .tile-glyph')?.textContent?.trim(),
@@ -728,8 +728,14 @@ it('Compare takes opens the newest four', () => {
 })
 
 it('a take with no file stays a slot and does not open', () => {
-  render(RequestItem, props([filedTakes()]))
+  const { container } = render(RequestItem, props([filedTakes()]))
   expect(screen.queryByRole('button', { name: 'take 2 of Shot 3' })).toBeNull()
+  // The slot is the link to its job and nothing else: nothing in it opens
+  const second = container.querySelectorAll('ul.strip > li')[1]
+  const slot = second.querySelector('.slot')!
+  expect(slot.getAttribute('href')).toBe('#/ws/studio/jobs/j2')
+  expect(slot.querySelector('button, a')).toBeNull()
+  expect(second.querySelector('.tilewrap')).toBeNull()
   expect(
     screen.getAllByRole('button', { name: /^take \d of Shot 3$/ }),
   ).toHaveLength(2)
@@ -845,4 +851,19 @@ it('the bound references of a new note outlive a read', async () => {
     .getByRole('list', { name: 'What the note is about' })
     .querySelectorAll('.ref')
   expect([...chips].map((c) => c.textContent)).toEqual(['take 1', 'take 2'])
+})
+
+it('the reason line is one clamped line that carries its full text', () => {
+  const { container } = render(
+    RequestItem,
+    props([
+      item('a', {
+        title: 'Opening shot',
+        status: 'failed',
+        attempts: [attempt('j', 'failed', { reason: 'x'.repeat(300) })],
+      }),
+    ]),
+  )
+  const why = container.querySelector('.why')
+  expect(why?.getAttribute('title')).toBe(`Take 1 failed: ${'x'.repeat(300)}`)
 })

@@ -8,6 +8,10 @@ from dw.introspection import (
 )
 from dw.argument_warnings import workflow_argument_warnings
 
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
 
 
@@ -414,3 +418,55 @@ def test_match_levels_pairing_warnings_resolve_variable_references():
         dbfs["variables"]["meas"] = None
         unset = workflow_argument_warnings(dbfs, {})
         assert len(unset) == 1 and "has no effect" in unset[0]
+
+
+# Describe and validate as the server's request threads run them: at once, in a
+# process that has imported no pipeline yet (#1640)
+CONCURRENT_FIRST_IMPORTS = """
+import sys, threading
+import dw
+from dw.introspection import describe_class, load_allowed_class
+from dw.workflow import workflow_from_file
+
+def validate():
+    workflow_from_file("workflows/models/flux-dev.json", sys.argv[1]).validate()
+
+calls = [
+    lambda: describe_class("FluxPipeline", "init"),
+    lambda: describe_class("FluxPipeline", "call"),
+    validate,
+] + [
+    lambda name=name: load_allowed_class(name)
+    for name in ("ZImagePipeline", "LTX2Pipeline", "StableDiffusionXLPipeline")
+]
+failures = []
+start = threading.Barrier(len(calls))
+
+def run(call):
+    start.wait()
+    try:
+        call()
+    except Exception as error:
+        failures.append(f"{type(error).__name__}: {error}")
+
+threads = [threading.Thread(target=run, args=(call,), daemon=True) for call in calls]
+for thread in threads:
+    thread.start()
+for thread in threads:
+    thread.join(90)
+if any(thread.is_alive() for thread in threads):
+    failures.append("a thread never finished")
+sys.exit("\\n".join(failures) or 0)
+"""
+
+
+def test_concurrent_first_imports_finish(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        [sys.executable, "-c", CONCURRENT_FIRST_IMPORTS, str(tmp_path)],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stderr[-3000:]

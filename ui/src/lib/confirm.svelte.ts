@@ -51,11 +51,13 @@ type Pending = {
 
 const queue: Pending[] = []
 
-/** The message up to its first sentence end: `. `, `! ` or `? ` before a
- * capital letter, or a newline. A filename's dot does not end it. */
+/** The message up to its first sentence end: `. `, `! ` or `? `, whatever
+ * case follows (a file's name may start the next sentence), or a newline.
+ * A filename's dot, with no space after it, and `e.g.`, `i.e.` or `vs.` do
+ * not end it. */
 function firstSentence(message: string): string {
   const text = message.trim()
-  const end = text.search(/[.!?](?=\s+\p{Lu})|\n/u)
+  const end = text.search(/(?<!\b(?:e\.g|i\.e|vs))[.!?](?=\s)|\n/u)
   if (end < 0) return text
   return text.slice(0, text[end] === '\n' ? end : end + 1).trim() || text
 }
@@ -158,4 +160,22 @@ export function resolveChoice(value: string | null): void {
   const next = queue[0]
   if (next) show(next)
   else confirmState.open = false
+}
+
+/** An action for a host element that must stay visible (the toaster):
+ * it moves into the full-screen element while one shows, and back where it
+ * was when full screen ends. */
+export function followFullscreen(node: HTMLElement) {
+  const home = node.parentElement
+  const sync = () => {
+    const target = document.fullscreenElement ?? home
+    if (target && node.parentElement !== target) target.appendChild(node)
+  }
+  document.addEventListener('fullscreenchange', sync)
+  sync()
+  return {
+    destroy() {
+      document.removeEventListener('fullscreenchange', sync)
+    },
+  }
 }

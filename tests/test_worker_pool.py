@@ -1441,9 +1441,10 @@ class TestHostRamGate:
         deadline = time.time() + 5
         while queued.waiting_for is None and time.time() < deadline:
             time.sleep(0.05)
-        assert "behind 2 running job(s)" in queued.waiting_for
+        assert "behind 2 running jobs on every card" in queued.waiting_for
         assert "cuda:0" in queued.waiting_for and "cuda:1" in queued.waiting_for
         assert "0 queued job(s) ahead" in queued.waiting_for
+        assert "cuda:0, 0 min in" in queued.waiting_for
         deadline = time.time() + 5
         while behind.waiting_for is None and time.time() < deadline:
             time.sleep(0.05)

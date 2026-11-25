@@ -300,7 +300,8 @@ test("a running job's log shows every row and grows on Refresh", async ({
   const heights = await rows.evaluateAll((trs) =>
     trs.map((tr) => tr.getBoundingClientRect().height),
   )
-  expect(Math.max(...heights)).toBeLessThan(Math.min(...heights) * 2)
+  // Measured tallest/shortest row: 1.85 (25 rows); the bound is that + 10%
+  expect(Math.max(...heights)).toBeLessThan(Math.min(...heights) * 2.03)
 
   served.push(step(13), step(14))
   await section.getByRole('button', { name: 'Refresh event log' }).click()

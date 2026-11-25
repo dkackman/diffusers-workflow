@@ -1,3 +1,4 @@
+import functools
 import importlib
 import inspect
 import threading
@@ -18,12 +19,26 @@ NON_TYPE_KEYS = {"content_type", "offload_type"}
 
 # diffusers resolves its classes lazily, importing peft and friends on first
 # touch. Two threads doing that at once hit a circular-import / module-lock
-# deadlock (validate_workflow calls run in parallel), so resolution is serialized
-_IMPORT_LOCK = threading.RLock()
+# deadlock, and the server answers describe and validate requests in parallel
+# (#787, #1640). One reentrant lock for all of them: a second one would not
+# exclude the first
+IMPORT_LOCK = threading.RLock()
+
+
+def one_import_at_a_time(function):
+    """Run `function` under IMPORT_LOCK: for an entry point a server thread
+    calls that may import a model library for the first time."""
+
+    @functools.wraps(function)
+    def locked(*args, **kwargs):
+        with IMPORT_LOCK:
+            return function(*args, **kwargs)
+
+    return locked
 
 
 def get_type(module_name, type_name):
-    with _IMPORT_LOCK:
+    with IMPORT_LOCK:
         module = __import__(module_name)
         return getattr(module, type_name)
 
@@ -125,7 +140,7 @@ def load_type_from_full_name(full_name, key=None, constructed=True):
     module_path, object_name = full_name.rsplit(".", 1)
 
     # Dynamically import the module
-    with _IMPORT_LOCK:
+    with IMPORT_LOCK:
         module = importlib.import_module(module_path)
         value = getattr(module, object_name)
 

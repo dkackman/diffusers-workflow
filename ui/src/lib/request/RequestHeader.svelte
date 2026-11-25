@@ -80,7 +80,7 @@
   const channel = $derived(listening(workspace))
   const hold = $derived(holdGroup(plan.held))
   const counting = $derived(
-    plan.held.some((r) => r.review?.state === 'holding'),
+    plan.live.some((r) => r.review?.state === 'holding'),
   )
   $effect(() => {
     if (counting && countdown) return countdown.hold()
@@ -206,6 +206,7 @@
      face the engine's names take */
   .reqhead :global(h1) {
     font-family: var(--font-sans);
+    font-weight: 600;
     letter-spacing: 0;
     line-height: 1.2;
     overflow-wrap: anywhere;

@@ -544,6 +544,13 @@ def test_configures_filters_to_a_templates_configs():
     assert set(project_listing(LISTING, configures="templates/tti")) == {"models/flux"}
 
 
+def test_compact_honours_inputs_when_asked():
+    listing = {"a": {**entry("image"), "inputs": {"image": "image"}}}
+    assert "inputs" not in project_listing(listing, view="compact")["a"]
+    asked = project_listing(listing, view="compact", inputs=True)
+    assert asked["a"]["inputs"] == {"image": "image"}
+
+
 def test_compact_drops_prose_and_model_configs_and_keeps_user_workflows():
     compact = project_listing(LISTING, view="compact")
     assert set(compact) == {"templates/tti", "templates/talk", "templates/clip", "mine"}

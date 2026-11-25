@@ -106,3 +106,13 @@ it('one read bringing two agent writes lists them all under the newer', () => {
     'Changed Opening shot: its arguments (seed)',
   ])
 })
+
+it('keeps the 50 newest seen-snapshots and drops the oldest', async () => {
+  const { readSnapshot, writeSnapshot, SEEN_KEPT } = await import('./planDiff')
+  const snap = snapshotOf(request([item('a')]))
+  for (let i = 0; i < SEEN_KEPT + 3; i++) writeSnapshot('ws', `r${i}`, snap)
+  expect(readSnapshot('ws', 'r0')).toBeNull()
+  expect(readSnapshot('ws', 'r2')).toBeNull()
+  expect(readSnapshot('ws', 'r3')).not.toBeNull()
+  expect(readSnapshot('ws', `r${SEEN_KEPT + 2}`)).not.toBeNull()
+})

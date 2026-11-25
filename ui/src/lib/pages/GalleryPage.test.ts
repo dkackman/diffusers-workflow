@@ -18,6 +18,8 @@ import type { GalleryFile } from '../types'
 import { DEFAULT_WORKSPACE, workspace } from '../workspace.svelte'
 import { api } from '../test/apiMock'
 import { feed } from '../test/feedMock'
+import { CLOCK_TICK_MS } from '../clock.svelte'
+import { outputLibrary } from '../outputlib.svelte'
 
 const file = (
   name: string,
@@ -385,11 +387,17 @@ it('a listing that began before a star cannot undo it', async () => {
     () => new Promise<{ files: GalleryFile[] }>((resolve) => (land = resolve)),
   )
   feed.move(DEFAULT_WORKSPACE, 'gallery')
+  const before = listing.files
   await fireEvent.click(
     screen.getByRole('button', { name: 'Star', pressed: false }),
   )
   await waitFor(() => expect(starMark('a.png')).toBeTruthy())
-  land({ files: listing.files })
+  // The server carries the star from here on
+  listing.files = listing.files.map((f) =>
+    f.name === 'a.png' ? { ...f, starred: true } : f,
+  )
+  land({ files: before })
+  await waitFor(() => expect(gallery).toHaveBeenCalledTimes(3))
   await settle()
   expect(starMark('a.png')).toBeTruthy()
 })
@@ -663,6 +671,9 @@ it('leaves the viewer open when Escape answers a confirm dialog', async () => {
   await renderGallery()
   await openFile('a.png')
 
+  expect(screen.getByLabelText('Delete').classList.contains('danger')).toBe(
+    true,
+  )
   screen.getByLabelText('Delete').click()
   await waitFor(() => expect(screen.getByRole('alertdialog')).toBeTruthy())
 
@@ -894,21 +905,22 @@ it("the user's own star is not marked as another writer's change", async () => {
     () => new Promise<{ files: GalleryFile[] }>((resolve) => (land = resolve)),
   )
   feed.move(DEFAULT_WORKSPACE, 'gallery')
+  const before = listing.files
   await fireEvent.click(
     screen.getByRole('button', { name: 'Star', pressed: false }),
   )
   await waitFor(() => expect(starMark('a.png')).toBeTruthy())
-  land({ files: listing.files })
+  // the server carries the star from here on
+  listing.files = listing.files.map((f) =>
+    f.name === 'a.png' ? { ...f, starred: true } : f,
+  )
+  land({ files: before })
+  await waitFor(() => expect(gallery).toHaveBeenCalledTimes(3))
   await settle()
   expect(marked('a.png')).toBe(false)
-  // the star's own move of the feed: the server now says starred, and
-  // someone else retitled b
+  // the star's own move of the feed, and someone else retitled b
   listing.files = listing.files.map((f) =>
-    f.name === 'a.png'
-      ? { ...f, starred: true }
-      : f.name === 'b.png'
-        ? { ...f, label: 'b, retitled' }
-        : f,
+    f.name === 'b.png' ? { ...f, label: 'b, retitled' } : f,
   )
   feed.move(DEFAULT_WORKSPACE, 'gallery')
   await waitFor(() => expect(marked('b.png')).toBe(true))
@@ -1123,6 +1135,36 @@ it('hides the picker when the workspace has no requests', async () => {
   expect(screen.queryByLabelText('filter by request')).toBeNull()
 })
 
+// A call, so a type narrowed by an earlier assignment does not stick
+const libraryNames = () => outputLibrary.items?.map((f) => f.name)
+
+it("leaves the editors' output library whole under a request filter", async () => {
+  outputLibrary.items = undefined
+  outputLibrary.workspace = undefined
+  location.hash = '#/ws/default/gallery?req=r1'
+  const everything = listing.files
+  listing.files = [file('only.png')]
+  await renderGallery('only.png')
+  await new Promise((r) => setTimeout(r, 10))
+  // Nothing held, so the library's own first use still fetches the lot
+  expect(outputLibrary.items).toBeUndefined()
+  expect(outputLibrary.workspace).toBeUndefined()
+
+  listing.files = everything
+  await fireEvent.click(screen.getByLabelText('remove the request filter'))
+  await waitFor(() =>
+    expect(libraryNames()).toEqual(everything.map((f) => f.name)),
+  )
+
+  // Narrowing again keeps the whole listing it was given
+  listing.files = [file('only.png')]
+  await fireEvent.change(await screen.findByLabelText('filter by request'), {
+    target: { value: 'r1' },
+  })
+  await waitFor(() => expect(screen.getByLabelText('select only.png')))
+  expect(libraryNames()).toEqual(everything.map((f) => f.name))
+})
+
 it('drops an unfiltered listing that lands after the filtered one', async () => {
   let land: (reply: { files: GalleryFile[] }) => void = () => {}
   gallery.mockImplementationOnce(
@@ -1219,6 +1261,24 @@ it('a double click deletes once', async () => {
   await waitFor(() => expect(api.deleteOutput).toHaveBeenCalledWith('a.png'))
   await settle()
   expect(api.deleteOutput).toHaveBeenCalledTimes(1)
+  expect(screen.queryByRole('alertdialog')).toBeNull()
+})
+
+it('a double press deletes the picked once', async () => {
+  await renderGallery()
+  checkbox('a.png').click()
+  checkbox('b.png').click()
+  await waitFor(() => expect(screen.getByText('2 selected')).toBeTruthy())
+  const button = screen.getByRole('button', { name: /^delete the selected/i })
+  button.click()
+  button.click()
+  await answerConfirm(true)
+  await waitFor(() => expect(api.deleteOutput).toHaveBeenCalled())
+  await settle()
+  expect(api.deleteOutput.mock.calls.map((c) => c[0]).sort()).toEqual([
+    'a.png',
+    'b.png',
+  ])
   expect(screen.queryByRole('alertdialog')).toBeNull()
 })
 
@@ -1612,7 +1672,7 @@ it("disables an image's Assess and says why", async () => {
   await renderGallery()
   await openFile('a.png')
   const button = screen.getByRole('button', { name: 'Assess' })
-  expect((button as HTMLButtonElement).disabled).toBe(true)
+  expect(button.getAttribute('aria-disabled')).toBe('true')
   expect(button.getAttribute('title')).toBe(
     'a still has no shots, seams or soundtrack to measure',
   )
@@ -1648,7 +1708,7 @@ it('shows Assessing… while the request runs', async () => {
   await openFile('demo/clip.mp4')
   await fireEvent.click(screen.getByRole('button', { name: 'Assess' }))
   const busy = await screen.findByRole('button', { name: /Assessing/ })
-  expect((busy as HTMLButtonElement).disabled).toBe(true)
+  expect(busy.getAttribute('aria-disabled')).toBe('true')
 })
 
 it('a failed Assess keeps the earlier list and says why in plain words', async () => {
@@ -1740,6 +1800,25 @@ it('the count says n of m while filtered', async () => {
     target: { value: 'demo' },
   })
   await waitFor(() => expect(count()).toBe('1 of 3 files'))
+})
+
+it('the date headings move on once midnight passes', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  try {
+    vi.setSystemTime(new Date(2026, 4, 3, 23, 59, 50))
+    listing.files = [{ ...file('b.png'), mtime: Date.now() / 1000 }]
+    await hashEvent(() => (location.hash = '#/ws/default/gallery?group=date'))
+    await renderGallery('b.png')
+    const headings = () =>
+      [...document.querySelectorAll('button.group')].map((b) =>
+        b.textContent?.trim(),
+      )
+    expect(headings()).toEqual(['Today (1)'])
+    await vi.advanceTimersByTimeAsync(CLOCK_TICK_MS)
+    await waitFor(() => expect(headings()).toEqual(['Yesterday (1)']))
+  } finally {
+    vi.useRealTimers()
+  }
 })
 
 it('sort and group survive Back', async () => {
@@ -1952,4 +2031,23 @@ it('GalleryPage says when each output changed', async () => {
     .querySelector('.tile-meta time')!
   expect(stamp.textContent?.trim()).toBe('changed 10 min ago')
   expect(stamp.getAttribute('title')).toBeTruthy()
+})
+
+it('S on the next file writes while the last write is in flight', async () => {
+  let land = () => {}
+  api.setStarred.mockImplementationOnce(
+    () => new Promise((resolve) => (land = () => resolve(undefined as never))),
+  )
+  await renderGallery()
+  await openFile('a.png')
+  await press({ key: 's' })
+  // a second press on the same file is still dropped
+  await press({ key: 's' })
+  expect(api.setStarred).toHaveBeenCalledTimes(1)
+  await press({ key: 'ArrowRight' })
+  await viewer('b.png')
+  await press({ key: 's' })
+  expect(api.setStarred).toHaveBeenLastCalledWith('b.png', true)
+  expect(api.setStarred).toHaveBeenCalledTimes(2)
+  land()
 })

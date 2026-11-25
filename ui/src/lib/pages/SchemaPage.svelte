@@ -14,6 +14,24 @@
   })
   const schema = $derived(read.data ?? null)
 
+  // The raw JSON link is the schema already read, as a blob: a plain link to
+  // /api/schema carries no Authorization header, so a server with a token
+  // refuses it
+  let raw = $state('')
+  $effect(() => {
+    if (!schema) return
+    const url = URL.createObjectURL(
+      new Blob([JSON.stringify(schema, null, 2)], {
+        type: 'application/json',
+      }),
+    )
+    raw = url
+    return () => {
+      raw = ''
+      URL.revokeObjectURL(url)
+    }
+  })
+
   const definitions = $derived(
     Object.entries(schema?.$defs ?? {}) as [string, SchemaValue][],
   )
@@ -25,14 +43,14 @@
 </script>
 
 <PageHeader title="Schema">
-  {#snippet actions()}<a
-      class="muted"
-      href="/api/schema"
-      target="_blank"
-      rel="noopener"
-    >
-      raw JSON
-    </a>{/snippet}
+  {#snippet actions()}{#if raw}<a
+        class="muted"
+        href={raw}
+        target="_blank"
+        rel="noopener"
+      >
+        raw JSON
+      </a>{/if}{/snippet}
 </PageHeader>
 
 <LoadState of={read} label="the schema" />

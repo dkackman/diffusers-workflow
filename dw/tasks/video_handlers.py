@@ -32,6 +32,7 @@ from ..task_problems import (
     FACE_SELECT_CHOICES,
     INGREDIENTS_FITS,
     INGREDIENTS_LAYOUTS,
+    export_timeline_errors,
     face_drift_errors,
     face_track_errors,
     ingredients_grid_errors,
@@ -96,12 +97,13 @@ def _handle_dissolve_videos(task, arguments, previous_pipelines):
         "bundle (DaVinci Resolve 18.5+), one clip per shot."
     ),
     parameter_descriptions={
-        "video": "The joined video - an asset:/output: reference or a path to a stored file.",
-        "sources": "One file per shot, in order, for each clip to point at its own file; default the shots' spans of video.",
+        "video": "The joined video - an asset:/output: reference or a path to a stored file, never previous_result: (export in a second job).",
+        "sources": "One stored file per shot, in order, for each clip to point at its own file (not previous_result:); default the shots' spans of video.",
         "shots": "Shot records; else the video's own from the run manifest, else the whole file is one clip.",
         "name": "The timeline's name.",
     },
     media_arguments=("sources",),
+    static_check=export_timeline_errors,
     result_content_type="application/x-otioz",
 )
 def _handle_export_timeline(task, arguments, previous_pipelines):

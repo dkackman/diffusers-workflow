@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -18,8 +18,14 @@ function e2ePython(): string {
 }
 
 /** The fixture's scratch directory, made here once (workers re-read this
- * file, and inherit the variable) so a spec can reach what the fixture seeds. */
-process.env.DW_E2E_SCRATCH ??= mkdtempSync(join(tmpdir(), 'dw-e2e-'))
+ * file, and inherit the variable) so a spec can reach what the fixture seeds.
+ * The process that made it removes it on exit, after the fixture server has
+ * stopped; one the caller named is left alone. */
+if (!process.env.DW_E2E_SCRATCH) {
+  const scratch = mkdtempSync(join(tmpdir(), 'dw-e2e-'))
+  process.env.DW_E2E_SCRATCH = scratch
+  process.on('exit', () => rmSync(scratch, { recursive: true, force: true }))
+}
 
 /** E2E smoke: real server, real browser, no GPU jobs. The server runs
  * against a scratch copy of the example workflows and prompts (see
@@ -29,13 +35,9 @@ export default defineConfig({
   testDir: './e2e',
   timeout: 30_000,
   retries: 0,
-  // Serialized on purpose: the fixture server's first-time import of a
-  // diffusers pipeline module is not concurrency-safe (CPython import-lock
-  // deadlock) - two specs hitting introspection/validation/save at once
-  // (e.g. an editor page load racing another editor page's save) can wedge
-  // the server. A real fix belongs in the engine, not the test config; this
-  // is a recorded follow-up. Until then the suite runs on one worker so the
-  // gate is deterministic.
+  // Serialized on purpose: the specs share one fixture server and write to
+  // its scratch workspace. The first-import deadlock that also forced this
+  // (#1603) is fixed in the server (one import lock, dw/type_helpers.py, #1640)
   workers: 1,
   use: {
     baseURL: 'http://127.0.0.1:8971',

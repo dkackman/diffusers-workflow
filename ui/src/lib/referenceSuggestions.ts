@@ -2,10 +2,11 @@
 // makes that nothing declares.
 import { danglingReferenceDetails, forEachReferences } from './flow'
 import { PREVIOUS_RESULT, PROMPT, VARIABLE, reference } from './references'
+import type { WorkflowDefinition, WorkflowStep } from './types'
 
 /** `previous_result:` for a step, plus the `.frames` and `.audio` of a
  * video result. */
-function resultReferences(step: Record<string, any>): string[] {
+function resultReferences(step: WorkflowStep): string[] {
   const own = reference(PREVIOUS_RESULT, step.name)
   return (step.result?.content_type ?? '').startsWith('video')
     ? [own, `${own}.frames`, `${own}.audio`]
@@ -20,7 +21,7 @@ function resultReferences(step: Record<string, any>): string[] {
  * step is offered by plain name only where the engine allows it: from a
  * for_each over the same list. */
 export function referenceSuggestions(
-  workflow: Record<string, any>,
+  workflow: WorkflowDefinition,
   stepIndex: number,
   promptNames: string[] = [],
 ): string[] {
@@ -32,7 +33,7 @@ export function referenceSuggestions(
     suggestions.push(reference(PROMPT, name))
   }
   const forEach = forEachReferences(workflow, stepIndex)
-  const steps: Array<Record<string, any>> = workflow.steps ?? []
+  const steps = workflow.steps ?? []
   for (const step of steps.slice(0, Math.max(0, stepIndex))) {
     if (step.name && !forEach.plainRefused.has(step.name))
       suggestions.push(...resultReferences(step))
@@ -47,7 +48,7 @@ export function referenceSuggestions(
  * names it does not hold. The engine would fail these at run time; the
  * editor says so now. */
 export function danglingReferences(
-  workflow: Record<string, any>,
+  workflow: WorkflowDefinition,
   promptNames?: string[],
 ): string[] {
   return danglingReferenceDetails(workflow, promptNames).map((d) => d.message)

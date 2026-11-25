@@ -19,7 +19,7 @@ const form = createRawSnippet(() => ({
 }))
 
 const COPY =
-  "The JSON editor couldn't load. Reload the page to get the current version."
+  "The JSON editor couldn't load. Reload the page; if that doesn't help, check that the server is running."
 
 describe('JsonEditor without Monaco', () => {
   it('a JSON editor that cannot load Monaco says so', async () => {

@@ -28,17 +28,19 @@ vi.mock('./changes.svelte', async () => ({
 
 const KEY = 'test-editor-view'
 
+type Shell = DocumentEditor<{ text?: string }>
+
 function mount(
   views: readonly EditorView[] = ['form', 'split', 'json'],
   legacyView?: () => EditorView | null,
-): DocumentEditor {
-  let shell: DocumentEditor | undefined
+): Shell {
+  let shell: Shell | undefined
   render(EditorShellHarness, {
     viewKey: KEY,
     views,
     legacyView,
     label: () => 'portraits/hero',
-    onready: (s: DocumentEditor) => (shell = s),
+    onready: (s: Shell) => (shell = s),
   })
   flushSync()
   return shell!
@@ -264,7 +266,7 @@ it('removes its leave guard when the component is destroyed', () => {
 
 /** A field inside the editor's root that commits on change, as the form
  * view's fields do, focused with `typed` in it and no blur yet. */
-function typedField(shell: DocumentEditor, typed: string) {
+function typedField(shell: Shell, typed: string) {
   const root = document.createElement('div')
   const field = document.createElement('input')
   field.addEventListener('change', () => (shell.doc.text = field.value))
@@ -419,8 +421,8 @@ it('a JSON draft that does not parse is guarded on leave and on tab close', asyn
 })
 
 it.each([
-  ['load', (shell: DocumentEditor) => shell.load({ text: 'b' })],
-  ['startNew', (shell: DocumentEditor) => shell.startNew({ text: 'b' })],
+  ['load', (shell: Shell) => shell.load({ text: 'b' })],
+  ['startNew', (shell: Shell) => shell.startNew({ text: 'b' })],
 ])("%s drops the last document's broken JSON draft", (_, open) => {
   const shell = mount()
   shell.load({ text: 'a' })
@@ -443,13 +445,13 @@ describe('watchRemote', () => {
 
   /** An editor watching `prompts`, opened on 'hero' at "e1" */
   function watching(read: () => Promise<Read>) {
-    let shell: DocumentEditor | undefined
+    let shell: Shell | undefined
     render(EditorShellHarness, {
       viewKey: KEY,
       views: ['form', 'json'],
       label: () => 'hero',
       remote: { kind: 'prompts', read },
-      onready: (s: DocumentEditor) => (shell = s),
+      onready: (s: Shell) => (shell = s),
     })
     flushSync()
     shell!.load({ text: 'mine' }, { etag: '"e1"', path: 'hero' })
@@ -845,4 +847,19 @@ describe('editorKeys', () => {
       expect(e.defaultPrevented).toBe(false)
     expect(save).not.toHaveBeenCalled()
   })
+})
+
+it('a tab close over a broken JSON draft raises no toast', () => {
+  const shell = mount()
+  shell.load({ text: 'a' })
+  flushSync()
+  // as the JSON editor does: its flusher applies the draft it holds
+  shell.registerFlush(({ quiet } = {}) =>
+    shell.applyJson('{ broken', { quiet }),
+  )
+  vi.mocked(notify.error).mockClear()
+  const event = new Event('beforeunload', { cancelable: true })
+  window.dispatchEvent(event)
+  expect(event.defaultPrevented).toBe(true)
+  expect(notify.error).not.toHaveBeenCalled()
 })

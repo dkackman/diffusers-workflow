@@ -114,6 +114,15 @@ it('the poll asks for live jobs and the newest finished page', async () => {
   expect(listed.length - from).toBe(2)
 })
 
+it('the two reads go out together', async () => {
+  served.jobs = []
+  const from = listed.length
+  const run = listWithPrompts('', none, new Map(), 50)
+  // both are asked before either answer is awaited
+  expect(listed.length - from).toBe(2)
+  await run
+})
+
 it('a running job older than the page is listed', async () => {
   served.jobs = [
     job('old-run', 'running', 1),
@@ -131,7 +140,7 @@ it('a job in both answers is listed once, oldest first', () => {
   )
   expect(merged.jobs.map((j) => [j.id, j.status])).toEqual([
     ['b', 'succeeded'],
-    ['a', 'running'],
+    ['a', 'succeeded'],
   ])
 })
 

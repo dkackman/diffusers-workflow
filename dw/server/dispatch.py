@@ -13,9 +13,11 @@ is here as well: the warm idle ones a held job asked released
 starts (`_rank_for_oom`, #881).
 """
 
+import functools
 import logging
 import time
 
+from ..devices import device_ordinal
 from ..host_memory import (
     HostClaims,
     committed_rss_mb,
@@ -37,6 +39,32 @@ HOST_RAM_RECHECK_SECONDS = 10.0
 # the gap to a stale projection starves every queued job on an otherwise idle
 # card (#1357)
 HOST_RAM_SETTLED_SECONDS = 900.0
+
+
+def _gpu_busy_message(running, ahead, now=None):
+    """The `waiting_for` text of a job queued with no card free. `running` is
+    [(device, started_at)], one per busy card; the minutes are measured at
+    `now`, so a read after the pass is current (#1618)."""
+    now = time.time() if now is None else now
+
+    def card(device, started):
+        if started is None:
+            return device
+        return f"{device}, {max(0, int((now - started) // 60))} min in"
+
+    if len(running) == 1:
+        behind = f"the running job on {card(*running[0])}"
+    else:
+        behind = (
+            f"{len(running)} running jobs on every card ("
+            + "; ".join(card(*r) for r in running)
+            + ")"
+        )
+    return (
+        f"queued behind {behind} and {ahead} queued job(s) ahead; "
+        "no start estimate - the queue runs in order and a task-only "
+        "job holds a card like any other"
+    )
 
 
 class _HostReading:
@@ -227,36 +255,32 @@ class Dispatcher:
         if kind is not None and getattr(job, "wait_kind", None) != kind:
             job.add_event({"event": "queue_wait", "reason": kind, "message": message})
         job.wait_kind = kind
-        job.waiting_for = message
+        job.waiting_for = message  # the setter drops any wait_render
 
     def _hint_gpu_busy(self):
         """Tell every queued job that every card is busy: how many jobs run,
         on which cards and for how long, and how many are ahead of it. Called
         holding _lock, when no card is free (#1355). The queue stays FIFO;
         this only lets a consumer tell waiting from stuck."""
-        now = time.time()
         running = []
         for slot in self.slots:
             if slot.current_job_id is None:
                 continue
-            started = getattr(slot, "started_at", None)
-            ran = (
-                f", running {max(0, int((now - started) // 60))} min" if started else ""
+            # A server run without --devices has slot.device None: name the
+            # card it runs on anyway (#1618)
+            running.append(
+                (device_ordinal(slot.device), getattr(slot, "started_at", None))
             )
-            running.append(f"{slot.device or 'a card'}{ran}")
         ahead = 0
         for job_id in list(self._pending):
             job = self.jobs.get(job_id)
             if job is None or job.status != QUEUED:
                 continue
-            message = (
-                f"queued behind {len(running)} running job(s) on every card "
-                f"({'; '.join(running)}) and {ahead} queued job(s) ahead; "
-                "no start estimate - the queue runs in order and a task-only "
-                "job holds a card like any other"
-            )
-            # The running minutes change each pass; the event is once per hold
-            self._set_wait(job, "gpu_busy", message)
+            render = functools.partial(_gpu_busy_message, running, ahead)
+            self._set_wait(job, "gpu_busy", render())
+            # The minutes are worked out when waiting_for is read, not once
+            # per pass: nothing wakes the dispatcher while a job runs (#1618)
+            job.wait_render = render
             ahead += 1
 
     def _forget_dispatch(self, job, job_id=None):

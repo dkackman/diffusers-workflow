@@ -249,7 +249,9 @@ def export_timeline(video, sources=None, shots=None, name="timeline"):
     """Task command: the shots of a joined video as an OpenTimelineIO bundle.
 
     Args:
-        video: The joined video - a stored file (asset:, output: or a path)
+        video: The joined video - a stored file (asset:, output: or a path).
+            Not previous_result:, here or in `sources`: validate refuses it,
+            so a cut made in this workflow is exported by a second job
         sources: One file per shot, in order, for each clip to point at its
             own file over that file's whole range. Default: every clip points
             into `video` over its shot's span

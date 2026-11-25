@@ -562,8 +562,8 @@ class JobManager(Dispatcher, Reruns):
         cancelled job's first error line, `workflow` the catalog name (None
         for an inline one), `arguments` as submitted, `output` and
         `prompt_digests` callables (no manifest is read for a job nobody
-        shows), `run_exists` whether its run directory is still on disk.
-        One indexed history query."""
+        shows), `run_exists` whether the run directory `delete_job_run`
+        removes is still on disk. One indexed history query."""
         found = {}
         for row in self.history.request_jobs(workspace, request_id):
             found[row["id"]] = self._linked(

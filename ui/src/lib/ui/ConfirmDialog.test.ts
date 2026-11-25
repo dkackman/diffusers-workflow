@@ -155,3 +155,23 @@ it("shows a choice's title", async () => {
   const button = await screen.findByRole('button', { name: 'Keep both' })
   expect(button.getAttribute('title')).toBe('saves as a-2.png')
 })
+
+it('a confirm opened in full screen shows inside the full-screen element', async () => {
+  const full = document.createElement('div')
+  document.body.appendChild(full)
+  Object.defineProperty(document, 'fullscreenElement', {
+    configurable: true,
+    get: () => full,
+  })
+  try {
+    render(ConfirmDialog)
+    const answer = confirmDialog('Delete it?', { confirmLabel: 'Delete' })
+    const dialog = await screen.findByRole('alertdialog')
+    expect(full.contains(dialog)).toBe(true)
+    await fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    expect(await answer).toBe(true)
+  } finally {
+    delete (document as { fullscreenElement?: unknown }).fullscreenElement
+    full.remove()
+  }
+})

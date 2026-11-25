@@ -4,6 +4,7 @@ import {
   SERVER_SECTIONS,
   SHARED_SECTIONS,
   WS_SECTIONS,
+  backFrom,
   compareHref,
   fileHref,
   jobHref,
@@ -196,6 +197,23 @@ describe('compareHref', () => {
   })
 })
 
+describe('compareHref from', () => {
+  it('carries where it came from as back=, and reads it back', () => {
+    const from = { href: '#/ws/studio/jobs/j1', label: 'Job' }
+    const hash = compareHref('studio', ['a.png', 'b.png'], from)
+    expect(hash.split('?')[0]).toBe('#/ws/studio/compare/a.png/b.png')
+    const value = new URLSearchParams(hash.split('?')[1]).get('back')
+    expect(backFrom(value ?? undefined)).toEqual(from)
+  })
+  it('takes no back= that is not an in-app link', () => {
+    expect(backFrom(JSON.stringify({ href: 'https://x.y', label: 'X' }))).toBe(
+      null,
+    )
+    expect(backFrom('not json')).toBe(null)
+    expect(backFrom(undefined)).toBe(null)
+  })
+})
+
 describe('switchHref', () => {
   const ws = (section: WsSection, ...rest: string[]): RouteView => ({
     kind: 'ws',
@@ -221,6 +239,23 @@ describe('switchHref', () => {
     expect(switchHref('other', ws('compare', 'a.png', 'b.png'))).toBe(
       '#/ws/other/gallery',
     )
+  })
+  it('switching keeps the filters the section reads', () => {
+    const query = { q: 'a b', status: 'failed', req: 'r1', ws: 'x', open: 'f' }
+    expect(switchHref('other', ws('jobs'), query)).toBe(
+      '#/ws/other/jobs?q=a%20b&status=failed',
+    )
+    expect(
+      switchHref('other', ws('gallery'), {
+        roles: 'final,intermediate',
+        starred: '1',
+        open: 'a.png',
+        req: 'r1',
+      }),
+    ).toBe('#/ws/other/gallery?roles=final,intermediate&starred=1')
+    expect(
+      switchHref('other', ws('compare', 'a'), { back: '{}', open: 'a' }),
+    ).toBe('#/ws/other/gallery')
   })
   it('a shared page switches to the overview', () => {
     const overview = '#/ws/other/overview'

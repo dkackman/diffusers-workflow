@@ -361,3 +361,26 @@ it('active, hover and picked look different', () => {
   expect(hover).toMatch(/background:/)
   expect(hover).not.toMatch(/border-color|outline|box-shadow/)
 })
+
+it('a tile that turns from an image into a text file reads its lines', async () => {
+  const observer = stubObserver()
+  const { container, rerender } = render(OutputTile, {
+    props: { file: media({}) },
+  })
+  expect(fileText).not.toHaveBeenCalled()
+  await rerender({
+    file: media({
+      name: 'demo/prompt.txt',
+      kind: 'text',
+      url: '/outputs/demo/prompt.txt',
+      label: 'prompt.txt',
+      thumb: null,
+    }),
+  })
+  observer.show()
+  await waitFor(() =>
+    expect(container.querySelector('.tile-excerpt')?.textContent).toBe(
+      'one\ntwo\nthree',
+    ),
+  )
+})

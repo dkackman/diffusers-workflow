@@ -257,3 +257,58 @@ it('an image variable can be swapped through the picker', async () => {
   })
   expect(queueButton().disabled).toBe(false)
 })
+
+it('a blank field clears its value: it is sent as null', async () => {
+  render(RerunWithChanges, { job: job(), declared })
+  await openForm()
+  await fireEvent.input(field('prompt'), { target: { value: '' } })
+  expect(queueButton().disabled).toBe(false)
+  await fireEvent.click(queueButton())
+  await waitFor(() => expect(go).toHaveBeenCalled())
+  expect(api.rerunJob).toHaveBeenCalledWith('orig', {
+    newSeed: false,
+    arguments: { prompt: null },
+  })
+})
+
+it('New seed locks the seed field', async () => {
+  render(RerunWithChanges, { job: job(), declared, seedVariable: 'seed' })
+  await openForm()
+  expect(field('seed').closest('fieldset')?.disabled).toBe(false)
+  await fireEvent.click(screen.getByLabelText('New seed'))
+  expect(field('seed').closest('fieldset')?.disabled).toBe(true)
+})
+
+it('New seed drops a seed typed before it was ticked; unticking restores it', async () => {
+  render(RerunWithChanges, { job: job(), declared, seedVariable: 'seed' })
+  await openForm()
+  await fireEvent.input(field('seed'), { target: { value: '42' } })
+  const box = screen.getByLabelText('New seed')
+  await fireEvent.click(box)
+  await fireEvent.click(box)
+  await fireEvent.click(queueButton())
+  await waitFor(() => expect(api.rerunJob).toHaveBeenCalledTimes(1))
+  expect(api.rerunJob).toHaveBeenLastCalledWith('orig', {
+    newSeed: false,
+    arguments: { seed: 42 },
+  })
+  await openForm()
+  await fireEvent.input(field('seed'), { target: { value: '42' } })
+  await fireEvent.click(screen.getByLabelText('New seed'))
+  await fireEvent.click(queueButton())
+  await waitFor(() => expect(api.rerunJob).toHaveBeenCalledTimes(2))
+  expect(api.rerunJob).toHaveBeenLastCalledWith('orig', {
+    newSeed: true,
+    arguments: {},
+  })
+})
+
+it('JSON is compared parsed: the same list spaced differently is no change', async () => {
+  render(RerunWithChanges, {
+    job: job({ arguments: { prompt: 'a cat', ids: [1, 2] } }),
+    declared: { ...declared, ids: [1, 2] },
+  })
+  await openForm()
+  await fireEvent.input(field('ids'), { target: { value: '[1,2]' } })
+  expect(queueButton().disabled).toBe(true)
+})

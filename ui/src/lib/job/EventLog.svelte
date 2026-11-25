@@ -59,26 +59,6 @@
     spacer.cancel()
   })
 
-  // Another job is another log: drop this one's and close
-  $effect(() => {
-    void jobId
-    open = false
-    loaded = false
-    loading = false
-    rows = []
-    lastSeq = -1
-    note = null
-    capped = false
-    missing = false
-    error = null
-    kind = ''
-    follow = untrack(() => live)
-    lastTop = 0
-    touched = false
-    again = false
-    spacer.cancel()
-  })
-
   // A job queued at page load that starts later: follow it, unless the
   // user has already chosen
   $effect(() => {
@@ -238,7 +218,7 @@
         Follow new events
       </button>
     {/if}
-    {#if open && live && loaded && !missing}
+    {#if open && loaded && !missing && (live || error)}
       <button
         class="quiet icon"
         onclick={() => load(lastSeq)}
@@ -278,7 +258,10 @@
                       ? '+' + formatDuration(event.at)
                       : ''}
                   </td>
-                  <td class="kind">{eventKind(event)}</td>
+                  <!-- A row with no sentence of its own already says its event name as its text -->
+                  <td class="kind">
+                    {said.text === event.event ? '' : eventKind(event)}
+                  </td>
                   <td class="body">
                     <span class="text" title={said.text}>{said.text}</span>
                     {#if said.data}

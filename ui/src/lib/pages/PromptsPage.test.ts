@@ -300,3 +300,35 @@ it('Newest names a foldered prompt by its leaf, its folder a chip', async () => 
   // the two same-leaf prompts are told apart by their folders
   expect(texts('.cardfolder')).toEqual(['people', 'pets'])
 })
+
+it("a chip's title says a second press shows all", async () => {
+  listPrompts.mockResolvedValue({
+    ...answer(['mine']),
+    details: {
+      mine: {
+        ...detail('workspace', true),
+        intended_model: 'flux-dev',
+        tags: ['anime'],
+      },
+    },
+  })
+  render(PromptsPage)
+  await waitFor(() => expect(screen.getByText('mine')).toBeTruthy())
+
+  expect(screen.getByRole('button', { name: 'anime' }).title).toBe(
+    'click to filter by this tag, click again to show all',
+  )
+  expect(screen.getByRole('button', { name: 'flux-dev' }).title).toBe(
+    'written for flux-dev - click to filter, click again to show all',
+  )
+})
+
+it('the new-prompt link is the workspace route, not a legacy one', async () => {
+  render(PromptsPage)
+  await waitFor(() => expect(screen.getByText('theirs')).toBeTruthy())
+  const hrefs = [...document.querySelectorAll('a[href*="prompt-edit"]')].map(
+    (a) => a.getAttribute('href'),
+  )
+  expect(hrefs.length).toBeGreaterThan(0)
+  expect(hrefs).not.toContain('#/prompt-edit')
+})

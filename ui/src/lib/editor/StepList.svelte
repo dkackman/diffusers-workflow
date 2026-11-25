@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Plus } from '@lucide/svelte'
+  import { SvelteMap } from 'svelte/reactivity'
   import StepEditor from './StepEditor.svelte'
   import { emptyStep, emptyTaskStep, emptyWorkflowStep } from '../editor'
   import { undoToast } from '../destructive'
@@ -8,12 +9,13 @@
   import { notify } from '../toast'
   import type { StepFlow } from '../flow'
   import type { StepModes } from '../stepModes.svelte'
+  import type { WorkflowDefinition, WorkflowStep } from '../types'
 
   // The workflow's steps down a numbered rail, with the controls that add
   // them and set how much of each shows
   let {
     steps = $bindable(),
-    workflow = $bindable({}),
+    workflow = $bindable(),
     modes,
     folder,
     flow,
@@ -21,10 +23,10 @@
     stepReferences,
     hovered = $bindable(),
   }: {
-    steps: Record<string, any>[] | undefined
+    steps: WorkflowStep[] | undefined
     // The whole document: what a step's arguments take from earlier steps,
     // and the variables a rename carries a reference in
-    workflow?: Record<string, any>
+    workflow: WorkflowDefinition
     modes: StepModes
     // The folder the workflow saves into, which a sub-workflow step's
     // relative path resolves against
@@ -39,7 +41,7 @@
    * it. Step mode and flow-graph edges are keyed by name - two steps sharing
    * the factory default (e.g. 'generate') would collide in the step modes */
   function freeName(name: string): string {
-    const taken = new Set((steps ?? []).map((s: Record<string, any>) => s.name))
+    const taken = new Set((steps ?? []).map((s) => s.name))
     if (!taken.has(name)) return name
     let n = 2
     while (taken.has(`${name}-${n}`)) n++
@@ -58,20 +60,32 @@
     modes.mark(step.name, 'full')
   }
 
+  /** Steps renamed in this editor, old name to new: an Undo finds its
+   * neighbour by the name it holds now */
+  const renamedTo = new SvelteMap<string, string>()
+  function currentName(name: string): string {
+    for (let hops = 0; renamedTo.has(name) && hops < 50; hops++)
+      name = renamedTo.get(name)!
+    return name
+  }
+
   /** Removed at once, with an Undo that puts the step back where it was -
-   * before the first step that followed it and is still there, else last -
+   * before the first step that followed it and is still there (renamed or
+   * not), else last -
    * under a free name, saying so when that name is not its own */
   function removeStep(index: number) {
     const list = steps ?? []
     const removed = $state.snapshot(list[index])
-    const after = new Set(list.slice(index + 1).map((s) => s.name))
+    const after = list.slice(index + 1).map((s) => s.name)
     steps = list.filter((_, at) => at !== index)
     undoToast(
       `Removed step ${removed.name}`,
       () => {
         const now = steps ?? []
         const step = { ...removed, name: freeName(removed.name) }
-        const found = now.findIndex((s) => after.has(s.name))
+        const found = now.findIndex((s) =>
+          after.some((name) => currentName(name) === s.name),
+        )
         const at = found < 0 ? now.length : found
         steps = [...now.slice(0, at), step, ...now.slice(at)]
         modes.mark(step.name, 'full')
@@ -93,7 +107,7 @@
       from,
       to,
     )
-    result.workflow.steps.forEach((next: Record<string, any>, at: number) => {
+    result.workflow.steps?.forEach((next, at) => {
       if (JSON.stringify(next) !== JSON.stringify($state.snapshot(list[at])))
         Object.assign(list[at], next)
     })
@@ -107,6 +121,7 @@
         workflow[key] = next
     }
     modes.rename(from, to)
+    renamedTo.set(from, to)
     const n = result.count
     const carried =
       n > 0 ? `, and ${n} ${n === 1 ? 'reference' : 'references'} to it` : ''
@@ -114,7 +129,7 @@
   }
 
   function moveStep(index: number, delta: number) {
-    const list = steps!
+    const list = steps ?? []
     const target = index + delta
     if (target < 0 || target >= list.length) return
     ;[list[index], list[target]] = [list[target], list[index]]
@@ -148,15 +163,23 @@
       class:flowlit={hovered !== null && step.name === hovered}
     >
       <div class="railcell">
-        <span class="ordinal" title={`step ${index + 1} of ${steps!.length}`}>
+        <span
+          class="ordinal"
+          title={`step ${index + 1} of ${(steps ?? []).length}`}
+        >
           {index + 1}
         </span>
       </div>
       <StepEditor
-        bind:step={steps![index]}
+        bind:step={
+          () => step,
+          (next) => {
+            if (steps) steps[index] = next
+          }
+        }
         {index}
         {workflow}
-        count={steps!.length}
+        count={(steps ?? []).length}
         references={stepReferences[index] ?? []}
         baseFolder={folder}
         mode={modes.of(step)}

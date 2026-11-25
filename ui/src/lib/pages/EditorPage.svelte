@@ -6,14 +6,14 @@
     EDITOR_VIEWS,
     NEW_FOLDER,
     editorKeys,
-    type EditorView,
   } from '../editorShell.svelte'
   import Segmented from '../ui/Segmented.svelte'
   import EditorBody from '../editor/EditorBody.svelte'
   import StepList from '../editor/StepList.svelte'
   import { StepModes } from '../stepModes.svelte'
   import ValidationPanel from '../editor/ValidationPanel.svelte'
-  import { EditorJumps, editorCheck } from '../editor/editorCheck.svelte'
+  import { editorCheck } from '../editor/editorCheck.svelte'
+  import { EditorJumps } from '../editor/editorJumps.svelte'
   import DocumentFileBar from '../editor/DocumentFileBar.svelte'
   import WorkflowOrigin, { IMPORTED } from '../editor/WorkflowOrigin.svelte'
   import { CircleCheck, Play, Save } from '@lucide/svelte'
@@ -35,7 +35,7 @@
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
   import { action } from '../action.svelte'
-  import { go, goWs } from '../router.svelte'
+  import { goCarrying, goWs } from '../router.svelte'
   import { SECTION_LABELS, wsHref } from '../routes'
   import { loadWorkspaces, workspace } from '../workspace.svelte'
   import {
@@ -54,7 +54,7 @@
 
   let { name = '' }: { name?: string } = $props()
 
-  const ed = new DocumentEditor({
+  const ed = new DocumentEditor<WorkflowDefinition>({
     viewKey: 'dw-editor-view',
     views: ['form', 'split', 'json', 'flow'],
     // migrate the old boolean split preference
@@ -89,11 +89,7 @@
   // The server's copy replaced the steps: each keeps its mode by name
   $effect(() => {
     if (!ed.remoteLoads) return
-    untrack(() =>
-      modes.retain(
-        ((ed.doc.steps as Record<string, any>[]) ?? []).map((s) => s?.name),
-      ),
-    )
+    untrack(() => modes.retain((ed.doc.steps ?? []).map((s) => s?.name)))
   })
 
   // Existing folders, from the listing - one level is the designed depth,
@@ -117,6 +113,8 @@
   // what it started from, so moving it to another workspace keeps both
   const NAME_KEY = 'dw-editor-import-name'
   const FROM_KEY = 'dw-editor-import-from'
+  // and, for a move, what its unsaved edits are measured against
+  const BASELINE_KEY = 'dw-editor-import-baseline'
   // the workspace picker's names - outside the load effect, so the listing
   // landing cannot re-run it and reset the draft
   loadWorkspaces()
@@ -161,6 +159,11 @@
     )
   })
 
+  /** A draft opens with its first step full */
+  function openFirstStep(draft: WorkflowDefinition) {
+    modes.reset({ [draft.steps?.[0]?.name ?? '']: 'full' })
+  }
+
   /** A new workflow: a hand-off's definition, else the blank starter. */
   function startDraft() {
     // A gallery "open as workflow" hands the definition over in
@@ -169,19 +172,23 @@
     // Built as a plain local object and assigned once: reading the
     // workflow proxy here would subscribe this effect to every edit and
     // re-fire all the listing calls on each keystroke
-    const fresh = imported ?? (emptyWorkflow() as Record<string, any>)
+    const fresh = imported ?? emptyWorkflow()
     const from = sessionStorage.getItem(FROM_KEY)
     startFrom = from ?? (imported ? IMPORTED : '')
     if (imported && from === null)
       notify.success('Imported from image metadata')
     ed.startNew(fresh)
+    // a moved draft is as unsaved as it was before the move
+    const baseline = sessionStorage.getItem(BASELINE_KEY)
+    if (imported && baseline) ed.markSaved(baseline)
     ed.saveName = sessionStorage.getItem(NAME_KEY) ?? ''
+    sessionStorage.removeItem(BASELINE_KEY)
     sessionStorage.removeItem(FROM_KEY)
     sessionStorage.removeItem(NAME_KEY)
     // A new workflow has nowhere to save to yet - show the fields
     fileOpen = true
     if (imported) modes.restore()
-    else modes.reset({ [fresh.steps[0].name]: 'full' })
+    else openFirstStep(fresh)
   }
 
   /** Read `path` into the editor; a failure leaves nothing to save. */
@@ -194,22 +201,28 @@
 
   /** The missing file `name`, begun as a blank workflow. */
   function startMissing() {
-    const fresh = emptyWorkflow() as Record<string, any>
+    const fresh: WorkflowDefinition = emptyWorkflow()
     ed.startNew(fresh)
     fileOpen = true
-    modes.reset({ [fresh.steps[0].name]: 'full' })
+    openFirstStep(fresh)
   }
 
   /** Hand the draft to another workspace's editor - nothing is saved yet,
    * so where it saves is only which workspace the route names. */
   function moveToWorkspace(target: string) {
-    sessionStorage.setItem(
-      'dw-editor-import',
-      JSON.stringify($state.snapshot(ed.doc)),
+    ed.flush()
+    goCarrying(
+      ['ws', target, 'edit'],
+      {
+        'dw-editor-import': JSON.stringify($state.snapshot(ed.doc)),
+        [NAME_KEY]: ed.saveName,
+        [FROM_KEY]: startFrom,
+        [BASELINE_KEY]: ed.baseline,
+      },
+      // the draft goes along, so there is nothing to ask about - unless the
+      // JSON text does not parse, which stays behind
+      { unguarded: !ed.jsonParseFailed },
     )
-    sessionStorage.setItem(NAME_KEY, ed.saveName)
-    sessionStorage.setItem(FROM_KEY, startFrom)
-    go('ws', target, 'edit')
   }
 
   /** A name the user typed stays; one the last example supplied follows
@@ -229,7 +242,7 @@
     try {
       const fresh = await startingWorkflow(example, emptyWorkflow)
       ed.startNew(fresh)
-      modes.reset(example ? {} : { [fresh.steps[0].name]: 'full' })
+      modes.reset(example ? {} : { [fresh.steps?.[0]?.name ?? '']: 'full' })
       followName(example)
       startFrom = example
     } catch (e) {
@@ -247,9 +260,7 @@
     }
     ed.busy = true
     try {
-      check.validation = await api.validate(
-        $state.snapshot(ed.doc) as WorkflowDefinition,
-      )
+      check.validation = await api.validate($state.snapshot(ed.doc))
       return check.validation.valid
     } catch (e) {
       notify.failure('validate the workflow', e)
@@ -332,7 +343,7 @@
           label="editor view"
           value={ed.view}
           options={EDITOR_VIEWS}
-          onselect={(view) => ed.setView(view as EditorView)}
+          onselect={(view) => ed.setView(view)}
         />
         <button
           class="quiet withicon"
@@ -365,6 +376,7 @@
 
   {#if ed.loadState === 'failed'}
     <LoadFailed
+      detail
       label={name}
       error={ed.loadError}
       onretry={() => place.retry()}

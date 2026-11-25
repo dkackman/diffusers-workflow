@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { WorkflowDefinition } from '../types'
   /* A chained step's segments, one row each, read-only (#1475): the
    * segment's frame, how many renders its check tried, each measure its
    * kept attempt computed against the ceiling, and whether it was resumed or
@@ -24,7 +25,7 @@
   } from '../chainActions'
   import { confirmDialog } from '../confirm.svelte'
   import { describeEstimate } from '../plan'
-  import { go } from '../router.svelte'
+  import { go, goCarrying } from '../router.svelte'
   import { action } from '../action.svelte'
   import { resource } from '../resource.svelte'
   import {
@@ -41,7 +42,7 @@
   let {
     job,
     definition = null,
-  }: { job: JobDetail; definition?: Record<string, any> | null } = $props()
+  }: { job: JobDetail; definition?: WorkflowDefinition | null } = $props()
 
   const tables = $derived(
     (job.manifest ?? [])
@@ -75,14 +76,15 @@
   function repair(table: ChainTable, row: ChainRow) {
     const action = repairFor(table, row)
     if (!action.enabled) return
-    sessionStorage.setItem(
-      WORKFLOW_PREFILL_KEY,
-      JSON.stringify({
-        workflow: action.workflow,
-        arguments: action.arguments,
-      }),
+    goCarrying(
+      ['ws', job.workspace, 'workflows', ...action.workflow.split('/')],
+      {
+        [WORKFLOW_PREFILL_KEY]: JSON.stringify({
+          workflow: action.workflow,
+          arguments: action.arguments,
+        }),
+      },
     )
-    go('ws', job.workspace, 'workflows', ...action.workflow.split('/'))
   }
 
   let pricing = $state(false)

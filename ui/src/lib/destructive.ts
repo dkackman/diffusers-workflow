@@ -66,6 +66,8 @@ export type DestroySubject = {
   starred?: number
   /** The caller's sentence on what else the delete costs */
   consequence?: string
+  /** Where it is removed from: `disk` unless said */
+  place?: 'disk' | 'ledger'
 }
 
 const isAre = (n: number) => (n === 1 ? 'is' : 'are')
@@ -79,6 +81,8 @@ function starredSentence(one: boolean, starred: number): string {
     : `${starred} of them ${isAre(starred)} starred.`
 }
 
+const PLACES = { disk: 'on disk', ledger: 'from the ledger' }
+
 export function destroyConfirm(subject: DestroySubject): ConfirmSpec {
   const n = subject.count ?? 1
   const named = subject.name !== undefined
@@ -87,7 +91,7 @@ export function destroyConfirm(subject: DestroySubject): ConfirmSpec {
     ? `Delete ${subject.name}?`
     : `Delete ${counted(n, subject.noun, subject.plural)}?`
   const message = [
-    `This removes ${one ? 'it' : 'them'} on disk.`,
+    `This removes ${one ? 'it' : 'them'} ${PLACES[subject.place ?? 'disk']}.`,
     starredSentence(one, subject.starred ?? 0),
     subject.consequence ?? '',
   ]
@@ -118,9 +122,15 @@ function folderParts(contents: Contents, starred: number | null): string[] {
     const noun = known.get(key) ?? key
     const stars =
       key === 'outputs' && starred !== null && starred > 0
-        ? ` (${starred} starred)`
+        ? ` (${starred} starred in the gallery)`
         : ''
-    return [`${counted(files, noun, known.has(key) ? undefined : key)}${stars}`]
+    // Outputs are said as files in their folder, and the stars as the
+    // gallery's, so neither count reads as the other
+    const said =
+      key === 'outputs'
+        ? `${counted(files, 'file')} in outputs/`
+        : counted(files, noun, known.has(key) ? undefined : key)
+    return [`${said}${stars}`]
   })
 }
 

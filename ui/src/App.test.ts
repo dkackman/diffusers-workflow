@@ -185,6 +185,15 @@ it("the meter's name keeps the running count", () => {
   ).toBe('2 jobs running, server & worker status, 5.9/23.4 GB')
 })
 
+it('several running jobs: the meter label counts them', () => {
+  connection.memory = memory
+  connection.health = health('job-a', 'job-b', 'job-c')
+  render(App)
+  const meter = screen.getByRole('button', { name: /server & worker status/ })
+  expect(meter.getAttribute('aria-label')).toMatch(/^3 jobs running, server/)
+  expect(meter.textContent).not.toMatch(/idle/)
+})
+
 it('no meter: N running and status labels', () => {
   connection.health = health('job-a', 'job-b')
   render(App)

@@ -3520,6 +3520,21 @@
           "title": {
             "title": "Title",
             "type": "string"
+          },
+          "warnings": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "On a write only: what it did not do, e.g. an `accepted` sent with a plan edit, which is not recorded.",
+            "title": "Warnings"
           }
         },
         "required": [

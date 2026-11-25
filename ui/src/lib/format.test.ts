@@ -119,6 +119,15 @@ describe('formatMinutes', () => {
   })
 })
 
+it('rounds before choosing the unit, and zero bytes is zero', () => {
+  expect(formatBytes(0)).toBe('0 bytes')
+  expect(formatBytes(1024 * 1024 - 1)).toBe('1.0 MB')
+  expect(formatBytes(1024 ** 3 - 1)).toBe('1.00 GB')
+  expect(formatDuration(59.96)).toBe('1m 00s')
+  expect(formatDuration(59.94)).toBe('59.9s')
+  expect(formatMinutes(59.999)).toBe('about 1 h')
+})
+
 it('formatMinutes past an hour reads hours and minutes', () => {
   expect(formatMinutes(59.5)).toBe('about 59.5 min')
   expect(formatMinutes(60)).toBe('about 1 h')
@@ -127,6 +136,10 @@ it('formatMinutes past an hour reads hours and minutes', () => {
 })
 
 describe('formatApprox', () => {
+  it('45 s is under 1 min', () => {
+    expect(formatApprox(45)).toBe('under 1 min')
+  })
+
   it('reads an ETA in whole minutes', () => {
     expect(formatApprox(30)).toBe('under 1 min')
     expect(formatApprox(180)).toBe('about 3 min')

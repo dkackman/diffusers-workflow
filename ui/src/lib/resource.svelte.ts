@@ -5,7 +5,8 @@
 // trigger goes through one `run`:
 //   - its dependencies changed (what `load` reads before its first await,
 //     and the workspace): a new question, a loud reload, `status`
-//     'loading', `data` kept unless the workspace changed - and dropped if
+//     'loading', `data` kept unless the workspace (or the `subject`)
+//     changed - and dropped if
 //     the new question's load fails, so the old answer never stands in for
 //     it (unless the failure is an outage or a lock, the banner's to say);
 //   - a watched kind moved, `connection.epoch` rose, a timer ticked: a
@@ -22,7 +23,14 @@
 // the page's star on it) as the held data, marking nothing and keeping any
 // marks still fading, so the next quiet reload diffs against it and marks
 // only what another writer did - an agent, another tab, `dw.run`. It goes
-// round `merge`, and it neither cancels nor waits for a run in flight.
+// round `merge`, and it does not wait for a run in flight. A run that began
+// before an adopt may carry the data as it was before the write, so its
+// reply is not held: it is read again, loud or quiet as it was (once,
+// however many adopts it spanned), and its `current` is false from the
+// adopt on. A page's own write needs no stamp of its own against that.
+// A quiet reload asked for while one is out for the same question does not
+// overtake it - a read slower than its triggers would never land - but is
+// owed, once however many asked, and made when that one settles.
 // A reply overtaken by a later run is dropped (latestOnly). Timers
 // go through `poll`, the feed through `changes(workspace).watch`. LoadState
 // (ui/LoadState.svelte) renders one.
@@ -47,6 +55,10 @@ export type Freshness =
 export type ResourceOptions<T> = Freshness & {
   /** Which workspace the data belongs to; `workspace.current` by default */
   workspace?: () => string
+  /** What the data is about, within a workspace: when it changes, what is
+   * held is another thing's answer and is forgotten, not shown while the
+   * new one loads */
+  subject?: () => string
   /** What is held when a reply lands; the reply by default */
   merge?: (held: T | undefined, incoming: T) => T
   /** The data as keyed rows, for `changed`: a request's id, a file's name */
@@ -69,7 +81,8 @@ export interface Resource<T> {
    * way (its job's own status moving), marking what changed */
   refresh(): Promise<void>
   /** Hold `data`, what the page's own write read back, marking nothing:
-   * the next quiet reload diffs against it (above). With `mark`, it is a
+   * the next quiet reload diffs against it, and a read already out is
+   * made again rather than held over it (above). With `mark`, it is a
    * read the page made that the resource did not - a stale write's retry
    * found another writer's change - held as a quiet reload's would be, and
    * marking what it changed */
@@ -160,6 +173,39 @@ function bannerSays(e: unknown): boolean {
   return kind === 'offline' || kind === 'locked'
 }
 
+/** `read` as `run`, with quiet runs coalesced (above): one out, and at
+ * most one owed after it. A loud run overtakes both, and `release` - a new
+ * question - lets the next quiet run overtake what is out */
+function coalescing(read: Run): { run: Run; release: () => void } {
+  let out: Promise<void> | undefined
+  let owed: Promise<void> | undefined
+  // A count of releases: what was owed before one is not made after it
+  let released = 0
+  const release = () => {
+    released++
+    out = owed = undefined
+  }
+  const run: Run = (quiet) => {
+    if (!quiet) {
+      release()
+      return read(false)
+    }
+    if (out) {
+      const at = released
+      return (owed ??= out.finally(() => {
+        if (at !== released) return
+        owed = undefined
+        return run(true)
+      }))
+    }
+    const reading: Promise<void> = read(true).finally(() => {
+      if (out === reading) out = undefined
+    })
+    return (out = reading)
+  }
+  return { run, release }
+}
+
 /** The triggers that are not dependencies: the feed, the epoch, timers.
  * Each calls `run(true)` */
 function keepFresh(
@@ -236,10 +282,11 @@ class Held<T> {
     this.marks.clear()
   }
 
-  /** A new question: the workspace's data is forgotten when it changed, and
-   * every question's marks are, so its first read is the baseline */
-  asking(workspaceChanged: boolean) {
-    untrack(() => (workspaceChanged ? this.forget() : this.marks.clear()))
+  /** A new question: the data is forgotten when it is about something else
+   * (the workspace or the subject changed), and every question's marks are,
+   * so its first read is the baseline */
+  asking(another: boolean) {
+    untrack(() => (another ? this.forget() : this.marks.clear()))
   }
 }
 
@@ -259,27 +306,38 @@ export function resource<T>(
   const workspaceOf = options.workspace ?? (() => workspaceState.current)
   // Which question is asked: a count of dependency changes
   let asked = 0
+  // The page's own writes held: a count of adopts
+  let adopted = 0
 
   // `load` is called before any await, so inside the dependency effect what
   // it reads first is tracked
-  async function run(quiet: boolean): Promise<void> {
-    const current = begin()
+  async function read(quiet: boolean): Promise<void> {
+    const latest = begin()
     const question = asked
+    // A reply to a read begun before an adopt may predate that write
+    const wrote = adopted
+    const current = () => latest() && wrote === adopted
     if (!quiet) held.status = 'loading'
     try {
       const value = await load(current)
       if (current()) held.landed(value, quiet, question)
+      else if (latest()) return read(quiet)
     } catch (e) {
-      if (current()) held.failed(e, quiet, question)
+      // A failure says the same whenever its read began
+      if (latest()) held.failed(e, quiet, question)
     }
   }
+
+  const { run, release } = coalescing(read)
 
   let loadedIn: string | undefined
   $effect(() => {
     const ws = workspaceOf()
-    held.asking(loadedIn !== undefined && ws !== loadedIn)
-    loadedIn = ws
+    const about = JSON.stringify([ws, options.subject?.() ?? ''])
+    held.asking(loadedIn !== undefined && about !== loadedIn)
+    loadedIn = about
     asked++
+    release()
     if (!options.lazy) void run(false)
   })
   keepFresh(options, workspaceOf, run)
@@ -302,9 +360,10 @@ export function resource<T>(
     },
     reload: () => untrack(() => run(false)),
     refresh: () => untrack(() => run(true)),
-    adopt: (data, options) =>
-      options?.mark
-        ? untrack(() => held.landed(data, true, asked))
-        : void (held.data = data),
+    adopt: (data, options) => {
+      adopted++
+      if (options?.mark) untrack(() => held.landed(data, true, asked))
+      else held.data = data
+    },
   }
 }

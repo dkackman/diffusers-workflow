@@ -739,3 +739,19 @@ it('the featured workflows sort naturally: take2 before take10', async () => {
   )
   expect(names).toEqual(['take2', 'take10'])
 })
+
+it('the first-run card waits for the workflow listing', async () => {
+  let land: (v: unknown) => void = () => {}
+  api.listWorkflows.mockImplementationOnce(
+    () => new Promise((resolve) => (land = resolve)) as never,
+  )
+  render(OverviewPage)
+  await waitFor(() =>
+    expect(screen.getAllByRole('heading').length).toBeGreaterThan(0),
+  )
+  expect(screen.queryByRole('link', { name: /^Open / })).toBeNull()
+  land({ listing: [], workflows: [], workflow_dir: '/ws' })
+  expect(
+    await screen.findByRole('link', { name: 'Open Workflows' }),
+  ).toBeTruthy()
+})

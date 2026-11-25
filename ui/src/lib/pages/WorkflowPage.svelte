@@ -9,7 +9,7 @@
     requiredVariables,
   } from '../editor'
   import { api } from '../api'
-  import { goWs, route } from '../router.svelte'
+  import { goCarrying, goWs, route } from '../router.svelte'
   import { leafOf } from '../grouping'
   import { SECTION_LABELS, fileHref, sharedHref, wsHref } from '../routes'
   import { outputMedia } from '../media'
@@ -87,7 +87,7 @@
   // The listing's own workspace: each proof's thumbnail and link name it
   const proofHome = $derived(proofRead.data?.workspace ?? workspace.current)
   /** The catalog card: this server's own measured run time for the
-   * workflow, and the maintainer's figure - "a maintainer's figure: ~3 min
+   * workflow, and the maintainer's figure - "a maintainer's figure: about 3 min
    * · 22 GB VRAM, measured on <card> at steps=30". Null when the card has
    * no cost - never "unknown cost". */
   const catalog = resource(() => api.listWorkflows({ inputs: true }), {
@@ -109,6 +109,11 @@
   let enhancing = $state('') // the variable whose Enhance dialog is open
   let seeded = '' // the draft key (workspace and name) held in `overrides`
   const saver = new form.DraftSaver()
+  // What the form opened with, to tell a prefill from what was typed
+  let opened: Pick<
+    ReturnType<typeof form.openingValues>,
+    'draft' | 'prefill'
+  > = { draft: {}, prefill: {} }
 
   $effect(() => {
     void name
@@ -124,15 +129,16 @@
     seeded = key
     untrack(() => {
       saver.flush()
-      const opened = form.openingValues(workspace.current, name, workflow)
-      ;({ restored, overrides } = opened)
+      const first = form.openingValues(workspace.current, name, workflow)
+      opened = first
+      ;({ restored, overrides } = first)
     })
   })
 
   $effect(() => {
     const values = $state.snapshot(overrides)
     const key = form.draftKey(workspace.current, name)
-    if (seeded === key) saver.schedule(key, values)
+    if (seeded === key) saver.schedule(key, form.draftValues(values, opened))
   })
 
   onDestroy(saver.flush)
@@ -172,9 +178,13 @@
     verdictOf(runCheck.validation, runCheck.error, placed),
   )
 
-  /** A refused check turns Run into Fix: nothing else gates Run */
+  /** A refused check turns Run into Fix: nothing else gates Run. Only the
+   * latest answer counts: while a changed form awaits its check, the errors
+   * of the last answer may be gone */
   const fixing = $derived(
-    verdict?.tone === 'bad' && verdict.issues > 0 ? verdict.issues : 0,
+    !runCheck.pending && verdict?.tone === 'bad' && verdict.issues > 0
+      ? verdict.issues
+      : 0,
   )
 
   /** Bring the first issue into view: the first field with an error, in
@@ -194,11 +204,12 @@
 
   function newFrom() {
     if (!workflow) return
-    sessionStorage.setItem('dw-editor-import', JSON.stringify(workflow))
-    // what the draft started from, and a file name to start with
-    sessionStorage.setItem('dw-editor-import-from', name)
-    sessionStorage.setItem('dw-editor-import-name', leafOf(name))
-    goWs('edit')
+    goCarrying(['ws', workspace.current, 'edit'], {
+      'dw-editor-import': JSON.stringify(workflow),
+      // what the draft started from, and a file name to start with
+      'dw-editor-import-from': name,
+      'dw-editor-import-name': leafOf(name),
+    })
   }
 
   const removing = action(

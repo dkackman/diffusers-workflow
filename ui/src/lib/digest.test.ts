@@ -40,7 +40,7 @@ describe('stepDigest', () => {
           configuration: { component_type: 'FluxTransformer2DModel' },
           from_pretrained_arguments: { model_name: 'y' },
           quantization_config: {
-            config_type: 'BitsAndBytesConfig',
+            configuration: { config_type: 'BitsAndBytesConfig' },
             arguments: { load_in_4bit: true },
           },
         },

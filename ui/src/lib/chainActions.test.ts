@@ -63,7 +63,7 @@ const definition = (model: unknown, chain: Record<string, unknown> = {}) => ({
     {
       name: 'take',
       pipeline: {
-        from_pretrained_arguments: { model_name: model },
+        from_pretrained_arguments: { model_name: model as string },
         chain,
       },
     },

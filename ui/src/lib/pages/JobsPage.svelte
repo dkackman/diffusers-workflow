@@ -6,9 +6,9 @@
   import PageHeader from '../ui/PageHeader.svelte'
   import { onMount } from 'svelte'
   import { Inbox } from '@lucide/svelte'
-  import { api } from '../api'
+  import { api, TERMINAL_STATUSES } from '../api'
   import { action } from '../action.svelte'
-  import { hashState } from '../router.svelte'
+  import { codec, hashState } from '../router.svelte'
   import RequestFilter from '../gallery/RequestFilter.svelte'
   import {
     JOBS_PAGE,
@@ -34,7 +34,14 @@
 
   // The filters live in the hash's query, so opening a job and coming back
   // - or sharing the link - keeps the narrowed view
-  const statusFilter = hashState('status', '')
+  // A status the picker does not offer (a stale or hand-edited link) reads as
+  // all: it would otherwise hide every row under a select showing nothing
+  const STATUSES = ['running', 'queued', ...TERMINAL_STATUSES]
+  const statusFilter = hashState(
+    'status',
+    '',
+    codec.oneOf<string>(['', ...STATUSES]),
+  )
   const nameFilter = hashState('q', '')
   // Server-side, unlike the two filters above: it changes which jobs are
   // fetched at all, not just which of the fetched ones are shown. Only read
@@ -86,26 +93,22 @@
   // Prompts ride along only for jobs not yet read (listWithPrompts): a
   // prompt never changes, so the 3 s poll does not ask for them again
   const known = new Map<string, string>()
-  // How many finished jobs are read: the newest page, then what Show older
-  // or Search all asked for. A change re-reads, and a filter does not reset it
-  let shown = $state(JOBS_PAGE)
-  // Search all read the whole history once; from then on a poll reads a
-  // page and merges it into `held`, so the cost per poll stays a page
-  let loadAll = $state(false)
   const held: HeldJobs = { question: '', jobs: new Map() }
-  // A different workspace or request is a new question: it starts at the
-  // first page again, as `held` does, so the three cannot drift apart
-  let asking = ''
+  // How far back the finished jobs are read: the newest page, then what Show
+  // older or Search all asked for (`all`: the whole history was read once,
+  // and from then on a poll reads a page and merges it into `held`, so the
+  // cost per poll stays a page). A filter does not reset it; a different
+  // workspace or request is a new question and starts at the first page, as
+  // `held` does. Derived and overridden by the buttons, so `load` only reads
+  const question = $derived(JSON.stringify([listed, requestScope]))
+  let paging = $derived.by(() => {
+    void question
+    return { shown: JOBS_PAGE, all: false }
+  })
   const list = resource(
     async () => {
       const [ws, scoped] = [listed, { ...requestScope }]
-      const question = JSON.stringify([ws, scoped])
-      if (question !== asking) {
-        asking = question
-        shown = JOBS_PAGE
-        loadAll = false
-      }
-      const [limit, all] = [shown, loadAll]
+      const { shown: limit, all } = paging
       const { list: answer, prompts } = await listWithPrompts(
         ws,
         scoped,
@@ -154,8 +157,13 @@
   const queueSize = $derived(list.data?.queueSize ?? 0)
   const total = $derived(refused ? 0 : (list.data?.total ?? 0))
   const finished = $derived(refused ? 0 : (list.data?.finished ?? 0))
-  const partial = $derived(!loadAll && shown < finished)
-  const olderBy = $derived(Math.min(JOBS_PAGE, finished - shown))
+  const partial = $derived(!paging.all && paging.shown < finished)
+  // Queued and running jobs are always read whole: a filter on only those
+  // searches nothing the page left out
+  const liveOnly = $derived(
+    statusFilter.value === 'queued' || statusFilter.value === 'running',
+  )
+  const olderBy = $derived(Math.min(JOBS_PAGE, finished - paging.shown))
   const visible = $derived(
     jobs.filter(
       (job) =>
@@ -215,11 +223,9 @@
 {#snippet filters()}
   <select bind:value={statusFilter.value} title="filter by status">
     <option value="">all statuses</option>
-    <option value="running">running</option>
-    <option value="queued">queued</option>
-    <option value="succeeded">succeeded</option>
-    <option value="failed">failed</option>
-    <option value="cancelled">cancelled</option>
+    {#each STATUSES as status (status)}
+      <option value={status}>{status}</option>
+    {/each}
   </select>
   {#if scope === 'all' && (workspace.names?.length ?? 0) > 1}
     <select
@@ -273,14 +279,13 @@
   </div>
 {/each}
 
-{#if partial && (statusFilter.value || nameFilter.value)}
+{#if partial && !liveOnly && (statusFilter.value || nameFilter.value)}
   <p class="hint">
     Searching the newest {jobs.length} of {total} jobs.
     <button
       class="quiet"
       onclick={() => {
-        shown = finished
-        loadAll = true
+        paging = { shown: finished, all: true }
       }}
     >
       Search all {total}
@@ -320,7 +325,10 @@
 {#if partial}
   <p class="hint">
     Showing the newest {jobs.length} of {total} jobs.
-    <button class="quiet" onclick={() => (shown += JOBS_PAGE)}>
+    <button
+      class="quiet"
+      onclick={() => (paging = { ...paging, shown: paging.shown + JOBS_PAGE })}
+    >
       Show {olderBy} older
     </button>
   </p>

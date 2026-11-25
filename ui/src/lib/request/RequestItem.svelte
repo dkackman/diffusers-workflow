@@ -163,7 +163,7 @@
           No stored workflow. Only the agent can run this.
         </p>
       {/if}
-      {#if why}<p class="sub bad">{why}</p>{/if}
+      {#if why}<p class="sub bad why" title={why}>{why}</p>{/if}
       {#if revised}
         <p class="sub revised">
           <span>{revised}</span>
@@ -390,6 +390,12 @@
     gap: var(--space-1);
     color: var(--muted);
     min-width: 0;
+  }
+  /* One line on any row; the whole reason is the title */
+  .why {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .peek span:not(.more-notes) {
     overflow: hidden;

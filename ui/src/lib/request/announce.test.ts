@@ -104,10 +104,11 @@ it('says the review banner changed state once, and nothing as it ticks', () => {
     request([
       item('a', {
         title: 'Title card',
+        ready: true,
         review: { until: '2026-11-21T12:00:00+00:00', state, seconds_left },
       }),
     ])
-  const free = request([item('a', { title: 'Title card' })])
+  const free = request([item('a', { title: 'Title card', ready: true })])
   expect(announce(free, held('holding'))).toBe('1 item waiting for your OK.')
   // the same state with fewer seconds left: nothing to say
   expect(announce(held('holding', 60), held('holding', 30))).toBe('')
@@ -163,4 +164,18 @@ it('naming an untitled item is said', () => {
   const untitled = request([item('shot', { title: '' })])
   const named = request([item('shot', { title: 'Shot 3' })])
   expect(announce(untitled, named)).toBe('The agent named Shot 3.')
+})
+
+it('says a reorder that puts a dependency below its dependant', () => {
+  const was = request([
+    item('a', { title: 'Shot A' }),
+    item('b', { title: 'Shot B', depends_on: ['a'] }),
+  ])
+  const now = request([
+    item('b', { title: 'Shot B', depends_on: ['a'] }),
+    item('a', { title: 'Shot A' }),
+  ])
+  expect(announce(was, now)).toContain(
+    'Shot A now runs after Shot B that waits on it.',
+  )
 })

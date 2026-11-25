@@ -101,20 +101,25 @@ test('find a file, read what made it, and reuse it', async ({
     .toBe(`output:${LIGHTHOUSE}`)
 
   // 5. Save as asset: its tile is a thumbnail, and it opens with Saved from
-  await viewer.getByRole('button', { name: 'Save as asset' }).click()
-  const naming = page.getByRole('alertdialog', { name: 'Save as asset' })
-  await naming.getByRole('textbox').fill('lighthouse-ref')
-  await naming.getByRole('button', { name: 'Save' }).click()
-  await expect(page.getByText('Saved as asset lighthouse-ref')).toBeVisible()
-  await page.goto('/#/ws/default/assets')
-  const tile = page.locator('.filetile', { hasText: 'lighthouse-ref' })
-  await expect(tile).toBeVisible()
-  await expect(tile.locator('video')).toHaveCount(0)
-  const source = await tile.locator('img').first().getAttribute('src')
-  expect(source).toContain('/thumbnail')
-  expect(source).not.toMatch(/\/assets\/lighthouse-ref/)
-  await tile.click()
-  await expect(page.getByText('Saved from').first()).toBeVisible()
+  // The asset goes again whatever happens: a repeat saves the same name
+  try {
+    await viewer.getByRole('button', { name: 'Save as asset' }).click()
+    const naming = page.getByRole('alertdialog', { name: 'Save as asset' })
+    await naming.getByRole('textbox').fill('lighthouse-ref')
+    await naming.getByRole('button', { name: 'Save' }).click()
+    await expect(page.getByText('Saved as asset lighthouse-ref')).toBeVisible()
+    await page.goto('/#/ws/default/assets')
+    const tile = page.locator('.filetile', { hasText: 'lighthouse-ref' })
+    await expect(tile).toBeVisible()
+    await expect(tile.locator('video')).toHaveCount(0)
+    const source = await tile.locator('img').first().getAttribute('src')
+    expect(source).toContain('/thumbnail')
+    expect(source).not.toMatch(/\/assets\/lighthouse-ref/)
+    await tile.click()
+    await expect(page.getByText('Saved from').first()).toBeVisible()
+  } finally {
+    await request.delete('/api/assets/lighthouse-ref.png')
+  }
 
   // 6. Star two files, then Undo: neither is starred
   await page.goto(GALLERY)
@@ -153,7 +158,20 @@ test('find a file, read what made it, and reuse it', async ({
     .toHaveLength(1)
   await expect(page.getByText('Nothing to compare yet.')).toBeVisible()
 
-  // 8. The Overview's recent tile opens the file in the Gallery's viewer
+  // 8. The Overview's recent tile opens the file in the Gallery's viewer.
+  // The row holds the newest files, and what ran before this decides which
+  // those are: the real listing is served with the lighthouse first
+  await page.route(
+    (url) => url.pathname === '/api/gallery',
+    async (route) => {
+      const response = await route.fetch()
+      const body: { files: { name: string }[] } = await response.json()
+      body.files.sort(
+        (a, b) => Number(b.name === LIGHTHOUSE) - Number(a.name === LIGHTHOUSE),
+      )
+      await route.fulfill({ response, json: body })
+    },
+  )
   await page.goto('/#/ws/default/overview')
   await page.getByRole('link', { name: 'lighthouse.png', exact: true }).click()
   await expect(page).toHaveURL(/gallery/)

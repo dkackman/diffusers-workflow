@@ -45,6 +45,7 @@
         justify-content: center;
         gap: 0.75rem;
         min-height: 100vh;
+        min-height: 100dvh;
         padding: 0 1rem;
         text-align: center;
         font-family: system-ui, sans-serif;
@@ -84,16 +85,26 @@
         }
       }
     </style>
+    <noscript>
+      <style>
+        #boot .loading,
+        #boot .failed {
+          display: none;
+        }
+      </style>
+    </noscript>
     <script>
       // Apply a manual theme choice before first paint; absent = follow the system
-      try {
-        var theme = localStorage.getItem('dw-theme')
-        if (theme === 'light' || theme === 'dark') {
-          document.documentElement.dataset.theme = theme
+      ;(function () {
+        try {
+          var theme = localStorage.getItem('dw-theme')
+          if (theme === 'light' || theme === 'dark') {
+            document.documentElement.dataset.theme = theme
+          }
+        } catch (e) {
+          /* storage unavailable - system theme applies */
         }
-      } catch (e) {
-        /* storage unavailable - system theme applies */
-      }
+      })()
     </script>
   </head>
   <body spellcheck="false" autocapitalize="off" autocorrect="off">
@@ -104,6 +115,11 @@
         <span class="failed"
           >dw didn't load. Reload the page; if that doesn't help, check that the
           server is running.</span
+        >
+        <noscript
+          ><span
+            >dw needs JavaScript. Turn it on for this page and reload.</span
+          ></noscript
         >
       </div>
     </div>

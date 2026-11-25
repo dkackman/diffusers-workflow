@@ -250,7 +250,7 @@ it('an upload that finishes after the field changed leaves it alone', async () =
   await tick()
   expect(onchange).not.toHaveBeenCalled()
   expect(notifySuccess).toHaveBeenCalledWith(
-    'Uploaded as asset:uploads/cat.png. The field changed meanwhile, so it was left as it is.',
+    'The upload finished after the field changed; nothing was written.',
   )
   expect(container.querySelector('.preview')).toBeNull()
 })
@@ -272,7 +272,7 @@ it('an upload that finishes while the person is typing leaves their text alone',
   expect(onchange).not.toHaveBeenCalled()
   expect(input.value).toBe('asset:mine.png')
   expect(notifySuccess).toHaveBeenCalledWith(
-    'Uploaded as asset:uploads/cat.png. The field changed meanwhile, so it was left as it is.',
+    'The upload finished after the field changed; nothing was written.',
   )
 })
 
@@ -290,6 +290,22 @@ it('an upload that finishes after the field is gone writes nothing', async () =>
   await tick()
   expect(onchange).not.toHaveBeenCalled()
   expect(notifySuccess).toHaveBeenCalledOnce()
+  expect(notifySuccess).toHaveBeenCalledWith(
+    'The upload finished after the field closed; nothing was written.',
+  )
+})
+
+it('a file with no MIME type is taken by its extension', async () => {
+  URL.createObjectURL = vi.fn(() => 'blob:ext')
+  URL.revokeObjectURL = vi.fn()
+  uploadMedia.mockResolvedValueOnce({
+    reference: 'asset:uploads/cat.png',
+    url: '/inputs/uploads/cat.png',
+  })
+  const { container } = field()
+  await pickFile(container, new File(['x'], 'cat.png', { type: '' }))
+  expect(container.textContent).not.toContain("That isn't")
+  expect(uploadMedia).toHaveBeenCalledTimes(1)
 })
 
 it('refuses a dropped file of the wrong kind', async () => {

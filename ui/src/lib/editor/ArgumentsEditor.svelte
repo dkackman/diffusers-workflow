@@ -7,11 +7,11 @@
   import type { FieldKind } from '../referenceField'
   import {
     classDescription,
-    coerce,
     displayValue,
     isReference,
     widgetFor,
   } from '../editor'
+  import { addedArgument, commitArgument, keepsNull } from './commit'
   import {
     mediaKindFor,
     mediaLocation,
@@ -23,6 +23,7 @@
   import ClampedText from '../ui/ClampedText.svelte'
   import { latestOnly } from '../latest'
   import { sleep } from '../poll'
+  import type { StepArguments } from '../types'
   import { resource } from '../resource.svelte'
 
   let {
@@ -33,7 +34,8 @@
     suggestions = [],
     earlier = () => [],
   }: {
-    args: Record<string, unknown>
+    // Absent on a step that sets none; the first one added creates it
+    args?: StepArguments
     componentType: string
     target?: 'call' | 'init' | 'load' | 'task'
     hide?: string[]
@@ -72,15 +74,31 @@
   )
   const unused = $derived(
     (description?.parameters ?? []).filter(
-      (p) => !(p.name in args) && !hide.includes(p.name),
+      (p) => !(p.name in (args ?? {})) && !hide.includes(p.name),
     ),
   )
   const shownKeys = $derived(
-    Object.keys(args).filter((key) => !hide.includes(key)),
+    Object.keys(args ?? {}).filter((key) => !hide.includes(key)),
   )
 
+  /** Writes on the person's edit only: a mount that wrote an empty object
+   * would mark the document unsaved */
+  function write(key: string, value: unknown) {
+    if (args) args[key] = value
+    else args = { [key]: value }
+  }
+
   function update(key: string, raw: string) {
-    args[key] = coerce(widgetFor(parameters.get(key), args[key]), raw)
+    write(key, commitArgument(parameters.get(key), raw, args?.[key]))
+  }
+
+  /** A ReferenceField's commit: a media argument holds a location, anything
+   * else showing there is a reference being replaced */
+  function updateReference(key: string, raw: string, media: boolean) {
+    const previous = args?.[key]
+    if (media && !keepsNull(raw, previous)) {
+      write(key, withMediaLocation(previous, raw))
+    } else update(key, raw)
   }
 
   // Free-form additions belong wherever the schema is open-ended: the
@@ -90,21 +108,21 @@
 
   function addCustom() {
     const name = customName.trim()
-    if (!name || name in args) return
-    args[name] = parameters.get(name)?.default ?? ''
+    if (!name || name in (args ?? {})) return
+    write(name, addedArgument(name, parameters.get(name)))
     customName = ''
   }
 
   function remove(key: string) {
-    delete args[key]
+    if (args) delete args[key]
   }
 </script>
 
 <div class="args">
   {#each shownKeys as key (key)}
     {@const parameter = parameters.get(key)}
-    {@const widget = widgetFor(parameter, args[key])}
-    {@const mediaKind = Array.isArray(args[key])
+    {@const widget = widgetFor(parameter, args?.[key])}
+    {@const mediaKind = Array.isArray(args?.[key])
       ? null
       : mediaKindFor(parameter, key)}
     <div class="formgrid withaction top row">
@@ -112,22 +130,22 @@
         {key}{#if parameter?.required}<span class="req">*</span>{/if}
       </label>
       <div class="field">
-        {#if mediaKind || isReference(args[key])}
+        {#if mediaKind || isReference(args?.[key])}
           <ReferenceField
             id={`${uid}-${key}`}
-            value={mediaLocation(args[key])}
+            value={mediaLocation(args?.[key])}
             kind={mediaKind ?? undefined}
             earlier={earlier(mediaKind ?? undefined)}
             {suggestions}
-            title={promptTooltip(args[key], promptLibrary.texts)}
+            title={promptTooltip(args?.[key], promptLibrary.texts)}
             onchange={(location) => {
-              args[key] = withMediaLocation(args[key], location)
+              updateReference(key, location, !!mediaKind)
             }}
           />
         {:else if widget === 'boolean'}
           <select
             id={`${uid}-${key}`}
-            value={String(args[key])}
+            value={String(args?.[key])}
             onchange={(e) => update(key, e.currentTarget.value)}
           >
             <option value="true">true</option>
@@ -138,18 +156,19 @@
             id={`${uid}-${key}`}
             spellcheck="false"
             rows="3"
-            value={displayValue(args[key], true)}
+            value={displayValue(args?.[key], true)}
             onchange={(e) => update(key, e.currentTarget.value)}></textarea>
         {:else if widget === 'textarea'}
           <!-- Prose fields collapse to one line until asked to be a
                document; the picker can swap in a stored prompt. -->
           <ExpandingText
             id={`${uid}-${key}`}
-            value={displayValue(args[key])}
+            value={displayValue(args?.[key])}
             alwaysExpandable
+            title={promptTooltip(args?.[key], promptLibrary.texts)}
             onchange={(raw) => update(key, raw)}
             onpromptpick={(name) => {
-              args[key] = reference(PROMPT, name)
+              write(key, reference(PROMPT, name))
             }}
           />
         {:else}
@@ -157,8 +176,8 @@
             id={`${uid}-${key}`}
             {suggestions}
             complete={(text) => referenceCompletions(text)}
-            title={promptTooltip(args[key], promptLibrary.texts)}
-            value={displayValue(args[key])}
+            title={promptTooltip(args?.[key], promptLibrary.texts)}
+            value={displayValue(args?.[key])}
             onchange={(value) => update(key, value)}
           />
         {/if}
@@ -194,7 +213,7 @@
             <button
               class="quiet icon"
               onclick={() => {
-                args[parameter.name] = parameter.default ?? ''
+                write(parameter.name, addedArgument(parameter.name, parameter))
               }}
               title={`add ${parameter.name}`}
               aria-label={`add ${parameter.name}`}

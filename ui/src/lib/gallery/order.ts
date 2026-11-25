@@ -18,12 +18,12 @@ export type GallerySort = (typeof SORTS)[number]
 export const GROUPINGS = ['folder', 'date'] as const
 export type Grouping = (typeof GROUPINGS)[number]
 /** The header's two Segmented choices */
-export const SORT_OPTIONS = [
+export const SORT_OPTIONS: { value: GallerySort; label: string }[] = [
   { value: 'newest', label: 'Newest' },
   { value: 'oldest', label: 'Oldest' },
   { value: 'name', label: 'Name' },
 ]
-export const GROUP_OPTIONS = [
+export const GROUP_OPTIONS: { value: Grouping; label: string }[] = [
   { value: 'folder', label: 'Folder' },
   { value: 'date', label: 'Date' },
 ]

@@ -232,6 +232,7 @@ it('lists the library only after the name is taken', async () => {
 })
 
 it('a failed listing leaves the shared list alone', async () => {
+  assetLibrary.workspace = 'default'
   assetLibrary.items = [{ name: 'face.png' }] as typeof assetLibrary.items
   api.listAssets.mockRejectedValueOnce(new Error('down'))
   api.keepOutput.mockRejectedValueOnce(taken())

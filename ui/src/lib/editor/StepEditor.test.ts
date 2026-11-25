@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
 import { api } from '../test/apiMock'
 import { VARIABLE } from '../references'
 import StepEditor from './StepEditor.svelte'
+import type { PipelineDescription, WorkflowStep } from '../types'
 
 // The LoRA editor asks the catalog about a literal base repo; keep it offline
 vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
@@ -28,6 +29,7 @@ const step = () => ({
 it('shows a dtype and a content type it does not list as selected', () => {
   const { container } = render(StepEditor, {
     step: step(),
+    workflow: {},
     index: 0,
     count: 1,
     onremove: () => {},
@@ -52,6 +54,7 @@ it('opens full on a step whose schedulers set only a shift', () => {
   })
   render(StepEditor, {
     step: h3,
+    workflow: {},
     index: 0,
     count: 1,
     mode: 'full',
@@ -78,6 +81,7 @@ it('opens full on a step whose cache is a variable reference', () => {
   Object.assign(s.pipeline.configuration, { cache: ref })
   render(StepEditor, {
     step: s,
+    workflow: {},
     index: 0,
     count: 1,
     mode: 'full',
@@ -103,6 +107,7 @@ it('leaves a step with no torch_dtype unchanged on opening full', async () => {
   const before = JSON.stringify(s)
   render(StepEditor, {
     step: s,
+    workflow: {},
     index: 0,
     count: 1,
     mode: 'full',
@@ -154,6 +159,7 @@ it('a step removed during the pause never reads its sub-workflow', async () => {
     }
     const { unmount } = render(StepEditor, {
       step: sub,
+      workflow: {},
       index: 0,
       count: 1,
       onremove: () => {},
@@ -166,4 +172,106 @@ it('a step removed during the pause never reads its sub-workflow', async () => {
   } finally {
     vi.useRealTimers()
   }
+})
+
+const full = (s: WorkflowStep) =>
+  render(StepEditor, {
+    step: s,
+    workflow: {},
+    index: 0,
+    count: 1,
+    mode: 'full',
+    onremove: () => {},
+    onmove: () => {},
+  })
+
+// `arguments` is optional in a definition, and the full view used to throw
+// reading a key of it
+it('opens full on a step with no arguments, and writes nothing', async () => {
+  const s: WorkflowStep = {
+    name: 'bare',
+    pipeline: { configuration: { component_type: '' } },
+  }
+  const before = JSON.stringify(s)
+  full(s)
+  await new Promise((r) => setTimeout(r, 50))
+  expect(screen.getByLabelText('model')).toBeInTheDocument()
+  expect(JSON.stringify(s)).toBe(before)
+})
+
+// Typing into a block the definition does not have yet used to write to a
+// throwaway object, so the edit was lost
+it('keeps what is typed into a block the step did not have', async () => {
+  const s: WorkflowStep = { name: 'bare', pipeline: {} }
+  full(s)
+  await fireEvent.input(screen.getByLabelText('model'), {
+    target: { value: 'org/model' },
+  })
+  expect(s.pipeline?.from_pretrained_arguments).toEqual({
+    model_name: 'org/model',
+  })
+  await fireEvent.change(screen.getByLabelText('attention backend'), {
+    target: { value: 'flash' },
+  })
+  expect(s.pipeline?.configuration?.attention_backend).toBe('flash')
+})
+
+it('creates the arguments block with the first argument added', async () => {
+  api.describeClass.mockResolvedValue({
+    name: 'Probe',
+    summary: '',
+    parameters: [],
+    accepts_kwargs: true,
+  } as unknown as PipelineDescription)
+  const s: WorkflowStep = {
+    name: 'bare',
+    pipeline: { configuration: { component_type: 'Probe' } },
+  }
+  full(s)
+  const [add] = await screen.findAllByPlaceholderText('add custom argument…')
+  await fireEvent.input(add, { target: { value: 'steps' } })
+  await fireEvent.keyDown(add, { key: 'Enter' })
+  expect(JSON.stringify(s.pipeline)).toContain('"steps":""')
+})
+
+// The schema allows a task that takes `inputs`, and a sub-workflow step with
+// only a `path`: neither has an arguments object
+it.each<[string, WorkflowStep]>([
+  [
+    'a task with inputs',
+    { name: 'bare', task: { command: 'gather_images', inputs: ['a.png'] } },
+  ],
+  [
+    'a sub-workflow with only a path',
+    { name: 'bare', workflow: { path: 'c.json' } },
+  ],
+])('opens full on %s, and writes nothing', async (_, s) => {
+  api.getWorkflow.mockResolvedValue({ definition: {} })
+  const before = JSON.stringify(s)
+  full(s)
+  await new Promise((r) => setTimeout(r, 400))
+  expect(screen.getByText('arguments')).toBeInTheDocument()
+  expect(JSON.stringify(s)).toBe(before)
+})
+
+it("creates a task's arguments block with the first argument added", async () => {
+  const s: WorkflowStep = {
+    name: 'bare',
+    task: { command: 'gather_images', inputs: ['a.png'] },
+  }
+  full(s)
+  const add = await screen.findByPlaceholderText('add custom argument…')
+  await fireEvent.input(add, { target: { value: 'urls' } })
+  await fireEvent.keyDown(add, { key: 'Enter' })
+  expect(s.task?.arguments).toEqual({ urls: '' })
+})
+
+it("creates a sub-workflow's arguments block with the first argument added", async () => {
+  api.getWorkflow.mockResolvedValue({ definition: {} })
+  const s: WorkflowStep = { name: 'bare', workflow: { path: 'c.json' } }
+  full(s)
+  const name = screen.getByPlaceholderText('new argument name…')
+  await fireEvent.input(name, { target: { value: 'prompt' } })
+  await fireEvent.click(screen.getByLabelText('add this argument'))
+  expect(s.workflow?.arguments).toEqual({ prompt: '' })
 })

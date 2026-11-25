@@ -1,6 +1,7 @@
 import { untrack } from 'svelte'
 import {
   legacyRedirect,
+  queryString,
   resolveView,
   type RouteView,
   type WsSection,
@@ -52,28 +53,28 @@ export function hashQuery(): Record<string, string> {
   return query
 }
 
-// A comma is left as typed: it is legal in a fragment, and a list reads
-// `roles=final,intermediate` rather than `final%2Cintermediate`
-const encodeValue = (value: string) =>
-  encodeURIComponent(value).replace(/%2C/gi, ',')
+/** The hash's query, reactive: setHashQuery's replaceState raises no event,
+ * so a link built from the query (the sidebar's) reads it here. */
+export const liveQuery = $state({ now: hashQuery() })
+window.addEventListener('hashchange', () => (liveQuery.now = hashQuery()))
 
 /** The current path with `values` as its query, empty values dropped: what
  * setHashQuery writes in place, and what a push of a query names. */
 export function queryHash(values: Record<string, string>): string {
-  const query = Object.entries(values)
-    .filter(([, value]) => value)
-    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeValue(value)}`)
-    .join('&')
-  return '#/' + hashParts()[0] + (query ? '?' + query : '')
+  return '#/' + hashParts()[0] + queryString(values)
 }
 
 /** Replace the hash's query in place: no history entry and no hashchange,
  * so typing in a filter neither floods Back nor re-runs the route. Empty
- * values are dropped, so a cleared filter leaves a clean link. */
+ * values are dropped, so a cleared filter leaves a clean link. Nothing
+ * while a leave guard is asking or its decline is walking back: the browser
+ * is on another page's entry, and writing there would commit its URL. */
 export function setHashQuery(values: Record<string, string>) {
+  if (asking || undoing) return
   const hash = queryHash(values)
   if (hash !== location.hash) history.replaceState(history.state, '', hash)
   committed = location.hash
+  liveQuery.now = hashQuery()
 }
 
 /** How a box's value is written into the hash's query and read back. */
@@ -125,6 +126,16 @@ const boxes = new Set<{ key: string; written: () => string }>()
  * the box replaces the query in place (no history entry); a hashchange
  * re-reads it, and a hash without the key (a bare nav link) puts it back to
  * `initial`, which the hash never spells out. Call it in component init. */
+export function hashState(
+  key: string,
+  initial: string,
+  codec?: HashCodec<string>,
+): { value: string }
+export function hashState<T>(
+  key: string,
+  initial: T,
+  codec: HashCodec<T>,
+): { value: T }
 export function hashState<T>(
   key: string,
   initial: T,
@@ -395,8 +406,22 @@ async function allowed(): Promise<boolean> {
   return true
 }
 
+// A hand-off on its way: the session-storage keys `goCarrying` wrote, and
+// the path whose page takes them
+let carried: { path: string; keys: string[]; unguarded: boolean } | null = null
+
+/** The navigation the hand-off rode on is not happening: take it back, so a
+ * later visit does not open it. */
+function dropCarried() {
+  for (const key of carried?.keys ?? []) sessionStorage.removeItem(key)
+  carried = null
+}
+
 /** Take the entry the browser is on as the route. */
 function settle() {
+  // arrived: the keys are the destination page's to take now
+  if (carried?.path === pathOf(location.hash)) carried = null
+  else dropCarried()
   stopRestore()
   replacing = false
   replacedState = null
@@ -448,7 +473,10 @@ function ask() {
       // allowed but back on the committed entry is no navigation: the
       // route keeps its arrays, as a decline there would
       if (ok && !home()) settle()
-      else undo()
+      else {
+        dropCarried()
+        undo()
+      }
     })
 }
 
@@ -466,7 +494,9 @@ window.addEventListener('hashchange', () => {
   // asking, it only records where the browser is; on the committed entry
   // (our own walk back, already restored) there is nothing to do
   if (asking || home()) return
-  if (!guards.size || pathOf(location.hash) === pathOf(committed)) settle()
+  const path = pathOf(location.hash)
+  const exempt = carried?.unguarded && carried.path === path
+  if (!guards.size || exempt || path === pathOf(committed)) settle()
   else ask()
 })
 
@@ -500,8 +530,33 @@ export function renameRoute(hash: string) {
   route.view = next.view
 }
 
+function hrefOf(parts: string[]): string {
+  return '/' + parts.map(encodeURIComponent).join('/')
+}
+
 export function go(...parts: string[]) {
-  goHref('/' + parts.map(encodeURIComponent).join('/'))
+  goHref(hrefOf(parts))
+}
+
+/** `go`, with a hand-off the destination page reads from session storage.
+ * The entries last only if the route arrives there: a leave guard's decline,
+ * or landing anywhere else, removes them. `unguarded` skips the leave guards,
+ * for a navigation that takes the unsaved edits with it. */
+export function goCarrying(
+  parts: string[],
+  entries: Record<string, string>,
+  { unguarded = false } = {},
+) {
+  dropCarried()
+  for (const [key, value] of Object.entries(entries))
+    sessionStorage.setItem(key, value)
+  const href = hrefOf(parts)
+  carried = {
+    path: pathOf('#' + href),
+    keys: Object.keys(entries),
+    unguarded,
+  }
+  goHref(href)
 }
 
 /** Navigate, as `go` does (a new history entry), to a hash a builder in

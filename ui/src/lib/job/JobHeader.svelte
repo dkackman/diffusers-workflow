@@ -13,7 +13,7 @@
   import RerunWithChanges from './RerunWithChanges.svelte'
   import { exportMessage } from './exportMessage'
   import { displayValue } from '../editor'
-  import { formatDuration, formatExact, gbFromMb } from '../format'
+  import { formatBytes, formatDuration, formatExact } from '../format'
   import Time from '../ui/Time.svelte'
   import { notify } from '../toast'
   import { holdKind, holdText } from '../progress'
@@ -70,9 +70,6 @@
     const tick = setInterval(() => (now = Date.now() / 1000), 1000)
     return () => clearInterval(tick)
   })
-  const peakRam = (mb: number) =>
-    mb >= 1024 ? `${gbFromMb(mb)} GB` : `${Math.round(mb)} MB`
-
   const took = $derived.by(() => {
     if (!job?.started_at) return null
     const end = job.finished_at ?? (running ? now : null)
@@ -91,8 +88,9 @@
   // cache-served rerun so hard to read in the first place
   const rerun = action(
     async (newSeed: boolean) => {
+      const ws = job!.workspace
       const next = await api.rerunJob(jobId, { newSeed })
-      go('ws', job!.workspace, 'jobs', next.id)
+      go('ws', ws, 'jobs', next.id)
     },
     { doing: 'run it again' },
   )
@@ -121,9 +119,9 @@
    * keeps one export per job. An existing one is not a failure but a
    * question, and only a 409 asks it - anything else is reported as the
    * error it is. */
-  async function exportOrReplace(workspace: string) {
+  async function exportOrReplace(id: string, workspace: string) {
     try {
-      return await api.exportJob(jobId, workspace)
+      return await api.exportJob(id, workspace)
     } catch (e) {
       if (!(e instanceof ApiError) || e.status !== 409) throw e
     }
@@ -131,16 +129,17 @@
       'This job has already been exported on the server. Replace that export with a fresh one?',
       { title: 'Replace the export?', confirmLabel: 'Replace', danger: true },
     )
-    return replace ? api.exportJob(jobId, workspace, true) : null
+    return replace ? api.exportJob(id, workspace, true) : null
   }
 
   const exportJob = action(
     async () => {
-      const result = await exportOrReplace(job!.workspace)
+      const id = jobId
+      const result = await exportOrReplace(id, job!.workspace)
       if (!result) return
       const anchor = document.createElement('a')
       anchor.href = api.exportZipUrl(result.zip_url)
-      anchor.download = `${jobId}.zip`
+      anchor.download = `${id}.zip`
       anchor.click()
       notify.success(exportMessage(result))
     },
@@ -275,7 +274,9 @@
         class="muted seed"
         title="the whole server process's committed memory at its peak during this job - what the host-RAM gate projects from, not growth caused by this job alone"
       >
-        peak host RAM {peakRam(job.host_memory_job_peak_committed_mb)}
+        peak host RAM {formatBytes(
+          job.host_memory_job_peak_committed_mb * 1024 * 1024,
+        )}
       </code>
     {/if}
     {#if job.acknowledged === 'bound'}
@@ -325,7 +326,12 @@
             <Dices size={14} />New seed
           </ActionButton>
         {/if}
-        <RerunWithChanges {job} {declared} bind:open={rerunOpen} />
+        <RerunWithChanges
+          {job}
+          {declared}
+          {seedVariable}
+          bind:open={rerunOpen}
+        />
         <ActionButton
           act={exportJob}
           title="bundle this job - its realized workflow, manifest, the media it used and made - into the workspace's exports/ on the server, and download it as a zip"

@@ -42,14 +42,14 @@ const workflow = () => ({
 it('rewrites every shape of reference and nothing that only starts with the name', () => {
   const before = workflow()
   const { workflow: after } = renameStep(before, 'a', 'b')
-  expect(after.steps[0].name).toBe('b')
-  expect(after.steps[1].name).toBe('ab')
+  expect(after.steps![0].name).toBe('b')
+  expect(after.steps![1].name).toBe('ab')
   expect(after.variables).toEqual({
     clip: 'previous_result:b.frames',
     other: 'previous_result:ab',
     plain: 'a',
   })
-  expect(after.steps[2].task.arguments).toEqual({
+  expect(after.steps![2].task!.arguments).toEqual({
     image: 'previous_result:b',
     frames: 'previous_result:b.frames',
     member: 'previous_result:b@cold_open',

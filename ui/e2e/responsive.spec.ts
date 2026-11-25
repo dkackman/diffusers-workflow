@@ -117,3 +117,55 @@ test('the models table shows size at 390px', async ({ page }) => {
     page.getByRole('columnheader', { name: 'last used' }),
   ).toBeHidden()
 })
+
+test("the Overview's long job id is clipped", async ({ page }) => {
+  // The listing is this test's own: one finished job with an id no row holds
+  const id = 'e2e' + 'x'.repeat(200)
+  await page.route('**/api/jobs?**', async (route) => {
+    const running = route.request().url().includes('status=running')
+    const jobs = running
+      ? []
+      : [
+          {
+            id,
+            workflow: 'text-to-image',
+            workflow_name: 'text-to-image',
+            status: 'failed',
+            run_id: null,
+            created_at: 1,
+            started_at: 1,
+            finished_at: 2,
+            workspace: 'default',
+          },
+        ]
+    await route.fulfill({ json: { jobs, total: jobs.length } })
+  })
+  await page.setViewportSize({ width: 900, height: 900 })
+  await page.goto('/#/ws/default/overview')
+  const row = page.getByTitle(`job ${id}`, { exact: true })
+  const jid = row.locator('.jid')
+  await expect(jid).toBeVisible()
+  const rowBox = (await row.boundingBox())!
+  const jidBox = (await jid.boundingBox())!
+  expect(jidBox.x + jidBox.width).toBeLessThanOrEqual(
+    rowBox.x + rowBox.width + 1,
+  )
+  // there is more id than box, and what does not fit is cut with an ellipsis
+  expect(
+    await jid.evaluate((el) => el.scrollWidth - el.clientWidth),
+  ).toBeGreaterThan(0)
+  await expect(jid).toHaveCSS('overflow-x', 'hidden')
+  await expect(jid).toHaveCSS('text-overflow', 'ellipsis')
+  expect(await overflowOf(page)).toBeLessThanOrEqual(1)
+})
+
+test('a row tile is 32 px', async ({ page }) => {
+  // The suggestion rows of an image field, over the fixture's own stills
+  await page.goto('/#/ws/default/workflows/templates/image-to-image')
+  const field = page.locator('input.referencefield').first()
+  await field.fill('')
+  await field.pressSequentially('output:')
+  const tile = page.locator('.ui-suggest [role="option"] .tile-row').first()
+  await expect(tile).toBeVisible()
+  expect((await tile.boundingBox())!.width).toBeCloseTo(32, 0)
+})

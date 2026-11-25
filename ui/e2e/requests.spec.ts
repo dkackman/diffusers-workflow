@@ -277,7 +277,12 @@ test("a request's jobs link narrows the Jobs page to it, with a chip", async ({
   await page.locator('.reqhead').getByRole('link', { name: 'its jobs' }).click()
   await expect(page).toHaveURL(new RegExp(`#/ws/default/jobs\\?req=${ID}$`))
   const chip = page.getByTestId('req-filter')
-  await expect(chip).toContainText(ID)
+  // the link's title, not its text: the request's own title replaces the id
+  // there once the chip's listing lands
+  await expect(chip.getByRole('link')).toHaveAttribute(
+    'title',
+    `${ID} - open this request`,
+  )
   // only the three linked jobs: the restart tombstones are another matter
   await expect(
     page.locator('.wschip', { hasText: `${ID} › hero` }),
@@ -307,7 +312,12 @@ test("an item's jobs link narrows the Jobs page to that item", async ({
   // the item's menu holds its jobs and outputs, not the take strip
   await hero.getByRole('button', { name: /^More actions for/ }).click()
   await page.getByRole('dialog').getByRole('link', { name: 'Its jobs' }).click()
-  await expect(page.getByTestId('req-filter')).toContainText(`${ID} › hero`)
+  const chip = page.getByTestId('req-filter')
+  await expect(chip.getByRole('link')).toHaveAttribute(
+    'title',
+    `${ID} - open this request`,
+  )
+  await expect(chip).toContainText('› hero')
   await expect(page.locator('.chip.succeeded')).toHaveCount(2)
   await expect(page.locator('.chip.failed')).toHaveCount(0)
 })
@@ -504,7 +514,9 @@ test('dropping an item others wait on says what it does to them, and Restore put
     'shot',
   ])
   await page.reload()
-  expect(await order(page)).toEqual(['board', 'shot', 'cut', 'title', 'score'])
+  await expect
+    .poll(() => order(page))
+    .toEqual(['board', 'shot', 'cut', 'title', 'score'])
 })
 
 test('the handle reorders with the keys, in one write that a reload still shows', async ({
@@ -535,7 +547,9 @@ test('the handle reorders with the keys, in one write that a reload still shows'
   expect((await put).status()).toBe(200)
   expect(puts).toBe(1)
   await page.reload()
-  expect(await order(page)).toEqual(['board', 'title', 'shot', 'cut', 'score'])
+  await expect
+    .poll(() => order(page))
+    .toEqual(['board', 'title', 'shot', 'cut', 'score'])
 })
 
 test("an edit made over the agent's write goes on top of it, and the page says so", async ({
@@ -820,7 +834,9 @@ test('dragging the handle moves an item, in one write', async ({ page }) => {
   const body = (await put).request().postDataJSON()
   expect(body.why).toBe('reorder board')
   await page.reload()
-  expect(await order(page)).toEqual(['title', 'board', 'shot', 'cut'])
+  await expect
+    .poll(() => order(page))
+    .toEqual(['title', 'board', 'shot', 'cut'])
 })
 
 test('the request can be marked done and reopened from its menu, and deleted once closed', async ({

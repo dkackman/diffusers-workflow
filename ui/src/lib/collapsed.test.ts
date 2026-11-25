@@ -13,3 +13,14 @@ it('remembers what was shut under its key', () => {
   first.toggle('a')
   expect(collapsedState('collapsed-test').has('a')).toBe(false)
 })
+
+it('a getter key is followed, each key keeping its own', () => {
+  let key = 'collapsed-one'
+  const state = collapsedState(() => key)
+  state.toggle('a')
+  key = 'collapsed-two'
+  expect(state.has('a')).toBe(false)
+  key = 'collapsed-one'
+  expect(state.has('a')).toBe(true)
+  expect(collapsedState('collapsed-one').has('a')).toBe(true)
+})

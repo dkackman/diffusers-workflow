@@ -80,7 +80,7 @@ describe('chained segments', () => {
       chainSummary({}, { name: 'plain', task: { command: 'noop' } }),
     ).toBeNull()
     expect(
-      chainSummary({}, { name: 'plain', pipeline: { chain: null } }),
+      chainSummary({}, { name: 'plain', pipeline: { chain: null as never } }),
     ).toBeNull()
   })
 })

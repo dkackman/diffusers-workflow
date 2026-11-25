@@ -578,3 +578,43 @@ class TestReviewFixes:
         (tmp_path / REQUESTS_FILE_NAME).mkdir()
         error = refused(tmp_path, plan(), code="ledger_unreadable")
         assert str(tmp_path) not in str(error)
+
+
+class TestAcceptWithPlanEdit:
+    """An `accepted` sent in the write that edits the plan is not recorded as
+    current, and the reply says so per item (#1616)."""
+
+    def _first(self, tmp_path):
+        write(
+            tmp_path,
+            plan(items=[item("a", arguments={"x": 1})]),
+            linked_jobs=links("a"),
+        )
+
+    def test_same_write_accept_warns(self, tmp_path):
+        self._first(tmp_path)
+        view = write(
+            tmp_path,
+            plan(
+                revision=1,
+                items=[
+                    item(
+                        "a",
+                        arguments={"x": 2},
+                        accepted={"job": "job-a"},
+                    )
+                ],
+            ),
+            linked_jobs=links("a"),
+        )
+        assert len(view["warnings"]) == 1
+        assert "'a'" in view["warnings"][0] and "separate" in view["warnings"][0]
+
+    def test_a_plain_write_has_no_warnings(self, tmp_path):
+        self._first(tmp_path)
+        view = write(
+            tmp_path,
+            plan(revision=1, items=[item("a", arguments={"x": 1})]),
+            linked_jobs=links("a"),
+        )
+        assert "warnings" not in view

@@ -4,6 +4,7 @@
 // still has is one - an index past the end, or a name it does not declare,
 // places nothing, so the editor never offers a Go to that lands nowhere.
 import { VARIABLE_PATH } from './findings'
+import type { WorkflowDefinition } from './types'
 
 export type Place =
   | { kind: 'step'; index: number; name: string }
@@ -13,7 +14,7 @@ const STEP_PATH = /^steps\[(\d+)\]/
 
 export function findingPlace(
   path: string | null,
-  doc: Record<string, any>,
+  doc: WorkflowDefinition,
 ): Place | null {
   if (!path) return null
   const step = STEP_PATH.exec(path)

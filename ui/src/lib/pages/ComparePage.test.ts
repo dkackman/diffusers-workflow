@@ -38,7 +38,9 @@ const defaults = () => {
         file('wf/r2/b.png'),
         file('wf/v1.mp4', 'video'),
         file('wf/v2.mp4', 'video'),
-        ...listing.extra.map((n) => file(n)),
+        ...listing.extra.map((n) =>
+          file(n, n.endsWith('.wav') ? 'audio' : 'image'),
+        ),
       ],
     }),
   )
@@ -240,6 +242,64 @@ describe('ComparePage', () => {
     expect(screen.queryByText(/is not in this view any more/)).toBeNull()
   })
 
+  it('from a job, the back link returns to it', async () => {
+    location.hash = compareHref('default', ['wf/r1/a.png', 'wf/r2/b.png'], {
+      href: '#/ws/default/jobs/j1',
+      label: 'Job',
+    })
+    render(ComparePage, { props: { names: ['wf/r1/a.png', 'wf/r2/b.png'] } })
+    await screen.findByAltText('a.png')
+    expect(screen.getByRole('link', { name: /Job/ })).toHaveAttribute(
+      'href',
+      '#/ws/default/jobs/j1',
+    )
+    // removing a cell keeps where it came from
+    await fireEvent.click(
+      screen.getAllByRole('button', { name: 'Remove from comparison' })[0],
+    )
+    expect(location.hash).toContain('back=')
+  })
+  it('with no back=, the back link is the Gallery', async () => {
+    location.hash = '#/ws/default/compare/x'
+    render(ComparePage, { props: { names: ['wf/r1/a.png', 'wf/r2/b.png'] } })
+    await screen.findByAltText('a.png')
+    expect(screen.getByRole('link', { name: /Gallery/ })).toHaveAttribute(
+      'href',
+      '#/ws/default/gallery',
+    )
+  })
+  it('an audio cell opens in the viewer', async () => {
+    listing.extra = ['wf/r1/s.wav']
+    location.hash = '#/ws/default/compare/x'
+    const { container } = render(ComparePage, {
+      props: { names: ['wf/r1/a.png', 'wf/r1/s.wav'] },
+    })
+    await screen.findByAltText('a.png')
+    expect(container.querySelector('audio')).not.toBeNull()
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Open s.wav' }),
+    )
+    expect(location.hash).toContain('open=wf%2Fr1%2Fs.wav')
+    expect(await screen.findByRole('dialog', { name: 's.wav' })).toBeTruthy()
+  })
+  it('the transport pauses under the viewer', async () => {
+    location.hash = '#/ws/default/compare/x'
+    const { container } = render(ComparePage, {
+      props: { names: ['wf/v1.mp4', 'wf/v2.mp4'] },
+    })
+    await screen.findByLabelText('position in every video')
+    const clips = [...container.querySelectorAll('video')]
+    for (const clip of clips) {
+      clip.play = vi.fn(() => Promise.resolve())
+      clip.pause = vi.fn()
+    }
+    await fireEvent.click(screen.getByRole('button', { name: 'play all' }))
+    await fireEvent.click(screen.getAllByRole('button', { name: /^Open v/ })[0])
+    await waitFor(() => {
+      for (const clip of clips) expect(clip.pause).toHaveBeenCalled()
+    })
+    expect(screen.getByRole('button', { name: 'play all' })).toBeTruthy()
+  })
   it('one transport plays every clip, muted', async () => {
     const { container } = render(ComparePage, {
       props: { names: ['wf/v1.mp4', 'wf/v2.mp4'] },
@@ -276,5 +336,54 @@ describe('ComparePage', () => {
     expect(container.querySelectorAll('video')[0]).toBe(first)
     expect(mine()).toBe(2)
     add.mockRestore()
+  })
+
+  // The router hands the page a new array of the same names on each
+  // hashchange: the viewer opening (`?open=`) and Back closing it
+  const playingPair = async () => {
+    location.hash = '#/ws/default/compare/x'
+    const props = () => ({ names: ['wf/v1.mp4', 'wf/v2.mp4'] })
+    const view = render(ComparePage, { props: props() })
+    await screen.findByLabelText('position in every video')
+    const clips = [...view.container.querySelectorAll('video')]
+    for (const clip of clips) {
+      clip.play = vi.fn(() => Promise.resolve())
+      clip.pause = vi.fn()
+      Object.defineProperty(clip, 'duration', { value: 8 })
+      await fireEvent(clip, new Event('loadedmetadata'))
+    }
+    await fireEvent.click(screen.getByRole('button', { name: 'play all' }))
+    clips[0].currentTime = 3
+    await fireEvent(clips[0], new Event('timeupdate'))
+    const slider = screen.getByLabelText(
+      'position in every video',
+    ) as HTMLInputElement
+    return { ...view, props, clips, slider }
+  }
+
+  it('the same names in a new array leave the transport and the load alone', async () => {
+    const { rerender, props, clips, slider } = await playingPair()
+    const reads = api.gallery.mock.calls.length
+    await rerender(props())
+    await settle()
+    expect(screen.getByRole('button', { name: 'pause all' })).toBeTruthy()
+    expect(slider.max).toBe('8')
+    expect(slider.value).toBe('3')
+    for (const clip of clips) expect(clip.pause).not.toHaveBeenCalled()
+    expect(api.gallery.mock.calls.length).toBe(reads)
+  })
+
+  it('new names pause and rewind the clips with the transport', async () => {
+    const { rerender, clips } = await playingPair()
+    const reads = api.gallery.mock.calls.length
+    await rerender({ names: ['wf/v1.mp4', 'wf/v2.mp4', 'wf/r1/a.png'] })
+    await screen.findByAltText('a.png')
+    expect(screen.getByRole('button', { name: 'play all' })).toBeTruthy()
+    expect(screen.getByText('0.00 s')).toBeTruthy()
+    for (const clip of clips) {
+      expect(clip.pause).toHaveBeenCalled()
+      expect(clip.currentTime).toBe(0)
+    }
+    expect(api.gallery.mock.calls.length).toBe(reads + 1)
   })
 })

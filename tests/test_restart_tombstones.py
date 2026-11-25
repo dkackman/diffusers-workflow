@@ -483,6 +483,28 @@ def test_without_acknowledgement_the_preview_queues_nothing(tmp_path):
         assert reruns(manager) == []
 
 
+def test_would_queue_names_the_workflow(tmp_path):
+    workflow_dir = tmp_path / "workflows"
+    workflow_dir.mkdir()
+    dead = manager_on(tmp_path, StuckWorkerManager(stuck_script))
+    job = dead.submit(
+        admitted=admitted_for(dead, valid_workflow()),
+        workflow=valid_workflow(),
+        arguments={"prompt": "hi"},
+        base_dir=str(workflow_dir),
+        workflow_dir=str(workflow_dir),
+        catalog_name="templates/named-here",
+    )
+    wait_until(lambda: job.run_dir == RUN_DIR)
+    kill(dead)
+
+    with restarted_client(tmp_path) as (client, _):
+        response = client.post(f"/api/jobs/{job.id}/rerun-restart-batch", json={})
+        assert response.status_code == 200, response.text
+        [entry] = response.json()["would_queue"]
+        assert entry["workflow_name"] == "templates/named-here"
+
+
 def test_a_bound_acknowledgement_is_refused(tmp_path):
     ids = a_dead_server_with_three_jobs(tmp_path)
     with restarted_client(tmp_path) as (client, manager):

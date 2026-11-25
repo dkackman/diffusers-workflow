@@ -18,7 +18,7 @@ let teardown: (() => void) | null = null
 
 /** Make a resource inside an effect root, as a component's init would */
 function mount<T>(
-  load: () => Promise<T>,
+  load: (current: () => boolean) => Promise<T>,
   options: ResourceOptions<T>,
 ): Resource<T> {
   let made!: Resource<T>
@@ -591,4 +591,173 @@ it('adopt with mark marks what another writer changed against what is held', asy
     { id: 'a', v: 2 },
     { id: 'b', v: 1 },
   ])
+})
+
+it('a quiet reload begun before an adopt is read again, not held', async () => {
+  const gates: ReturnType<typeof deferred<Row[]>>[] = []
+  const currents: (() => boolean)[] = []
+  const load = vi.fn((current: () => boolean) => {
+    currents.push(current)
+    gates.push(deferred<Row[]>())
+    return gates.at(-1)!.promise
+  })
+  const r = mount(load, { watch: ['jobs'], rows: byId })
+  gates[0].resolve([{ id: 'a', v: 1 }])
+  await vi.waitFor(() => expect(r.status).toBe('ready'))
+  const reload = r.refresh()
+  // the page's own write lands while that read is out, twice over
+  r.adopt([{ id: 'a', v: 2 }])
+  r.adopt([{ id: 'a', v: 3 }])
+  expect(currents[1]()).toBe(false)
+  gates[1].resolve([{ id: 'a', v: 1 }])
+  await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(3))
+  expect(r.data).toEqual([{ id: 'a', v: 3 }])
+  expect(r.changed.size).toBe(0)
+  gates[2].resolve([{ id: 'a', v: 3 }])
+  await reload
+  expect(r.data).toEqual([{ id: 'a', v: 3 }])
+  expect(r.changed.size).toBe(0)
+  expect(load).toHaveBeenCalledTimes(3)
+})
+
+it('a loud load begun before an adopt is read again and ends ready', async () => {
+  const gates: ReturnType<typeof deferred<string>>[] = []
+  const load = vi.fn(() => {
+    gates.push(deferred<string>())
+    return gates.at(-1)!.promise
+  })
+  const r = mount(load, { watch: [] })
+  gates[0].resolve('old')
+  await vi.waitFor(() => expect(r.status).toBe('ready'))
+  const reload = r.reload()
+  r.adopt('saved')
+  gates[1].resolve('old')
+  await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(3))
+  expect(r.status).toBe('loading')
+  expect(r.data).toBe('saved')
+  gates[2].resolve('saved')
+  await reload
+  expect(r.status).toBe('ready')
+  expect(r.data).toBe('saved')
+})
+
+/** A load whose every call is settled by hand */
+function gated<T>() {
+  const gates: ReturnType<typeof deferred<T>>[] = []
+  const load = vi.fn(() => {
+    gates.push(deferred<T>())
+    return gates.at(-1)!.promise
+  })
+  return { gates, load }
+}
+
+it('quiet triggers faster than the load do not starve it', async () => {
+  vi.useFakeTimers()
+  let n = 0
+  // each read takes longer than the interval between triggers
+  const load = vi.fn(() => {
+    const mine = ++n
+    return new Promise<number>((res) => setTimeout(() => res(mine), 2500))
+  })
+  const r = mount(load, { watch: ['gallery'] })
+  await vi.advanceTimersByTimeAsync(2500)
+  expect(r.data).toBe(1)
+  for (let i = 0; i < 10; i++) {
+    feed.move('default', 'gallery')
+    await vi.advanceTimersByTimeAsync(1000)
+  }
+  // every read landed while the triggers went on
+  expect(r.data).toBeGreaterThanOrEqual(3)
+  expect(load.mock.calls.length - (r.data as number)).toBeLessThanOrEqual(1)
+})
+
+it('quiet runs asked for while one is out are owed once', async () => {
+  const { gates, load } = gated<string>()
+  const r = mount(load, { watch: ['gallery'] })
+  gates[0].resolve('first')
+  await vi.waitFor(() => expect(r.status).toBe('ready'))
+  feed.move('default', 'gallery')
+  feed.move('default', 'gallery')
+  connection.epoch++
+  flushSync()
+  let refreshed = false
+  void r.refresh().then(() => (refreshed = true))
+  expect(load).toHaveBeenCalledTimes(2)
+  gates[1].resolve('second')
+  await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(3))
+  expect(r.data).toBe('second')
+  // a refresh asked meanwhile waits for the read made after it
+  expect(refreshed).toBe(false)
+  gates[2].resolve('third')
+  await vi.waitFor(() => expect(refreshed).toBe(true))
+  expect(r.data).toBe('third')
+  expect(load).toHaveBeenCalledTimes(3)
+})
+
+it('a failed quiet read still makes the one owed', async () => {
+  const { gates, load } = gated<string>()
+  const r = mount(load, { watch: ['gallery'] })
+  gates[0].resolve('first')
+  await vi.waitFor(() => expect(r.status).toBe('ready'))
+  feed.move('default', 'gallery')
+  feed.move('default', 'gallery')
+  gates[1].reject(new Error('down'))
+  await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(3))
+  gates[2].resolve('third')
+  await vi.waitFor(() => expect(r.data).toBe('third'))
+  expect(r.stale).toBe(false)
+})
+
+it('a loud load takes over the quiet one out and what it was owed', async () => {
+  const { gates, load } = gated<string>()
+  const r = mount(load, { watch: ['gallery'] })
+  gates[0].resolve('first')
+  await vi.waitFor(() => expect(r.status).toBe('ready'))
+  feed.move('default', 'gallery')
+  feed.move('default', 'gallery')
+  const reload = r.reload()
+  expect(load).toHaveBeenCalledTimes(3)
+  gates[2].resolve('loud')
+  await reload
+  gates[1].resolve('overtaken')
+  await settle()
+  expect(r.data).toBe('loud')
+  expect(load).toHaveBeenCalledTimes(3)
+})
+
+it('a quiet run for a new question does not wait on the old one', async () => {
+  const { gates, load } = gated<string>()
+  const r = mount(load, { watch: ['gallery'], lazy: true })
+  feed.move('default', 'gallery')
+  workspace.current = 'other'
+  flushSync()
+  feed.move('other', 'gallery')
+  expect(load).toHaveBeenCalledTimes(2)
+  gates[1].resolve('other rows')
+  await vi.waitFor(() => expect(r.data).toBe('other rows'))
+  gates[0].resolve('default rows')
+  await settle()
+  expect(r.data).toBe('other rows')
+})
+
+it('forgets what it holds when its subject changes', async () => {
+  const about = $state({ file: 'a.png' })
+  let gate = deferred<string>()
+  const r = mount(
+    () => {
+      const file = about.file
+      return gate.promise.then((v) => `${file}:${v}`)
+    },
+    { watch: [], subject: () => about.file },
+  )
+  gate.resolve('1')
+  await vi.waitFor(() => expect(r.data).toBe('a.png:1'))
+
+  gate = deferred<string>()
+  about.file = 'b.png'
+  flushSync()
+  expect(r.status).toBe('loading')
+  expect(r.data).toBeUndefined()
+  gate.resolve('2')
+  await vi.waitFor(() => expect(r.data).toBe('b.png:2'))
 })

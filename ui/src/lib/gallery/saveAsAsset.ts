@@ -131,3 +131,10 @@ export async function saveAsAsset(
     return onTaken(file, name, listNames)
   }
 }
+
+/** The Save as asset button's copy, the same in the Gallery and the job
+ * viewer: `action(saveAsAsset, SAVING_ASSET)` */
+export const SAVING_ASSET = {
+  doing: 'save it as an asset',
+  success: (r: { name: string }) => `Saved as asset ${r.name}`,
+}

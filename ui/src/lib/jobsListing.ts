@@ -68,13 +68,14 @@ export const listJobs = (
   )
 
 /** The live jobs and the finished page as one listing: by creation, oldest
- * first, each id once (the live answer wins). `finished` is every finished
+ * first, each id once (the finished answer wins: a finished job stays so,
+ * while the live answer may be from before it finished). `finished` is every finished
  * job the server holds; `total` adds the live jobs the finished answer does
  * not already name, so a job caught finishing between the two reads counts
  * once. */
 export function mergeListings(live: JobList, done: JobList) {
   const byId = new Map<string, JobSummary>()
-  for (const job of [...done.jobs, ...live.jobs]) byId.set(job.id, job)
+  for (const job of [...live.jobs, ...done.jobs]) byId.set(job.id, job)
   const jobs = [...byId.values()].sort(
     (a, b) => (a.created_at ?? 0) - (b.created_at ?? 0),
   )
@@ -151,8 +152,9 @@ async function readFinished(
  * `held` (finished jobs by id, kept by the page) is for a page that has
  * read the whole history once: while it holds some, a read asks for the
  * newest page only and merges it in, so the rest stays held and a poll
- * costs a page. The live jobs are read first: a job that finishes between
- * the two reads is then in the finished answer, never in neither. */
+ * costs a page. The two reads go out together, the live one first: the
+ * server answers a job that finishes meanwhile in one of them, and a job in
+ * both is listed once (`mergeListings`). */
 export async function listWithPrompts(
   ws: string,
   scoped: RequestFilter,
@@ -160,10 +162,10 @@ export async function listWithPrompts(
   limit: number = JOBS_PAGE,
   held?: Map<string, JobSummary>,
 ) {
-  const live = await readWithPrompts(ws, scoped, known, {
-    status: 'queued,running',
-  })
-  const done = await readFinished(ws, scoped, known, limit, held)
+  const [live, done] = await Promise.all([
+    readWithPrompts(ws, scoped, known, { status: 'queued,running' }),
+    readFinished(ws, scoped, known, limit, held),
+  ])
   const list = mergeListings(live, done)
   for (const job of list.jobs)
     if (list.prompts || !known.has(job.id))

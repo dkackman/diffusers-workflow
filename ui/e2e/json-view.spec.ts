@@ -175,14 +175,17 @@ test('steps folds', async ({ page, request }) => {
     const controls = editor.locator(
       '.margin-view-overlays .codicon-folding-expanded',
     )
-    await expect(controls.first()).toBeAttached()
+    // the controls are drawn as the folding ranges arrive: look until the
+    // steps line has its own
     let onSteps: Locator | null = null
-    for (const control of await controls.all()) {
-      const box = await control.boundingBox()
-      if (box && line && Math.abs(box.y - line.y) < line.height)
-        onSteps = control
-    }
-    expect(onSteps).not.toBeNull()
+    await expect(async () => {
+      for (const control of await controls.all()) {
+        const box = await control.boundingBox()
+        if (box && line && Math.abs(box.y - line.y) < line.height)
+          onSteps = control
+      }
+      expect(onSteps).not.toBeNull()
+    }).toPass()
     await onSteps!.click()
     await expect(
       editor.locator('.margin-view-overlays .codicon-folding-collapsed'),
@@ -306,7 +309,7 @@ test('a Monaco chunk that cannot load says so, and the form view still works', a
     await expect(
       page.getByRole('alert').filter({ hasText: "The JSON editor couldn't" }),
     ).toContainText(
-      "The JSON editor couldn't load. Reload the page to get the current version.",
+      "The JSON editor couldn't load. Reload the page; if that doesn't help, check that the server is running.",
     )
     await expect(page.getByText('What failed')).toBeVisible()
     await page.getByRole('button', { name: 'form', exact: true }).click()

@@ -9,6 +9,7 @@ const candidate = (key: string, over: Partial<Candidate> = {}): Candidate => ({
   title: `Item ${key}`,
   workflow: `flow-${key}`,
   arguments: { seed: 1 },
+  jobs: [],
   planMinutes: null,
   ...over,
 })
@@ -393,4 +394,41 @@ it('with nothing ticked there is nothing to run, and it is not finished', async 
   await queue.submit()
   expect(api.submitJob).not.toHaveBeenCalled()
   expect(queue.finished).toBe(false)
+})
+
+it('does not send a row the plan moved past while the rows before it were sent', async () => {
+  const gone = new Set<string>()
+  const api = {
+    validate: vi.fn(async () => valid('a')),
+    submitJob: vi.fn(async (body: { item?: string }) => {
+      gone.add('b')
+      return job(`job-${body.item}`)
+    }),
+  }
+  const queue = new RunQueue([candidate('a'), candidate('b')], {
+    workspace: 'studio',
+    requestId: 'r1',
+    api: api as unknown as RunApi,
+    stale: (c) => (gone.has(c.key) ? 'moved' : null),
+  })
+  await queue.price()
+  await queue.submit()
+  expect(api.submitJob).toHaveBeenCalledTimes(1)
+  expect(states(queue)).toEqual(['queued', 'priced'])
+  expect(queue.chosen).toHaveLength(0)
+  expect(queue.finished).toBe(false)
+})
+
+it('a 409 whose plan is not an object is a failure, not a new price', async () => {
+  const { queue } = setup(['a'], {
+    submitJob: vi.fn(async () => {
+      throw new ApiError('moved', 409, undefined, {
+        plan: 'gone',
+        acknowledge: true,
+      })
+    }) as Mock,
+  })
+  await queue.price()
+  await queue.submit()
+  expect(states(queue)).toEqual(['failed'])
 })

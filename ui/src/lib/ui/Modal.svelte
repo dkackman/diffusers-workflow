@@ -1,26 +1,23 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
   import { Dialog } from 'bits-ui'
-  import { holdLayer } from './layers.svelte'
+  import { holdLayer, portalTarget } from './layers.svelte'
 
   let {
     open = $bindable(false),
     label,
-    wide = false,
-    large = false,
-    fill = false,
+    size,
     onkeydowncapture,
     onopenfocus,
     children,
   }: {
     open?: boolean
     label: string
-    wide?: boolean
-    /** Most of the viewport, for a browsing grid rather than a message */
-    large?: boolean
-    /** The whole window, for one file shown large (MediaViewer); its look
-     * is `.ui-sheet-fill` in patterns.css, app.css being full */
-    fill?: boolean
+    /** `wide` for a longer message; `large`, most of the viewport, for a
+     * browsing grid; `fill`, the whole window, for one file shown large
+     * (MediaViewer; its look is `.ui-sheet-fill` in patterns.css, app.css
+     * being full). A message's width when unset */
+    size?: 'wide' | 'large' | 'fill'
     /** Every key pressed inside the sheet, before its target sees it */
     onkeydowncapture?: (event: KeyboardEvent) => void
     /** Where focus goes on open, when not the first control: call
@@ -32,6 +29,7 @@
   $effect(() => {
     if (open) return holdLayer()
   })
+  const portal = portalTarget(() => open)
 
   // A press on a toast (its Undo, its close) is not a press outside the
   // sheet: the sheet stays open under it
@@ -45,15 +43,10 @@
 <!-- A modal: focus is trapped inside and returns to the trigger on close;
      Escape and an outside click close it -->
 <Dialog.Root bind:open>
-  <Dialog.Portal>
+  <Dialog.Portal to={portal.to}>
     <Dialog.Overlay class="ui-overlay" />
     <Dialog.Content
-      class={[
-        'ui-sheet panel',
-        wide && 'ui-sheet-wide',
-        large && 'ui-sheet-large',
-        fill && 'ui-sheet-fill',
-      ]
+      class={['ui-sheet panel', size && `ui-sheet-${size}`]
         .filter(Boolean)
         .join(' ')}
       aria-label={label}

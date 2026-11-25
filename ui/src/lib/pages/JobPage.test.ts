@@ -224,7 +224,7 @@ it('a bare S stars the open file, as its star says, and S again unstars it', asy
   await fireEvent.click(await screen.findByLabelText('Open a.png'))
   const sheet = await screen.findByRole('dialog', { name: 'a.png' })
   const star = await within(sheet).findByRole('button', { name: 'Star' })
-  await waitFor(() => expect(star).not.toBeDisabled())
+  await waitFor(() => expect(star).toHaveAttribute('aria-disabled', 'false'))
   api.setStarred.mockClear()
   // a modified S is the browser's or the page's own
   await fireEvent.keyDown(sheet, { key: 'S', shiftKey: true })
@@ -252,7 +252,7 @@ it('a star Undo leaves a star another writer changed', async () => {
   await fireEvent.click(await screen.findByLabelText('Open a.png'))
   const sheet = await screen.findByRole('dialog', { name: 'a.png' })
   const star = await within(sheet).findByRole('button', { name: 'Star' })
-  await waitFor(() => expect(star).not.toBeDisabled())
+  await waitFor(() => expect(star).toHaveAttribute('aria-disabled', 'false'))
   api.setStarred.mockClear()
   await fireEvent.keyDown(sheet, { key: 's' })
   await waitFor(() => expect(notify.undo).toHaveBeenCalledTimes(1))
@@ -705,7 +705,7 @@ it("a finished job's progress is one line until opened", async () => {
   expect(details.open).toBe(false)
   const summary = details.querySelector('summary')!
   expect(summary.textContent?.replace(/\s+/g, ' ').trim()).toBe(
-    'Progress 1 of 2 steps · 1m 12s',
+    '1 of 2 steps · 1m 12s',
   )
   // the list is behind the disclosure
   expect(details.querySelectorAll('.step')).toHaveLength(2)
@@ -1168,7 +1168,7 @@ describe('step timing bar and peak host RAM (#1453)', () => {
     detail.job = { ...job([]), host_memory_job_peak_committed_mb: 20480 }
     const first = render(JobPage, { jobId: 'j1' })
     await waitFor(() =>
-      expect(screen.getByText('peak host RAM 20.0 GB')).toBeTruthy(),
+      expect(screen.getByText('peak host RAM 20.00 GB')).toBeTruthy(),
     )
     first.unmount()
     detail.job = { ...job([]), host_memory_job_peak_committed_mb: null }
@@ -1184,6 +1184,19 @@ describe('event log (#1478)', () => {
     [...c.querySelectorAll('.eventlog tbody tr')].map((tr) =>
       [...tr.querySelectorAll('td')].map((td) => td.textContent?.trim()),
     )
+
+  it('another job gets a closed log of its own', async () => {
+    detail.job = { ...job([]), historical: true } as JobDetail
+    const { rerender } = render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(logToggle()).toBeTruthy())
+    await fireEvent.click(logToggle())
+    expect(logToggle().getAttribute('aria-expanded')).toBe('true')
+    detail.job = { ...detail.job, id: 'j2' }
+    await rerender({ jobId: 'j2' })
+    await waitFor(() =>
+      expect(logToggle().getAttribute('aria-expanded')).toBe('false'),
+    )
+  })
 
   it('is collapsed on a historical job and asks for nothing until opened', async () => {
     detail.job = { ...job([]), historical: true } as JobDetail
@@ -1662,6 +1675,25 @@ it('a failed job leads with what failed and the remedy, the traceback folded', a
   expect(folded.textContent).toContain('boom')
 })
 
+it('the Error panel sits above Results', async () => {
+  ran.definition = { steps: [{ name: 'generate', pipeline: {} }] }
+  detail.job = {
+    ...failedJob(),
+    manifest: [{ step: 'generate', files: ['a.png'] }],
+    output_kinds: { 'a.png': 'image' },
+    run_dir: 'wf/run-1',
+  }
+  render(JobPage, { jobId: 'j1' })
+  const failed = await screen.findByText('Failed in step', { exact: false })
+  const results = await screen.findByRole('heading', {
+    level: 2,
+    name: 'Results',
+  })
+  expect(
+    failed.compareDocumentPosition(results) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy()
+})
+
 it('a failed job with nothing to change does not offer a rerun form', async () => {
   detail.job = { ...failedJob(), arguments: {} }
   render(JobPage, { jobId: 'j1' })
@@ -1743,4 +1775,36 @@ it('the workflow updates when the job finishes', async () => {
   detail.job = job([])
   feed.move('default', 'jobs')
   await waitFor(() => expect(nodeFor(container, 'finish')).toBeTruthy())
+})
+
+it('a saved run note survives a record reload begun before the save', async () => {
+  const before: JobDetail = {
+    ...job([]),
+    run_dir: 'wf/run-1',
+    note: 'old note',
+  }
+  detail.job = before
+  render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(screen.getByText('old note')).toBeTruthy())
+  await fireEvent.click(screen.getByRole('button', { name: 'Edit note' }))
+  const box = screen.getByLabelText('Your note on this job')
+  await fireEvent.input(box, { target: { value: 'new note' } })
+  let land!: (value: JobDetail) => void
+  api.getJob.mockClear()
+  api.getJob.mockImplementationOnce(
+    () => new Promise((resolve) => (land = resolve)),
+  )
+  feed.move('default', 'jobs')
+  await waitFor(() => expect(api.getJob).toHaveBeenCalledTimes(1))
+  detail.job = { ...before, note: 'new note' }
+  await fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  await waitFor(() => expect(screen.getByText('new note')).toBeTruthy())
+
+  land(before)
+
+  await waitFor(() => expect(api.getJob).toHaveBeenCalledTimes(2))
+  await new Promise((r) => setTimeout(r, 10))
+  expect(screen.getByText('new note')).toBeTruthy()
+  expect(screen.queryByText('old note')).toBeNull()
+  expect(screen.queryByText(/updated by an agent/i)).toBeNull()
 })

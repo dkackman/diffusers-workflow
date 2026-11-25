@@ -94,7 +94,7 @@
     referenceName(input.reference, input.kind === 'asset' ? ASSET : OUTPUT) ??
     input.reference
   const sectioned = $derived(
-    sections.length > 1 || sections[0].subfolder !== '',
+    sections.length > 1 || (sections[0]?.subfolder ?? '') !== '',
   )
   // Every file in the order the panel shows them, finals first: what the
   // viewer steps through, Compare picks from and Download all takes
@@ -144,7 +144,14 @@
   }
 </script>
 
-<ResultsHead files={ordered} {items} workspace={job.workspace} />
+{#if fileGroups.length || unsaved.length}
+  <ResultsHead
+    files={ordered}
+    {items}
+    workspace={job.workspace}
+    jobId={job.id}
+  />
+{/if}
 <MissingFile leaf={stray.missing} ondismiss={stray.dismiss} />
 {#if allReused}
   <p class="muted reusednote">
@@ -277,7 +284,7 @@
   </ul>
 {/if}
 
-<JobViewer {items} bind:open {onnote} />
+<JobViewer {items} bind:open {onnote} listed={run.data?.starred} />
 
 <style>
   .roles details {

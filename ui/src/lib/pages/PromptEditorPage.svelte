@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { PromptDefinition } from '../types'
   import { untrack } from 'svelte'
   import Suggest from '../ui/Suggest.svelte'
   import { isNameSegment } from '../names'
@@ -7,7 +8,6 @@
     EDITOR_VIEWS,
     NEW_FOLDER,
     editorKeys,
-    type EditorView,
   } from '../editorShell.svelte'
   import Segmented from '../ui/Segmented.svelte'
   import DocumentFileBar from '../editor/DocumentFileBar.svelte'
@@ -31,7 +31,7 @@
   import PageHeader from '../ui/PageHeader.svelte'
   import { writableRoot } from '../libraries'
   import DownloadLink from '../DownloadLink.svelte'
-  import { go } from '../router.svelte'
+  import { go, goCarrying } from '../router.svelte'
   import { SECTION_LABELS, sharedHref } from '../routes'
   import { notify } from '../toast'
   import { action } from '../action.svelte'
@@ -45,7 +45,7 @@
   let { name = '' }: { name?: string } = $props()
 
   const shell = watchPrompt(
-    new DocumentEditor({
+    new DocumentEditor<PromptDefinition>({
       viewKey: 'dw-prompt-editor-view',
       views: ['form', 'split', 'json'],
       label: (): string => shell.savePath() ?? 'this prompt',
@@ -140,7 +140,10 @@
 
   // ---------------------------------------------------------------- editing
 
-  function setField(key: string, value: string) {
+  function setField(
+    key: 'description' | 'intended_model' | 'negative_prompt',
+    value: string,
+  ) {
     if (value) shell.doc[key] = value
     else delete shell.doc[key]
   }
@@ -242,13 +245,12 @@
   }
 
   function duplicate() {
-    sessionStorage.setItem(
-      'dw-prompt-editor-import',
-      JSON.stringify($state.snapshot(shell.doc)),
-    )
+    const handOff: Record<string, string> = {
+      'dw-prompt-editor-import': JSON.stringify($state.snapshot(shell.doc)),
+    }
     if (shell.folder && shell.folder !== NEW_FOLDER)
-      sessionStorage.setItem('dw-prompt-editor-folder', shell.folder)
-    go('shared', 'prompt-edit')
+      handOff['dw-prompt-editor-folder'] = shell.folder
+    goCarrying(['shared', 'prompt-edit'], handOff)
   }
 </script>
 
@@ -273,7 +275,7 @@
         label="editor view"
         value={shell.view}
         options={views}
-        onselect={(view) => shell.setView(view as EditorView)}
+        onselect={(view) => shell.setView(view)}
       />
       {#if place.current}
         <button
@@ -309,6 +311,7 @@
 
   {#if shell.loadState === 'failed'}
     <LoadFailed
+      detail
       label={name}
       error={shell.loadError}
       onretry={() => place.retry()}

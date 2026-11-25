@@ -507,3 +507,119 @@ describe('VariablesForm adding a variable', () => {
     expect(variables.steps).toBeNull()
   })
 })
+
+describe('VariablesForm folds and kinds', () => {
+  const base = (over: Record<string, unknown> = {}) => ({
+    mode: 'override' as const,
+    variables: { note: 'x', steps: 30 } as Record<string, unknown>,
+    idPrefix: 'v-',
+    advanced: new Set(['steps']),
+    ...over,
+  })
+
+  it('Advanced folds while nothing in it is set', () => {
+    render(VariablesForm, base({ overrides: {} }))
+    expect(document.getElementById('v-steps')).toBeNull()
+  })
+
+  it('Advanced folds while a folded field has a value, and says how many are set', () => {
+    render(VariablesForm, base({ overrides: { steps: '20' } }))
+    // a value of its own opens the fold
+    expect(document.getElementById('v-steps')).not.toBeNull()
+  })
+
+  it('a locked field is shown but not typed in', () => {
+    render(
+      VariablesForm,
+      base({ overrides: {}, locked: new Set(['note']), advanced: new Set() }),
+    )
+    const field = document.getElementById('v-note')!
+    expect(field.closest('fieldset')?.disabled).toBe(true)
+  })
+
+  it('a field holding text is not swapped for a file field when the catalog arrives', async () => {
+    const { rerender } = render(
+      VariablesForm,
+      base({ overrides: { note: 'typed' }, advanced: new Set(), kinds: {} }),
+    )
+    expect(document.querySelector('input[type="file"]')).toBeNull()
+    await rerender(
+      base({
+        overrides: { note: 'typed' },
+        advanced: new Set(),
+        kinds: { note: 'image' },
+      }),
+    )
+    expect(document.querySelector('input[type="file"]')).toBeNull()
+  })
+  it('an empty field becomes a file field when the catalog arrives', async () => {
+    const { rerender } = render(
+      VariablesForm,
+      base({ overrides: {}, advanced: new Set(), kinds: {} }),
+    )
+    await rerender(
+      base({ overrides: {}, advanced: new Set(), kinds: { note: 'image' } }),
+    )
+    expect(document.querySelector('input[type="file"]')).not.toBeNull()
+  })
+})
+
+describe('the new variable name field', () => {
+  const field = () =>
+    screen.getByPlaceholderText('new variable name…') as HTMLInputElement
+
+  it('Enter while composing adds nothing', async () => {
+    render(VariablesForm, props({ variables: {} }))
+    await fireEvent.input(field(), { target: { value: 'ok' } })
+    await fireEvent.keyDown(field(), { key: 'Enter', isComposing: true })
+    expect(screen.queryByLabelText('ok')).toBeNull()
+    await fireEvent.keyDown(field(), { key: 'Enter' })
+    expect(document.getElementById('v-ok')).not.toBeNull()
+  })
+
+  it('a refused name is described to the input', async () => {
+    render(VariablesForm, props({ variables: {} }))
+    await fireEvent.input(field(), { target: { value: '9x' } })
+    await fireEvent.keyDown(field(), { key: 'Enter' })
+    const id = field().getAttribute('aria-describedby')
+    expect(id).toBeTruthy()
+    expect(document.getElementById(id!)?.textContent).toMatch(/starts with/)
+  })
+})
+
+describe('switching a text row to boolean', () => {
+  it('says why when the text is not true or false', async () => {
+    render(VariablesForm, props({ variables: { note: 'maybe' } }))
+    const type = screen.getByLabelText('type of note') as HTMLSelectElement
+    await fireEvent.change(type, { target: { value: 'boolean' } })
+    expect(
+      screen.getByText('Only true or false can be a boolean.'),
+    ).toBeTruthy()
+  })
+
+  it('says nothing when the text is true', async () => {
+    render(VariablesForm, props({ variables: { flag: 'true' } }))
+    const type = screen.getByLabelText('type of flag') as HTMLSelectElement
+    await fireEvent.change(type, { target: { value: 'boolean' } })
+    expect(
+      screen.queryByText('Only true or false can be a boolean.'),
+    ).toBeNull()
+  })
+})
+
+it('shows the type the value has when a retype does not take', async () => {
+  render(VariablesForm, props({ variables: { motto: 'carpe diem' } }))
+  const select = screen
+    .getAllByRole('combobox')
+    .find((el) =>
+      Array.from(el.querySelectorAll('option')).some(
+        (o) => o.textContent?.trim() === 'boolean',
+      ),
+    ) as HTMLSelectElement
+  const held = select.value
+  for (const picked of ['boolean', 'number']) {
+    await fireEvent.change(select, { target: { value: picked } })
+    await tick()
+    expect(select.value).toBe(held)
+  }
+})

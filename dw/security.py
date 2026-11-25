@@ -40,7 +40,7 @@ MAX_DECODE_PIXELS = 50_000_000
 
 # Dangerous path patterns (handle both Unix and Windows paths)
 DANGEROUS_PATTERNS = [
-    r"\.\.",  # Parent directory traversal (.. anywhere)
+    r"(^|/)\.\.(/|$)",  # A parent-directory segment ('..' inside a name is fine)
     r"~[\\/]",  # Home directory expansion
     r"^/dev/",  # Device files (Unix)
     r"^/proc/",  # Process files (Unix)

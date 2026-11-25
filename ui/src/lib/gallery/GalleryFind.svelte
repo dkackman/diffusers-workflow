@@ -21,12 +21,7 @@
   import type { Snippet } from 'svelte'
   import PageHeader from '../ui/PageHeader.svelte'
   import Segmented from '../ui/Segmented.svelte'
-  import {
-    GROUP_OPTIONS,
-    SORT_OPTIONS,
-    type GallerySort,
-    type Grouping,
-  } from './order'
+  import { GROUP_OPTIONS, SORT_OPTIONS } from './order'
 
   let {
     find,
@@ -54,14 +49,14 @@
       size="sm"
       options={SORT_OPTIONS}
       value={find.sort.value}
-      onselect={(v) => (find.sort.value = v as GallerySort)}
+      onselect={(v) => (find.sort.value = v)}
     />
     <Segmented
       label="Group by"
       size="sm"
       options={GROUP_OPTIONS}
       value={find.groupBy.value}
-      onselect={(v) => (find.groupBy.value = v as Grouping)}
+      onselect={(v) => (find.groupBy.value = v)}
     />
   {/snippet}
 </PageHeader>

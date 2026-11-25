@@ -1,17 +1,19 @@
 <script lang="ts">
   import Suggest from '../ui/Suggest.svelte'
   import { Plus, Trash2 } from '@lucide/svelte'
-  import { coerce, displayValue, isReference, widgetFor } from '../editor'
+  import { displayValue, isReference } from '../editor'
+  import { commitArgument } from './commit'
   import { promptLibrary } from '../promptlib.svelte'
   import { promptTooltip } from '../prompts'
   import { referenceCompletions } from '../refcomplete.svelte'
+  import type { StepArguments } from '../types'
 
   let {
     args = $bindable(),
     suggestions = [],
     valueSuggestions = [],
   }: {
-    args: Record<string, unknown>
+    args?: StepArguments
     suggestions?: Array<{ name: string; hint?: string }>
     /** What a value may be: the references the step can make */
     valueSuggestions?: readonly string[]
@@ -21,38 +23,39 @@
   let newKey = $state('')
 
   const unusedSuggestions = $derived(
-    suggestions.filter((s) => !(s.name in args)),
+    suggestions.filter((s) => !(s.name in (args ?? {}))),
   )
   const hintFor = (key: string) =>
     suggestions.find((s) => s.name === key)?.hint ?? ''
 
   function update(key: string, raw: string) {
-    args[key] = coerce(widgetFor(undefined, args[key]), raw)
+    if (args) args[key] = commitArgument(undefined, raw, args[key])
   }
 
   function add(key: string) {
-    if (!key || key in args) return
-    args[key] = ''
+    if (!key || key in (args ?? {})) return
+    if (args) args[key] = ''
+    else args = { [key]: '' }
     newKey = ''
   }
 </script>
 
 <div class="formgrid withaction mapping">
-  {#each Object.keys(args) as key (key)}
+  {#each Object.keys(args ?? {}) as key (key)}
     <label for={`${uid}-${key}`}>{key}</label>
     <Suggest
       id={`${uid}-${key}`}
-      class={isReference(args[key]) ? 'ref' : ''}
+      class={isReference(args?.[key]) ? 'ref' : ''}
       suggestions={valueSuggestions}
       complete={(text) => referenceCompletions(text)}
-      title={promptTooltip(args[key], promptLibrary.texts)}
-      value={displayValue(args[key])}
+      title={promptTooltip(args?.[key], promptLibrary.texts)}
+      value={displayValue(args?.[key])}
       placeholder={hintFor(key)}
       onchange={(value) => update(key, value)}
     />
     <button
       class="quiet icon"
-      onclick={() => delete args[key]}
+      onclick={() => delete args?.[key]}
       title="remove this argument"
       aria-label="remove this argument"
     >

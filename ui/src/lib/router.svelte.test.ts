@@ -197,6 +197,36 @@ it('awaits an async guard', async () => {
   expect(route.view).toMatchObject({ rest: ['j1'] })
 })
 
+it('a hand-off is dropped when a guard declines the navigation', async () => {
+  const { addLeaveGuard, goCarrying } = await loadRouter()
+  await flush()
+  addLeaveGuard(() => false)
+  await nav(() => goCarrying(['shared', 'prompt-edit'], { handed: '1' }), 2)
+  expect(sessionStorage.getItem('handed')).toBeNull()
+})
+
+it('a hand-off stays for the destination when a guard allows it', async () => {
+  const { addLeaveGuard, goCarrying } = await loadRouter()
+  await flush()
+  addLeaveGuard(() => true)
+  await nav(() => goCarrying(['shared', 'prompt-edit'], { handed: '1' }))
+  expect(sessionStorage.getItem('handed')).toBe('1')
+})
+
+it('an unguarded hand-off asks no guard, for its own target only', async () => {
+  const { route, addLeaveGuard, goCarrying } = await loadRouter()
+  await flush()
+  const guard = vi.fn(() => false)
+  addLeaveGuard(guard)
+  await nav(() =>
+    goCarrying(['ws', 'studio', 'edit'], { handed: '1' }, { unguarded: true }),
+  )
+  expect(guard).not.toHaveBeenCalled()
+  expect(route.view).toMatchObject({ workspace: 'studio' })
+  await go('#/ws/studio/jobs', 2)
+  expect(guard).toHaveBeenCalledTimes(1)
+})
+
 // real history: a declined navigation leaves no duplicate or rewritten entry
 
 it('a declined link click undoes its push and Back/Forward still work', async () => {
@@ -779,4 +809,56 @@ it('storage that throws keeps scrolls in memory', async () => {
   await nav(() => history.back())
   placeScroll()
   expect(scrollTo).toHaveBeenLastCalledWith(0, 400)
+})
+
+it('setHashQuery writes nothing while a leave guard is asking', async () => {
+  const { route, addLeaveGuard, setHashQuery } = await loadRouter()
+  await go('#/ws/studio/overview')
+  let answer: (ok: boolean) => void = () => {}
+  addLeaveGuard(() => new Promise<boolean>((resolve) => (answer = resolve)))
+  await go('#/ws/studio/jobs')
+  setHashQuery({ q: 'typed' })
+  expect(location.hash).toBe('#/ws/studio/jobs')
+  await nav(() => answer(false), 1, 'popstate')
+  // the walk back lands on the editor's own entry, under its own URL
+  expect(location.hash).toBe('#/ws/studio/overview')
+  expect(route.view).toMatchObject({ section: 'overview' })
+})
+
+it('a declined missing-workspace redirect keeps the editor on its own workspace', async () => {
+  const { notify } = await import('./toast')
+  const { route, addLeaveGuard } = await loadRouter()
+  const { loadWorkspaces, workspace } = await import('./workspace.svelte')
+  let land: () => void = () => {}
+  api.listWorkspaces.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        land = () =>
+          resolve({
+            workspace_root: '/ws',
+            default: 'default',
+            workspaces: [{ name: 'default', default: true }],
+          } as Awaited<ReturnType<typeof api.listWorkspaces>>)
+      }),
+  )
+  // an editor open in a workspace that is then deleted elsewhere
+  await go('#/ws/gone/workflows')
+  const listed = loadWorkspaces()
+  addLeaveGuard(() => false)
+  await nav(land)
+  await listed
+  expect(notify.error).toHaveBeenCalledWith(expect.stringContaining('gone'))
+  expect(location.hash).toBe('#/ws/gone/workflows')
+  expect(route.view).toMatchObject({ workspace: 'gone' })
+  expect(workspace.current).toBe('gone')
+})
+
+it('hashState needs a codec for a box that is not a string', async () => {
+  const { hashState } = await loadRouter()
+  // type-checked by `npm run check`, never run
+  const unused = () => {
+    // @ts-expect-error the default codec reads and writes strings only
+    hashState('k', 0)
+  }
+  expect(unused).toBeTypeOf('function')
 })

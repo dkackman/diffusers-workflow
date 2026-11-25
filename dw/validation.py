@@ -98,6 +98,7 @@ from .step_value_checks import (
 )
 from .task_domains import task_argument_errors
 from .trust import pipeline_remote_code_errors, task_remote_code_errors
+from .type_helpers import one_import_at_a_time
 from .type_references import (
     component_name_errors,
     component_type_errors,
@@ -275,6 +276,7 @@ def _internal(check, error, severity):
     return Finding(severity, INTERNAL, None, message)
 
 
+@one_import_at_a_time
 def run_checks(context, checks, severity, *, loud=True):
     """Every check's findings, in registry order. A check that raises is
     logged with its traceback and becomes one `internal` finding of the
@@ -898,6 +900,7 @@ def workflow_context(
     )
 
 
+@one_import_at_a_time
 def workflow_errors(workflow, arguments=None, composing=None, context=None):
     """Every schema violation in the definition, as [{path, message}];
     empty when it validates. `arguments` are the caller's, so a

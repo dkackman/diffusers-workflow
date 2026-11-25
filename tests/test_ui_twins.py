@@ -15,7 +15,12 @@ import pytest
 
 from dw import ledger_views, references
 from dw.content_types import AUDIO_FORMATS, MUXED_VIDEO_CONTENT_TYPE, content_type_fault
-from dw.security import InvalidInputError, SecurityError, validate_workspace_name
+from dw.security import (
+    InvalidInputError,
+    SecurityError,
+    validate_variable_name,
+    validate_workspace_name,
+)
 from dw.server.job_record import TERMINAL_STATES
 from dw.workflow import workflow_from_definition
 from dw.workspace import DEFAULT_WORKSPACE_NAME, RESERVED_WORKSPACE_NAMES
@@ -67,6 +72,29 @@ def test_the_member_separator_and_reference_key_are_the_engines():
 def test_the_ui_variable_name_characters_are_the_engines():
     ui = ts_constants(UI_LIB / "references.ts")
     assert ui["VARIABLE_NAME_CHARACTERS"] == references.VARIABLE_NAME_CHARACTERS
+
+
+def test_the_ui_variable_name_first_character_is_the_engines():
+    ui = ts_constants(UI_LIB / "references.ts")["VARIABLE_NAME_FIRST"]
+    accepted = {c for c in map(chr, range(128)) if _name_ok(c)}
+    assert set(ui) == accepted
+
+
+def _name_ok(name):
+    try:
+        validate_variable_name(name)
+    except (InvalidInputError, SecurityError):
+        return False
+    return True
+
+
+def test_the_ui_pipeline_option_keys_are_the_schemas():
+    schema = json.loads((REPO / "dw" / "workflow_schema.json").read_text())
+    keys = set(schema["$defs"]["pipeline"]["properties"])
+    options = ts_string_array(UI_LIB / "editor.ts", "OPTION_KEYS")
+    slots = ts_string_array(UI_LIB / "editor.ts", "COMPONENT_SLOTS")
+    assert not set(options) & set(slots)
+    assert set(options) | set(slots) == keys
 
 
 WORKSPACE_NAMES = json.loads(
@@ -398,3 +426,16 @@ def test_the_first_run_workflow_exists():
     """The workflow the first-run card names is a template in the repo."""
     name = ts_constants(UI_LIB / "firstRun.ts")["FIRST_RUN_WORKFLOW"]
     assert (REPO / "workflows" / f"{name}.json").is_file(), name
+
+
+def test_the_ui_braces_under_the_keys_the_engine_loads_as_types():
+    """The form editor adds a string default under these keys in {}, so it
+    stays a string (#1656); arguments.py reads them by name."""
+    engine = (REPO / "dw" / "arguments.py").read_text()
+    assert 'k.endswith("_type") or k.endswith("_dtype") or k == "dtype"' in engine
+    ui = (UI_LIB / "editor" / "commit.ts").read_text()
+    pattern = re.search(r"^const TYPE_KEY = /(.*)/$", ui, re.M).group(1)
+    for key in ("solver_type", "torch_dtype", "dtype"):
+        assert re.search(pattern, key), key
+    for key in ("prompt", "my_dtypes", "type"):
+        assert not re.search(pattern, key), key

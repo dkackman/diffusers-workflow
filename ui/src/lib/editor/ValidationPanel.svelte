@@ -1,5 +1,7 @@
 <script lang="ts">
+  import type { WorkflowDefinition } from '../types'
   import { CircleCheck, TriangleAlert, X } from '@lucide/svelte'
+  import { describePlan } from '../plan'
   import { placeFindings } from '../findings'
   import { findingPlace, type Place } from '../findingPlace'
   import { verdictOf } from '../runCheck.svelte'
@@ -21,7 +23,7 @@
   }: {
     validation: ValidationResult | null
     error?: unknown
-    doc: Record<string, any>
+    doc: WorkflowDefinition
     ondismiss: () => void
     onjump: (place: Place) => void
   } = $props()
@@ -32,6 +34,12 @@
       : { general: [], author: [], byVariable: {} },
   )
   const verdict = $derived(verdictOf(validation, error, placed))
+  // A plan line that warns is the thing to read: its details open
+  const planWarns = $derived(
+    validation?.plan
+      ? describePlan(validation.plan).some((line) => line.tone === 'warn')
+      : false,
+  )
 </script>
 
 <div
@@ -77,7 +85,7 @@
          would pull first, which the cost block never counts. Shown whenever
          the server sent one: a repo that isn't there makes the answer
          invalid but keeps its plan, under the error that names it -->
-    <PlanLines plan={validation.plan} />
+    <PlanLines plan={validation.plan} open={planWarns} />
   {/if}
 </div>
 

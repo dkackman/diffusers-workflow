@@ -3,6 +3,7 @@ import { notify } from './toast'
 import { wsHref, type RouteView } from './routes'
 import { DEFAULT_WORKSPACE, workspace } from './workspaceState.svelte'
 import { onReconnect } from './connection.svelte'
+import { latestOnly } from './latest'
 
 // The state lives in its own module so api.ts can scope requests by it
 // without importing this one, which imports api.ts to load the listing
@@ -63,7 +64,9 @@ export function applyRouteWorkspace(view: RouteView | null): void {
  * 404. Run on every route change and again when the listing lands, so a
  * name typed after the listing is caught as well as one it arrived to. On
  * a `ws` route the URL named the workspace, so it is said out loud and the
- * route replaced; off one (a shared or server page) `current` is only the
+ * route replaced - `current` follows only if that replace lands: a declined
+ * one keeps the editor on screen, and its requests must keep naming the
+ * missing workspace (a 404) rather than write into the default one. Off one (a shared or server page) `current` is only the
  * remembered fallback, which the URL never mentioned - quietly reset, no
  * toast, no navigation. Nothing until a listing has landed, and nothing on
  * the fallback a failed listing leaves. */
@@ -78,13 +81,14 @@ export function checkWorkspaceExists(view: RouteView | null): void {
     void loadWorkspaces().finally(() => (refetching = false))
     return
   }
-  const missing = workspace.current
+  if (view?.kind === 'ws') {
+    notify.error(`No workspace named ${workspace.current} - showing default`)
+    // The route that lands sets `current` (applyRouteWorkspace)
+    replaceRoute(wsHref(DEFAULT_WORKSPACE, 'overview'))
+    return
+  }
   workspace.current = DEFAULT_WORKSPACE
   rememberWorkspace(DEFAULT_WORKSPACE)
-  if (view?.kind === 'ws') {
-    notify.error(`No workspace named ${missing} - showing default`)
-    replaceRoute(wsHref(DEFAULT_WORKSPACE, 'overview'))
-  }
 }
 
 /** The check with `names` counted as fetched for it - a name it lacks is
@@ -104,44 +108,54 @@ function checkAgainstFreshListing(): void {
 let workspacesPromise: Promise<void> | null = null
 
 export function loadWorkspaces(): Promise<void> {
-  if (!workspacesPromise) {
-    workspacesPromise = (async () => {
-      try {
-        const result = await api.listWorkspaces()
-        workspace.names = result.workspaces.map((entry) => entry.name)
-        workspace.listed = true
-        workspace.root = result.workspace_root
-        workspace.usage = Object.fromEntries(
-          result.workspaces
-            .filter((entry) => entry.usage)
-            .map((entry) => [entry.name, entry.usage!]),
-        )
-        workspace.changed = Object.fromEntries(
-          result.workspaces
-            .filter((entry) => entry.mtime)
-            .map((entry) => [entry.name, entry.mtime!]),
-        )
-        workspace.notes = Object.fromEntries(
-          result.workspaces
-            .filter((entry) => entry.note)
-            .map((entry) => [entry.name, entry.note!]),
-        )
-        // A route naming a workspace that has gone away (deleted elsewhere,
-        // or a stale bookmark) is caught here for the route the app opened
-        // on; `applyRouteWorkspace` catches every one after
-        checkAgainstFreshListing()
-      } catch {
-        // The first listing failing leaves the fallback. A refetch failing
-        // (the one `checkWorkspaceExists` runs for a name the cache lacks)
-        // keeps the listing that landed: a server hiccup does not empty the
-        // sidebar, and the name that listing lacks is still called missing,
-        // since that listing is the only answer there is.
-        if (workspace.listed) checkAgainstFreshListing()
-        else workspace.names = [DEFAULT_WORKSPACE]
-      }
-    })()
-  }
+  if (!workspacesPromise) workspacesPromise = newest = readListing()
   return workspacesPromise
+}
+
+// Reads can overlap (an invalidate while one is out) and land in either
+// order: only the one started last writes the listing and checks the route
+// against it. An overtaken one settles with `newest`, so whoever awaits it
+// still finds a listing at least as new as the one they asked for
+const begin = latestOnly()
+let newest: Promise<void>
+
+async function readListing(): Promise<void> {
+  const current = begin()
+  try {
+    const result = await api.listWorkspaces()
+    if (!current()) return newest
+    workspace.names = result.workspaces.map((entry) => entry.name)
+    workspace.listed = true
+    workspace.root = result.workspace_root
+    workspace.usage = Object.fromEntries(
+      result.workspaces
+        .filter((entry) => entry.usage)
+        .map((entry) => [entry.name, entry.usage!]),
+    )
+    workspace.changed = Object.fromEntries(
+      result.workspaces
+        .filter((entry) => entry.mtime)
+        .map((entry) => [entry.name, entry.mtime!]),
+    )
+    workspace.notes = Object.fromEntries(
+      result.workspaces
+        .filter((entry) => entry.note)
+        .map((entry) => [entry.name, entry.note!]),
+    )
+    // A route naming a workspace that has gone away (deleted elsewhere,
+    // or a stale bookmark) is caught here for the route the app opened
+    // on; `applyRouteWorkspace` catches every one after
+    checkAgainstFreshListing()
+  } catch {
+    if (!current()) return newest
+    // The first listing failing leaves the fallback. A refetch failing
+    // (the one `checkWorkspaceExists` runs for a name the cache lacks)
+    // keeps the listing that landed: a server hiccup does not empty the
+    // sidebar, and the name that listing lacks is still called missing,
+    // since that listing is the only answer there is.
+    if (workspace.listed) checkAgainstFreshListing()
+    else workspace.names = [DEFAULT_WORKSPACE]
+  }
 }
 
 /** Drop the cached listing so the next `loadWorkspaces()` refetches - call

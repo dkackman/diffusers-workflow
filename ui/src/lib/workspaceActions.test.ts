@@ -92,7 +92,7 @@ it("asks with the counts from the server's refusal and deletes only on yes", asy
   const { deleteWorkspaceWithConfirm } = await import('./workspaceActions')
   expect(await deleteWorkspaceWithConfirm('studio')).toBe(true)
   expect(confirm).toHaveBeenCalledWith(
-    'This permanently removes 5 outputs (1 starred) and 3 workflows ' +
+    'This permanently removes 5 files in outputs/ (1 starred in the gallery) and 3 workflows ' +
       '(2.0 MB). The prompt library and the shared asset library are kept.',
     expect.objectContaining({
       title: 'Delete workspace "studio"?',
@@ -169,7 +169,7 @@ it('reads the contents off the payload, as send builds the refusal', async () =>
   const { deleteWorkspaceWithConfirm } = await import('./workspaceActions')
   await deleteWorkspaceWithConfirm('studio')
   expect(confirm).toHaveBeenCalledWith(
-    expect.stringContaining('removes 3 outputs (5.0 MB).'),
+    expect.stringContaining('removes 3 files in outputs/ (5.0 MB).'),
     expect.anything(),
   )
 })

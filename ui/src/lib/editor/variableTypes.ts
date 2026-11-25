@@ -1,5 +1,9 @@
-import { booleanOf } from '../editor'
-import { VARIABLE_NAME_CHARACTERS, isReference } from '../references'
+import { booleanOf, finiteNumber } from '../editor'
+import {
+  VARIABLE_NAME_CHARACTERS,
+  VARIABLE_NAME_FIRST,
+  isReference,
+} from '../references'
 
 export type VariableType = 'text' | 'number' | 'boolean' | 'json' | 'none'
 
@@ -11,8 +15,6 @@ export const VARIABLE_TYPES: VariableType[] = [
   'none',
 ]
 
-const FIRST_CHARACTER = /^[a-zA-Z_]/
-
 /** Why a new variable name is refused, in the editor's words, or null.
  * The engine's rule (`validate_variable_name`): a letter or `_` first, then
  * `VARIABLE_NAME_CHARACTERS`. */
@@ -21,7 +23,7 @@ export function variableNameProblem(
   taken: string[],
 ): string | null {
   const allowed = [...name].every((c) => VARIABLE_NAME_CHARACTERS.includes(c))
-  if (!FIRST_CHARACTER.test(name) || !allowed) {
+  if (!name || !VARIABLE_NAME_FIRST.includes(name[0]) || !allowed) {
     return 'A variable name starts with a letter or _ and holds letters, numbers, _ and -.'
   }
   return taken.includes(name)
@@ -43,11 +45,6 @@ function parsed(raw: string): unknown {
   } catch {
     return raw
   }
-}
-
-function finiteNumber(raw: string): number | null {
-  const n = Number(raw)
-  return raw.trim() !== '' && Number.isFinite(n) ? n : null
 }
 
 /** What a new variable's first typed value means: true/false, a finite

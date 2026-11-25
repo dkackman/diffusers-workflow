@@ -42,14 +42,32 @@ export function itemDiff(before: LedgerItem, after: LedgerItem): string[] {
   return changes
 }
 
+/** A note write of the user's own (ledger.py `_noted_write`): it bumps the
+ * revision outside the store, and changes nothing a plan edit is about */
+const isNoteWrite = (e: LedgerHistoryEntry) =>
+  e.by === 'user' && /^note (added|edited|removed)$/.test(e.why)
+
+const between = (history: LedgerHistoryEntry[], since: number, upTo: number) =>
+  history.filter((e) => e.revision > since && e.revision < upTo)
+
+/** Whether all that moved the plan past `since` was the user's own notes */
+export function onlyNotes(
+  history: LedgerHistoryEntry[],
+  since: number,
+  upTo = Number.POSITIVE_INFINITY,
+): boolean {
+  const later = between(history, since, upTo)
+  return later.length > 0 && later.every(isNoteWrite)
+}
+
 /** The write to name for a plan that moved past `since`: the agent's
- * latest, or failing that the latest of any. */
+ * latest, or failing that the latest of any but the user's notes. */
 export function culprit(
   history: LedgerHistoryEntry[],
   since: number,
   upTo = Number.POSITIVE_INFINITY,
 ): LedgerHistoryEntry | null {
-  const later = history.filter((e) => e.revision > since && e.revision < upTo)
+  const later = between(history, since, upTo).filter((e) => !isNoteWrite(e))
   return later.findLast((e) => e.by === 'agent') ?? later.at(-1) ?? null
 }
 

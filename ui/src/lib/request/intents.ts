@@ -75,9 +75,7 @@ function settle(request: LedgerRequest, items: LedgerItem[]): LedgerItem[] {
     const waits = item.status === 'planned' || item.status === 'revised'
     if (item.dropped || !waits) return item
     const ready =
-      open &&
-      item.workflow !== null &&
-      item.depends_on.every((k) => done.has(k))
+      open && !!item.workflow && item.depends_on.every((k) => done.has(k))
     return ready === item.ready ? item : { ...item, ready }
   })
 }

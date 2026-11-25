@@ -1,7 +1,10 @@
 <script lang="ts">
-  // In place of an editor whose document never arrived: what failed, a
-  // Retry, and - when the file does not exist - a way to start it. Phase 2's
-  // LoadState absorbs it
+  // The one panel for data that never arrived: what failed, a Retry, and -
+  // for an editor whose file does not exist - a way to start it. LoadState
+  // shows it for a page's data, where the raw message never reaches the
+  // page; an editor, whose document is not a resource, shows it itself,
+  // with the engine's detail (`detail`) on request: what is wrong with the
+  // file being edited
   import { describeError } from '../apiErrors'
   import Details from './Details.svelte'
 
@@ -10,21 +13,32 @@
     error,
     onretry,
     oncreate,
+    verb = 'open',
+    what,
+    detail = false,
   }: {
     label: string
     error: unknown
     onretry: () => void
+    /** "Couldn't <verb> <label>" */
+    verb?: 'open' | 'load'
+    /** What a 404 is about, as in "<what> wasn't found" */
+    what?: string
+    /** Offer the engine's own message, folded */
+    detail?: boolean
     /** Offered only when the file is missing, not the workspace */
     oncreate?: () => void
   } = $props()
 
-  const described = $derived(describeError(error))
+  const described = $derived(describeError(error, what))
 </script>
 
 <div class="panel loadfailed" role="alert">
-  <p>Couldn't open {label}: {described.title}</p>
+  <p>Couldn't {verb} {label}: {described.title}</p>
   {#if described.remedy}<p>{described.remedy}</p>{/if}
-  <Details summary="Engine detail" detail={described.detail ?? ''} />
+  {#if detail}
+    <Details summary="Engine detail" detail={described.detail ?? ''} />
+  {/if}
   <div class="actions">
     <button onclick={onretry}>Retry</button>
     {#if oncreate && described.kind === 'not_found'}
