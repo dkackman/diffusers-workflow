@@ -104,10 +104,11 @@ it('says the review banner changed state once, and nothing as it ticks', () => {
     request([
       item('a', {
         title: 'Title card',
+        ready: true,
         review: { until: '2026-11-21T12:00:00+00:00', state, seconds_left },
       }),
     ])
-  const free = request([item('a', { title: 'Title card' })])
+  const free = request([item('a', { title: 'Title card', ready: true })])
   expect(announce(free, held('holding'))).toBe('1 item waiting for your OK.')
   // the same state with fewer seconds left: nothing to say
   expect(announce(held('holding', 60), held('holding', 30))).toBe('')

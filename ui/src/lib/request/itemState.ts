@@ -68,7 +68,8 @@ export type PlanState = {
   needs: Record<NeedsReason, number>
   /** How many live items "Run what can run now" would queue (`runsNow`) */
   toRun: number
-  /** The live items held for the user's review, in plan order */
+  /** The live items held for the user's review that need them (`needs`
+   * says 'held'), in plan order */
   held: ItemState[]
 }
 
@@ -156,7 +157,7 @@ function runnableNow(
   if (display === 'ready') return true
   const again =
     display === 'failed' || display === 'cancelled' || display === 'revised'
-  return again && open && depsDone && item.workflow !== null
+  return again && open && depsDone && !!item.workflow
 }
 
 const zero = <K extends string>(keys: readonly K[]) =>
@@ -213,10 +214,9 @@ export function planState(request: LedgerRequest): PlanState {
       neededBy: request.items
         .filter((o) => !o.dropped && o.depends_on.includes(item.key))
         .map((o) => ref(o.key)),
-      noWorkflow:
-        item.workflow === null && display !== 'done' && display !== 'revised',
+      noWorkflow: !item.workflow && display !== 'done' && display !== 'revised',
       runnable,
-      canRetake: display === 'done' && open && item.workflow !== null,
+      canRetake: display === 'done' && open && !!item.workflow,
       runsNow: display === 'ready' || (display === 'revised' && runnable),
       needs: needsOf(item, display, open, runnable, !!item.review),
       review: (!item.dropped && item.review) || null,
@@ -224,7 +224,7 @@ export function planState(request: LedgerRequest): PlanState {
   })
   const live = items.filter((state) => !state.item.dropped)
   const dropped = items.filter((state) => state.item.dropped)
-  const held = live.filter((state) => state.review !== null)
+  const held = live.filter((state) => state.needs.includes('held'))
   return { items, live, dropped, held, ...tally(live, dropped.length) }
 }
 

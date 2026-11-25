@@ -234,9 +234,11 @@ it('an Undo pressed once another request is open does nothing to it', async () =
   const { ledger, store } = realStore()
   await pick('Mark done')
   await vi.waitFor(() => expect(notify.undo).toHaveBeenCalledTimes(1))
-  // The page goes on to the next request, which is done too
-  store.reset()
-  store.take({ ...ledger.current, id: 'r2' })
+  // The page goes on to the next request, with a store of its own
+  new PlanStore(
+    { get: () => ledger.get(), put: (body) => ledger.put(body) },
+    'studio/r2',
+  )
   const puts = ledger.puts.length
   notify.undo.mock.calls[0][1]()
   await vi.waitFor(() =>

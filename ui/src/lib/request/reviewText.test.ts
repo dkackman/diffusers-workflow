@@ -20,7 +20,9 @@ const review = (
   until = UNTIL,
   seconds_left = 125,
 ): LedgerReview => ({ until, state, seconds_left })
-const held = (items: LedgerItem[]) => planState(request(items)).held
+// A hold is counted once the item would otherwise ask to be run
+const held = (items: LedgerItem[]) =>
+  planState(request(items.map((i) => ({ ...i, ready: true })))).held
 const group = (items: LedgerItem[]) => {
   const found = holdGroup(held(items))
   if (!found) throw new Error('no hold')
@@ -131,11 +133,13 @@ it('says a due hold with and without a session', () => {
 it('offers Run now for the ready rows of a hold, a redirected one, or a due one nobody listens for', () => {
   const holding = group([
     item('a', { review: review('holding'), ready: true }),
-    item('b', { review: review('holding') }),
+    item('b', { review: review('holding'), status: 'revised' }),
   ])
   expect(runNowKeys(holding, true)).toEqual(['a'])
   expect(runNowKeys(holding, false)).toEqual(['a'])
-  const none = group([item('b', { review: review('holding') })])
+  const none = group([
+    item('b', { review: review('holding'), status: 'revised' }),
+  ])
   expect(runNowKeys(none, false)).toEqual([])
   const due = group([item('a', { review: review('due'), ready: true })])
   expect(runNowKeys(due, false)).toEqual(['a'])

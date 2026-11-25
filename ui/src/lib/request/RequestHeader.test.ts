@@ -268,8 +268,8 @@ it('shows one hold banner, worded by its most urgent state, with Run now for the
   const { container } = render(RequestHeader, {
     ...props([
       held('a', 'holding', { ready: true }),
-      held('b', 'holding'),
-      held('c', 'redirected'),
+      held('b', 'holding', { status: 'revised' }),
+      held('c', 'redirected', { ready: true }),
     ]),
     onrunheld,
   })
@@ -287,7 +287,7 @@ it('shows one hold banner, worded by its most urgent state, with Run now for the
 
 it('has no Run now when no held row is ready, and no banner with nothing held', () => {
   const { container, unmount } = render(RequestHeader, {
-    ...props([held('b', 'holding')]),
+    ...props([held('b', 'holding', { status: 'revised' })]),
     onrunheld: vi.fn(),
   })
   expect(banner(container)).toMatch(/^1 item waiting for your OK\./)
