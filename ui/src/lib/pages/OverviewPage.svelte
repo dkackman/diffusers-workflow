@@ -24,6 +24,7 @@
   import { formatBytes } from '../format'
   import Time from '../ui/Time.svelte'
   import { workflowName } from '../terms'
+  import { compareNames } from '../names'
   import { hiddenWorkspaces, setHidden } from '../hiddenWorkspaces.svelte'
   import { latestProofs, proofByRun } from '../proofs'
   import { fileHref, jobHref, sharedHref, wsHref } from '../routes'
@@ -132,7 +133,7 @@
     [...(workflows.data?.names ?? [])]
       .sort(
         (l, r) =>
-          (proofs[l] ? 0 : 1) - (proofs[r] ? 0 : 1) || l.localeCompare(r),
+          (proofs[l] ? 0 : 1) - (proofs[r] ? 0 : 1) || compareNames(l, r),
       )
       .slice(0, WORKFLOWS),
   )

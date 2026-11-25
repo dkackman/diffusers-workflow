@@ -8,6 +8,7 @@
   import { writableRoot } from '../libraries'
   import FolderGroups from '../FolderGroups.svelte'
   import { groupOf, leafOf } from '../grouping'
+  import { compareNames } from '../names'
   import HintBar from '../HintBar.svelte'
   import { costFigure } from '../cost'
   import { observedText } from '../observed'
@@ -138,7 +139,7 @@
         : [...visible].sort((left, right) => {
             const leftRun = proofs[left] ? 0 : 1
             const rightRun = proofs[right] ? 0 : 1
-            return leftRun - rightRun || left.localeCompare(right)
+            return leftRun - rightRun || compareNames(left, right)
           }),
   )
 
@@ -430,13 +431,6 @@
     align-items: center;
     gap: 0.35rem;
     font-size: var(--t-xs);
-  }
-  .cardfolder {
-    font-family: var(--font-mono);
-    font-size: var(--t-xs);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
   .needs {
     font-size: var(--t-xs);

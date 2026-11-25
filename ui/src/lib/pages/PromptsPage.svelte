@@ -5,7 +5,7 @@
   import LoadState from '../ui/LoadState.svelte'
   import PageHeader from '../ui/PageHeader.svelte'
   import FolderGroups from '../FolderGroups.svelte'
-  import { leafOf } from '../grouping'
+  import { groupOf, leafOf } from '../grouping'
   import HintBar from '../HintBar.svelte'
   import { sharedHref } from '../routes'
   import { writableRoot } from '../libraries'
@@ -102,10 +102,7 @@
           title={detail?.description || detail?.text || undefined}
         ></a>
         <span class="cardtop">
-          <!-- One list across the folders names each prompt whole -->
-          <span class="cardname" title={name}>
-            {newest ? name : leafOf(name)}
-          </span>
+          <span class="cardname" title={name}>{leafOf(name)}</span>
           {#if details[name]?.origin && details[name].origin !== 'workspace'}
             <span
               class="origin muted"
@@ -115,6 +112,11 @@
             </span>
           {/if}
         </span>
+        <!-- One list across the folders moves the folder onto the card, as
+           the Workflows page does -->
+        {#if newest && groupOf(name)}
+          <span class="cardfolder muted">{groupOf(name)}</span>
+        {/if}
         {#if detail?.description || detail?.text}
           <span class="carddesc muted">
             {detail.description || detail.text}

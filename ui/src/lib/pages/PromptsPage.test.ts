@@ -290,3 +290,26 @@ it('the newest-first sort', async () => {
   await waitFor(() => expect(names()).toEqual(['bee', 'cat', 'ant']))
   expect(location.hash).toContain('sort=newest')
 })
+
+it('Newest names a foldered prompt by its leaf, its folder a chip', async () => {
+  const now = Math.floor(Date.now() / 1000)
+  listPrompts.mockResolvedValue(
+    dated({
+      'people/edit': now - 60,
+      'pets/edit': now - 3600,
+      top: now - 86_400,
+    }),
+  )
+  render(PromptsPage)
+  await waitFor(() => expect(screen.getByText('top')).toBeTruthy())
+  const texts = (selector: string) =>
+    [...document.querySelectorAll(selector)].map((n) => n.textContent?.trim())
+  // in folders, the heading says the folder: no chip
+  expect(texts('.cardfolder')).toEqual([])
+  await fireEvent.click(screen.getByRole('button', { name: 'Newest' }))
+  await waitFor(() =>
+    expect(texts('.cardname')).toEqual(['edit', 'edit', 'top']),
+  )
+  // the two same-leaf prompts are told apart by their folders
+  expect(texts('.cardfolder')).toEqual(['people', 'pets'])
+})

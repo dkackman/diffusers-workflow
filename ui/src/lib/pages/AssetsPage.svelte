@@ -535,6 +535,11 @@
               title="Open this asset, with what made it"
             >
               {#snippet meta()}
+                <!-- Newest is one list across the folders, so the folder
+                   moves onto the tile, as the Workflows page does -->
+                {#if newest && asset.folder}
+                  <span class="cardfolder muted">{asset.folder}</span>
+                {/if}
                 <span class="muted">
                   <Time at={asset.mtime} label="changed" />
                 </span>

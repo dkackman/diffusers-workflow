@@ -719,3 +719,15 @@ it('a workspaces move lists the workspaces once', async () => {
   await settle()
   expect(calls.workspaces).toBe(before + 1)
 })
+
+it('the featured workflows sort naturally: take2 before take10', async () => {
+  data.workflows = ['take10', 'take2']
+  render(OverviewPage)
+  await waitFor(() =>
+    expect(screen.getByRole('link', { name: 'take2' })).toBeTruthy(),
+  )
+  const names = [...document.querySelectorAll('.cardname')].map(
+    (n) => n.textContent,
+  )
+  expect(names).toEqual(['take2', 'take10'])
+})

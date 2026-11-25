@@ -1322,3 +1322,32 @@ it('the newest-first sort', async () => {
   await waitFor(() => expect(tileNames()).toEqual(['b.png', 'c.png', 'a.png']))
   expect(location.hash).toContain('sort=newest')
 })
+
+it('Newest names a foldered asset by its leaf, its folder a chip', async () => {
+  const now = Math.floor(Date.now() / 1000)
+  listing.assets = [
+    { ...asset('cast/priya.jpg'), mtime: now - 60 },
+    { ...asset('people/edit.png'), mtime: now - 120 },
+    { ...asset('pets/edit.png'), mtime: now - 3600 },
+    { ...asset('iris.png'), mtime: now - 86_400 },
+  ]
+  await renderAssets()
+  const chips = () =>
+    [...document.querySelectorAll('.cellwrap .cardfolder')].map((c) =>
+      c.textContent?.trim(),
+    )
+  // in folders, the heading says the folder: no chip
+  expect(chips()).toEqual([])
+  await fireEvent.click(screen.getByRole('button', { name: 'Newest' }))
+  // a leaf no other asset shares is the leaf; two that collide stay
+  // distinct, as viewLabels has them
+  await waitFor(() =>
+    expect(tileNames()).toEqual([
+      'priya.jpg',
+      'people/edit.png',
+      'pets/edit.png',
+      'iris.png',
+    ]),
+  )
+  expect(chips()).toEqual(['cast', 'people', 'pets'])
+})

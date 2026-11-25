@@ -547,3 +547,15 @@ it("Newest orders a search's matches too", async () => {
   await fireEvent.click(screen.getByRole('button', { name: 'Name' }))
   await waitFor(() => expect(cardNames()).toEqual(['flux-dev', 'shot', 'tti']))
 })
+
+it('the Name order is natural: take2 before take10', async () => {
+  listing.workflows = ['shots/take10', 'shots/take2']
+  listing.details = Object.fromEntries(
+    listing.workflows.map((w) => [
+      w,
+      { kinds: ['image'], steps: 1, variables: 0, shape: 'image', traits: [] },
+    ]),
+  )
+  await renderPage('take2')
+  expect(cardNames()).toEqual(['take2', 'take10'])
+})

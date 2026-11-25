@@ -357,6 +357,17 @@ button.filetile:hover {
   padding: 0 0.45rem 0.3rem;
 }
 
+/* A flattened list's entry (a search, Newest) keeps its leaf as the name and
+   carries its folder here: Workflows, Prompts and Assets */
+.cardfolder {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* A question (ConfirmDialog) is asked over the sheet that asked it: the
    viewer's delete and Save as asset. Its portal can sit before that
    sheet's on <body>, where one layer would leave it underneath */
