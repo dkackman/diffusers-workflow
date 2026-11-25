@@ -233,3 +233,45 @@ it('creates the arguments block with the first argument added', async () => {
   await fireEvent.keyDown(add, { key: 'Enter' })
   expect(JSON.stringify(s.pipeline)).toContain('"steps":""')
 })
+
+// The schema allows a task that takes `inputs`, and a sub-workflow step with
+// only a `path`: neither has an arguments object
+it.each<[string, WorkflowStep]>([
+  [
+    'a task with inputs',
+    { name: 'bare', task: { command: 'gather_images', inputs: ['a.png'] } },
+  ],
+  [
+    'a sub-workflow with only a path',
+    { name: 'bare', workflow: { path: 'c.json' } },
+  ],
+])('opens full on %s, and writes nothing', async (_, s) => {
+  api.getWorkflow.mockResolvedValue({ definition: {} })
+  const before = JSON.stringify(s)
+  full(s)
+  await new Promise((r) => setTimeout(r, 400))
+  expect(screen.getByText('arguments')).toBeInTheDocument()
+  expect(JSON.stringify(s)).toBe(before)
+})
+
+it("creates a task's arguments block with the first argument added", async () => {
+  const s: WorkflowStep = {
+    name: 'bare',
+    task: { command: 'gather_images', inputs: ['a.png'] },
+  }
+  full(s)
+  const add = await screen.findByPlaceholderText('add custom argument…')
+  await fireEvent.input(add, { target: { value: 'urls' } })
+  await fireEvent.keyDown(add, { key: 'Enter' })
+  expect(s.task?.arguments).toEqual({ urls: '' })
+})
+
+it("creates a sub-workflow's arguments block with the first argument added", async () => {
+  api.getWorkflow.mockResolvedValue({ definition: {} })
+  const s: WorkflowStep = { name: 'bare', workflow: { path: 'c.json' } }
+  full(s)
+  const name = screen.getByPlaceholderText('new argument name…')
+  await fireEvent.input(name, { target: { value: 'prompt' } })
+  await fireEvent.click(screen.getByLabelText('add this argument'))
+  expect(s.workflow?.arguments).toEqual({ prompt: '' })
+})
