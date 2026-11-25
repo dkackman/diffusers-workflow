@@ -505,3 +505,30 @@ class TestFileBaseNameValidation:
 
 if __name__ == "__main__":
     pytest.main([__file__])
+
+
+class TestDottedNames:
+    def test_a_dotted_name_is_served(self, tmp_path):
+        from types import SimpleNamespace
+
+        from dw.server.outputs import resolve_output_file
+
+        (tmp_path / "take..2.mp4").write_bytes(b"x")
+        state = SimpleNamespace(job_manager=SimpleNamespace(output_dir=str(tmp_path)))
+        assert resolve_output_file(state, "take..2.mp4").endswith("take..2.mp4")
+
+    @pytest.mark.parametrize("name", ["../x", "a/../b", "..", "a/..", r"a\..\b"])
+    def test_a_parent_segment_is_still_refused(self, tmp_path, name):
+        with pytest.raises(PathTraversalError):
+            validate_path(os.path.join(str(tmp_path), name), str(tmp_path))
+
+    def test_an_encoded_parent_segment_is_not_a_file(self, tmp_path):
+        from types import SimpleNamespace
+
+        from fastapi import HTTPException
+
+        from dw.server.outputs import resolve_output_file
+
+        state = SimpleNamespace(job_manager=SimpleNamespace(output_dir=str(tmp_path)))
+        with pytest.raises(HTTPException):
+            resolve_output_file(state, "%2e%2e/x")

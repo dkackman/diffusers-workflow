@@ -4,7 +4,8 @@ submitted with) and the memo on its `media=true` duration probe."""
 import os
 
 from dw.server import outputs
-from dw.server.outputs import PROMPT_TEXT_MAX, prompt_text
+from dw.server import outputs as job_prompts_mod
+from dw.server.outputs import PROMPT_TEXT_MAX, job_prompts, prompt_text, run_prompts
 
 RUN = "20261122-000000-aaaaaaaa"
 OTHER_RUN = "20261122-000001-bbbbbbbb"
@@ -42,7 +43,7 @@ def test_prompt_text_reads_a_string_a_list_and_nothing_else():
     assert prompt_text({"prompt": "x" * (PROMPT_TEXT_MAX + 50)}) == "x" * 2000
     for arguments in (None, {}, {"prompt": ""}, {"prompt": 7}, {"prompt": []}, [1]):
         assert prompt_text(arguments) is None
-    assert outputs.PROMPT_TEXT_MAX == 2000
+    assert PROMPT_TEXT_MAX == 2000
 
 
 def test_the_gallery_lists_each_runs_prompt_when_asked(
@@ -183,3 +184,49 @@ def test_a_media_listing_reads_the_header_and_never_decodes(
         expected
     )
     assert decoded == []
+
+
+def test_a_shared_run_id_takes_the_newest_job(gallery_client):
+    history = _history(gallery_client)
+    _record(history, "job-old", RUN, {"prompt": "first"})
+    _record(history, "job-new", RUN, {"prompt": "second"})
+    with history._connect() as connection:
+        connection.execute("UPDATE jobs SET created_at = 5 WHERE id = 'job-new'")
+        connection.execute("UPDATE jobs SET created_at = 1 WHERE id = 'job-old'")
+    assert run_prompts(history, "default", [RUN]) == {RUN: "second"}
+
+
+def test_an_invalid_row_is_read_once(gallery_client):
+    history = _history(gallery_client)
+    _record(history, "job-bad", RUN, {"prompt": "x"})
+    with history._connect() as connection:
+        connection.execute("UPDATE jobs SET arguments = 'not json'")
+    calls = []
+    real = history.submitted_prompts
+    history.submitted_prompts = lambda *a, **k: calls.append(a) or real(*a, **k)
+    manager = gallery_client.app.state.job_manager
+    job_prompts_mod._PROMPT_MEMO.clear()
+    assert job_prompts(manager, ["job-bad"]) == {}
+    assert job_prompts(manager, ["job-bad"]) == {}
+    assert len(calls) == 1
+
+
+def test_gallery_prompts_cover_only_the_returned_page(
+    gallery_client, output_root, write_run
+):
+    for run, name in ((RUN, "a.png"), (OTHER_RUN, "b.png")):
+        write_run(
+            output_root, "wf", run, [{"step": "a", "files": [name]}], files=[name]
+        )
+        _record(_history(gallery_client), f"job-{name}", run, {"prompt": name})
+    body = gallery_client.get(
+        "/api/gallery", params={"prompts": "true", "limit": 1}
+    ).json()
+    assert len(body["prompts"]) == len(body["files"]) == 1
+
+
+def test_the_run_id_index_exists(gallery_client):
+    history = _history(gallery_client)
+    with history._connect() as connection:
+        names = {r[1] for r in connection.execute("PRAGMA index_list(jobs)")}
+    assert "jobs_run_id" in names

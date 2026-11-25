@@ -140,32 +140,34 @@ def _stored_prompt(json_type, value):
     return prompt_text({"prompt": value})
 
 
-# (history path, job id) -> its submitted prompt or None: a job's arguments
-# never change once stored, so the polled jobs listing reads each id once
+# (history path, job id) -> its submitted prompt or None
 _PROMPT_MEMO, _PROMPT_MEMO_LOCK = OrderedDict(), threading.Lock()
 PROMPT_MEMO_MAX = 4096
 
 
 def job_prompts(manager, job_ids):
     """Job id -> submitted prompt for `job_ids`: a live job's from its spec,
-    a historical one's from the history (`JobHistory.submitted_prompts`),
-    each read once and memoised (`_PROMPT_MEMO`, bounded at PROMPT_MEMO_MAX)."""
+    a historical one's from the history, each read once and memoised
+    (bounded at PROMPT_MEMO_MAX); a row that is not valid JSON memoises None."""
     history, found = manager.history, {}
     live = {job_id: manager.jobs.get(job_id) for job_id in job_ids}
-    unread = [
-        job_id
-        for job_id, job in live.items()
-        if job is None and (history.db_path, job_id) not in _PROMPT_MEMO
-    ]
-    rows = history.submitted_prompts(unread) if unread else []
-    read = {job_id: _stored_prompt(kind, value) for job_id, _run, kind, value in rows}
     with _PROMPT_MEMO_LOCK:
+        unread = [
+            job_id
+            for job_id, job in live.items()
+            if job is None and (history.db_path, job_id) not in _PROMPT_MEMO
+        ]
+        rows = history.submitted_prompts(unread) if unread else []
+        read = dict.fromkeys(unread)
+        read.update(
+            (job_id, _stored_prompt(kind, value)) for job_id, _r, kind, value in rows
+        )
         _PROMPT_MEMO.update(((history.db_path, j), p) for j, p in read.items())
         while len(_PROMPT_MEMO) > PROMPT_MEMO_MAX:
             _PROMPT_MEMO.popitem(last=False)
+        memo = {j: _PROMPT_MEMO.get((history.db_path, j)) for j in live}
     for job_id, job in live.items():
-        prompt = prompt_text(job.spec.get("arguments")) if job else read.get(job_id)
-        prompt = prompt or _PROMPT_MEMO.get((history.db_path, job_id))
+        prompt = prompt_text(job.spec.get("arguments")) if job else memo[job_id]
         if prompt:
             found[job_id] = prompt
     return found
@@ -173,10 +175,11 @@ def job_prompts(manager, job_ids):
 
 def run_prompts(history, workspace, run_ids):
     """Run id -> the prompt its job was submitted with, for `run_ids`; a run
-    whose job history no longer holds has no entry."""
+    whose job history no longer holds has no entry. Jobs sharing a run id
+    (a rerun) give the newest one's prompt."""
     rows = history.submitted_prompts(list(run_ids), by_run=True, workspace=workspace)
-    found = ((run, _stored_prompt(kind, value)) for _job, run, kind, value in rows)
-    return {run: prompt for run, prompt in found if prompt}
+    newest = {run: _stored_prompt(kind, value) for _job, run, kind, value in rows}
+    return {run: prompt for run, prompt in newest.items() if prompt}
 
 
 def _shown(entries):

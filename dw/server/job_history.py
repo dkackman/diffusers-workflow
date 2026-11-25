@@ -295,23 +295,20 @@ class JobHistory:
                     events TEXT
                 )""")
             added = _add_missing_columns(connection)
-            # Every row predating workspaces belongs to the default one -
-            # history that cannot say which workspace a job ran in stops
-            # making sense the moment there are two
+            # Rows predating workspaces belong to the default one
             if "workspace" in added:
                 connection.execute(
                     "UPDATE jobs SET workspace = 'default' WHERE workspace IS NULL"
                 )
             if "device_ordinal" in added or "device_card" in added:
                 connection.execute(_BACKFILL_DEVICE_FIELDS)
-            # What `rerun_ids` looks up: has any job rerun this one (#1266)
-            connection.execute(
-                "CREATE INDEX IF NOT EXISTS jobs_rerun_of ON jobs (rerun_of)"
-            )
-            # What a request's linked-jobs query and the list filter read
-            connection.execute(
-                "CREATE INDEX IF NOT EXISTS jobs_request ON jobs (workspace, request)"
-            )
+            # `rerun_ids` (#1266), the gallery's prompts, a request's jobs
+            for index, on in (
+                ("jobs_rerun_of", "rerun_of"),
+                ("jobs_run_id", "run_id"),
+                ("jobs_request", "workspace, request"),
+            ):
+                connection.execute(f"CREATE INDEX IF NOT EXISTS {index} ON jobs ({on})")
 
     @contextlib.contextmanager
     def _connect(self):
@@ -629,15 +626,17 @@ class JobHistory:
         return {row["run_id"] for row in rows}
 
     def submitted_prompts(self, ids, by_run=False, workspace=None):
-        """(id, run id, json_type, json_extract) of `$.prompt` for `workspace`'s rows
-        (any for None) whose id (run id `by_run`) is in list `ids` - not the blob."""
+        """(id, run id, json_type, json_extract) of `$.prompt` for `workspace`'s
+        rows (any for None) whose id (run id `by_run`) is in `ids`, oldest first
+        so the newest of a shared run id comes last - not the blob."""
         p, rows, col = "arguments, '$.prompt'", [], ("id", "run_id")[by_run]
         sql = f"SELECT id, run_id, json_type({p}), json_extract({p}) FROM jobs"
-        sql += " WHERE json_valid(arguments) AND IFNULL(?, workspace) IS workspace"
         for chunk in (ids[at : at + 500] for at in range(0, len(ids), 500)):
             with self._lock, self._connect() as connection:
-                query = f"{sql} AND {col} IN ({','.join('?' * len(chunk))})"
-                rows += connection.execute(query, [workspace, *chunk]).fetchall()
+                query = f"{sql} WHERE {col} IN ({','.join('?' * len(chunk))})"
+                query += " AND IFNULL(?, workspace) IS workspace"
+                query += " AND json_valid(arguments) ORDER BY created_at"
+                rows += connection.execute(query, [*chunk, workspace]).fetchall()
         return rows
 
     def device_ordinal(self, job_id):
