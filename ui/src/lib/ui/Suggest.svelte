@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Combobox } from 'bits-ui'
+  import { portalTarget } from './layers.svelte'
   import OutputTile from './OutputTile.svelte'
   import type { SuggestItem } from './suggest'
 
@@ -47,6 +48,7 @@
   }
 
   let open = $state(false)
+  const portal = portalTarget(() => open)
   const shown = $derived(matching(value ?? ''))
   // Bits is a select: it keeps the row it last took, so taking that row
   // again would deselect it, and it takes its highlighted row on Enter.
@@ -125,7 +127,7 @@
     onchange={(e) => onchange?.(e.currentTarget.value)}
   />
   {#if shown.length}
-    <Combobox.Portal>
+    <Combobox.Portal to={portal.to}>
       <Combobox.Content class="ui-suggest panel">
         {#each shown as item (item.value)}
           <Combobox.Item

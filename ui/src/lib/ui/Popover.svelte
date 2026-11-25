@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
   import { Popover } from 'bits-ui'
-  import { holdLayer } from './layers.svelte'
+  import { holdLayer, portalTarget } from './layers.svelte'
 
   let {
     open = $bindable(false),
@@ -25,6 +25,7 @@
   $effect(() => {
     if (open) return holdLayer()
   })
+  const portal = portalTarget(() => open)
 </script>
 
 <!-- Non-modal: the page stays usable, so there is no aria-modal and no
@@ -32,7 +33,7 @@
      closes it. A popover holding controls is a non-modal dialog, a role
      Bits leaves to the caller -->
 <Popover.Root bind:open>
-  <Popover.Portal>
+  <Popover.Portal to={portal.to}>
     <Popover.Content
       class={menu ? 'ui-popover ui-popover-menu panel' : 'ui-popover panel'}
       role="dialog"

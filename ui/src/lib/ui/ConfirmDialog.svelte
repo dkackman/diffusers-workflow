@@ -1,11 +1,10 @@
 <script lang="ts">
   import { AlertDialog } from 'bits-ui'
-  import { confirmState, overlayHost, resolveChoice } from '../confirm.svelte'
-  import { holdLayer } from './layers.svelte'
+  import { confirmState, resolveChoice } from '../confirm.svelte'
+  import { holdLayer, portalTarget } from './layers.svelte'
 
   const uid = $props.id()
-  // Read as the dialog opens: full screen shows nothing outside its element
-  const host = $derived(confirmState.open ? overlayHost() : document.body)
+  const portal = portalTarget(() => confirmState.open)
 
   $effect(() => {
     if (confirmState.open) return holdLayer()
@@ -44,7 +43,7 @@
     if (!open) resolveChoice(null)
   }}
 >
-  <AlertDialog.Portal to={host}>
+  <AlertDialog.Portal to={portal.to}>
     <AlertDialog.Overlay class="ui-overlay ui-ask" />
     <AlertDialog.Content
       class="ui-sheet panel ui-ask"
