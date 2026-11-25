@@ -7,6 +7,7 @@ import {
   within,
 } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import RequestRoute from '../request/RequestRoute.svelte'
 import RequestPage from './RequestPage.svelte'
 import { workspace } from '../workspaceState.svelte'
 import { ApiError } from '../apiErrors'
@@ -159,7 +160,7 @@ it("an accept's Undo pressed twice while its toast fades takes it back once", as
 })
 
 it("a drop's Undo pressed once another request is open does nothing to it", async () => {
-  const view = render(RequestPage, { requestId: 'r1' })
+  const view = render(RequestRoute, { requestId: 'r1' })
   await screen.findByRole('heading', { name: 'Launch posters' })
   await choose('s3', 'Drop from plan')
   await saved(4)
@@ -1153,4 +1154,26 @@ it("a stale retry's fresh read marks the agent's change", async () => {
   await saved(5)
   await waitFor(() => expect(row('s4').classList).toContain('row-changed'))
   expect(row('cast').classList).not.toContain('row-changed')
+})
+
+it('an edit still queued is written to its own request after a switch away', async () => {
+  const view = render(RequestRoute, { requestId: 'r1' })
+  await screen.findByRole('heading', { name: 'Launch posters' })
+  const release = world.ledger.hold()
+  const take = (n: number) =>
+    within(row('cast')).getByRole('button', {
+      name: `Accept take ${n} for Cast sheet`,
+    })
+  await fireEvent.click(take(1))
+  await waitFor(() => expect(world.ledger.puts).toHaveLength(1))
+  // queued behind the write in flight
+  await fireEvent.click(take(2))
+  await view.rerender({ requestId: 'r2' })
+  release()
+  await saved(5)
+  expect(world.ledger.current.items[0].accepted?.job).toBe('j2')
+  expect(api.putRequest.mock.calls.map((c) => c.slice(0, 2))).toEqual([
+    ['studio', 'r1'],
+    ['studio', 'r1'],
+  ])
 })

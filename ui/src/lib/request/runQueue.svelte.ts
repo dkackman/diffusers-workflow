@@ -99,11 +99,18 @@ function unchecked(error: unknown): string {
 const detailOf = (error: unknown) => describeError(error).detail ?? null
 
 /** The current plan a 409 on a bound acknowledgement carries */
-function repriced(error: unknown): Record<string, unknown> | null {
+function repriced(error: unknown) {
   if (!(error instanceof ApiError) || error.status !== 409) return null
-  const detail = error.detail
-  return detail?.plan && detail.acknowledge ? detail : null
+  const { plan, acknowledge } = error.detail ?? {}
+  if (!isRecord(plan) || !isRecord(acknowledge)) return null
+  return {
+    plan: plan as Plan,
+    acknowledge: acknowledge as RunRow['acknowledge'],
+  }
 }
+
+const isRecord = (value: unknown): value is object =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
 
 export class RunQueue {
   rows = $state<RunRow[]>([])
@@ -289,8 +296,8 @@ export class RunQueue {
     } catch (error) {
       const moved = repriced(error)
       if (moved) {
-        row.plan = moved.plan as Plan
-        row.acknowledge = moved.acknowledge as RunRow['acknowledge']
+        row.plan = moved.plan
+        row.acknowledge = moved.acknowledge
         row.state = 'repriced'
       } else {
         row.error = refusal(error)

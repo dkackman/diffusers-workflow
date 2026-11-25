@@ -270,9 +270,9 @@ it("exposes each live row's review hold, and the held rows, as the server says",
   })
   const plan = planState(
     request([
-      item('a', { review: hold('holding') }),
+      item('a', { ready: true, review: hold('holding') }),
       item('b'),
-      item('c', { review: hold('due') }),
+      item('c', { ready: true, review: hold('due') }),
       item('d', { dropped: true, status: 'dropped', review: hold('holding') }),
     ]),
   )
@@ -283,6 +283,7 @@ it("exposes each live row's review hold, and the held rows, as the server says",
     null,
   ])
   expect(plan.held.map((s) => s.item.key)).toEqual(['a', 'c'])
+  expect(plan.held.every((s) => s.needs.includes('held'))).toBe(true)
 })
 
 it('shows a revised item as its own display with the revised chip, and its dependents keep waiting', () => {
@@ -498,4 +499,32 @@ it('a failed take with no reason shows no reason line', () => {
     attempts: [attempt('j1', 'failed')],
   })
   expect(failedLine(row)).toBeNull()
+})
+
+it('does not count as held an item that would not yet ask anything of the person', () => {
+  const review = {
+    until: '2026-11-21T12:00:00+00:00',
+    state: 'holding' as const,
+    seconds_left: 30,
+  }
+  const plan = planState(
+    request([
+      item('a', { ready: true, review }),
+      item('waits', { depends_on: ['a'], review }),
+      doneItem('retaking', {
+        status: 'revised',
+        review,
+        attempts: [attempt('j1'), attempt('j2', 'running')],
+      }),
+    ]),
+  )
+  expect(plan.held.map((s) => s.item.key)).toEqual(['a'])
+  expect(plan.needs.held).toBe(plan.held.length)
+})
+
+it('reads an empty workflow name as none, as the server does', () => {
+  const [row] = planState(
+    request([item('a', { ready: true, workflow: '' })]),
+  ).items
+  expect(row.noWorkflow).toBe(true)
 })

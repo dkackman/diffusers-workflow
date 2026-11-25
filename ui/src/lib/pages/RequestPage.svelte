@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick, untrack } from 'svelte'
+  import { onDestroy, tick, untrack } from 'svelte'
   import { ApiError } from '../api'
   import { describeError } from '../apiErrors'
   import Details from '../ui/Details.svelte'
@@ -24,7 +24,12 @@
   import { answeredNow, answeredText, noteItem } from '../request/answered'
   import { noteAnchor } from '../request/noteState'
   import { planState, titleId } from '../request/itemState'
-  import { PlanStore, requestRoutes } from '../request/planStore.svelte'
+  import { changedText, goneText } from '../request/conflict'
+  import {
+    PlanStore,
+    requestRoutes,
+    type PlanIo,
+  } from '../request/planStore.svelte'
   import { itemRows, newerOf, refreshInterval } from '../request/refresh'
   import { resource } from '../resource.svelte'
   import Time from '../ui/Time.svelte'
@@ -42,7 +47,10 @@
   // What the one live region says: a refresh's changes in a sentence, or
   // what an edit of the user's own did
   let said = $state('')
-  const ws = $derived(workspace.current)
+  // One page, one store, one request (RequestRoute keys it): fixed here, so
+  // a store still writing after the page has gone writes to its own request
+  const ws = untrack(() => workspace.current)
+  const id = untrack(() => requestId)
 
   // Held items count down from each read the store keeps; one reaching
   // zero reads the request again (review.svelte.ts)
@@ -51,10 +59,9 @@
   // What the server last said, and the edits not yet written over it
   // (planStore.svelte.ts). The page draws the store's view; every edit is
   // an intent handed to it, applied to the read only when it is sent
-  const routes = $derived(requestRoutes(ws, requestId))
-  const store = new PlanStore({
-    get: () => routes.get(),
-    put: (body) => routes.put(body),
+  const routes = requestRoutes(ws, id)
+  const io: PlanIo = {
+    ...routes,
     onread(previous, next) {
       const news = announce(previous, next)
       if (news) said = news
@@ -70,11 +77,18 @@
     onsaved: (held) => reads.adopt(held),
     // A stale retry's fresh read is another writer's change: marked
     onquiet: (read) => reads.adopt(read, { mark: true }),
-  })
+    onunshown: (conflict) =>
+      notify.error(
+        conflict.kind === 'changed'
+          ? `Not saved. ${conflict.title}: ${changedText(conflict)}`
+          : goneText(conflict),
+      ),
+  }
+  const store = new PlanStore(io, `${ws}/${id}`)
+  onDestroy(() => store.leave())
 
   // The agent wrote after one of the user's waiting notes: said once per
   // note while the page is open, never for one answered before it opened.
-  // Note ids restart per request, so a switch forgets them (the effect below)
   let toldOf: Record<string, true> = {}
   let looked = $state.raw(seen.UNSEEN)
   function told(next: LedgerRequest, id: string) {
@@ -88,20 +102,6 @@
   }
   const request = $derived(store.view)
   const plan = $derived(request ? planState(request) : null)
-
-  // A switch to another request forgets the one held; replies still on
-  // their way for it are dropped (the store's reset, and latestOnly). Made
-  // before `reads`, so it runs before the read for the new request
-  $effect(() => {
-    void ws
-    void requestId
-    untrack(() => {
-      store.reset()
-      toldOf = {}
-      said = ''
-      looked = seen.UNSEEN
-    })
-  })
 
   // The plan and its machine state move without this page: an agent rewrites
   // the plan, a job is queued, runs, ends. The feed's `requests` kind says

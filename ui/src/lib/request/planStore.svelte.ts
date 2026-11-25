@@ -9,7 +9,13 @@ import { ApiError } from '../apiErrors'
 import type { RequestWriteBody } from '../apiRequest'
 import type { UndoTarget } from '../destructive'
 import type { LedgerItem, LedgerRequest } from '../types'
-import { culprit, itemDiff, stateCulprit, type Conflict } from './conflict'
+import {
+  culprit,
+  itemDiff,
+  onlyNotes,
+  stateCulprit,
+  type Conflict,
+} from './conflict'
 import {
   apply,
   fold,
@@ -60,6 +66,9 @@ export type PlanIo = {
    * change it found, for a resource to `observe` as a quiet read so it is
    * marked, and not lost to the save's `adopt` */
   onquiet?: (read: LedgerRequest) => void
+  /** An edit held back or refused after the page was left: no card of it
+   * will be drawn */
+  onunshown?: (conflict: Conflict) => void
 }
 
 /** The two calls a store makes for request `id` of workspace `ws` */
@@ -87,10 +96,13 @@ const keyOf = (intent: Intent) => ('key' in intent ? intent.key : null)
 const decides = (intent: Intent) =>
   intent.kind === 'drop' || intent.kind === 'accept'
 
-/** The page and its store are reused for the next request: an Undo made
- * here is held to the request it was made on (`undoToast`'s target) */
+/** The request a page opened last, as `workspace/id` */
+let opened = ''
+
+/** An Undo made on a request is not pressed once another one is open
+ * (`undoToast`'s target) */
 export const onThisRequest = (store: PlanStore): UndoTarget => ({
-  now: () => store.read?.id ?? null,
+  now: () => (store.of === opened ? (store.read?.id ?? null) : null),
   away: 'Nothing undone: another request is open now.',
 })
 
@@ -116,17 +128,31 @@ export class PlanStore {
       : null,
   )
 
+  /** The request this store is for, as `workspace/id` */
+  readonly of: string
+  /** The page has gone: what is queued is still written, and nothing is
+   * said to the page */
+  #left = false
   #io: PlanIo
   #sending = false
   #epoch = 0
   #ids = 0
 
-  constructor(io: PlanIo) {
+  constructor(io: PlanIo, of = '') {
     this.#io = io
+    this.of = of
+    opened = of
   }
 
-  /** Forget everything: the page moved to another request. Replies still
-   * on their way are for the old one and are dropped. */
+  /** The page is leaving this request. Every edit asked for, a staged move
+   * included, is still written */
+  leave() {
+    this.#left = true
+    this.commit()
+  }
+
+  /** Forget everything: the request is gone. Replies still on their way
+   * are dropped. */
   reset() {
     this.#epoch++
     for (const entry of this.queue) entry.settle(done('unchanged'))
@@ -144,7 +170,8 @@ export class PlanStore {
     const next = newerOf(previous, found)
     if (next === previous) return
     this.read = next
-    this.#io.onread?.(previous, next)
+    this.#forgetLive(next)
+    if (!this.#left) this.#io.onread?.(previous, next)
   }
 
   /** Read the request again and keep it unless what is held is newer
@@ -211,7 +238,11 @@ export class PlanStore {
       if (outcome.status !== 'saved') this.#forget(key)
       return outcome
     } catch (error) {
-      this.#forget(key)
+      // A refusal wrote nothing. Anything else may have been applied with
+      // its reply lost: remembered until a read shows the item live
+      const refused =
+        error instanceof ApiError && error.status >= 400 && error.status < 500
+      if (refused) this.#forget(key)
       throw error
     }
   }
@@ -240,6 +271,19 @@ export class PlanStore {
 
   dismiss(id: number) {
     this.conflicts = this.conflicts.filter((c) => c.id !== id)
+  }
+
+  /** A read that shows a remembered item live, with no drop of it still to
+   * be written, ends the memory: the drop did not happen, or it has been
+   * put back since, and its old dependents are no longer this page's */
+  #forgetLive(read: LedgerRequest) {
+    for (const key of Object.keys(this.memory)) {
+      const live = read.items.some((i) => i.key === key && !i.dropped)
+      const dropping = this.queue.some(
+        (e) => e.intent.kind === 'drop' && e.intent.key === key,
+      )
+      if (live && !dropping) this.#forget(key)
+    }
   }
 
   #forget(key: string) {
@@ -323,6 +367,7 @@ export class PlanStore {
       changes,
     }
     this.conflicts = [...this.conflicts, conflict]
+    if (this.#left) this.#io.onunshown?.(conflict)
     this.#finish(entry, done(kind === 'changed' ? 'asked' : 'gone'))
   }
 
@@ -364,8 +409,11 @@ export class PlanStore {
     }
     if (epoch !== this.#epoch) return
     this.take(saved)
-    this.#io.onsaved?.(this.read ?? saved)
-    if (entry.tries > 0)
+    if (!this.#left) this.#io.onsaved?.(this.read ?? saved)
+    if (
+      entry.tries > 0 &&
+      !onlyNotes(saved.history, entry.since, saved.revision)
+    )
       this.notice = {
         entry: culprit(saved.history, entry.since, saved.revision),
       }
@@ -382,7 +430,7 @@ export class PlanStore {
       const fresh = await this.#io.get()
       if (epoch === this.#epoch) {
         this.take(fresh)
-        this.#io.onquiet?.(fresh)
+        if (!this.#left) this.#io.onquiet?.(fresh)
       }
     } catch (failure) {
       if (epoch === this.#epoch) this.#reject(entry, failure)

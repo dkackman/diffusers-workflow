@@ -13,7 +13,7 @@
   import ConflictNotice from './ConflictNotice.svelte'
   import { dropWarnings, restoredText } from './dropConfirm'
   import ItemMenu from './ItemMenu.svelte'
-  import { itemMenu } from './menuEntries'
+  import { itemMenu, type ItemAction } from './menuEntries'
   import {
     nextTake,
     titleId,
@@ -33,7 +33,6 @@
     placeBefore,
     runsAfter,
     titlesOf,
-    type Direction,
     type Move,
   } from './reorderMath'
   import RequestItem from './RequestItem.svelte'
@@ -219,11 +218,11 @@
     }
   }
 
-  function select(row: ItemState, id: string, note: () => void) {
+  function select(row: ItemState, id: ItemAction, note: () => void) {
     if (id === 'note') return note()
     if (id === 'drop') return void drop(row)
     if (id === 'retake') return onrun?.(row.item.key)
-    const move = moveTarget(keys, row.item.key, id as Direction)
+    const move = moveTarget(keys, row.item.key, id)
     if (!move) return
     moved(row, move)
     store.commit()

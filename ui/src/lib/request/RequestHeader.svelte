@@ -80,7 +80,7 @@
   const channel = $derived(listening(workspace))
   const hold = $derived(holdGroup(plan.held))
   const counting = $derived(
-    plan.held.some((r) => r.review?.state === 'holding'),
+    plan.live.some((r) => r.review?.state === 'holding'),
   )
   $effect(() => {
     if (counting && countdown) return countdown.hold()

@@ -50,6 +50,11 @@ export class FakeLedger {
     return this.#write({ items: change(this.current.items) }, 'agent', why)
   }
 
+  /** A write made by the user outside the page's store (a note route) */
+  elsewhere(why: string) {
+    return this.#write({}, 'user', why)
+  }
+
   /** Hold every write from here until the returned function is called */
   hold() {
     let open: () => void = () => {}
