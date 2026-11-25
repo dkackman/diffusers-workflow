@@ -33,3 +33,16 @@ it('offers to start a new one for a missing file, not for a missing workspace', 
   )
   expect(noWorkspace.queryByText('Start a new one named tuna')).toBeNull()
 })
+
+it("offers the engine's message only where asked", () => {
+  const error = new ApiError('Traceback: bad step', 500)
+  expect(
+    render(LoadFailed, { props: props(error) }).queryByText('Engine detail'),
+  ).toBeNull()
+  cleanup()
+  expect(
+    render(LoadFailed, {
+      props: { ...props(error), detail: true },
+    }).queryByText('Engine detail'),
+  ).not.toBeNull()
+})

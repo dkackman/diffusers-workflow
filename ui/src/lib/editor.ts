@@ -12,7 +12,8 @@ export function classDescription(
   target: 'call' | 'init' | 'load' | 'task' = 'call',
 ): Promise<PipelineDescription | null> {
   const key = `${target}:${name}`
-  if (!descriptions.has(key)) {
+  let description = descriptions.get(key)
+  if (!description) {
     const fetcher =
       target === 'task'
         ? api.describeTask(name)
@@ -20,15 +21,13 @@ export function classDescription(
           ? api.describePipeline(name)
           : api.describeClass(name, target)
     // a failure is not cached: the next mount asks again (#1640)
-    descriptions.set(
-      key,
-      fetcher.catch(() => {
-        descriptions.delete(key)
-        return null
-      }),
-    )
+    description = fetcher.catch(() => {
+      descriptions.delete(key)
+      return null
+    })
+    descriptions.set(key, description)
   }
-  return descriptions.get(key)!
+  return description
 }
 
 export type Widget = 'number' | 'boolean' | 'text' | 'textarea' | 'json'

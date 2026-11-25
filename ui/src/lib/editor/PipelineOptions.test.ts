@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
+import { tick } from 'svelte'
 import PipelineOptionsHarness from './PipelineOptionsHarness.svelte'
 import PipelineOptions from './PipelineOptions.svelte'
 import { api } from '../api'
@@ -156,4 +157,27 @@ it('keeps a fold the person opened when the class lookup answers', async () => {
   answer(sdDescription)
   expect(await screen.findByText('add component…')).toBeInTheDocument()
   expect(fold.open).toBe(true)
+})
+
+const cacheType = () => screen.getByLabelText('cache type') as HTMLSelectElement
+
+it('shows a cache type the list does not hold', () => {
+  render(PipelineOptionsHarness, {
+    initial: { configuration: { cache: { type: 'brand_new_cache' } } },
+  })
+  expect(cacheType().value).toBe('brand_new_cache')
+})
+
+it('writes no cache type into a cache that has none', async () => {
+  const cache: Record<string, unknown> = { threshold: 0.1 }
+  const initial = { configuration: { cache } }
+  render(PipelineOptions, {
+    pipeline: initial,
+    index: 0,
+    openSection: 'acceleration',
+    references: [],
+  })
+  await tick()
+  expect(cacheType().value).toBe('')
+  expect(cache).toEqual({ threshold: 0.1 })
 })

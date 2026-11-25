@@ -351,7 +351,12 @@
           class="vartype"
           aria-label="type of {key}"
           value={typeOf(variables![key])}
-          onchange={(e) => retype(key, e.currentTarget.value)}
+          onchange={(e) => {
+            retype(key, e.currentTarget.value)
+            // text that does not fit stays text, which moves nothing
+            // the select reads: put it back to what the value is
+            e.currentTarget.value = typeOf(variables![key])
+          }}
         >
           {#each VARIABLE_TYPES as type (type)}<option>{type}</option>{/each}
         </select>

@@ -8,7 +8,6 @@
     EDITOR_VIEWS,
     NEW_FOLDER,
     editorKeys,
-    type EditorView,
   } from '../editorShell.svelte'
   import Segmented from '../ui/Segmented.svelte'
   import DocumentFileBar from '../editor/DocumentFileBar.svelte'
@@ -276,7 +275,7 @@
         label="editor view"
         value={shell.view}
         options={views}
-        onselect={(view) => shell.setView(view as EditorView)}
+        onselect={(view) => shell.setView(view)}
       />
       {#if place.current}
         <button
@@ -312,6 +311,7 @@
 
   {#if shell.loadState === 'failed'}
     <LoadFailed
+      detail
       label={name}
       error={shell.loadError}
       onretry={() => place.retry()}

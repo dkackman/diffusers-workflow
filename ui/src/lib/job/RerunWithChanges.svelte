@@ -181,7 +181,7 @@
   </button>
 {/each}
 
-<Modal bind:open label="Run again with changes" wide>
+<Modal bind:open label="Run again with changes" size="wide">
   <h2>Run again with changes</h2>
   <p class="hint muted">
     Each field holds what this job used. Change what should differ; a blank

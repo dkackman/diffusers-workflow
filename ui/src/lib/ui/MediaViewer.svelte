@@ -341,7 +341,7 @@
   <Modal
     bind:open={() => true, (shown) => !shown && close()}
     label={leaf}
-    fill
+    size="fill"
     {onkeydowncapture}
   >
     <div class="viewer-bar">

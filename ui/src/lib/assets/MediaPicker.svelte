@@ -158,7 +158,7 @@
   }
 </script>
 
-<Modal bind:open label="choose a file" large>
+<Modal bind:open label="choose a file" size="large">
   <div class="head">
     <h2>Choose {kindWithArticle(kind)}</h2>
     <Segmented
@@ -168,7 +168,7 @@
         { value: 'assets', label: 'Assets' },
         { value: 'outputs', label: 'Earlier jobs' },
       ]}
-      onselect={(picked) => (tab = picked as typeof tab)}
+      onselect={(picked) => (tab = picked)}
     />
     <input
       class="search"

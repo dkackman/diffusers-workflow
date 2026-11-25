@@ -739,3 +739,25 @@ it('a quiet run for a new question does not wait on the old one', async () => {
   await settle()
   expect(r.data).toBe('other rows')
 })
+
+it('forgets what it holds when its subject changes', async () => {
+  const about = $state({ file: 'a.png' })
+  let gate = deferred<string>()
+  const r = mount(
+    () => {
+      const file = about.file
+      return gate.promise.then((v) => `${file}:${v}`)
+    },
+    { watch: [], subject: () => about.file },
+  )
+  gate.resolve('1')
+  await vi.waitFor(() => expect(r.data).toBe('a.png:1'))
+
+  gate = deferred<string>()
+  about.file = 'b.png'
+  flushSync()
+  expect(r.status).toBe('loading')
+  expect(r.data).toBeUndefined()
+  gate.resolve('2')
+  await vi.waitFor(() => expect(r.data).toBe('b.png:2'))
+})

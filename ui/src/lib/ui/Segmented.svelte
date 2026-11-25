@@ -1,4 +1,4 @@
-<script lang="ts">
+<script lang="ts" generics="T extends string">
   import type { Component } from 'svelte'
 
   // One choice from a few, side by side: the editor's view, a step's detail
@@ -13,13 +13,13 @@
     size = 'md',
   }: {
     options: {
-      value: string
+      value: T
       label: string
       title?: string
       icon?: Component<{ size?: number }>
     }[]
-    value: string
-    onselect: (value: string) => void
+    value: NoInfer<T>
+    onselect: (value: NoInfer<T>) => void
     label: string
     size?: 'sm' | 'md'
   } = $props()
