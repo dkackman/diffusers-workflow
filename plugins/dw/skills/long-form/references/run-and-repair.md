@@ -273,6 +273,13 @@ as an OpenTimelineIO `.otioz` bundle. DaVinci Resolve 18.5+ imports it with
 one clip per shot. Rates are exact rationals: 23.976 is written as
 24000/1001.
 
+**Run it as a second job.** The bundle carries the video file itself, so
+`video` and `sources` take a stored file (`output:`, `asset:` or a path).
+`previous_result:` is refused at validation, even when that step saved its
+result: it hands on the clip in memory. Assemble and grade in one job, then
+run this step as its own workflow with an `output:` reference to the file the
+first job saved.
+
 ```json
 { "task": { "command": "export_timeline",
             "arguments": { "video": "output:<identity>/latest/final/cut.mp4",

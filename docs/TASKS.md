@@ -764,7 +764,7 @@ an `.otio` reports "The clip was not found".
 
 | Argument | Meaning |
 | -------- | ------- |
-| `video` | The joined video, a stored file (`asset:`, `output:` or a path). A clip still in memory is refused: the bundle carries the file |
+| `video` | The joined video, a stored file (`asset:`, `output:` or a path). The bundle carries the file, so `previous_result:` (here or in `sources`) is refused at validation, even from a step that saved its result: export in a second job |
 | `sources` | One file per shot, in order. Each clip then points at its own file over that file's whole range, at that file's own frame rate, and the bundle holds those files, not `video`. A count other than one per shot is refused. Default: every clip points into `video` over its shot's span, so the bundle holds one media file |
 | `shots` | Shot records; else the video's own from the run manifest, else the whole file is one clip |
 | `name` | The timeline's name |
