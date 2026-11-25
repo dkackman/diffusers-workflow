@@ -405,11 +405,11 @@ def list_workflows(
         "shadowed": [
             entry for entry in shadowed_listing(hidden) if entry["name"] in details
         ],
-        # `cost` is curated: figures a maintainer measured once and wrote
-        # into the workflow, never derived from this server's job history,
-        # so null means nobody wrote one down, not that the run is cheap
-        # (#91). A detail's `observed` block is the other kind of number:
-        # this box's own finished runs, never a substitute for `cost` (#93)
+        # `cost` is curated: figures a maintainer measured once on the devices
+        # named and wrote into the workflow, never derived from this server's
+        # job history, so null means nobody wrote one down, not that the run is
+        # cheap or this box never ran it (#91). A detail's `observed` block is
+        # the other kind: this box's own runs, derived, never a `cost` (#93)
         "cost_basis": "curated",
     }
     # The agent's compact view is a different, smaller card than the one
@@ -447,8 +447,8 @@ def _write_validated(http_request, ws, name, definition):
         path,
         ws.workflows,
     )
-    # A definition that fails validation is a refusal (400); validation
-    # itself failing is the server's (500), its message left to the log
+    # A definition that fails validation is a refusal (400); validation itself
+    # failing is the server's (500), its message may carry internals (log only)
     try:
         # With the LoRA catalog, as the validate route checks it - a save
         # the server would refuse to run is refused here too (#870)
@@ -586,9 +586,9 @@ def delete_workflow(
     os.remove(path)
     logger.info(f"Deleted workflow {name} ({path})")
     forget_workspace_usage()
-    # This identity's job history goes with it (#274), or a name reused in
-    # this workspace would inherit the deleted copy's observed figures and
-    # host-memory history
+    # This identity's job history goes with it (#274), or a name reused here
+    # (a regression cycle deleting and recreating a workflow) would inherit the
+    # deleted copy's observed figures and host-memory history
     manager.history.orphan_workflow_history(ws.name, name)
     return {
         "name": name,
@@ -666,7 +666,7 @@ def get_workflow_variables(
         "origin": source.origin,
     }
     # The rule beside the default it constrains: a consumer reading
-    # `num_frames: 124` alone picked 61 and paid 138 s to be told 17n + 5 (#96)
+    # `num_frames: 124` alone picked 61 and paid 138 s of loading for 17n + 5 (#96)
     constraints = definition.get("variable_constraints")
     if isinstance(constraints, dict) and constraints:
         answer["constraints"] = constraints

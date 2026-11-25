@@ -1,5 +1,6 @@
 /* The contact-sheet frame and the pickable tile: the global rules for
-   wherever the app shows something a workflow produced. Loaded straight
+   wherever the app shows something a workflow produced, and the state a
+   row, tile or card shows (`.row-live`, `.row-changed`). Loaded straight
    after app.css (main.ts), whose tokens these read. */
 
 /* A contact-sheet frame. Every place the app shows something a workflow
@@ -80,10 +81,23 @@ button.frame:hover {
 /* Ticked (`.picked` here) is the user's own state: the tile inside draws
    it, as OutputTile's ink edge (`.filetile.picked`, patterns.css). */
 
+/* Machine state on a list row, so a page's own file needs no --live:
+   the row the machine is on now (a running job, an item being rendered),
+   the one you came to find; and a row a quiet reload changed (`.row-changed`,
+   frames.css). The tripled class outranks a page's
+   scoped `.row:hover`, which sits at (0,3,0) */
+.row-live {
+  background: color-mix(in srgb, var(--live) 10%, transparent);
+  box-shadow: inset 2px 0 0 var(--live);
+}
+a.row-live.row-live.row-live:hover {
+  background: color-mix(in srgb, var(--live) 16%, transparent);
+}
+
 /* A row, tile or card a quiet reload changed (`.row-changed`): the bar is an
    overlay that sits over the host's children, so a tile's picture or a
    card's frame cannot cover it, and never a box-shadow, so `.row-live`'s
-   inset bar (app.css) stays beside it. A ticked tile keeps its own edge.
+   inset bar stays beside it. A ticked tile keeps its own edge.
    `--live` over a 1px `--bg` edge reads over a bright picture. The
    resource clears the class and sets it again when a row changes twice,
    which restarts the fade. */

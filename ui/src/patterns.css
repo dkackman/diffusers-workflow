@@ -515,3 +515,31 @@ button.filetile:hover,
 .ui-popover-menu {
   container-type: normal;
 }
+
+/* The row a list page opens with: title, count and controls */
+.pagehead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.8rem;
+  margin-bottom: var(--space-4);
+}
+.pagehead.baseline {
+  align-items: baseline;
+}
+
+/* Words for a screen reader only: a live region's announcement, the name
+   of a column of icons */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Prose stays inside a comfortable measure wherever it runs long. */
+.prose {
+  max-width: 68ch;
+}

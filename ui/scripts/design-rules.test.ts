@@ -10,9 +10,9 @@ import { sourceFiles } from './arch-metrics.mjs'
 const UI = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 // The places --live may appear: the header's running link and VRAM
-// pressure, a running row and status chip (rows.css: `.row-live`;
-// app.css: `.chip.running`), the bar a changed tile or card shows (frames.css), the
-// job page's progress bar and current step, the flow view's active step and
+// pressure, a running row and status chip (frames.css: `.row-live`;
+// app.css: `.chip.running`), the bar a changed tile or card shows
+// (frames.css), the job page's progress bar and current step, the flow view's active step and
 // segment and its legend's key to them, a model download in flight, and a
 // request's progress bar
 const LIVE_FILES = [
@@ -25,7 +25,6 @@ const LIVE_FILES = [
   'src/lib/job/JobProgress.svelte',
   'src/lib/pages/ModelsPage.svelte',
   'src/lib/request/RequestProgress.svelte',
-  'src/rows.css',
 ]
 
 it('uses --live only where machine state is shown', () => {
@@ -128,7 +127,7 @@ it('every var(--x) names a defined custom property', () => {
   expect(undefinedUses).toEqual([])
 })
 
-// app.css is full; a shared class that would grow it goes in patterns.css
+// app.css is near its cap; a shared class that would grow it goes in patterns.css
 it('app.css stays at or under 600 lines', () => {
   const lines = readFileSync(join(UI, 'src/app.css'), 'utf8').split('\n')
   // a trailing newline is not a line
