@@ -43,6 +43,7 @@ import type {
   PipelineNames,
   PromptList,
   RestartBatchRerun,
+  RestartBatchSize,
   ServerInfo,
   TaskList,
   BuiltinWorkflows,
@@ -139,9 +140,8 @@ export const api = {
   getJobWorkflow: (id: string) =>
     request<JobWorkflow>(`/api/jobs/${segment(id)}/workflow`),
   /** One JSON page of a job's events, after `after` (exclusive). `kinds`
-   * goes as repeated parameters and keeps events whose `event` or `kind`
-   * is one of them. A finished job answers from the tail history kept,
-   * with a `note` on what was dropped; an unknown job is a 404. */
+   * repeats, keeping events whose `event` or `kind` is one of them. A
+   * finished job answers from the kept tail, with a `note`; unknown: 404. */
   eventLog: (
     id: string,
     {
@@ -158,11 +158,9 @@ export const api = {
     const path = `/api/jobs/${segment(id)}/event-log`
     return request<EventLogReply>(qs ? `${path}?${qs}` : path)
   },
-  /** Queue the job again. `newSeed` draws a fresh seed into the workflow's
-   * seed variable; without it the arguments repeat exactly, which the step
-   * cache serves from the earlier run rather than generating anything.
-   * `arguments` override the run's own, and are sent only when there are
-   * some - the server stores them as the rerun's `overrides` exactly as
+  /** Queue the job again. `newSeed` draws a fresh seed; without it the
+   * arguments repeat exactly, which the step cache serves. `arguments`
+   * override the run's own and are stored as the rerun's `overrides` as
    * sent, so they must be only what changed. */
   rerunJob: async (
     id: string,
@@ -182,11 +180,15 @@ export const api = {
         ),
       }),
     ),
-  /** Rerun every job one dead server's restart cancelled, naming any one of
-   * them. Without `acknowledged` it is a priced preview - `would_queue` and
-   * `skipped` - and queues nothing; with it the batch is queued. Every
-   * member is priced, so only a click calls this, never a poll. Unscoped:
-   * a batch can span workspaces and the route needs no workspace. */
+  /** `id`'s restart batch size, whatever page holds it. Unscoped. */
+  restartBatch: (id: string) =>
+    request<RestartBatchSize>(
+      `/api/jobs/${segment(id)}/restart-batch`,
+      undefined,
+      { scope: false },
+    ),
+  /** Rerun `id`'s whole batch; without `acknowledged`, a priced preview
+   * that queues nothing. It prices every member: a click's, never a poll's. */
   rerunRestartBatch: (id: string, acknowledged = false) =>
     request<RestartBatchRerun>(
       `/api/jobs/${segment(id)}/rerun-restart-batch`,

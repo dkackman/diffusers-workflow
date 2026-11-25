@@ -27,6 +27,7 @@
   import {
     rerunRestartBatchWithConfirm,
     restartBanners,
+    restartReader,
     type RestartBanner,
   } from '../restartBatches'
 
@@ -105,6 +106,8 @@
     void question
     return { shown: JOBS_PAGE, all: false }
   })
+  // The banners' batch sizes, asked once each rather than every poll
+  const restarts = restartReader()
   const list = resource(
     async () => {
       const [ws, scoped] = [listed, { ...requestScope }]
@@ -119,7 +122,10 @@
       const rows = answer.jobs.reverse()
       const queued = await queuedEverywhere(rows, !!(ws || scoped.request))
       const progress = await runningProgress(rows)
+      const partly = !all && limit < answer.finished
+      const restart = await restarts.read(rows, partly ? { ws, scoped } : null)
       return {
+        restart,
         rows,
         total: answer.total,
         finished: answer.finished,
@@ -172,15 +178,19 @@
     ),
   )
   // Batches a preview found nothing left to rerun in: their banner stays
-  // hidden for the rest of the session, in memory only - the client's
-  // count is an estimate and the preview corrected it
+  // hidden for the rest of the session, in memory only - the count may be
+  // behind and the preview corrected it
   let dismissedBatches = $state(new Set<string>())
-  // All of a scope's rows, not the name-filtered ones: a batch spans
+  // Not the name-filtered rows: a batch spans
   // workflows. A status filter that hides cancelled rows hides it too
   const banners = $derived(
     statusFilter.value && statusFilter.value !== 'cancelled'
       ? []
-      : restartBanners(jobs, dismissedBatches),
+      : restartBanners(
+          refused ? [] : (list.data?.restart.tombstones ?? []),
+          dismissedBatches,
+          list.data?.restart.pending,
+        ),
   )
 
   // Only a click previews: the preview prices every member of the batch,
@@ -195,6 +205,7 @@
       const outcome = await rerunRestartBatchWithConfirm(banner.id)
       if (outcome === 'empty')
         dismissedBatches = new Set([...dismissedBatches, banner.batch])
+      if (outcome === 'queued') restarts.forget(banner.batch)
       return outcome
     },
     { doing: 'rerun the jobs' },

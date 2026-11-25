@@ -132,6 +132,7 @@ export const READ_ALIASES = [
   'describeTask',
   'describePipeline',
   'describeClass',
+  'restartBatch',
   'fileText',
   'notesChannel',
   'workspaceChanges',

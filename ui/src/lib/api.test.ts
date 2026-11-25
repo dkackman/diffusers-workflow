@@ -614,6 +614,7 @@ describe('an id is one path segment', () => {
     ['eventLog', () => api.eventLog(id), `/event-log`],
     ['rerunJob', () => api.rerunJob(id), `/rerun`],
     ['rerunRestartBatch', () => api.rerunRestartBatch(id), `-batch`],
+    ['restartBatch', () => api.restartBatch(id), `/restart-batch`],
     ['moveJob', () => api.moveJob(id, 'up'), `/move`],
     ['exportJob', () => api.exportJob(id, 'default'), `/export`],
     ['cancelJob', () => api.cancelJob(id), `/cancel`],
