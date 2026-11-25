@@ -385,6 +385,10 @@ it('drops a request that lands after the page moved to another', async () => {
 const fakeInterval = () =>
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
 
+/** Let the read that drew the page finish: until it has, a tick is owed to
+ * it rather than read at once (resource.svelte.ts) */
+const readSettled = () => new Promise((resolve) => setTimeout(resolve))
+
 /** The plan after the agent queued the first job of item b, at revision 4 */
 function queued(): LedgerRequest {
   const next = make()
@@ -460,6 +464,7 @@ it('an open request refreshes on its interval and a closed one on the feed', asy
   data.request = { ...make(), state: 'open', revision: 5 }
   feed.move('studio', 'requests')
   await atRevision(5)
+  await readSettled()
   // open again, it is on its idle timer, and still on the feed
   calls = reads()
   vi.advanceTimersByTime(IDLE_MS)
@@ -469,6 +474,7 @@ it('an open request refreshes on its interval and a closed one on the feed', asy
   data.request = { ...queued(), revision: 6 }
   feed.move('studio', 'requests')
   await atRevision(6)
+  await readSettled()
   calls = reads()
   vi.advanceTimersByTime(ACTIVE_MS)
   expect(reads()).toBe(calls + 1)

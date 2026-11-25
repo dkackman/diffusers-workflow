@@ -27,6 +27,9 @@
 // reply is not held: it is read again, loud or quiet as it was (once,
 // however many adopts it spanned), and its `current` is false from the
 // adopt on. A page's own write needs no stamp of its own against that.
+// A quiet reload asked for while one is out for the same question does not
+// overtake it - a read slower than its triggers would never land - but is
+// owed, once however many asked, and made when that one settles.
 // A reply overtaken by a later run is dropped (latestOnly). Timers
 // go through `poll`, the feed through `changes(workspace).watch`. LoadState
 // (ui/LoadState.svelte) renders one.
@@ -165,6 +168,39 @@ function bannerSays(e: unknown): boolean {
   return kind === 'offline' || kind === 'locked'
 }
 
+/** `read` as `run`, with quiet runs coalesced (above): one out, and at
+ * most one owed after it. A loud run overtakes both, and `release` - a new
+ * question - lets the next quiet run overtake what is out */
+function coalescing(read: Run): { run: Run; release: () => void } {
+  let out: Promise<void> | undefined
+  let owed: Promise<void> | undefined
+  // A count of releases: what was owed before one is not made after it
+  let released = 0
+  const release = () => {
+    released++
+    out = owed = undefined
+  }
+  const run: Run = (quiet) => {
+    if (!quiet) {
+      release()
+      return read(false)
+    }
+    if (out) {
+      const at = released
+      return (owed ??= out.finally(() => {
+        if (at !== released) return
+        owed = undefined
+        return run(true)
+      }))
+    }
+    const reading: Promise<void> = read(true).finally(() => {
+      if (out === reading) out = undefined
+    })
+    return (out = reading)
+  }
+  return { run, release }
+}
+
 /** The triggers that are not dependencies: the feed, the epoch, timers.
  * Each calls `run(true)` */
 function keepFresh(
@@ -269,7 +305,7 @@ export function resource<T>(
 
   // `load` is called before any await, so inside the dependency effect what
   // it reads first is tracked
-  async function run(quiet: boolean): Promise<void> {
+  async function read(quiet: boolean): Promise<void> {
     const latest = begin()
     const question = asked
     // A reply to a read begun before an adopt may predate that write
@@ -279,12 +315,14 @@ export function resource<T>(
     try {
       const value = await load(current)
       if (current()) held.landed(value, quiet, question)
-      else if (latest()) return run(quiet)
+      else if (latest()) return read(quiet)
     } catch (e) {
       // A failure says the same whenever its read began
       if (latest()) held.failed(e, quiet, question)
     }
   }
+
+  const { run, release } = coalescing(read)
 
   let loadedIn: string | undefined
   $effect(() => {
@@ -292,6 +330,7 @@ export function resource<T>(
     held.asking(loadedIn !== undefined && ws !== loadedIn)
     loadedIn = ws
     asked++
+    release()
     if (!options.lazy) void run(false)
   })
   keepFresh(options, workspaceOf, run)
