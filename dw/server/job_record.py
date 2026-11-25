@@ -216,7 +216,8 @@ class Job:
         self.repos_named = []
         # Why dispatch is holding it while it is queued - "waiting for host
         # RAM: ..." - or None; a live state, never a warning (#869)
-        self.waiting_for = None
+        self.wait_render = None
+        self._waiting_for = None
         # "host_ram" | "gpu_busy" | None: which wait waiting_for describes
         self.wait_kind = None
         self.events = []
@@ -398,6 +399,18 @@ class Job:
             if len(self.events) > after_seq + 1 or self.status in TERMINAL_STATES:
                 return
             self.condition.wait(timeout)
+
+    @property
+    def waiting_for(self):
+        """Why dispatch holds the job. A wait that changes with the clock
+        (`wait_render`) is rendered on each read (#1618)."""
+        render = self.wait_render
+        return render() if render is not None else self._waiting_for
+
+    @waiting_for.setter
+    def waiting_for(self, message):
+        self.wait_render = None
+        self._waiting_for = message
 
     def summary(self):
         return {
