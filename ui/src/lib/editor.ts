@@ -19,9 +19,13 @@ export function classDescription(
         : target === 'call'
           ? api.describePipeline(name)
           : api.describeClass(name, target)
+    // a failure is not cached: the next mount asks again (#1640)
     descriptions.set(
       key,
-      fetcher.catch(() => null),
+      fetcher.catch(() => {
+        descriptions.delete(key)
+        return null
+      }),
     )
   }
   return descriptions.get(key)!
