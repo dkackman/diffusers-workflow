@@ -686,7 +686,7 @@ def _review_error(key, code, must_be):
     )
 
 
-def _item(raw, key, previous, linked, by, at, prompts=None):
+def _item(raw, key, previous, linked, by, at, prompts=None, warnings=None):
     """One live item as stored, with the server's stamps: `changed_at`, set
     when the item is created or its `workflow` or `arguments` differ from the
     stored ones and kept otherwise (so a GET->PUT round trip moves nothing);
@@ -695,7 +695,9 @@ def _item(raw, key, previous, linked, by, at, prompts=None):
     leaves its plan as it was - the item then reads done until the plan
     moves again, or a prompt it references gets text other than the digest
     `prompts` records (`ledger_views.is_revised`; `prompts` the `name ->
-    digest` callable)."""
+    digest` callable). A write that names `accepted` while it also changes
+    the plan records no basis, so the take is not approved for a plan it never
+    saw: that is said in `warnings` (a list the caller owns), per item."""
     until, set_at = _review_until(raw.get("review_until"), key, previous, at)
     workflow = _workflow(raw.get("workflow"), key)
     arguments = _arguments(raw.get("arguments"), key)
@@ -711,6 +713,12 @@ def _item(raw, key, previous, linked, by, at, prompts=None):
         held = current_prompts(previous, prompts)
         if held:
             basis["prompts"] = held
+    elif accepted is not None and previous and not unchanged and warnings is not None:
+        warnings.append(
+            f"item {key!r}: accepted not recorded as current - this write also "
+            "changed its workflow or arguments, so the item reads revised; "
+            "re-accept in a separate later write to keep the old take"
+        )
     return {
         "key": key,
         "title": _text(
@@ -742,7 +750,15 @@ def _check_purge(purge, stored, listed):
 
 
 def _merge_items(
-    raw_items, current, request_id, linked_jobs, by, at, purge=(), prompts=None
+    raw_items,
+    current,
+    request_id,
+    linked_jobs,
+    by,
+    at,
+    purge=(),
+    prompts=None,
+    warnings=None,
 ):
     """The plan's items in its order, then every stored item it no longer
     lists that jobs link to, as dropped; one no job links to, or named in
@@ -765,7 +781,16 @@ def _merge_items(
             raise LedgerError(f"item {key!r}: dropped must be true or false")
         previous = stored.get(key) or {}
         live.append(
-            _item(raw, key, previous, linked_jobs(request_id, key), by, at, prompts)
+            _item(
+                raw,
+                key,
+                previous,
+                linked_jobs(request_id, key),
+                by,
+                at,
+                prompts,
+                warnings,
+            )
         )
     listed = {item["key"] for item in live}
     _check_purge(purge, stored, listed)
@@ -848,6 +873,7 @@ def put_request(
         at = _now()
         revision = write["revision"] + 1
         state = write["state"] or (current or {}).get("state") or "open"
+        warnings = []
         request = {
             "id": request_id,
             "title": write["title"],
@@ -869,6 +895,7 @@ def put_request(
                 at,
                 write["purge"],
                 prompts,
+                warnings,
             ),
             "history": _history(current, write, state, revision, by, at),
         }
@@ -884,7 +911,10 @@ def put_request(
                 code="ledger_too_large",
             )
         write_json_atomic(ledger_path(root), document)
-    return request_view(request, jobs_for(request_id), prompts=prompts)
+    view = request_view(request, jobs_for(request_id), prompts=prompts)
+    if warnings:
+        view["warnings"] = warnings
+    return view
 
 
 def _note_target(requests, request_id, item):

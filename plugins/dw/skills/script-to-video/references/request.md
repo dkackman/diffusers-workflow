@@ -61,7 +61,9 @@ with its `note` as before. A rerun (`rerun_job`) keeps the link by itself.
 An item reading `revised` had its plan (workflow or arguments, see
 `revised_because`) change after its take. Its `result` is still the old take.
 Run a new take, or re-accept the old one with `accepted` in `set_request` to
-keep it (the old take stays the result). A revised item is `ready` again and
+keep it (the old take stays the result). Send the `accepted` in a write *after*
+the one that edited the plan: one sent in the same write is not recorded (the
+reply's `warnings` says so). A revised item is `ready` again and
 counts in `remaining_minutes`. Do not animate dependents from a revised
 item's result: they are not ready until it reads `done`.
 

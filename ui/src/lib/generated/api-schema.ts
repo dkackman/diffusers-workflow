@@ -3634,6 +3634,11 @@ export interface components {
             state: "open" | "done" | "abandoned";
             /** Title */
             title: string;
+            /**
+             * Warnings
+             * @description On a write only: what it did not do, e.g. an `accepted` sent with a plan edit, which is not recorded.
+             */
+            warnings?: string[] | null;
         };
         /** LedgerResult */
         LedgerResult: {
