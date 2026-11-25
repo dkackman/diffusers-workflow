@@ -175,14 +175,17 @@ test('steps folds', async ({ page, request }) => {
     const controls = editor.locator(
       '.margin-view-overlays .codicon-folding-expanded',
     )
-    await expect(controls.first()).toBeAttached()
+    // the controls are drawn as the folding ranges arrive: look until the
+    // steps line has its own
     let onSteps: Locator | null = null
-    for (const control of await controls.all()) {
-      const box = await control.boundingBox()
-      if (box && line && Math.abs(box.y - line.y) < line.height)
-        onSteps = control
-    }
-    expect(onSteps).not.toBeNull()
+    await expect(async () => {
+      for (const control of await controls.all()) {
+        const box = await control.boundingBox()
+        if (box && line && Math.abs(box.y - line.y) < line.height)
+          onSteps = control
+      }
+      expect(onSteps).not.toBeNull()
+    }).toPass()
     await onSteps!.click()
     await expect(
       editor.locator('.margin-view-overlays .codicon-folding-collapsed'),

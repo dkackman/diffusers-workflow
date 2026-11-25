@@ -22,6 +22,15 @@ test('a newcomer finds a workflow that runs, makes a workspace and switches to i
   request,
 }) => {
   test.setTimeout(90_000)
+  // The card's link names one template of the default workspace: without it
+  // there is no journey to make
+  const template = await request.get(
+    '/api/workflows/templates/text-to-image?workspace=default',
+  )
+  test.skip(
+    template.status() === 404,
+    'the default workspace holds no templates/text-to-image workflow',
+  )
   const name = `e2e-first-${Math.random().toString(36).slice(2, 8)}`
   const nav = page.getByRole('complementary', { name: 'navigation' })
   const card = page.getByRole('region', {
@@ -122,7 +131,7 @@ test('a newcomer finds a workflow that runs, makes a workspace and switches to i
     await expect(connect).toContainText(
       'Only this machine can reach this server.',
     )
-    expect(await page.locator('main').innerText()).not.toMatch(REMOTE_URL)
+    expect(await page.locator('body').innerText()).not.toMatch(REMOTE_URL)
     const mcp = page.locator('.panel', {
       has: page.getByRole('heading', { name: 'MCP', exact: true }),
     })

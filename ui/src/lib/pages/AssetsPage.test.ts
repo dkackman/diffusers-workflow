@@ -748,6 +748,27 @@ it('deletes every ticked asset and refetches once', async () => {
   ])
 })
 
+it('a double press deletes the picked once', async () => {
+  await renderAssets()
+
+  screen.getByLabelText('select iris.png').click()
+  screen.getByLabelText('select cast/priya.jpg').click()
+  const button = await screen.findByRole('button', {
+    name: /^delete the selected/i,
+  })
+  button.click()
+  button.click()
+  await answerConfirm(true)
+
+  await waitFor(() => expect(api.deleteAsset).toHaveBeenCalled())
+  for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 10))
+  expect(api.deleteAsset.mock.calls.map((c) => c[0])).toEqual([
+    'iris.png',
+    'cast/priya.jpg',
+  ])
+  expect(screen.queryByRole('alertdialog')).toBeNull()
+})
+
 // A read-only asset answers 403. Whatever could not go stays ticked, so a
 // retry needs no re-ticking and the failure is visible rather than dropped
 it('keeps an asset that would not delete in the selection', async () => {

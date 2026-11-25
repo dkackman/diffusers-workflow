@@ -14,7 +14,10 @@ vi.mock('../api', async () =>
 api.listWorkspaces.mockImplementation(() => new Promise(() => {}))
 vi.mock('../toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  location.hash = ''
+})
 
 const heading = (name: string) => screen.getByRole('heading', { name })
 

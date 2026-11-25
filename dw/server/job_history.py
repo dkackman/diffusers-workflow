@@ -380,10 +380,10 @@ class JobHistory:
 
     def restart_batch(self, job_id):
         """The tombstones the server that left `job_id` left (#1266), as
-        (server_instance, [{id, workflow, workspace, created_at}]) oldest
-        first - or None when `job_id` is not one: a row closed `cancelled`
-        with a `server restart:` error and a `server_instance` (NULL on rows
-        before #1245). Its own SQL with no row cap, not the 200-row listing.
+        (server_instance, [{id, workflow, workflow_name, workspace,
+        created_at}]) oldest first - or None when `job_id` is not one: a row
+        closed `cancelled` with a `server restart:` error and a
+        `server_instance` (NULL before #1245). Own SQL, no row cap.
         A retired workspace's rows are members too, `workspace` still
         carrying DELETED_SUFFIX, so the caller can say why it skips one."""
         with self._lock, self._connect() as connection:

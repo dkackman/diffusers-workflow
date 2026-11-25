@@ -1574,7 +1574,8 @@ metadata and need no `acknowledged_cost`.
 etag in the `ETag` header too: a strong tag over the note's text, `""` for
 none. A PUT that sends `If-Match` with it writes only if the note is still
 that text, else answers 409 `stale_write` with the current `etag` and
-writes nothing, the way a workflow save does. The header is opt-in: without
+writes nothing, the way a workflow save does. `If-Match: *` always matches a
+note, since a note is never missing. The header is opt-in: without
 it a PUT is last-writer-wins, as MCP's `set_note` is.
 
 Notes are set at creation too:

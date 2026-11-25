@@ -601,6 +601,8 @@ describe('switching a text row to boolean', () => {
     render(VariablesForm, props({ variables: { flag: 'true' } }))
     const type = screen.getByLabelText('type of flag') as HTMLSelectElement
     await fireEvent.change(type, { target: { value: 'boolean' } })
-    expect(screen.queryByText('Only true or false can be a boolean.')).toBeNull()
+    expect(
+      screen.queryByText('Only true or false can be a boolean.'),
+    ).toBeNull()
   })
 })

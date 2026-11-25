@@ -127,3 +127,30 @@ for (const theme of ['light', 'dark'] as const) {
     })
   })
 }
+
+// The fixture's e2e-find job: two stills it made, on its own page
+const JOB = '/#/ws/default/jobs/e2efind00001'
+
+test('Back closes the job page viewer', async ({ page }) => {
+  await page.goto(JOB)
+  await page.getByRole('button', { name: /^Open .*lighthouse\.png$/ }).click()
+  const viewer = page.getByRole('dialog')
+  await expect(viewer).toBeVisible()
+  await expect(page).toHaveURL(/open=/)
+  await page.goBack()
+  await expect(viewer).toHaveCount(0)
+  await expect(page).toHaveURL(/jobs\/e2efind00001$/)
+})
+
+test('Back from Compare returns to the job it was opened on', async ({
+  page,
+}) => {
+  await page.goto(JOB)
+  await page.getByRole('button', { name: 'Compare', exact: true }).click()
+  await expect(page).toHaveURL(/\/compare/)
+  await page.goBack()
+  await expect(page).toHaveURL(/jobs\/e2efind00001$/)
+  await expect(
+    page.getByRole('button', { name: /^Open .*lighthouse\.png$/ }),
+  ).toBeVisible()
+})

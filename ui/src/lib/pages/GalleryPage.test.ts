@@ -1232,6 +1232,24 @@ it('a double click deletes once', async () => {
   expect(screen.queryByRole('alertdialog')).toBeNull()
 })
 
+it('a double press deletes the picked once', async () => {
+  await renderGallery()
+  checkbox('a.png').click()
+  checkbox('b.png').click()
+  await waitFor(() => expect(screen.getByText('2 selected')).toBeTruthy())
+  const button = screen.getByRole('button', { name: /^delete the selected/i })
+  button.click()
+  button.click()
+  await answerConfirm(true)
+  await waitFor(() => expect(api.deleteOutput).toHaveBeenCalled())
+  await settle()
+  expect(api.deleteOutput.mock.calls.map((c) => c[0]).sort()).toEqual([
+    'a.png',
+    'b.png',
+  ])
+  expect(screen.queryByRole('alertdialog')).toBeNull()
+})
+
 const hashEvent = (change: () => void) =>
   new Promise<void>((resolve) => {
     window.addEventListener('hashchange', () => resolve(), { once: true })
