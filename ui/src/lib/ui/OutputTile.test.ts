@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import OutputTile from './OutputTile.svelte'
-import type { MediaFile } from '../media'
+import { assetMedia, type MediaFile } from '../media'
 
 // The stylesheet's text: vitest stubs a stylesheet's import, so it is read
 // from disk (tests run from ui/). A specifier that is not a literal keeps
@@ -288,4 +288,76 @@ it('a row tile has no caption', () => {
   expect(container.querySelector('.tile-marks')).toBeNull()
   const patterns = readFileSync('src/patterns.css', 'utf8')
   expect(patterns).toMatch(/\.tile-row\s*\{[^}]*width:\s*32px/)
+})
+
+it('a shadowed clip shows no play badge', () => {
+  // ShadowedAssets' ghost: a name with no URL or poster, dimmed
+  const { container } = render(OutputTile, {
+    props: {
+      file: media({ kind: 'video', url: '', thumb: null, label: 'clip.mp4' }),
+      dim: true,
+    },
+  })
+  expect(container.querySelector('.videobadge')).toBeNull()
+  expect(container.querySelector('.tile-glyph')).not.toBeNull()
+})
+
+it('an asset tile carries its note mark', () => {
+  const asset = assetMedia(
+    {
+      name: 'cast/priya.jpg',
+      reference: 'asset:cast/priya.jpg',
+      folder: 'cast',
+      kind: 'image',
+      size: 1,
+      mtime: 1,
+      origin: 'workspace',
+      writable: true,
+      url: '/inputs/cast/priya.jpg',
+      note: 'the lead\nsecond',
+    },
+    'default',
+  )
+  const { container } = render(OutputTile, { props: { file: asset } })
+  const note = container.querySelector('[aria-label="Has a note"]')!
+  expect(note.getAttribute('title')).toBe('the lead')
+})
+
+it('an audio cover is 72 px, a picture cover 48', () => {
+  const { container } = render(OutputTile, {
+    props: {
+      file: media({ kind: 'audio', thumb: null, label: 'tone.wav' }),
+      size: 'mini',
+      caption: 'none',
+    },
+  })
+  expect(container.querySelector('.filetile')?.classList).toContain(
+    'kind-audio',
+  )
+  const patterns = readFileSync('src/patterns.css', 'utf8')
+  expect(patterns).toMatch(/\.tile-mini\s*\{\s*width:\s*48px;/)
+  expect(patterns).toMatch(/\.tile-mini\.kind-audio\s*\{\s*width:\s*72px;/)
+})
+
+it('active, hover and picked look different', () => {
+  // The rules for one selector alone, in patterns.css
+  const patterns = readFileSync('src/patterns.css', 'utf8')
+  const rule = (selector: string) => {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    return patterns.match(
+      new RegExp(`(?:^|\\n)${escaped}\\s*\\{([^}]*)\\}`),
+    )?.[1]
+  }
+  // picked keeps its ink edge
+  expect(rule('.filetile.picked')).toMatch(
+    /box-shadow:\s*0 0 0 1px var\(--ink\)/,
+  )
+  // active is an accent outline, clear of the edge
+  expect(rule('.filetile.active')).toMatch(
+    /outline:\s*2px solid var\(--accent\)/,
+  )
+  // hover tints the panel and draws no edge or outline
+  const hover = rule('a.filetile:hover,\nbutton.filetile:hover')
+  expect(hover).toMatch(/background:/)
+  expect(hover).not.toMatch(/border-color|outline|box-shadow/)
 })

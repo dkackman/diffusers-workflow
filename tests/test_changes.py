@@ -494,7 +494,7 @@ def test_a_finished_update_moves_models():
     wait_until(lambda: changes.snapshot("any")["kinds"]["models"] == 1)
 
 
-def test_a_background_bump_that_raises_is_swallowed():
+def test_a_background_bump_that_raises_is_swallowed(caplog):
     from dw.hub_cache import DownloadManager
     from dw.server.updater import DiffusersUpdater
 
@@ -504,10 +504,18 @@ def test_a_background_bump_that_raises_is_swallowed():
 
     manager = DownloadManager(download_fn=lambda *a, **k: None, info_fn=lambda r: None)
     manager.changes = Broken()
-    manager._finish({"status": "downloading", "cancel_requested": False}, "completed")
+    entry = {"status": "downloading", "cancel_requested": False}
+    with caplog.at_level("WARNING", logger="dw"):
+        manager._finish(entry, "completed")
+    # The download still finished, and the lost bump was said, not hidden
+    assert entry["status"] == "completed"
+    assert "Could not bump change counters for a download: boom" in caplog.text
+    caplog.clear()
     updater = DiffusersUpdater()
     updater.changes = Broken()
-    updater._changed()
+    with caplog.at_level("WARNING", logger="dw"):
+        updater._changed()
+    assert "Could not bump change counters for an update: boom" in caplog.text
 
 
 # ---------------------------------------------------------------------- jobs
@@ -773,3 +781,16 @@ def test_a_handler_that_raises_bumps_nothing():
     assert app.state.changes.snapshot("a")["kinds"]["gallery"] == 0
     assert http.post("/accepted").status_code == 200
     assert app.state.changes.snapshot("a")["kinds"]["gallery"] == 1
+
+
+def test_keep_output_conflict_has_code_exists(client, run):
+    """The UI asks "replace it?" on this code, never on the wording."""
+    body = {"name": f"{run}/a.png", "asset_name": "taken.png"}
+    assert client.post("/api/assets/keep", json=body).status_code == 201
+    r = client.post("/api/assets/keep", json=body)
+    assert r.status_code == 409
+    detail = r.json()["detail"]
+    assert detail["code"] == "exists"
+    assert detail["message"].endswith(
+        "already exists - pass overwrite=true to replace it"
+    )

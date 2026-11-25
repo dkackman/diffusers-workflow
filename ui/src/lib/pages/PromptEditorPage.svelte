@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import Suggest from '../ui/Suggest.svelte'
   import { isNameSegment } from '../names'
   import {
@@ -87,6 +88,20 @@
   const enhancer = new Enhancer()
   const intendedModels = $derived(enhancer.intendedModels(promptDetails))
 
+  // The idea the last read put in the enhancer: an idea still equal to it was
+  // not typed, so a newer read may replace it
+  let readIdea = ''
+
+  // The server's copy replaced the prompt: its idea is the enhancer's, unless
+  // the person has typed one of their own
+  $effect(() => {
+    if (!shell.remoteLoads) return
+    untrack(() => {
+      if (enhancer.idea !== readIdea) return
+      readIdea = enhancer.idea = shell.doc.enhanced?.idea ?? ''
+    })
+  })
+
   function useResult() {
     const { text, enhanced } = enhancer.takeResult()
     shell.doc.text = text
@@ -132,7 +147,7 @@
     const prompt = await openPrompt(shell, path, () => path !== name)
     if (!prompt) return
     opened = path
-    enhancer.idea = prompt.enhanced?.idea ?? ''
+    readIdea = enhancer.idea = prompt.enhanced?.idea ?? ''
     enhancer.preselect(shell.doc.intended_model)
   }
 
@@ -194,6 +209,8 @@
       // Same as the workflow editor: the picker lists folders from the
       // listing, so a newly created one must be added or the select resets
       if (listing.data) listing.adopt(withSavedPrompt(listing.data, path))
+      // and its saved time read back quietly, as the workflow editor does
+      void listing.refresh()
       loadPromptLibrary()
       // The URL names the prompt now on screen: a first save, or a save as
       opened = path
@@ -224,10 +241,19 @@
         }),
     },
   )
+  // A Delete pressed again while the warning is read does nothing; one
+  // pressed while the delete runs is the action's busy guard
+  let warning = false
   async function remove() {
     const name = current
-    if (name && !removing.busy)
-      await removing.run(name, await deleteWarning(name))
+    if (!name || removing.busy || warning) return
+    warning = true
+    try {
+      const said = await deleteWarning(name)
+      if (!removing.busy) await removing.run(name, said)
+    } finally {
+      warning = false
+    }
   }
 
   function duplicate() {
@@ -317,6 +343,7 @@
       {folders}
       noun="prompt"
       described={false}
+      changed={listing.data?.details?.[current]?.mtime}
       reference={shell.savePath()
         ? reference(PROMPT, shell.savePath() ?? '')
         : ''}

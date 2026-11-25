@@ -295,7 +295,7 @@
         "additionalProperties": false,
         "properties": {
           "workflows": {
-            "description": "The packaged fragments a sub-workflow step names as `builtin:<name>.json`, each as what follows the prefix.",
+            "description": "Packaged fragments, each as a step names it after `builtin:`.",
             "items": {
               "type": "string"
             },
@@ -5412,7 +5412,7 @@
             "type": "array"
           },
           "unpriced_reason": {
-            "description": "With basis `unknown` and no `withheld`: why a workflow of task steps alone has no price - it has no pipeline to inherit one from, and its length follows its input media (#948).",
+            "description": "With basis `unknown` and no `withheld`: why a task-only workflow has no price - no pipeline to inherit one from; its length follows its input media.",
             "title": "Unpriced Reason",
             "type": "string"
           },
@@ -5449,6 +5449,11 @@
             "title": "Basis",
             "type": "string"
           },
+          "inherited_from": {
+            "description": "With basis `inherited`: the template's name.",
+            "title": "Inherited From",
+            "type": "string"
+          },
           "projected_mb": {
             "description": "The host RAM, in MB, this run is projected to hold at its peak.",
             "title": "Projected Mb",
@@ -5471,6 +5476,11 @@
       "PromptCard": {
         "additionalProperties": false,
         "properties": {
+          "created": {
+            "description": "Birth time, if the filesystem has it; times=true only.",
+            "title": "Created",
+            "type": "number"
+          },
           "description": {
             "title": "Description",
             "type": "string"
@@ -5478,6 +5488,11 @@
           "intended_model": {
             "title": "Intended Model",
             "type": "string"
+          },
+          "mtime": {
+            "description": "Epoch seconds its file last changed; times=true only.",
+            "title": "Mtime",
+            "type": "number"
           },
           "origin": {
             "description": "Which library the prompt came from, and whether a save can reach it.",
@@ -6998,7 +7013,7 @@
             "title": "Name"
           },
           "oom_score_adj": {
-            "description": "The worker's kernel oom_score_adj, read from /proc at call time (1000 for the latest dispatch's worker in a pool, else the value it was spawned with); absent where unreadable.",
+            "description": "The kernel oom_score_adj read from /proc at call time: 1000 for a pool's latest-dispatch worker, else its spawn value; absent where unreadable.",
             "title": "Oom Score Adj",
             "type": "integer"
           },
@@ -7018,6 +7033,11 @@
             ],
             "description": "What the card holds, in the GB a catalog cost entry is written in.",
             "title": "Vram Gb"
+          },
+          "workspace": {
+            "description": "The workspace of `current_job`; absent while idle.",
+            "title": "Workspace",
+            "type": "string"
           }
         },
         "required": [
@@ -7032,7 +7052,7 @@
       },
       "WorkflowCard": {
         "additionalProperties": false,
-        "description": "One workflow's entry in the full listing (the agent's `view=compact`\nanswer is a different, smaller shape outside this model).",
+        "description": "One workflow in the full listing; `view=compact` answers a smaller shape.",
         "properties": {
           "configures": {
             "description": "For a model config: the template it is a tuned instance of; '' for a template. Absent when the file could not be read.",
@@ -7061,13 +7081,18 @@
                 "type": "null"
               }
             ],
-            "description": "Measured runs, one per device the maintainer measured on. Null means unknown - never derived.",
+            "description": "Measured runs, one per device the maintainer measured on; null means unknown, never derived.",
             "title": "Cost"
           },
           "cost_drivers": {
             "additionalProperties": true,
             "title": "Cost Drivers",
             "type": "object"
+          },
+          "created": {
+            "description": "Birth time, if the filesystem has it; times=true only.",
+            "title": "Created",
+            "type": "number"
           },
           "description": {
             "title": "Description",
@@ -7083,7 +7108,7 @@
               ],
               "type": "string"
             },
-            "description": "Each variable that feeds a media argument, and the kind it takes. Only with inputs=true.",
+            "description": "Each variable feeding a media argument, and its kind; inputs=true only.",
             "title": "Inputs",
             "type": "object"
           },
@@ -7098,6 +7123,11 @@
             "additionalProperties": true,
             "title": "Lists",
             "type": "object"
+          },
+          "mtime": {
+            "description": "Epoch seconds its file last changed; times=true only.",
+            "title": "Mtime",
+            "type": "number"
           },
           "observed": {
             "additionalProperties": true,
@@ -7147,7 +7177,7 @@
             "type": "string"
           },
           "traits": {
-            "description": "Sorted, independent facts about how the output is made or what it needs.",
+            "description": "Sorted facts about how the output is made or what it needs.",
             "items": {
               "enum": [
                 "has-audio",
@@ -7463,7 +7493,7 @@
               },
               "type": "object"
             },
-            "description": "Copied runs whose `vN` changed, keyed `<workflow>/<run id>`: `{from, to}`.",
+            "description": "Runs whose `vN` changed, `<workflow>/<run id>` to `{from, to}`.",
             "title": "Renumbered",
             "type": "object"
           },
@@ -7473,7 +7503,7 @@
           },
           "warnings": {
             "additionalProperties": true,
-            "description": "`unresolved_output_refs`, `absolute_paths` and `no_jobs`, each only when it applies.",
+            "description": "`unresolved_output_refs`, `absolute_paths`, `no_jobs`: where each applies.",
             "title": "Warnings",
             "type": "object"
           }
@@ -7578,9 +7608,19 @@
             ],
             "title": "Common Assets"
           },
+          "created": {
+            "description": "Birth time, if the filesystem has it; times=true only.",
+            "title": "Created",
+            "type": "number"
+          },
           "default": {
             "title": "Default",
             "type": "boolean"
+          },
+          "mtime": {
+            "description": "The newest mtime of its folders and their direct entries; times=true only.",
+            "title": "Mtime",
+            "type": "number"
           },
           "name": {
             "title": "Name",
@@ -10846,6 +10886,16 @@
               "title": "Include Text",
               "type": "boolean"
             }
+          },
+          {
+            "in": "query",
+            "name": "times",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Times",
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -11492,7 +11542,7 @@
     },
     "/api/workflows": {
       "get": {
-        "description": "Every workflow the search path offers, each detail saying which\nlibrary it came from and whether it can be written to. 'libraries' is\nthe search path in order, the writable one being what a save targets;\n'shadowed' names the later copies an earlier library hides.\n\n`shape`, `traits` (comma-separated, all must match) and `configures`\nnarrow the listing; `view=compact` is the agent's view - summaries\nrather than descriptions, templates rather than model configs\nunless `include_models` asks for them; `inputs` adds each media\ninput's kind. `workflows` names exactly the entries `details` holds.",
+        "description": "Every workflow the search path offers, each detail saying which\nlibrary it came from and whether it can be written to. 'libraries' is\nthe search path in order, the writable one being what a save targets;\n'shadowed' names the later copies an earlier library hides.\n\n`shape`, `traits` (comma-separated, all must match) and `configures`\nnarrow the listing; `view=compact` is the agent's view - summaries\nrather than descriptions, templates rather than model configs\nunless `include_models` asks for them; `inputs` adds each media\ninput's kind; `times` when each file changed. `workflows` names exactly\nthe entries `details` holds.",
         "operationId": "list_workflows_api_workflows_get",
         "parameters": [
           {
@@ -11576,6 +11626,16 @@
             "schema": {
               "default": false,
               "title": "Inputs",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "times",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Times",
               "type": "boolean"
             }
           },
@@ -11978,8 +12038,20 @@
     },
     "/api/workspaces": {
       "get": {
-        "description": "Every workspace on this server, the default first.\n\nA workspace is a namespace, not a security boundary: the API token\nis all-or-nothing, so anything that can list these can reach all of\nthem.",
+        "description": "Every workspace on this server, the default first; `times` adds when\neach last changed. A namespace, not a security boundary: the API token\nis all-or-nothing, so anything that can list these can reach all of them.",
         "operationId": "list_workspaces_api_workspaces_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "times",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Times",
+              "type": "boolean"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -11990,6 +12062,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "List Workspaces"

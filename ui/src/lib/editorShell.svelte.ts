@@ -13,8 +13,11 @@
 // newer ETag reloads an unedited document with a toast, or holds the read
 // and sets `remote` 'diverged' for the page's banner (ui/RemoteChanged):
 // Load theirs takes the held read, Keep mine leaves the ETag alone so the
-// next save meets the `stale_write` question. A read begun before a load
-// or a save is not news, nor one at the ETag the user already declined.
+// next save meets the `stale_write` question. A read that finds the file
+// gone sets `remote` 'gone', and the next save creates it again. The flush
+// a re-read makes is quiet: a broken JSON draft is held, never toasted. A
+// read begun before a load or a save is not news, nor one at the ETag the
+// user already declined.
 // A move seen while `busy` is read again once it clears, and text still
 // mid-IME-composition counts as an edit, so it is never loaded over.
 // `remoteLoads` counts the loads the server's copy caused (a reload, Load
@@ -105,11 +108,18 @@ export type LoadOptions = {
 }
 
 /** The document as the server holds it now, read again on a feed move */
-export type RemoteRead = {
+type Found = {
   doc: Record<string, any>
   etag: string | null
   writable: boolean
 }
+
+/** A re-read: the server's copy, or `gone` when the file is not there */
+export type RemoteRead = (Found & { gone?: undefined }) | { gone: true }
+
+/** What a page's flushers are told: `quiet` when nobody asked to save,
+ * so a draft that does not parse is held without a toast */
+export type Flusher = (options?: { quiet?: boolean }) => void
 
 /** A re-read, with the version of the editor and the path it was asked at */
 type Arrival = RemoteRead & { version: number; path: string | null }
@@ -188,8 +198,9 @@ export class DocumentEditor {
   etag = $state<string | null>(null)
   loadedPath = $state<string | null>(null)
   writable = $state(true)
-  // Whether the server's copy moved on under unsaved edits (watchRemote)
-  remote = $state<'same' | 'diverged'>('same')
+  // Whether the server's copy moved on under unsaved edits, or the file
+  // was deleted (watchRemote)
+  remote = $state<'same' | 'diverged' | 'gone'>('same')
   // How many times the server's copy replaced the document on screen
   remoteLoads = $state(0)
 
@@ -229,10 +240,10 @@ export class DocumentEditor {
 
   #viewKey: string
   // Not reactive: nothing renders from it
-  #flushers: Array<() => void> = []
+  #flushers: Flusher[] = []
   // The newer read a diverged document holds for Load theirs, and the ETag
   // Keep mine declined; neither renders
-  #theirs: Arrival | null = null
+  #theirs: Found | null = null
   #declined: string | null = null
   // Moved by every load and save, so a re-read begun before one is dropped
   #version = 0
@@ -288,7 +299,7 @@ export class DocumentEditor {
   }
 
   /** Run `fn` on every flush; returns its removal. */
-  registerFlush(fn: () => void): () => void {
+  registerFlush(fn: Flusher): () => void {
     this.#flushers.push(fn)
     return () => {
       this.#flushers = this.#flushers.filter((f) => f !== fn)
@@ -298,8 +309,9 @@ export class DocumentEditor {
   /** Push every pending edit into the document now: the focused field's,
    * which a browser commits on blur (its `change`), then every debounced
    * one. The field gets its focus back once the commit has rendered, so
-   * typing carries on; mid-composition it is not blurred at all. */
-  flush() {
+   * typing carries on; mid-composition it is not blurred at all. `quiet`
+   * holds a draft that does not parse without a toast. */
+  flush({ quiet = false } = {}) {
     const active = document.activeElement
     if (
       !this.#composing &&
@@ -309,7 +321,7 @@ export class DocumentEditor {
       active.blur()
       void this.#refocus(active)
     }
-    for (const fn of [...this.#flushers]) fn()
+    for (const fn of [...this.#flushers]) fn({ quiet })
   }
 
   async #refocus(was: HTMLElement) {
@@ -332,8 +344,8 @@ export class DocumentEditor {
 
   /** Whether leaving now would lose anything: an edit not yet saved, once
    * every pending one is in, or a JSON draft that never parsed. */
-  unsaved(): boolean {
-    this.flush()
+  unsaved({ quiet = false } = {}): boolean {
+    this.flush({ quiet })
     return this.dirty || this.jsonParseFailed
   }
 
@@ -441,18 +453,31 @@ export class DocumentEditor {
     return { ...(await read()), version, path }
   }
 
-  #arrived(read: Arrival) {
-    if (this.busy) this.#missed = true
-    const news =
+  /** Whether `read` is about the document on screen, as it is now */
+  #current(read: Arrival): boolean {
+    return (
       read.version === this.#version &&
       read.path === this.loadedPath &&
       this.loadState === 'loaded' &&
-      !this.busy &&
-      read.etag !== this.etag &&
-      read.etag !== this.#declined
-    if (!news) return
+      !this.busy
+    )
+  }
+
+  #arrived(read: Arrival) {
+    if (this.busy) this.#missed = true
+    if (!this.#current(read)) return
+    if (read.gone) {
+      this.#theirs = null
+      this.remote = 'gone'
+      return
+    }
+    if (read.etag === this.etag || read.etag === this.#declined) {
+      // The file is back as it was read: nothing was lost after all
+      if (this.remote === 'gone') this.remote = 'same'
+      return
+    }
     // Text mid-composition never reaches `doc`, so it counts as an edit
-    if (this.#composing || this.unsaved()) {
+    if (this.#composing || this.unsaved({ quiet: true })) {
       this.#theirs = read
       this.remote = 'diverged'
       return
@@ -495,9 +520,11 @@ export class DocumentEditor {
   /** What a save to `path` insists on: the file still at the ETag this
    * document was read at when it is that file and its origin takes writes,
    * else that nothing is there yet - a new name, or a read-only origin's
-   * document whose save lands as a new copy in front of it. */
+   * document whose save lands as a new copy in front of it, or a file
+   * deleted since it was read, which the save writes back. */
   preconditions(path: string): WritePreconditions {
-    if (path !== this.loadedPath || !this.writable) return { createOnly: true }
+    if (path !== this.loadedPath || !this.writable || this.remote === 'gone')
+      return { createOnly: true }
     return this.etag ? { ifMatch: this.etag } : {}
   }
 

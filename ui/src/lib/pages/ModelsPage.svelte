@@ -29,7 +29,8 @@
   import LoadState from '../ui/LoadState.svelte'
   import DiskMeter from '../ui/DiskMeter.svelte'
   import PageHeader from '../ui/PageHeader.svelte'
-  import { formatBytes, formatDay, gbFromBytes } from '../format'
+  import { formatBytes, gbFromBytes } from '../format'
+  import Time from '../ui/Time.svelte'
   import {
     ChevronDown,
     ChevronRight,
@@ -127,7 +128,6 @@
   )
 
   const gb = gbFromBytes
-  const day = (stamp: number | null) => (stamp ? formatDay(stamp) : '—')
   const hubUrl = (repo: ModelRepo) =>
     'https://huggingface.co/' +
     (repo.repo_type === 'model' ? '' : repo.repo_type + 's/') +
@@ -337,7 +337,7 @@
               />
               <td>
                 <button
-                  class="quiet icon danger"
+                  class="quiet icon"
                   onclick={() => remove.run(repo)}
                   disabled={remove.busy}
                   title="delete every cached revision of this repo"
@@ -360,7 +360,10 @@
                   </td>
                   <td class="wideonly"></td>
                   <td class="muted lastused wideonly">
-                    {day(revision.last_modified)}
+                    {#if revision.last_modified}<Time
+                        at={revision.last_modified}
+                        mode="day"
+                      />{:else}—{/if}
                   </td>
                   <td></td>
                 </tr>

@@ -16,6 +16,7 @@ import { changeOnBlur } from '../test/changeOnBlur'
 import { feed } from '../test/feedMock'
 import { notify } from '../toast'
 import { emptyStep } from '../editor'
+import { formatMtime } from '../format'
 
 // EditorPage talks to the server on mount (pipeline/class/task catalogs,
 // the workflow listing, the prompt library) purely to feed forms the flow
@@ -151,6 +152,56 @@ describe('EditorPage header', () => {
       'href',
       '#/ws/default/workflows',
     )
+  })
+})
+
+describe('EditorPage file bar', () => {
+  it('EditorPage says when the workflow was last saved', async () => {
+    const changed = 1_790_000_000
+    vi.mocked(api.listWorkflows).mockResolvedValueOnce({
+      workflows: ['e2e-card'],
+      details: { 'e2e-card': { mtime: changed } },
+      libraries: [{ origin: 'workspace', root: 'workflows', writable: true }],
+      shadowed: [],
+    } as never)
+    render(EditorPage, { name: 'e2e-card' })
+    await waitFor(() =>
+      expect(document.querySelector('.stamp time')?.textContent?.trim()).toBe(
+        `Changed ${formatMtime(changed)}`,
+      ),
+    )
+  })
+
+  it('EditorPage says its own save at once, from no change feed', async () => {
+    const list = vi.mocked(api.listWorkflows)
+    const original = list.getMockImplementation()!
+    let changed = 1_790_000_000
+    list.mockImplementation(
+      async () =>
+        ({
+          workflows: ['e2e-card'],
+          details: { 'e2e-card': { mtime: changed } },
+          libraries: [
+            { origin: 'workspace', root: 'workflows', writable: true },
+          ],
+          shadowed: [],
+        }) as never,
+    )
+    try {
+      render(EditorPage, { name: 'e2e-card' })
+      const stamp = () => document.querySelector('.stamp time')?.textContent
+      await waitFor(() =>
+        expect(stamp()).toBe(`Changed ${formatMtime(changed)}`),
+      )
+      changed += 3600
+      await fireEvent.click(screen.getByRole('button', { name: /^save/i }))
+      // the feed never moves here: the save itself reads the time back
+      await waitFor(() =>
+        expect(stamp()).toBe(`Changed ${formatMtime(changed)}`),
+      )
+    } finally {
+      list.mockImplementation(original)
+    }
   })
 })
 
@@ -940,6 +991,63 @@ describe('EditorPage remote change', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Load theirs' }))
     await waitFor(() => expect(idField().value).toBe('Theirs'))
     expect(screen.queryByRole('button', { name: 'Load theirs' })).toBeNull()
+  })
+})
+
+describe('EditorPage keeps up with the server', () => {
+  const rows = () =>
+    Array.from(document.querySelectorAll<HTMLElement>('.steprow'))
+  const stepNames = () => rows().map((row) => row.id.replace(/^step-/, ''))
+  const collapsed = (name: string) =>
+    !!document
+      .getElementById(`step-${name}`)
+      ?.querySelector('button[aria-label="expand this step"]')
+  const serve = (etag: string, ...names: string[]) =>
+    vi.mocked(api.getWorkflow).mockResolvedValueOnce({
+      definition: { id: 'M', steps: names.map((name) => ({ name, task: {} })) },
+      origin: 'workspace',
+      writable: true,
+      etag,
+    } as never)
+
+  it('a failed workflow listing says so', async () => {
+    vi.mocked(api.listWorkflows).mockRejectedValueOnce(
+      new ApiError('listing exploded', 500),
+    )
+    render(EditorPage, { name: '' })
+    const line = await screen.findByText(/^Couldn't list the workflows/)
+    expect(line.closest('[role="alert"]')).toBeTruthy()
+  })
+
+  it("a remote reload keeps the steps' modes by name", async () => {
+    serve('"m1"', 'generate', 'upscale')
+    render(EditorPage, { name: 'modes/kept' })
+    await waitFor(() => expect(stepNames()).toEqual(['generate', 'upscale']))
+    await fireEvent.click(
+      document
+        .getElementById('step-upscale')!
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="collapse this step"]',
+        )!,
+    )
+    await waitFor(() => expect(collapsed('upscale')).toBe(true))
+    // The agent reorders the steps and adds one: each keeps its own mode
+    serve('"m2"', 'upscale', 'generate', 'caption')
+    feed.move('default', 'workflows')
+    await waitFor(() =>
+      expect(stepNames()).toEqual(['upscale', 'generate', 'caption']),
+    )
+    expect(collapsed('upscale')).toBe(true)
+    expect(collapsed('generate')).toBe(false)
+    expect(collapsed('caption')).toBe(false)
+    // A step that left and came back opens as a new one
+    serve('"m3"', 'generate')
+    feed.move('default', 'workflows')
+    await waitFor(() => expect(stepNames()).toEqual(['generate']))
+    serve('"m4"', 'generate', 'upscale')
+    feed.move('default', 'workflows')
+    await waitFor(() => expect(stepNames()).toEqual(['generate', 'upscale']))
+    expect(collapsed('upscale')).toBe(false)
   })
 })
 

@@ -185,3 +185,24 @@ it('a draft equal to the saved note is not kept', () => {
   draft.open()
   expect(draft.text).toBe('warmer light')
 })
+
+it('a kept draft remembers the note it answered', () => {
+  let saved = $state('the first note')
+  const first = make({ saved: () => saved })
+  first.open()
+  first.text = 'my reply'
+  first.keydown(key({ key: 'Escape' }))
+  flushSync()
+  expect(first.base).toBe('the first note')
+  teardowns.pop()?.()
+  // An agent writes a newer note before the page comes back
+  saved = 'the agent note'
+  const again = make({ saved: () => saved })
+  expect(again.kept).toBe(true)
+  expect(again.base).toBe('the first note')
+  // Once saved, nothing is left to remember
+  again.open()
+  expect(again.done('my reply')).toBe(true)
+  flushSync()
+  expect(Object.keys(sessionStorage)).toEqual([])
+})

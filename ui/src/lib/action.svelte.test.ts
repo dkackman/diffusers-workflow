@@ -1,12 +1,13 @@
 import { beforeEach, expect, it, vi } from 'vitest'
 
-const { failure, undo, success, confirmDialog } = vi.hoisted(() => ({
+const { failure, undo, success, error, confirmDialog } = vi.hoisted(() => ({
   failure: vi.fn(),
   undo: vi.fn(),
   success: vi.fn(),
+  error: vi.fn(),
   confirmDialog: vi.fn(),
 }))
-vi.mock('./toast', () => ({ notify: { failure, undo, success } }))
+vi.mock('./toast', () => ({ notify: { failure, undo, success, error } }))
 vi.mock('./confirm.svelte', () => ({ confirmDialog }))
 
 import { action } from './action.svelte'
@@ -156,4 +157,36 @@ it('an undo pressed while the action is busy waits for it', async () => {
   finish()
   await second
   await vi.waitFor(() => expect(revert).toHaveBeenCalledTimes(1))
+})
+
+it('an undo that waited re-checks its target', async () => {
+  let finish: () => void = () => {}
+  let calls = 0
+  const fn = vi.fn(async () => {
+    if (++calls === 2) await new Promise<void>((r) => (finish = () => r()))
+  })
+  const revert = vi.fn(async () => undefined)
+  let open = 'shot-1'
+  const act = action(fn, {
+    doing: 'x',
+    undo: () => ({
+      message: 'm',
+      revert,
+      target: { now: () => open, away: 'That request is no longer open.' },
+    }),
+  })
+  await act.run()
+  const second = act.run()
+  // Pressed while the second run is out, on the request it was made on
+  undo.mock.calls[0][1]()
+  await new Promise((r) => setTimeout(r, 0))
+  // Then another request opens before the run finishes
+  open = 'shot-2'
+  finish()
+  await second
+  await vi.waitFor(() =>
+    expect(error).toHaveBeenCalledWith('That request is no longer open.'),
+  )
+  expect(revert).not.toHaveBeenCalled()
+  expect(act.busy).toBe(false)
 })

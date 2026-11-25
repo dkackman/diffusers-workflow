@@ -28,20 +28,36 @@ const bitsPath = {
   message: 'Import a wrapper from src/lib/ui/ - Bits UI stays behind it.',
 }
 // The whole package carries every language Monaco ships; the JSON view
-// needs one. Pinned by scripts/lint-rules.test.ts
+// needs one. A part of it (`monaco-editor/basic-languages/...`) is imported
+// only by the two modules that choose which parts load. Pinned by
+// scripts/lint-rules.test.ts
+const monacoMessage =
+  'Import Monaco through src/lib/monaco.ts, which loads the JSON language only.'
 const monacoPath = {
   name: 'monaco-editor',
   allowTypeImports: true,
-  message:
-    'Import Monaco through src/lib/monaco.ts, which loads the JSON language only.',
+  message: monacoMessage,
 }
+const monacoParts = {
+  group: ['monaco-editor/*'],
+  allowTypeImports: true,
+  message: monacoMessage,
+}
+// The modules that pick Monaco's parts: the editor and its contributions
+const MONACO_OWNERS = ['src/lib/monaco.ts', 'src/lib/monacoContribs.ts']
 /** The no-restricted-imports options for a block: flat config replaces a
  * rule's options rather than merging them, so each block lists them all */
-const restricted = ({ bits = false, empty = false, feed = false }) => [
+const restricted = ({
+  bits = false,
+  empty = false,
+  feed = false,
+  parts = true,
+}) => [
   'error',
   {
     paths: [monacoPath, ...(bits ? [bitsPath] : [])],
     patterns: [
+      ...(parts ? [monacoParts] : []),
       ...(empty ? [emptyPattern] : []),
       ...(feed ? [feedPattern] : []),
     ],
@@ -49,14 +65,22 @@ const restricted = ({ bits = false, empty = false, feed = false }) => [
 ]
 // A caught error's raw message reaches the screen nowhere: describeError
 // (src/lib/apiErrors.ts, which alone reads it) gives the words, ErrorLine,
-// notify.failure and Details show them with the engine text folded. Pinned
-// by scripts/lint-rules.test.ts
-const messageSyntax = {
-  selector:
-    "ConditionalExpression[test.operator='instanceof'][test.right.name='Error'] > MemberExpression.consequent[property.name='message']",
-  message:
-    'Show a caught error through describeError (ErrorLine, notify.failure, Details), never its raw .message.',
-}
+// notify.failure and Details show them with the engine text folded. A
+// caught error is read by `.message` behind an `instanceof Error` (a
+// ternary, an `if` or an `&&`) or a cast, or stringified whole (`String(e)`,
+// `${e}`) - the last two matched by the names a caught error goes by.
+// Pinned by scripts/lint-rules.test.ts
+const rawMessage =
+  'Show a caught error through describeError (ErrorLine, notify.failure, Details), never its raw .message.'
+const CAUGHT = '/^(e|err|error)$/'
+const messageSyntax = [
+  "ConditionalExpression[test.operator='instanceof'][test.right.name='Error'] > MemberExpression.consequent[property.name='message']",
+  "IfStatement[test.operator='instanceof'][test.right.name='Error'] > .consequent MemberExpression[property.name='message']",
+  `LogicalExpression[operator='&&'][left.operator='instanceof'][left.right.name='Error'] > MemberExpression.right[property.name='message']`,
+  "MemberExpression[property.name='message'][object.type='TSAsExpression'][object.typeAnnotation.typeName.name='Error']",
+  `CallExpression[callee.name='String'][arguments.length=1][arguments.0.name=${CAUGHT}]`,
+  `TemplateLiteral > Identifier.expressions[name=${CAUGHT}]`,
+].map((selector) => ({ selector, message: rawMessage }))
 const feedSyntax = [
   {
     selector:
@@ -72,18 +96,33 @@ const feedSyntax = [
 // Destroying something the person made asks one way: destroyConfirm (the
 // P5 policy) names it, counts it, says how many are starred and puts the
 // button in danger, so no other module writes a Delete or Remove button of
-// its own. Pinned by scripts/lint-rules.test.ts
-const destroySyntax = {
-  selector: "Property[key.name='confirmLabel'][value.value=/^(Delete|Remove)/]",
-  message: 'A delete asks through destroyConfirm() (src/lib/destructive.ts)',
-}
+// its own - as a `confirmLabel` (a string or a template), a chooseDialog
+// choice's `label` (seen only when the choices array is written inside the
+// call), or a component's `confirmLabel=` attribute. Pinned by
+// scripts/lint-rules.test.ts
+const destroyMessage =
+  'A delete asks through destroyConfirm() (src/lib/destructive.ts)'
+const DESTROYS = '/^(Delete|Remove)/'
+const destroyLabel = (property) => [
+  `Property[key.name='${property}'][value.value=${DESTROYS}]`,
+  `Property[key.name='${property}'] > TemplateLiteral.value > TemplateElement:first-child[value.raw=${DESTROYS}]`,
+]
+const destroySyntax = [
+  ...destroyLabel('confirmLabel'),
+  ...destroyLabel('label').map(
+    (s) => `CallExpression[callee.name='chooseDialog'] ${s}`,
+  ),
+  `SvelteAttribute[key.name='confirmLabel'] SvelteLiteral[value=${DESTROYS}]`,
+  `SvelteAttribute[key.name='confirmLabel'] Literal[value=${DESTROYS}]`,
+  `SvelteAttribute[key.name='confirmLabel'] TemplateElement:first-child[value.raw=${DESTROYS}]`,
+].map((selector) => ({ selector, message: destroyMessage }))
 /** The no-restricted-syntax options for a block, listed whole for the same
  * reason as `restricted` */
 const syntax = ({ feed = false, message = false, destroy = true }) => [
   'error',
   ...(feed ? feedSyntax : []),
-  ...(message ? [messageSyntax] : []),
-  ...(destroy ? [destroySyntax] : []),
+  ...(message ? messageSyntax : []),
+  ...(destroy ? destroySyntax : []),
 ]
 // The one module that reads a caught error's message, and the tests
 const MESSAGE_OWNERS = [
@@ -152,6 +191,17 @@ export default ts.config(
     ignores: ['src/lib/ui/**'],
     rules: {
       'no-restricted-imports': restricted({ bits: true, empty: true }),
+    },
+  },
+  {
+    files: MONACO_OWNERS,
+    rules: {
+      'no-restricted-imports': restricted({
+        bits: true,
+        empty: true,
+        feed: true,
+        parts: false,
+      }),
     },
   },
   {

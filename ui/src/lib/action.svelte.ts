@@ -31,7 +31,9 @@ type Options<A extends unknown[], R> = {
 }
 
 /** One busy flag for an action and the undos it offers: a run while busy
- * is dropped (a double click does one thing), an undo waits its turn */
+ * is dropped (a double click does one thing), an undo waits its turn and
+ * then asks `ready` again - what it was made for may have moved while it
+ * waited - and does nothing on false */
 function turns() {
   let busy = $state(false)
   let running: Promise<unknown> = Promise.resolve()
@@ -48,8 +50,9 @@ function turns() {
       return busy
     },
     hold,
-    async after(work: () => Promise<unknown>) {
+    async after(work: () => Promise<unknown>, ready?: () => boolean) {
       while (busy) await running
+      if (ready && !ready()) return undefined
       return hold(work)
     },
   }
@@ -77,7 +80,7 @@ export function action<A extends unknown[], R>(
   function announce(result: NonNullable<R>) {
     if (opts.undo) {
       const { message, revert, target } = opts.undo(result)
-      undoToast(message, () => turn.after(revert), target)
+      undoToast(message, (ready) => turn.after(revert, ready), target)
     } else if (opts.success !== undefined) {
       notify.success(
         typeof opts.success === 'function'

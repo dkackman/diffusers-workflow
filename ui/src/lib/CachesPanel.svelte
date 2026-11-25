@@ -18,7 +18,8 @@
   import ErrorLine from './ui/ErrorLine.svelte'
   import { action } from './action.svelte'
   import { cacheClearConfirm, cacheEntryConfirm } from './destructive'
-  import { formatBytes, formatMtime } from './format'
+  import { formatBytes } from './format'
+  import Time from './ui/Time.svelte'
   import type { DiskCacheEntry, DiskCacheInfo } from './types'
 
   let clearError = $state<unknown>(null)
@@ -110,7 +111,10 @@
               <td>{cacheSize(cache.bytes)}</td>
               <td>{cache.files}</td>
               <td class="muted">
-                {cache.last_used ? formatMtime(cache.last_used) : '—'}
+                {#if cache.last_used}<Time
+                    at={cache.last_used}
+                    mode="exact"
+                  />{:else}—{/if}
               </td>
               <td>{cache.enabled ? 'yes' : 'no'}</td>
               <td>
@@ -126,7 +130,7 @@
               </td>
               <td>
                 <button
-                  class="quiet icon danger"
+                  class="quiet icon"
                   disabled={!cache.clearable || working}
                   title={cache.clearable
                     ? `clear the ${cache.name} cache`
@@ -195,14 +199,16 @@
                               <td>{entry.subfolder || '—'}</td>
                               <td>{cacheSize(entry.bytes)}</td>
                               <td class="muted">
-                                {entry.created
-                                  ? formatMtime(entry.created)
-                                  : '—'}
+                                {#if entry.created}<Time
+                                    at={entry.created}
+                                    mode="exact"
+                                  />{:else}—{/if}
                               </td>
                               <td class="muted">
-                                {entry.last_hit != null
-                                  ? formatMtime(entry.last_hit)
-                                  : '—'}
+                                {#if entry.last_hit != null}<Time
+                                    at={entry.last_hit}
+                                    mode="exact"
+                                  />{:else}—{/if}
                               </td>
                               <td>
                                 <code title={entry.id}>
@@ -211,7 +217,7 @@
                               </td>
                               <td>
                                 <button
-                                  class="quiet icon danger"
+                                  class="quiet icon"
                                   disabled={!cache.clearable || working}
                                   title={cache.clearable
                                     ? `delete ${entryLabel(entry)} from the ${cache.name} cache`

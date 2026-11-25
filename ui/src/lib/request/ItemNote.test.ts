@@ -23,10 +23,20 @@ beforeEach(() => {
 afterEach(cleanup)
 
 const AT = '2026-01-02T03:04:05+00:00'
+const SAVED = Date.parse(AT) / 1000
+/** The line noteLine gives, written when the note was */
+const lineOf = (answered: boolean, over = {}) => ({
+  written: SAVED,
+  changed: null,
+  standing: 'Then.',
+  agent: null,
+  answered,
+  ...over,
+})
 const props = (saved: string | null = null, over = {}) => ({
   note: saved ? { id: 'n1', text: saved, created: AT, at: AT } : null,
   about: 'Shot 3',
-  line: saved ? { text: 'Saved then.', answered: false } : null,
+  line: saved ? lineOf(false) : null,
   onsave: vi.fn(),
   ondelete: vi.fn(),
   onreload: vi.fn(),
@@ -115,8 +125,44 @@ it('a new note shows what it is about under About, below its words, and a refere
 it('shows a saved note with the line about where it stands', () => {
   render(ItemNote, props('warmer, please'))
   expect(screen.getByText('warmer, please')).toBeTruthy()
-  expect(screen.getByText('Saved then.')).toBeTruthy()
+  expect(document.querySelector('.noteline')?.textContent).toMatch(
+    /^written .+\. Then\.$/,
+  )
   expect(screen.getByRole('button', { name: 'Delete note' })).toBeTruthy()
+})
+
+it('a note says when it was written and changed, and when the agent wrote since', () => {
+  const now = Math.floor(Date.now() / 1000)
+  render(
+    ItemNote,
+    props('warmer, please', {
+      line: lineOf(true, {
+        written: now - 3 * 3600,
+        changed: now - 3600,
+        standing: 'The agent has updated the plan 2 times since',
+        agent: { at: now - 5 * 60, lead: 'latest r14, ' },
+      }),
+    }),
+  )
+  const line = document.querySelector('.noteline')!
+  expect(line.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+    'written 3 h ago · changed 1 h ago. The agent has updated the plan 2 ' +
+      'times since (latest r14, changed 5 min ago by the agent).',
+  )
+  // each time is exact on hover
+  expect(
+    [...line.querySelectorAll('time')].every((t) => t.getAttribute('title')),
+  ).toBe(true)
+})
+
+it('a note whose stored time does not parse says unknown time', () => {
+  render(
+    ItemNote,
+    props('warmer, please', { line: lineOf(false, { written: NaN }) }),
+  )
+  expect(document.querySelector('.noteline')?.textContent).toContain(
+    'unknown time',
+  )
 })
 
 it('saves the draft; a saved note emptied is deleted', async () => {
@@ -428,7 +474,7 @@ it('no hold, no warning', async () => {
 
 it('an answered note shows the answer and Clear note', async () => {
   const given = props('warmer, please', {
-    line: { text: 'Saved then.', answered: true },
+    line: lineOf(true),
     answer: { revision: 8, why: 'retook shot 3 warmer' },
   })
   given.ondelete.mockResolvedValue(undefined)

@@ -1,3 +1,5 @@
+import { compareNames } from './names'
+
 /**
  * How a catalog name splits into a folder group and the label shown on its card.
  *
@@ -15,13 +17,13 @@ export const leafOf = (name: string) =>
   name.includes('/') ? name.slice(name.lastIndexOf('/') + 1) : name
 
 /**
- * Where a group sits relative to the others, before alphabetical order.
+ * Where a group sits relative to the others, before natural order (compareNames).
  *
  * The catalog is two trees: `templates/` is what a person picks from and
  * `models/` is the checkpoint variants of those templates, so templates come
  * first and models last however the alphabet would have ordered them. The
  * root ('') keeps its place ahead of every folder, and any other folder
- * sorts between the two trees, alphabetically as before.
+ * sorts between the two trees, by name.
  */
 const groupRank = (group: string): number => {
   if (group === '') return 0
@@ -51,7 +53,7 @@ export const groupNames = (
   }
   return new Map(
     [...buckets.entries()].sort(
-      ([a], [b]) => rank(a) - rank(b) || a.localeCompare(b),
+      ([a], [b]) => rank(a) - rank(b) || compareNames(a, b),
     ),
   )
 }

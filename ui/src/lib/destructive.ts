@@ -19,7 +19,7 @@ export type ConfirmSpec = {
 }
 
 /** What an undo was made for: `now` is read when the undo is offered and
- * again when it is pressed, and a different answer - another workflow,
+ * again when its revert starts, and a different answer - another workflow,
  * request or workspace open by then - refuses it with `away` */
 export type UndoTarget = { now: () => unknown; away: string }
 
@@ -27,21 +27,28 @@ export type UndoTarget = { now: () => unknown; away: string }
  * UNDO_MS. It runs at most once - a dismissed toast's button still takes a
  * second click while it fades - and only on the thing it was made for. A
  * revert that fails is reported, never thrown. `id` names the toast, so the
- * caller can dismiss it (`notify.dismiss`) */
+ * caller can dismiss it (`notify.dismiss`). A revert that waits before it
+ * writes (action()'s turn) calls `ready` once its wait is over: false, the
+ * target moved meanwhile and the `away` line is said, so it writes nothing */
 export function undoToast(
   message: string,
-  revert: () => void | Promise<unknown>,
+  revert: (ready: () => boolean) => void | Promise<unknown>,
   target?: UndoTarget,
   id?: string,
 ): void {
   const was = target?.now()
   let used = false
+  const ready = () => {
+    if (!target || target.now() === was) return true
+    notify.error(target.away)
+    return false
+  }
   const run = () => {
     if (used) return
     used = true
-    if (target && target.now() !== was) return notify.error(target.away)
+    if (!ready()) return
     Promise.resolve()
-      .then(revert)
+      .then(() => revert(ready))
       .catch((e) => notify.failure('undo that', e))
   }
   if (id === undefined) notify.undo(message, run)
@@ -145,6 +152,27 @@ export function workspaceConfirm(
     confirmLabel: 'Delete workspace',
     danger: true,
   }
+}
+
+/** The answers to deleting a ticked selection that holds starred files:
+ * all of it, only the `unstarred` ones (when there are any), or nothing */
+export function spareStarredChoices(unstarred: number): {
+  label: string
+  value: 'all' | 'unstarred' | 'cancel'
+  danger?: boolean
+}[] {
+  return [
+    { label: 'Delete all', value: 'all', danger: true },
+    ...(unstarred > 0
+      ? [
+          {
+            label: `Delete the ${unstarred} unstarred`,
+            value: 'unstarred' as const,
+          },
+        ]
+      : []),
+    { label: 'Cancel', value: 'cancel' },
+  ]
 }
 
 export type ServerSpec = {

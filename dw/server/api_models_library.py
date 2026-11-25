@@ -1,7 +1,6 @@
-"""Response models for the library routes - workspaces, workflows, prompts,
-enhancer presets, LoRAs, the asset library, the requests ledger, and the
-gallery's marks and request links on one file. Part of the UI's response
-contract `dw/server/api_models.py` describes; it re-exports every name."""
+"""Response models for the library routes: workspaces, workflows, prompts, enhancer
+presets, LoRAs, the asset library, the requests ledger, and one gallery file's marks
+and request links. Part of the UI response contract `api_models.py` re-exports."""
 
 from typing import Any, Literal
 
@@ -35,7 +34,15 @@ class DiskUsage(ApiModel):
     bytes: int
 
 
-class WorkspaceInfo(ApiModel):
+class Dated(ApiModel):
+    mtime: float = sometimes("Epoch seconds its file last changed; times=true only.")
+    created: float = sometimes("Birth time, if the filesystem has it; times=true only.")
+
+
+class WorkspaceInfo(Dated):
+    mtime: float = sometimes(
+        "The newest mtime of its folders and their direct entries; times=true only."
+    )
     name: str
     default: bool
     root: str | None
@@ -78,12 +85,10 @@ class WorkspaceCopied(ApiModel):
         "assets it held with identical bytes (library-relative path) - skipped."
     )
     renumbered: dict[str, dict[str, int]] = Field(
-        description="Copied runs whose `vN` changed, keyed `<workflow>/<run id>`: "
-        "`{from, to}`."
+        description="Runs whose `vN` changed, `<workflow>/<run id>` to `{from, to}`."
     )
     warnings: dict[str, Any] = Field(
-        description="`unresolved_output_refs`, `absolute_paths` and `no_jobs`, "
-        "each only when it applies."
+        description="`unresolved_output_refs`, `absolute_paths`, `no_jobs`: where each applies."
     )
     bytes_linked: int
     bytes_copied: int
@@ -100,9 +105,8 @@ class WorkflowCost(ApiModel):
     minutes: int | float
 
 
-class WorkflowCard(ApiModel):
-    """One workflow's entry in the full listing (the agent's `view=compact`
-    answer is a different, smaller shape outside this model)."""
+class WorkflowCard(Dated):
+    """One workflow in the full listing; `view=compact` answers a smaller shape."""
 
     kinds: list[str]
     steps: int
@@ -116,13 +120,11 @@ class WorkflowCard(ApiModel):
     configures_missing: str = sometimes("A `configures` that names no workflow.")
     prompt_refs: list[str]
     inputs: dict[str, InputKind] = sometimes(
-        "Each variable that feeds a media argument, and the kind it takes. "
-        "Only with inputs=true."
+        "Each variable feeding a media argument, and its kind; inputs=true only."
     )
     shape: Shape = Field(description="What the workflow makes, derived by the server.")
     traits: list[Trait] = Field(
-        description="Sorted, independent facts about how the output is made or what "
-        "it needs."
+        description="Sorted facts about how the output is made or what it needs."
     )
     summary: str = Field(
         description="The description's first sentence, clipped - what a card shows."
@@ -131,8 +133,8 @@ class WorkflowCard(ApiModel):
     constraints: dict[str, Any]
     cost_drivers: dict[str, Any]
     cost: list[WorkflowCost] | None = Field(
-        description="Measured runs, one per device the maintainer measured on. Null "
-        "means unknown - never derived."
+        description="Measured runs, one per device the maintainer measured on; null "
+        "means unknown, never derived."
     )
     observed: dict[str, Any] = sometimes("This box's own history for it.")
     origin: Origin
@@ -143,8 +145,7 @@ class WorkflowCard(ApiModel):
 
 class BuiltinWorkflows(ApiModel):
     workflows: list[str] = Field(
-        description="The packaged fragments a sub-workflow step names as "
-        "`builtin:<name>.json`, each as what follows the prefix."
+        description="Packaged fragments, each as a step names it after `builtin:`."
     )
 
 
@@ -177,7 +178,7 @@ class WorkflowDeleted(ApiModel):
     deleted: bool
 
 
-class PromptCard(ApiModel):
+class PromptCard(Dated):
     description: str
     intended_model: str
     tags: list[str]
@@ -219,11 +220,10 @@ class EnhancerPresets(ApiModel):
     presets: list[EnhancerPreset]
 
 
-# The LoRA catalog listing (GET /api/loras). A row is a catalog entry
-# (dw/lora_catalog_schema.json) as stored, plus where it came from. Every
-# field the schema allows is declared, so the strict suite fails on an entry
-# key the model does not know rather than the route dropping it; numbers are
-# `int | float` so a stored `1` goes out as `1`, not `1.0`.
+# The LoRA catalog listing (GET /api/loras): a row is a stored catalog entry
+# (dw/lora_catalog_schema.json) plus where it came from. Every field the schema allows
+# is declared, so the strict suite fails on a key the model lacks rather than the route
+# dropping it; numbers are `int | float`, so a stored `1` goes out as `1`, not `1.0`.
 
 
 class LoraScale(ApiModel):

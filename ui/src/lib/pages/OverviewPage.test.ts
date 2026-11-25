@@ -8,10 +8,14 @@ import {
 } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import OverviewPage from './OverviewPage.svelte'
+import Sidebar from '../Sidebar.svelte'
 import { firstRunSession } from '../firstRun'
-import { formatMtime } from '../format'
+import { formatRelative } from '../format'
 import { feed } from '../test/feedMock'
 import { invalidateWorkspaces, workspace } from '../workspace.svelte'
+
+/** A list's time: relative, as `<Time>` shows it in a list */
+const listed = (at: number) => formatRelative(at, Date.now() / 1000)
 import '../router.svelte'
 
 const data = vi.hoisted(() => ({
@@ -81,7 +85,8 @@ vi.mock('../api', () => ({
         workspace: 'default',
       })
     ),
-    listWorkspaces: () =>
+    listWorkspaces: () => (
+      hit('workspaces'),
       Promise.resolve({
         workspace_root: '/ws',
         default: 'default',
@@ -94,7 +99,8 @@ vi.mock('../api', () => ({
             note: 'client moodboards',
           },
         ],
-      }),
+      })
+    ),
     deleteWorkspace: (n: string, a?: boolean) => deleteWorkspace(n, a),
   },
 }))
@@ -144,7 +150,13 @@ it('an empty workspace shows empty states, not empty frames', async () => {
   expect(screen.getByText(/no workflows yet/i)).toBeTruthy()
 })
 
+// The shell's Sidebar, always mounted, reads the workspace listing the
+// Overview shows its note and usage from
+const withShell = () =>
+  render(Sidebar, { collapsed: false, onToggle: () => {} })
+
 it('shows the workspace note', async () => {
+  withShell()
   render(OverviewPage)
   await waitFor(() =>
     expect(screen.getByText('client moodboards')).toBeTruthy(),
@@ -218,6 +230,7 @@ it('shows recent outputs, jobs and workflows, each linking to its page', async (
       origin: 'common',
     },
   ]
+  withShell()
   render(OverviewPage)
   // the recent output's tile, and the workflow card's proof (also a tile)
   await waitFor(() =>
@@ -233,7 +246,9 @@ it('shows recent outputs, jobs and workflows, each linking to its page', async (
   const cards = screen.getAllByRole('link', { name: /^(shot|still)$/ })
   expect(cards[0].textContent).toContain('shot')
   expect(screen.getByText('1 asset')).toBeTruthy() // the workspace's own only
-  await waitFor(() => expect(screen.getByText('4 KB')).toBeTruthy())
+  await waitFor(() =>
+    expect(screen.getAllByText('4 KB').length).toBeGreaterThan(0),
+  )
 })
 
 it('a deep queue does not hide the running job, and queued jobs are not "recent"', async () => {
@@ -328,6 +343,16 @@ it('lists open requests with their counts, and links to them all', async () => {
   expect(
     screen.getByRole('link', { name: 'all requests' }).getAttribute('href'),
   ).toBe('#/ws/studio/requests')
+})
+
+it('OverviewPage says when each open request changed', async () => {
+  const at = new Date(Date.now() - 2 * 3600 * 1000).toISOString()
+  data.requests = [summary({ updated_at: at })]
+  render(OverviewPage)
+  const link = await screen.findByRole('link', { name: 'Launch posters' })
+  const time = link.closest('li')!.querySelector('.reqwhen time')!
+  expect(time.textContent?.trim()).toBe('changed 2 h ago')
+  expect(time.getAttribute('title')).toBeTruthy()
 })
 
 it('a request row keeps its title beside a long attention line', async () => {
@@ -544,7 +569,7 @@ it('a job with no proof draws the cover slot, and same-workflow rows differ', as
   // same workflow and status, told apart by when they finished
   expect(a.textContent).not.toBe(b.textContent)
   expect(a.querySelector('.when')?.textContent).toBe(
-    `${formatMtime(1_700_000_000)}\u00a0·\u00a0j1`,
+    `${listed(1_700_000_000)}\u00a0·\u00a0j1`,
   )
   const names = screen
     .getAllByRole('link')
@@ -572,11 +597,11 @@ it('same-workflow jobs finishing in one minute differ by their id', async () => 
   const a = screen.getByTitle('job abc123')
   const b = screen.getByTitle('job def456')
   expect(a.querySelector('.when')?.textContent).toBe(
-    `${formatMtime(1_700_000_000)}\u00a0·\u00a0abc123`,
+    `${listed(1_700_000_000)}\u00a0·\u00a0abc123`,
   )
   expect(a.textContent).not.toBe(b.textContent)
   const name = (l: HTMLElement) => l.textContent?.replace(/\s+/g, ' ').trim()
-  expect(name(a)).toContain(formatMtime(1_700_000_000))
+  expect(name(a)).toContain(listed(1_700_000_000))
   expect(name(a)).toContain('abc123')
   expect(name(a)).not.toBe(name(b))
 })
@@ -611,7 +636,7 @@ it('a job row puts its time and full id on a second line, id never truncated', a
   // the accessible name keeps workflow, time and id
   const name = row.textContent?.replace(/\s+/g, ' ')
   expect(name).toContain('text-to-image')
-  expect(name).toContain(formatMtime(1_700_000_000))
+  expect(name).toContain(listed(1_700_000_000))
   expect(name).toContain('e2ebrdtake01')
 })
 
@@ -676,4 +701,33 @@ it('an empty overview says where to go', async () => {
     expect(href).toMatch(/^#\/ws\/[^/]+\/workflows$/)
   expect(hrefs('Create one in the editor')[0]).toMatch(/^#\/ws\/[^/]+\/edit$/)
   expect(hrefs('start from an example')).toEqual(['#/shared/examples'])
+})
+
+it('a workspaces move lists the workspaces once', async () => {
+  withShell()
+  render(OverviewPage)
+  await waitFor(() =>
+    expect(screen.getByText('client moodboards')).toBeTruthy(),
+  )
+  await settle()
+  // Both watch the kind; the Overview joins the Sidebar's read
+  expect(feed.watched('studio').filter((k) => k === 'workspaces')).toHaveLength(
+    2,
+  )
+  const before = calls.workspaces ?? 0
+  feed.move('studio', 'workspaces')
+  await settle()
+  expect(calls.workspaces).toBe(before + 1)
+})
+
+it('the featured workflows sort naturally: take2 before take10', async () => {
+  data.workflows = ['take10', 'take2']
+  render(OverviewPage)
+  await waitFor(() =>
+    expect(screen.getByRole('link', { name: 'take2' })).toBeTruthy(),
+  )
+  const names = [...document.querySelectorAll('.cardname')].map(
+    (n) => n.textContent,
+  )
+  expect(names).toEqual(['take2', 'take10'])
 })

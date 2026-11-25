@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/svelte'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { feed } from '../test/feedMock'
@@ -207,6 +208,19 @@ describe('ComparePage', () => {
     )
   })
 
+  it('two same-leaf files from different workflows are told apart', async () => {
+    listing.extra = ['wfA/r/a.png', 'wfB/r/a.png']
+    render(ComparePage, { props: { names: ['wfA/r/a.png', 'wfB/r/a.png'] } })
+    // the run is told by the version badge, so only the workflow is kept
+    expect(
+      await screen.findByRole('button', { name: 'Open wfA/a.png' }),
+    ).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Open wfB/a.png' })).toBeTruthy()
+    expect(
+      screen.getByText('wfA/a.png', { selector: 'figcaption .mono' }),
+    ).toBeTruthy()
+  })
+
   it('a cell opens in the viewer', async () => {
     location.hash = '#/ws/default/compare/x'
     render(ComparePage, { props: { names: ['wf/r1/a.png', 'wf/r2/b.png'] } })
@@ -216,6 +230,20 @@ describe('ComparePage', () => {
     )
     expect(location.hash).toContain('open=wf%2Fr1%2Fa.png')
     expect(await screen.findByRole('dialog', { name: 'a.png' })).toBeTruthy()
+  })
+
+  it('an open= naming no file compared is said, cleared and dismissed', async () => {
+    location.hash = '#/ws/default/compare/x?open=wf%2Fr9%2Fgone.png'
+    render(ComparePage, { props: { names: ['wf/r1/a.png', 'wf/r2/b.png'] } })
+    const notice = await screen.findByText(
+      'gone.png is not in this view any more.',
+    )
+    await waitFor(() => expect(location.hash).not.toContain('open='))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    await fireEvent.click(
+      within(notice).getByRole('button', { name: 'Dismiss' }),
+    )
+    expect(screen.queryByText(/is not in this view any more/)).toBeNull()
   })
 
   it('one transport plays every clip, muted', async () => {

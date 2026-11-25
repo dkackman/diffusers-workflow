@@ -130,7 +130,10 @@ def host_too_small(definition, arguments, total_mb):
 
 
 def projected_peak(definition, arguments, history, *, rows=None, list_entries=None):
-    """(mb, basis, runs) for this run's projected host-RAM peak, or None.
+    """(mb, basis, runs) for the projected host-RAM peak, or None.
+
+    A peak inherited from a template (deps.inherited_host_ram) adds a fourth
+    element, `inherited_from`, when basis is `inherited`; this answers three.
 
     A declared `host_ram_gb` (`declared_mb`) is a floor under the answer: the
     larger of it and the observed or fitted figure wins, basis `declared`
@@ -176,5 +179,8 @@ def host_memory_block(need):
     """`need` as validate's `plan.host_memory`, or None for no figure."""
     if not need:
         return None
-    mb, basis, runs = need
-    return {"projected_mb": round(mb), "basis": basis, "runs": runs}
+    mb, basis, runs, *source = need
+    block = {"projected_mb": round(mb), "basis": basis, "runs": runs}
+    if source:
+        block["inherited_from"] = source[0]
+    return block

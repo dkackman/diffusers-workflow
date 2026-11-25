@@ -161,10 +161,10 @@ class WorkerInfo(ApiModel):
         "The worker process's resident host memory; absent while it is not running."
     )
     pid: int = sometimes("The worker process's pid; absent while it is not running.")
+    workspace: str = sometimes("The workspace of `current_job`; absent while idle.")
     oom_score_adj: int = sometimes(
-        "The worker's kernel oom_score_adj, read from /proc at call time (1000 for "
-        "the latest dispatch's worker in a pool, else the value it was spawned "
-        "with); absent where unreadable."
+        "The kernel oom_score_adj read from /proc at call time: 1000 for a pool's "
+        "latest-dispatch worker, else its spawn value; absent where unreadable."
     )
 
 
@@ -890,9 +890,8 @@ class PlanEstimate(ApiModel):
         "to the template's)."
     )
     unpriced_reason: str = sometimes(
-        "With basis `unknown` and no `withheld`: why a workflow of task steps "
-        "alone has no price - it has no pipeline to inherit one from, and its "
-        "length follows its input media (#948)."
+        "With basis `unknown` and no `withheld`: why a task-only workflow has no "
+        "price - no pipeline to inherit one from; its length follows its input media."
     )
     per_segment: bool = sometimes(
         "True when an `observed` figure is a matched chain's, read per segment "
@@ -917,6 +916,7 @@ class PlanHostMemory(ApiModel):
         "the workflow's own `host_ram_gb`, larger than anything observed."
     )
     runs: int = Field(description="How many runs the figure is read from.")
+    inherited_from: str = sometimes("With basis `inherited`: the template's name.")
 
 
 class Plan(ApiModel):

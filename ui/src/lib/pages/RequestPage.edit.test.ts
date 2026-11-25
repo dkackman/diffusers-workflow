@@ -1147,3 +1147,19 @@ it('the header menu still offers Reopen on a closed request', async () => {
       .map((b) => b.textContent?.trim()),
   ).toEqual(['Reopen', 'Delete…'])
 })
+
+it("a stale retry's fresh read marks the agent's change", async () => {
+  await start()
+  // the agent retitles Shot 4 after the page's read, before its write
+  world.ledger.agent('retitle shot 4', (items) =>
+    items.map((i) => (i.key === 's4' ? { ...i, title: 'Shot 4, recut' } : i)),
+  )
+  await fireEvent.click(
+    within(row('cast')).getByRole('button', {
+      name: 'Accept take 1 for Cast sheet',
+    }),
+  )
+  await saved(5)
+  await waitFor(() => expect(row('s4').classList).toContain('row-changed'))
+  expect(row('cast').classList).not.toContain('row-changed')
+})

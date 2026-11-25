@@ -14,6 +14,7 @@ import ConfirmDialog from '../ui/ConfirmDialog.svelte'
 import type { AssetFile, AssetLibrary, ShadowedAsset } from '../types'
 import { DEFAULT_WORKSPACE, workspace } from '../workspace.svelte'
 import { feed } from '../test/feedMock'
+import { formatExact, formatMtime } from '../format'
 
 const asset = (
   name: string,
@@ -81,7 +82,10 @@ const listAssets = vi.hoisted(() =>
 // The background `media` read, kept apart so the listing's call counts
 // stay the listing's
 const assetDurations = vi.hoisted(() =>
-  vi.fn(() => Promise.resolve({ assets: [] as AssetFile[] })),
+  vi.fn((opts?: { limit?: number }) => {
+    void opts
+    return Promise.resolve({ assets: [] as AssetFile[] })
+  }),
 )
 const deleteAsset = vi.hoisted(() =>
   vi.fn<(name: string) => Promise<void>>(() => Promise.resolve()),
@@ -113,8 +117,8 @@ const galleryMetadata = vi.hoisted(() =>
 vi.mock('../api', () => ({
   setNote: (t: string, n: string | null) => setNote(t, n),
   api: {
-    listAssets: (opts?: { media?: boolean }) =>
-      opts?.media ? assetDurations() : listAssets(),
+    listAssets: (opts?: { media?: boolean; limit?: number }) =>
+      opts?.media ? assetDurations(opts) : listAssets(),
     noteForSave: (target: string) =>
       Promise.resolve({ target, note: noteHeld.note, etag: '"e"' }),
     galleryMetadata: (reference: string) => galleryMetadata(reference),
@@ -369,6 +373,28 @@ it('an open= naming a missing asset says so', async () => {
   expect(screen.queryByText(/is not in this view any more/)).toBeNull()
 })
 
+it('open= under a q= that filters it out is said, and unsaid when the filter goes', async () => {
+  location.hash = '#/ws/default/assets?q=iris&open=cast%2Fpriya.jpg'
+  await renderAssets()
+  await screen.findByText('priya.jpg is not in this view any more.')
+  expect(screen.queryByRole('dialog')).toBeNull()
+  await waitFor(() => expect(hashOpen()).toBeNull())
+  // the filter is the person's: kept
+  expect(new URLSearchParams(location.hash.split('?')[1]).get('q')).toBe('iris')
+  await fireEvent.input(screen.getByPlaceholderText('filter…'), {
+    target: { value: '' },
+  })
+  await waitFor(() =>
+    expect(screen.queryByText(/is not in this view any more/)).toBeNull(),
+  )
+})
+
+it('the durations read asks for only the newest 200 assets', async () => {
+  await renderAssets()
+  await waitFor(() => expect(assetDurations).toHaveBeenCalled())
+  expect(assetDurations).toHaveBeenCalledWith({ media: true, limit: 200 })
+})
+
 it('an open= naming an asset in a shut folder opens it and the folder', async () => {
   localStorage.setItem(
     'dw-collapsed-asset-folders-workspace',
@@ -413,6 +439,17 @@ it('shows the asset note', async () => {
       'the hero face',
     ),
   ).toBeTruthy()
+})
+
+it("the viewer's aside says the kind, size and when the asset was written, exact, to the second on hover", async () => {
+  await renderAssets()
+  const sheet = await openAsset('iris.png')
+  const aside = sheet.querySelector('.asset-aside') as HTMLElement
+  const time = aside.querySelector('time') as HTMLElement
+  expect(time.closest('p')?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+    `image · 2 KB · ${formatMtime(1)}`,
+  )
+  expect(time.getAttribute('title')).toBe(formatExact(1))
 })
 
 it('the note and Used by show while the recipe read fails or never lands', async () => {
@@ -1206,4 +1243,111 @@ it('an empty asset library says where to go', async () => {
   render(AssetsPage, { shared: false })
   const link = await screen.findByRole('link', { name: 'Gallery' })
   expect(link.getAttribute('href')).toMatch(/^#\/ws\/[^/]+\/gallery$/)
+})
+
+const tileOf = (name: string) =>
+  screen.getByLabelText(`Open ${name}`).closest('.cellwrap') as HTMLElement
+
+it("an upload marks nothing and keeps an agent's fresh mark", async () => {
+  await renderAssets()
+  // An agent changed priya's tile: it is marked
+  listing.assets = [
+    asset('iris.png'),
+    { ...asset('cast/priya.jpg'), size: 4096 },
+  ]
+  feed.move('default', 'assets')
+  await waitFor(() =>
+    expect(tileOf('cast/priya.jpg').classList).toContain('row-changed'),
+  )
+  // The page's own upload: the server now lists it
+  uploadMedia.mockResolvedValueOnce({ reference: 'asset:uploads/kept.png' })
+  listing.assets = [...listing.assets, asset('uploads/kept.png')]
+  screen.getByRole('button', { name: /^Upload$/ }).click()
+  chooseFile()
+  await waitFor(() => expect(screen.getByText('kept.png')).toBeTruthy())
+  // Held as read: the page never went loud, and nothing else was marked
+  expect(screen.queryByLabelText(/loading/i)).toBeNull()
+  expect(tileOf('uploads/kept.png').classList).not.toContain('row-changed')
+  expect(tileOf('cast/priya.jpg').classList).toContain('row-changed')
+  // The feed's echo of that write reads the same listing: still unmarked
+  feed.move('default', 'assets')
+  await waitFor(() => expect(listAssets).toHaveBeenCalledTimes(4))
+  await new Promise((r) => setTimeout(r, 10))
+  expect(tileOf('uploads/kept.png').classList).not.toContain('row-changed')
+})
+
+it('a bulk delete adopts', async () => {
+  await renderAssets()
+  const reads = listAssets.mock.calls.length
+  screen.getByLabelText('select iris.png').click()
+  screen.getByLabelText('select cast/priya.jpg').click()
+  await waitFor(() =>
+    screen.getByRole('button', { name: /^delete the selected/i }),
+  )
+  screen.getByRole('button', { name: /^delete the selected/i }).click()
+  await answerConfirm(true)
+  await waitFor(() => expect(screen.queryByText('iris.png')).toBeNull())
+  expect(screen.queryByText('priya.jpg')).toBeNull()
+  // The held list lost what went; no listing was read for it
+  await new Promise((r) => setTimeout(r, 10))
+  expect(listAssets.mock.calls.length).toBe(reads)
+})
+
+const tileNames = () =>
+  [...document.querySelectorAll('.cellwrap .tile-caption')].map(
+    (c) => c.textContent,
+  )
+
+it('AssetsPage says when each asset changed', async () => {
+  const now = Math.floor(Date.now() / 1000)
+  listing.assets = [{ ...asset('iris.png'), mtime: now - 3 * 86_400 }]
+  await renderAssets()
+  const stamp = screen
+    .getByRole('button', { name: 'Open iris.png' })
+    .querySelector('.tile-meta time')!
+  expect(stamp.textContent?.trim()).toBe('changed 3 days ago')
+  expect(stamp.getAttribute('title')).toBe(formatExact(now - 3 * 86_400))
+})
+
+it('the newest-first sort', async () => {
+  const now = Math.floor(Date.now() / 1000)
+  listing.assets = [
+    { ...asset('a.png'), mtime: now - 86_400 },
+    { ...asset('b.png'), mtime: now - 60 },
+    { ...asset('c.png'), mtime: now - 3600 },
+  ]
+  await renderAssets('a.png')
+  expect(tileNames()).toEqual(['a.png', 'b.png', 'c.png'])
+  await fireEvent.click(screen.getByRole('button', { name: 'Newest' }))
+  await waitFor(() => expect(tileNames()).toEqual(['b.png', 'c.png', 'a.png']))
+  expect(location.hash).toContain('sort=newest')
+})
+
+it('Newest names a foldered asset by its leaf, its folder a chip', async () => {
+  const now = Math.floor(Date.now() / 1000)
+  listing.assets = [
+    { ...asset('cast/priya.jpg'), mtime: now - 60 },
+    { ...asset('people/edit.png'), mtime: now - 120 },
+    { ...asset('pets/edit.png'), mtime: now - 3600 },
+    { ...asset('iris.png'), mtime: now - 86_400 },
+  ]
+  await renderAssets()
+  const chips = () =>
+    [...document.querySelectorAll('.cellwrap .cardfolder')].map((c) =>
+      c.textContent?.trim(),
+    )
+  // in folders, the heading says the folder: no chip
+  expect(chips()).toEqual([])
+  await fireEvent.click(screen.getByRole('button', { name: 'Newest' }))
+  // a leaf no other asset shares is the leaf; two that collide stay
+  // distinct, as viewLabels has them
+  await waitFor(() =>
+    expect(tileNames()).toEqual([
+      'priya.jpg',
+      'people/edit.png',
+      'pets/edit.png',
+      'iris.png',
+    ]),
+  )
+  expect(chips()).toEqual(['cast', 'people', 'pets'])
 })

@@ -34,7 +34,7 @@
       {/if}
       {#if w.current_job}
         <a
-          href={jobHref(w.current_job, workspace.current)}
+          href={jobHref(w.current_job, w.workspace ?? workspace.current)}
           onclick={() => onnavigate?.()}
         >
           {w.current_job} →

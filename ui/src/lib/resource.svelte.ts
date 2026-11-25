@@ -11,7 +11,7 @@
 //   - a watched kind moved, `connection.epoch` rose, a timer ticked: a
 //     quiet reload, never 'loading', and a failure keeps `data` and
 //     `status` and sets `stale`;
-//   - `reload()`: loud.
+//   - `reload()`: loud; `refresh()`: quiet, as a watched move's.
 // A `lazy` resource skips the first load: it reads only once a watched
 // kind moves or the epoch rises. With `rows`, a quiet reload sets
 // `changed` to the keys whose value is new or differs from the held read,
@@ -65,9 +65,15 @@ export interface Resource<T> {
   readonly changed: ReadonlySet<string>
   /** A loud reload: Retry */
   reload(): Promise<void>
+  /** A quiet reload, as a watched move's: for news the page heard another
+   * way (its job's own status moving), marking what changed */
+  refresh(): Promise<void>
   /** Hold `data`, what the page's own write read back, marking nothing:
-   * the next quiet reload diffs against it (above) */
-  adopt(data: T): void
+   * the next quiet reload diffs against it (above). With `mark`, it is a
+   * read the page made that the resource did not - a stale write's retry
+   * found another writer's change - held as a quiet reload's would be, and
+   * marking what it changed */
+  adopt(data: T, options?: { mark: true }): void
 }
 
 /** How long a changed row stays marked; `.row-changed` fades over it */
@@ -98,11 +104,33 @@ export function changedKeys<T>(
 
 const NONE: ReadonlySet<string> = new Set()
 
-/** `changed`, and the timer that clears it */
+/** `changed`, and the timer that clears it. A row that changes again while
+ * marked is cleared and set again two frames later, so its mark's animation
+ * starts over: the browser must style the row without the class once, and
+ * Svelte's own clear flushes in a microtask, in the same task as a set
+ * made now. The timer waits while the tab is hidden */
 function changeMarks() {
   let changed = $state.raw(NONE)
-  let timer: ReturnType<typeof setTimeout> | undefined
-  $effect(() => () => clearTimeout(timer))
+  let stop: (() => void) | undefined
+  // Which `mark` or `clear` is the latest: a re-mark waiting its frames
+  // gives way to a clear or another mark
+  let latest = 0
+  const set = (keys: ReadonlySet<string>) => {
+    changed = keys
+    stop = poll(() => (changed = NONE), CHANGED_MARK_MS, {
+      immediate: false,
+      once: true,
+    })
+  }
+  const clear = () => {
+    latest++
+    stop?.()
+    if (changed.size) changed = NONE
+  }
+  $effect(() => () => {
+    latest++
+    stop?.()
+  })
   return {
     get changed() {
       return changed
@@ -110,14 +138,18 @@ function changeMarks() {
     /** Mark `keys`; a reload that changed nothing leaves the marks fading */
     mark(keys: ReadonlySet<string>) {
       if (!keys.size) return
-      changed = keys
-      clearTimeout(timer)
-      timer = setTimeout(() => (changed = NONE), CHANGED_MARK_MS)
+      const marking = changed.size > 0
+      clear()
+      const mine = latest
+      if (!marking) set(keys)
+      else
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => {
+            if (mine === latest) set(keys)
+          }),
+        )
     },
-    clear() {
-      clearTimeout(timer)
-      if (changed.size) changed = NONE
-    },
+    clear,
   }
 }
 
@@ -211,10 +243,12 @@ class Held<T> {
   }
 }
 
-/** Load `load` now and whenever it should be read again (above). Call it
- * during component init: it registers its effects there */
+/** Load `load` now and whenever it should be read again (above). `load`
+ * is handed `current`, true until a later run overtakes this one: a read
+ * with a side effect before it returns checks it first. Call it during
+ * component init: it registers its effects there */
 export function resource<T>(
-  load: () => Promise<T>,
+  load: (current: () => boolean) => Promise<T>,
   options: ResourceOptions<T>,
 ): Resource<T> {
   const held = new Held<T>(
@@ -233,7 +267,7 @@ export function resource<T>(
     const question = asked
     if (!quiet) held.status = 'loading'
     try {
-      const value = await load()
+      const value = await load(current)
       if (current()) held.landed(value, quiet, question)
     } catch (e) {
       if (current()) held.failed(e, quiet, question)
@@ -267,6 +301,10 @@ export function resource<T>(
       return held.marks.changed
     },
     reload: () => untrack(() => run(false)),
-    adopt: (data) => void (held.data = data),
+    refresh: () => untrack(() => run(true)),
+    adopt: (data, options) =>
+      options?.mark
+        ? untrack(() => held.landed(data, true, asked))
+        : void (held.data = data),
   }
 }

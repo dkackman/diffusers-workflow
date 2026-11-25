@@ -8,7 +8,7 @@ import {
   galleryThumbnailUrl,
   outputUrl,
 } from './apiUrls'
-import { leafName } from './names'
+import { distinctLeaves, leafName } from './names'
 import type {
   AssetFile,
   AssetKind,
@@ -62,6 +62,34 @@ export function outputMedia(file: GalleryFile, workspace: string): MediaFile {
   }
 }
 
+/** Each file's label in a view of `names`: the tail that tells same-leaf
+ * files apart (distinctLeaves), where its leaf alone would not. `key` is
+ * what is compared, when part of a name is told apart another way (the
+ * Gallery's run, by its version badge) */
+export function viewLabels(
+  names: string[],
+  key: (name: string) => string = (name) => name,
+): (media: MediaFile) => MediaFile {
+  const tails = distinctLeaves(names.map(key))
+  return (media) => {
+    const tail = tails.get(key(media.name))
+    return tail && tail !== leafName(media.name)
+      ? { ...media, label: tail }
+      : media
+  }
+}
+
+/** viewLabels' key for outputs: a name without its run folder, since two
+ * runs' files are told apart by their version badge and a run id is never
+ * compared (the Gallery, Compare) */
+export function withoutRun(files: GalleryFile[]): (name: string) => string {
+  const runs = new Map(files.map((f) => [f.name, f.run_id]))
+  return (name) => {
+    const run = runs.get(name)
+    return run ? name.replace(`/${run}/`, '/') : name
+  }
+}
+
 /** An asset as a tile shows it */
 export function assetMedia(asset: AssetFile, workspace: string): MediaFile {
   return {
@@ -75,6 +103,7 @@ export function assetMedia(asset: AssetFile, workspace: string): MediaFile {
       : null,
     duration: asset.duration_seconds ?? null,
     stamp: `${asset.mtime}:${asset.size}`,
+    note: asset.note,
   }
 }
 

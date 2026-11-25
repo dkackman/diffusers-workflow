@@ -1,7 +1,8 @@
 <script lang="ts">
   import { Braces } from '@lucide/svelte'
   import { TERMINAL_STATUSES, api } from '../api'
-  import { resource } from '../resource.svelte'
+  import { untrack } from 'svelte'
+  import { CHANGED_MARK_MS, resource } from '../resource.svelte'
   import { followJob, jobRecord } from '../job/followJob.svelte'
   import LoadState from '../ui/LoadState.svelte'
   import { replaceRoute, route } from '../router.svelte'
@@ -56,16 +57,37 @@
       const id = jobId
       return { ...(await api.getJobWorkflow(id)), of: id }
     },
-    // A re-read that only swaps the submitted copy for the run's realized
-    // one is the run's own doing, not news: it moves 'realized' too
+    // With no realized copy (queued, from before run tracking, or its run
+    // deleted) the server answers with the workflow file as it is now: an
+    // edit to it is a workflows move. A run deleted - the realized copy
+    // gone - is a gallery move. Each re-read is quiet, so another writer's
+    // edit is marked; one that only swaps the submitted copy for the run's
+    // realized one, or back, is not news: it moves 'realized' too
     {
-      watch: ['jobs'],
+      watch: ['workflows', 'gallery'],
       rows: (d) => [
         ['realized', d.realized],
         [d.of, d.definition],
       ],
     },
   )
+  // A jobs move of another job reads no workflow: only this job's own
+  // status moving can have changed what it ran (the run writes its
+  // realized copy as its status moves). The first status seen for a job is
+  // the baseline: the read for that job already answers it
+  let statusSeen: { id: string; status: string } | undefined
+  $effect(() => {
+    const seen = job && { id: job.id, status: job.status }
+    untrack(() => {
+      if (
+        seen &&
+        statusSeen?.id === seen.id &&
+        statusSeen.status !== seen.status
+      )
+        void ranRead.refresh()
+      if (seen) statusSeen = seen
+    })
+  })
   const ran = $derived(ranRead.data?.of === jobId ? ranRead.data : null)
   // Another writer changed what this page shows: the inline notice
   const definitionMoved = $derived(
@@ -74,7 +96,19 @@
   // The run note's box is open: its own notice says a newer note, so the
   // page's line would be a second, and a wrong one (the box did not move)
   let noteEditing = $state(false)
-  const noteMoved = $derived(record.changed.has('note') && !noteEditing)
+  // Keep mine or Use theirs answered the change in the box: the line stays
+  // down for the rest of the change's mark, after the box closes too
+  let noteResolvedAt = $state<number | null>(null)
+  function noteResolved() {
+    const at = Date.now()
+    noteResolvedAt = at
+    setTimeout(() => {
+      if (noteResolvedAt === at) noteResolvedAt = null
+    }, CHANGED_MARK_MS)
+  }
+  const noteMoved = $derived(
+    record.changed.has('note') && !noteEditing && noteResolvedAt === null,
+  )
   const definition = $derived<Record<string, any> | null>(
     ran?.definition ?? null,
   )
@@ -384,6 +418,7 @@
           workspace={job.workspace}
           label="Your note on this job"
           bind:editing={noteEditing}
+          onresolved={noteResolved}
           onsaved={(note) =>
             job && record.adopt({ ...job, note: note ?? undefined })}
         />

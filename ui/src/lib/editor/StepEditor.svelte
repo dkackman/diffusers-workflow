@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte'
   import Suggest from '../ui/Suggest.svelte'
   import Segmented from '../ui/Segmented.svelte'
   import { editorLists } from '../editorLists.svelte'
@@ -152,13 +153,16 @@
   // asked 300 ms after its path stops changing and again when a workflow is
   // saved (workflowFile.ts)
   const typing = latestOnly()
+  // A step removed during the pause asks nothing: its editor is gone
+  let destroyed = false
+  onDestroy(() => (destroyed = true))
   const target = resource(
     async () => {
       const [path, folder] = [step.workflow?.path, baseFolder]
       const current = typing()
       if (!subWorkflowPath(path)) return []
       await sleep(300)
-      return current() ? workflowVariables(path, folder) : []
+      return current() && !destroyed ? workflowVariables(path, folder) : []
     },
     { watch: ['workflows'] },
   )

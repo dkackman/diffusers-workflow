@@ -6,8 +6,11 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { api } from '../src/lib/api'
+import * as apiModule from '../src/lib/api'
 import {
   cycles,
+  EXPORTED_NOT_WRITES,
+  EXPORTED_WRITES,
   isLoadState,
   measure,
   misclassified,
@@ -258,7 +261,7 @@ describe('the consistency metrics', () => {
     const { metrics, detail } = await measured({
       'a.svelte': `<script lang="ts">
   import { api } from '../api'
-  declare const action: any
+  import { action } from '../action.svelte'
   async function helper() {
     await api.cancelJob('j')
   }
@@ -285,7 +288,7 @@ describe('the consistency metrics', () => {
     const { metrics, detail } = await measured({
       'a.svelte': `<script lang="ts">
   import { api } from '../api'
-  declare const action: any
+  import { action } from '../action.svelte'
   async function bare() {
     await api.deleteOutput('x')
   }
@@ -305,7 +308,7 @@ describe('the consistency metrics', () => {
     const { metrics, detail } = await measured({
       'a.svelte': `<script lang="ts">
   import { api } from '../api'
-  declare const action: any
+  import { action } from '../action.svelte'
   declare const x: any
   async function helper() {
     await api.cancelJob('j')
@@ -345,7 +348,7 @@ export { inner as removeInner }
       'a.svelte': `<script lang="ts">
   import { removeIt, label, removeInner } from './helpers'
   import * as h from './helpers'
-  declare const action: any
+  import { action } from '../action.svelte'
   const guarded = action(() => removeIt('x'))
   const passed = action(removeInner, { doing: 'remove' })
 </script>
@@ -367,7 +370,6 @@ export { inner as removeInner }
       {
         'a.svelte': `<script lang="ts">
   const eta = \`~\${3} min\`
-  const word = 'session'
   const hint = 'No session is listening'
 </script>
 <p>Keep as asset</p>
@@ -382,9 +384,9 @@ export { inner as removeInner }
     )
     expect(detail.banned_terms).toEqual([
       expect.stringMatching(/a\.svelte:2 tilde$/),
-      expect.stringMatching(/a\.svelte:4 session$/),
-      expect.stringMatching(/a\.svelte:6 keep-asset$/),
-      expect.stringMatching(/a\.svelte:7 held-review$/),
+      expect.stringMatching(/a\.svelte:3 session$/),
+      expect.stringMatching(/a\.svelte:5 keep-asset$/),
+      expect.stringMatching(/a\.svelte:6 held-review$/),
     ])
     expect(metrics.banned_terms).toBe(4)
   })
@@ -406,23 +408,39 @@ export { inner as removeInner }
     ])
   })
 
-  it('raw_media counts source and picture', async () => {
-    const { metrics } = await measured({
-      'a.svelte': `<picture><source srcset="a.webp" /></picture>\n`,
+  it('raw_media counts source and picture, a nested one with its holder', async () => {
+    const { metrics, detail } = await measured({
+      'a.svelte': `<picture><source srcset="a.webp" /><img src="a.png" alt="" /></picture>
+<video><source src="b.mp4" /><track kind="captions" /></video>
+<source src="c.mp3" />
+`,
     })
-    expect(metrics.raw_media).toBe(2)
+    expect(detail.raw_media).toEqual([
+      expect.stringMatching(/a\.svelte:1 picture$/),
+      expect.stringMatching(/a\.svelte:2 video$/),
+      expect.stringMatching(/a\.svelte:3 source$/),
+    ])
+    expect(metrics.raw_media).toBe(3)
   })
 
-  it('raw_media counts svelte:element with a static media tag only', async () => {
+  it('raw_media counts svelte:element whose this is, or can be, a media tag', async () => {
     const { metrics, detail } = await measured({
       'a.svelte': `<svelte:element this="img" src="a.png" />
 <svelte:element this={'video'} />
 <svelte:element this="div" />
 <svelte:element this={tag} />
+<svelte:element this={big ? 'h3' : 'audio'} />
+<svelte:element this={nested ? 'h4' : 'h3'} />
+<svelte:element this={kind || 'canvas'} />
 `,
     })
-    expect(metrics.raw_media).toBe(1)
-    expect(detail.raw_media).toEqual([expect.stringMatching(/a\.svelte:1 img$/)])
+    expect(detail.raw_media).toEqual([
+      expect.stringMatching(/a\.svelte:1 img$/),
+      expect.stringMatching(/a\.svelte:2 video$/),
+      expect.stringMatching(/a\.svelte:5 audio$/),
+      expect.stringMatching(/a\.svelte:7 canvas$/),
+    ])
+    expect(metrics.raw_media).toBe(4)
   })
 
   it('raw_media counts media made in script, in .ts and .svelte', async () => {
@@ -461,6 +479,217 @@ export const ok = document.createElement('a')
     expect(metrics.raw_media).toBe(2)
   })
 
+  it('raw_media counts track, embed, object and canvas', async () => {
+    const { metrics, detail } = await measured({
+      'a.svelte': `<track src="a.vtt" />
+<embed src="b.pdf" />
+<object data="c.svg" title="c"></object>
+<canvas></canvas>
+`,
+    })
+    expect(detail.raw_media).toEqual([
+      expect.stringMatching(/a\.svelte:1 track$/),
+      expect.stringMatching(/a\.svelte:2 embed$/),
+      expect.stringMatching(/a\.svelte:3 object$/),
+      expect.stringMatching(/a\.svelte:4 canvas$/),
+    ])
+    expect(metrics.raw_media).toBe(4)
+  })
+
+  it('raw_media follows {@html} through a variable of the same file', async () => {
+    const { metrics, detail } = await measured({
+      'a.svelte': `<script lang="ts">
+  const picture = '<img src="a.png">'
+  let later = ''
+  later = \`<canvas></canvas>\`
+  const words = '<b>bold</b>'
+</script>
+{@html picture}
+{@html later}
+{@html words}
+`,
+    })
+    expect(detail.raw_media).toEqual([
+      expect.stringMatching(/a\.svelte:7 html$/),
+      expect.stringMatching(/a\.svelte:8 html$/),
+    ])
+    expect(metrics.raw_media).toBe(2)
+  })
+
+  it('raw_media counts a CSS background picture, in a stylesheet and a component', async () => {
+    const { metrics, detail } = await measured({
+      'a.css': `.hero {
+  background-image: url('a.png');
+}
+.plain { background: var(--bg); }
+.short { background: #000 url(b.png) no-repeat; }
+`,
+      'b.svelte': `<div class="x" style="background-image: url({src})"></div>
+<style>
+  .x { background-color: red; }
+  .y { background-image:url(c.png) }
+</style>
+`,
+      'c.svelte': `<div style:background-image={src}></div>
+<div style:background={colour}></div>
+`,
+    })
+    expect(detail.raw_media).toEqual([
+      expect.stringMatching(/a\.css:2 css background$/),
+      expect.stringMatching(/a\.css:5 css background$/),
+      expect.stringMatching(/b\.svelte:1 css background$/),
+      expect.stringMatching(/b\.svelte:4 css background$/),
+      expect.stringMatching(/c\.svelte:1 css background$/),
+    ])
+    expect(metrics.raw_media).toBe(5)
+  })
+
+  it('window_dialogs counts globalThis, self and a computed name', async () => {
+    const { metrics, detail } = await measured({
+      'a.ts': `globalThis.confirm('a')
+self.alert('b')
+window['confirm']('c')
+globalThis['prompt']('d')
+window[name]('e')
+other.alert('f')
+export {}
+`,
+    })
+    expect(detail.window_dialogs).toEqual([
+      expect.stringMatching(/a\.ts:1$/),
+      expect.stringMatching(/a\.ts:2$/),
+      expect.stringMatching(/a\.ts:3$/),
+      expect.stringMatching(/a\.ts:4$/),
+    ])
+    expect(metrics.window_dialogs).toBe(4)
+  })
+
+  it('unguarded_mutations: only the action action.svelte exports guards, under any local name', async () => {
+    const { metrics, detail } = await measured({
+      'a.svelte': `<script lang="ts">
+  import { api } from '../api'
+  import { action as act } from '../action.svelte'
+  const ok = act(() => api.cancelJob('j'))
+</script>
+`,
+      'b.svelte': `<script lang="ts">
+  import { api } from '../api'
+  import { action } from './elsewhere'
+  const notOk = action(() => api.cancelJob('j'))
+</script>
+`,
+      'c.svelte': `<script lang="ts">
+  import { api } from '../api'
+  const action = (f: () => unknown) => f
+  const notOk = action(() => api.deleteOutput('x'))
+</script>
+`,
+    })
+    expect(detail.unguarded_mutations).toEqual([
+      expect.stringMatching(/b\.svelte:4 cancelJob$/),
+      expect.stringMatching(/c\.svelte:4 deleteOutput$/),
+    ])
+    expect(metrics.unguarded_mutations).toBe(2)
+  })
+
+  it("unguarded_mutations counts a use of api.ts's exported writer setNote", async () => {
+    const { metrics, detail } = await measured(
+      {
+        'a.svelte': `<script lang="ts">
+  import { setNote, outputUrl } from '../src/lib/api'
+  import { action } from '../src/lib/action.svelte'
+  const save = action(() => setNote('t', 'x'), { doing: 'save' })
+</script>
+<button onclick={() => setNote('t', null)}>Clear</button>
+<img alt="" src={outputUrl('x')} />
+`,
+      },
+      [join(UI, 'src/lib/api.ts')],
+    )
+    expect(detail.unguarded_mutations).toEqual([
+      expect.stringMatching(/a\.svelte:6 setNote$/),
+    ])
+    expect(metrics.unguarded_mutations).toBe(1)
+  })
+
+  it('unguarded_mutations follows a write handed to a method that guards it (picks.svelte.ts)', async () => {
+    const { metrics, detail } = await measured({
+      'picks.svelte.ts': `import { action } from './action.svelte'
+export class Picks {
+  download(archive: (n: string[]) => Promise<unknown>, noun: string) {
+    const a = action((p: string[]) => archive(p), { doing: noun })
+    return a
+  }
+  star(set: (n: string, v: boolean) => Promise<unknown>) {
+    const put = async (n: string) => set(n, true)
+    return action(async (p: string[]) => put(p[0]), { doing: 'star' })
+  }
+  leak(write: (n: string) => Promise<unknown>) {
+    return write
+  }
+}
+export function guarded(write: () => Promise<unknown>) {
+  return action(() => write(), { doing: 'x' })
+}
+`,
+      'a.svelte': `<script lang="ts">
+  import { api } from '../api'
+  import { action } from '../action.svelte'
+  import { Picks, guarded } from './picks.svelte'
+  const picks = new Picks()
+  const d = picks.download(api.archiveOutputs, 'files')
+  const s = picks.star(api.setStarred)
+  const g = guarded(api.clearCache)
+  const w = action(api.deleteAsset, { doing: 'delete' })
+  const l = picks.leak(api.deleteOutput)
+  const bare = api.cancelJob
+  const read = picks.leak(api.listJobs)
+</script>
+`,
+    })
+    expect(detail.unguarded_mutations).toEqual([
+      expect.stringMatching(/a\.svelte:10 deleteOutput$/),
+      expect.stringMatching(/a\.svelte:11 cancelJob$/),
+    ])
+    expect(metrics.unguarded_mutations).toBe(2)
+  })
+
+  it('banned_terms checks single words, and a literal in a mustache', async () => {
+    const { metrics, detail } = await measured({
+      'a.svelte': `<script lang="ts">
+  import x from './starters'
+  const heading = 'Starters'
+</script>
+<p>{'(the run note)'}</p>
+<p>{\`Session\`}</p>
+`,
+    })
+    expect(detail.banned_terms).toEqual([
+      expect.stringMatching(/a\.svelte:3 starter$/),
+      expect.stringMatching(/a\.svelte:5 run-noun$/),
+      expect.stringMatching(/a\.svelte:6 session$/),
+    ])
+    expect(metrics.banned_terms).toBe(3)
+  })
+
+  it('the banned detail is sorted', async () => {
+    // lint order: b.svelte before a.svelte, line 10 before line 9, and
+    // `tilde` (listed first in BANNED) before `session` on one piece of copy
+    const { detail } = await measured({
+      'b.svelte': `<p>~3 min</p>\n`,
+      'a.svelte': `${'<p>x</p>\n'.repeat(8)}<p>{'~3 session'}</p>\n<p>{'Starters'}</p>\n`,
+    })
+    const found = detail.banned_terms.map((d: string) =>
+      d.replace(/^.*\/(\w\.svelte)/, '$1'),
+    )
+    expect(found).toEqual([
+      'a.svelte:9 session',
+      'a.svelte:9 tilde',
+      'a.svelte:10 starter',
+      'b.svelte:1 tilde',
+    ])
+  })
+
   it('raw_media spares exactly OutputTile and MediaBody', () => {
     expect([...RAW_MEDIA_OWNERS].sort()).toEqual([
       'src/lib/ui/MediaBody.svelte',
@@ -468,19 +697,57 @@ export const ok = document.createElement('a')
     ])
   })
 
-  it('duplicate_blocks counts one shared 6-line run once per file', async () => {
+  it('duplicate_blocks counts the lines in shared 6-line windows, per file', async () => {
     const block = Array.from(
       { length: 8 },
       (_, i) => `  <p class="row-${i}">line ${i}</p>`,
     ).join('\n')
-    const { metrics } = await measured({
+    const { metrics, detail } = await measured({
       'a.svelte': `<div>\n${block}\n</div>\n<p>only a</p>\n`,
       'b.svelte': `<section>\n  <h2>b</h2>\n${block.replaceAll('  <p', '      <p')}\n</section>\n`,
       'c.svelte': `<p>nothing shared</p>\n`,
     })
-    expect(metrics.duplicate_blocks).toBe(2)
+    expect(metrics.duplicate_blocks).toBe(16)
+    expect(detail.duplicate_blocks).toEqual([
+      expect.stringMatching(/a\.svelte: 8 lines$/),
+      expect.stringMatching(/b\.svelte: 8 lines$/),
+    ])
+  })
+
+  it('duplicate_blocks: a fix in the middle of a shared run never raises it', async () => {
+    const lines = Array.from({ length: 14 }, (_, i) => `<p>line ${i}</p>`)
+    const whole = await measured({
+      'a.svelte': lines.join('\n'),
+      'b.svelte': lines.join('\n'),
+    })
+    const split = lines.map((l, i) => (i === 7 ? '<p>changed</p>' : l))
+    const fixed = await measured({
+      'a.svelte': split.join('\n'),
+      'b.svelte': lines.join('\n'),
+    })
+    expect(whole.metrics.duplicate_blocks).toBe(28)
+    // the run splits in two, and the count falls rather than doubling
+    expect(fixed.metrics.duplicate_blocks).toBeLessThan(
+      whole.metrics.duplicate_blocks,
+    )
   })
 })
+
+describe("api.ts's exports outside api", () => {
+  // A new export fails here until someone says whether it writes, so
+  // unguarded_mutations cannot miss it
+  it('puts every export in exactly one of EXPORTED_WRITES and EXPORTED_NOT_WRITES', () => {
+    const exported = Object.keys(apiModule).filter((k) => k !== 'api')
+    const listed = [...EXPORTED_WRITES, ...EXPORTED_NOT_WRITES]
+    expect([...listed].sort()).toEqual([...exported].sort())
+    expect(new Set(listed).size).toBe(listed.length)
+  })
+})
+
+it('the metrics script holds the complexity limit it measures', async () => {
+  const { metrics } = await measure([SCRIPT], ['asset:'])
+  expect(metrics.complex_functions).toBe(0)
+}, 60_000)
 
 describe('the read classification', () => {
   // A new api method fails here until someone says whether it is a read, so

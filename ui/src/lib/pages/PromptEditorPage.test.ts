@@ -11,8 +11,9 @@ import {
 import PromptEditorPage from './PromptEditorPage.svelte'
 import { api } from '../api'
 import { ApiError } from '../apiErrors'
-import { chooseDialog } from '../confirm.svelte'
+import { chooseDialog, confirmDialog } from '../confirm.svelte'
 import { feed } from '../test/feedMock'
+import { formatMtime } from '../format'
 
 // Monaco cannot boot in jsdom; the JSON view is read through this stub,
 // which renders the value it was handed as plain text
@@ -372,6 +373,68 @@ it('Load theirs replaces the edits', async () => {
   expect(screen.queryByRole('button', { name: 'Load theirs' })).toBeNull()
 })
 
+it('a remote reload refreshes the enhancer idea', async () => {
+  vi.mocked(api.getPrompt).mockResolvedValueOnce({
+    prompt: { text: 'a hero at dawn', enhanced: { idea: 'my idea' } },
+    writable: true,
+    etag: '"p1"',
+  } as never)
+  await openHero()
+  const idea = () => document.getElementById('enhance-idea') as HTMLInputElement
+  await waitFor(() => expect(idea().value).toBe('my idea'))
+  vi.mocked(api.getPrompt).mockResolvedValueOnce({
+    prompt: { text: 'their version', enhanced: { idea: 'their idea' } },
+    writable: true,
+    etag: '"p9"',
+  } as never)
+  feed.move('default', 'prompts')
+  await waitFor(() => expect(promptText().value).toBe('their version'))
+  await waitFor(() => expect(idea().value).toBe('their idea'))
+})
+
+it('a remote reload keeps an enhancer idea the person typed', async () => {
+  vi.mocked(api.getPrompt).mockResolvedValueOnce({
+    prompt: { text: 'a hero at dawn', enhanced: { idea: 'my idea' } },
+    writable: true,
+    etag: '"p1"',
+  } as never)
+  await openHero()
+  const idea = () => document.getElementById('enhance-idea') as HTMLInputElement
+  await waitFor(() => expect(idea().value).toBe('my idea'))
+  await fireEvent.input(idea(), {
+    target: { value: 'typed, not enhanced yet' },
+  })
+  vi.mocked(api.getPrompt).mockResolvedValueOnce({
+    prompt: { text: 'their version', enhanced: { idea: 'their idea' } },
+    writable: true,
+    etag: '"p9"',
+  } as never)
+  feed.move('default', 'prompts')
+  await waitFor(() => expect(promptText().value).toBe('their version'))
+  expect(idea().value).toBe('typed, not enhanced yet')
+})
+
+it('a second Delete while the warning loads does nothing', async () => {
+  await openHero()
+  let land: (listing: unknown) => void = () => {}
+  vi.mocked(api.listWorkflows).mockClear()
+  vi.mocked(api.listWorkflows).mockReturnValueOnce(
+    new Promise((resolve) => (land = resolve)) as never,
+  )
+  vi.mocked(confirmDialog).mockClear()
+  vi.mocked(confirmDialog).mockResolvedValueOnce(false)
+  const del = screen.getByRole('button', {
+    name: 'delete this prompt from the library',
+  })
+  await fireEvent.click(del)
+  await fireEvent.click(del)
+  land({ workflows: [], details: {} })
+  await waitFor(() => expect(confirmDialog).toHaveBeenCalledTimes(1))
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  expect(confirmDialog).toHaveBeenCalledTimes(1)
+  expect(api.listWorkflows).toHaveBeenCalledTimes(1)
+})
+
 it('shows the unsaved chip like the workflow editor', async () => {
   await openHero()
   expect(screen.queryByText('unsaved')).toBeNull()
@@ -407,4 +470,46 @@ it('an example prompt says so', async () => {
       "This is an example, so it can't be changed in place. Save makes your own copy in default.",
     ),
   ).toBeTruthy()
+})
+
+it('PromptEditorPage says when the prompt was last saved', async () => {
+  const changed = 1_790_000_000
+  vi.mocked(api.listPrompts).mockResolvedValueOnce({
+    prompts: ['portraits/hero'],
+    libraries: [{ origin: 'workspace', root: 'prompts', writable: true }],
+    shadowed: [],
+    details: { 'portraits/hero': { mtime: changed } },
+  } as never)
+  await openHero()
+  await waitFor(() =>
+    expect(document.querySelector('.stamp time')?.textContent?.trim()).toBe(
+      `Changed ${formatMtime(changed)}`,
+    ),
+  )
+})
+
+it('PromptEditorPage says its own save at once, from no change feed', async () => {
+  const list = vi.mocked(api.listPrompts)
+  const original = list.getMockImplementation()!
+  let changed = 1_790_000_000
+  list.mockImplementation(
+    async () =>
+      ({
+        prompts: ['portraits/hero'],
+        libraries: [{ origin: 'workspace', root: 'prompts', writable: true }],
+        shadowed: [],
+        details: { 'portraits/hero': { mtime: changed } },
+      }) as never,
+  )
+  try {
+    await openHero()
+    const stamp = () => document.querySelector('.stamp time')?.textContent
+    await waitFor(() => expect(stamp()).toBe(`Changed ${formatMtime(changed)}`))
+    changed += 3600
+    await fireEvent.click(saveButton())
+    // the feed never moves here: the save itself reads the time back
+    await waitFor(() => expect(stamp()).toBe(`Changed ${formatMtime(changed)}`))
+  } finally {
+    list.mockImplementation(original)
+  }
 })

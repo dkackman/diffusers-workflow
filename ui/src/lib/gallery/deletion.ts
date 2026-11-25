@@ -3,7 +3,7 @@
 // are among them and can spare them.
 import type { ConfirmSpec } from '../action.svelte'
 import { chooseDialog, confirmDialog } from '../confirm.svelte'
-import { destroyConfirm } from '../destructive'
+import { destroyConfirm, spareStarredChoices } from '../destructive'
 import type { GalleryFile } from '../types'
 
 export function deletionChoices(
@@ -43,13 +43,7 @@ export async function askDeletion(
   // Every ticked file starred: there is nothing to spare them from
   const answer = await chooseDialog(
     spec.message,
-    [
-      { label: 'Delete all', value: 'all', danger: true },
-      ...(unstarred > 0
-        ? [{ label: `Delete the ${unstarred} unstarred`, value: 'unstarred' }]
-        : []),
-      { label: 'Cancel', value: 'cancel' },
-    ],
+    spareStarredChoices(unstarred),
     { title: spec.title },
   )
   if (answer === 'all') return names

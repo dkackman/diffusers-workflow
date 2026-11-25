@@ -845,7 +845,7 @@ invalid answer carries no `plan` key.
 | `workspace` | The name of the workspace whose step cache was probed, so a `cached_steps: 0` against the wrong workspace's outputs can be seen |
 | `downloads_required` | What the run must fetch first (*Downloads* below); `[]` when nothing |
 | `estimate` | The run's minutes and what they rest on (*Estimate* below) |
-| `host_memory` | `{projected_mb, basis, runs}`, the run's projected host-RAM peak (*Host memory* below); absent when there is no figure |
+| `host_memory` | `{projected_mb, basis, runs}` (plus `inherited_from` when `basis` is `inherited`), the run's projected host-RAM peak (*Host memory* below); absent when there is no figure |
 
 **Fingerprint.** Taken over the realized, expanded definition after elision,
 with each `prompt:` inlined, the seed and every key that cannot change the
@@ -1007,7 +1007,8 @@ beside it so `minutes` can be reconciled against either. With nothing to
 blend toward, `minutes` is left alone and `low_confidence` is set instead.
 
 **Host memory.** `host_memory` is the run's projected host-RAM peak,
-`{projected_mb, basis, runs}`. `basis` is:
+`{projected_mb, basis, runs}`, plus `inherited_from` when `basis` is
+`inherited`. `basis` is:
 
 - `observed` - the largest committed job peak of this machine's successful
   runs with the same memory key, or the largest job peak RSS where none
@@ -1019,7 +1020,8 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
 - `inherited` - no run of its own memory key, no fit and no declaration: the
   largest peak among this machine's successful runs of the catalog templates
   that load the same single pipeline identity, each at its default
-  arguments; `runs` counts the runs of the template that gave it.
+  arguments; `runs` counts the runs of the template that gave it, and
+  `inherited_from` names that template.
 
 ## Files and models
 
@@ -1082,7 +1084,11 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
   otherwise. `inputs=true` adds to each full-view detail `inputs`: every
   variable that feeds a media argument (`image`, `mask_image`, `video`,
   `audio`, ...) or sits in a `location` object, and the kind it takes
-  (`image`, `video`, `audio` or `file`); without it the key is absent
+  (`image`, `video`, `audio` or `file`); without it the key is absent.
+  `times=true` adds to each detail `mtime` (epoch seconds, when its file last
+  changed) and `created` (when it was first written) where the filesystem
+  records a birth time (macOS, the BSDs; not Linux), never the mtime in its
+  place; without it neither key is sent, so MCP's listings are unchanged
 - `GET/PUT/DELETE /api/workflows/{name}` — read, save, delete workflow files
   (confined to `--workflow-dir`); `PATCH` applies a JSON merge patch (RFC 7396,
   `application/merge-patch+json` or JSON) to the stored version and saves the
@@ -1107,7 +1113,8 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
   reference can load); the listing carries `libraries`, `shadowed` and an
   `origin`/`writable` per entry in `details`; deleting a read-only entry is a
   403; saves are validated against the prompt schema,
-  served at `GET /api/prompt-schema`
+  served at `GET /api/prompt-schema`. `times=true` adds `mtime` and, where
+  the filesystem has one, `created` to each detail, as the workflow listing does
   `GET` and `PUT /api/prompts/{name}` send the same `ETag`, and `PUT` honours
   `If-None-Match: *` (409 `exists`) and `If-Match` (409 `stale_write`) as a workflow
   save does; without either header it overwrites
@@ -1362,7 +1369,11 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
   `default`, and refuses a workspace with jobs still queued or running. Each listed
   workspace carries `usage` (`{files, bytes}`), an approximate walk of its
   own folders at most once a minute; the shared prompt library counts
-  against `default` alone. `exports/` beside the workspace folders holds one
+  against `default` alone. `times=true` adds `mtime`, the newest mtime of
+  its own folders and the entries directly in them (a workflow saved, an
+  asset folder filled, a run landing in `outputs/<workflow>/`), and
+  `created`, its root's birth time where the filesystem records one.
+  `exports/` beside the workspace folders holds one
   directory per exported job and is never listed as a workspace
 - `POST /api/workspaces/{destination}/copy` (`{"source": ..., "runs": [...],
   "assets": [...]}`) — copy runs and assets from one workspace into another.
@@ -1403,7 +1414,8 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
   its `asset:` reference, which survives the run's outputs being pruned. The
   copy stays inside the workspace and is a hard link where the filesystem
   allows one. Refuses an
-  existing name unless `overwrite`. `asset_name` may name a folder and takes
+  existing name unless `overwrite`: an existing name without `overwrite` is a
+  409 whose `detail` is `{code: "exists", message}`. `asset_name` may name a folder and takes
   the kept file's extension when it carries none (a contradicting one is a
   400) — the same rule the upload route follows, and what keeps a kept asset
   from landing under an extensionless name the library listing never shows.
@@ -1505,8 +1517,8 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
   which machine answered. `current_job` is the longest-running job and `worker_alive`
   is true if any worker is alive; `workers` has one entry per card (one with a
   single device): `{device, name, vram_gb, current_job, alive,
-  host_memory_rss_mb, pid, oom_score_adj}` - `device` is the ordinal (`cuda:1`) and `name` the
-  GPU's own name, the two halves of a job's `device` - the last three absent when the worker process isn't running (`oom_score_adj` is read from `/proc` at call time, so it shows the kernel's value: 1000 for the latest dispatch's worker in a pool, the spawn-time value - the server's own - for the others)
+  host_memory_rss_mb, pid, workspace, oom_score_adj}` - `device` is the ordinal (`cuda:1`) and `name` the
+  GPU's own name, the two halves of a job's `device` - the last three absent when the worker process isn't running, and `workspace` - the workspace of `current_job` - absent while the worker is idle (`oom_score_adj` is read from `/proc` at call time, so it shows the kernel's value: 1000 for the latest dispatch's worker in a pool, the spawn-time value - the server's own - for the others)
 - `POST /api/memory/clear` — drops every loaded pipeline and the step
   cache on each idle card (MCP `clear_memory`), and returns the memory
   reading taken right after. A card running a job is left alone: `workers`

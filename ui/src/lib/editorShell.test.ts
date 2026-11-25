@@ -15,6 +15,7 @@ import { confirmDialog } from './confirm.svelte'
 import { changeOnBlur } from './test/changeOnBlur'
 import { feed } from './test/feedMock'
 import { saveDocument } from './documentSave'
+import RemoteChanged from './ui/RemoteChanged.svelte'
 
 vi.mock('./toast', () => ({
   notify: { error: vi.fn(), success: vi.fn(), dismiss: vi.fn() },
@@ -634,6 +635,54 @@ describe('watchRemote', () => {
     expect(read).not.toHaveBeenCalled()
   })
 
+  it('a re-read that finds the file gone says it was deleted', async () => {
+    const shell = watching(vi.fn().mockResolvedValue({ gone: true }))
+    shell.doc.text = 'edited'
+    await moved()
+    expect(shell.remote).toBe('gone')
+    // the edits stay on screen, and nothing claims a reload
+    expect(shell.doc).toEqual({ text: 'edited' })
+    expect(notify.success).not.toHaveBeenCalled()
+    render(RemoteChanged, {
+      label: 'hero',
+      gone: true,
+      ontheirs: vi.fn(),
+      onmine: vi.fn(),
+    })
+    expect(
+      document.querySelector('.remotechanged[role="status"]')?.textContent,
+    ).toContain(
+      'hero was deleted on the server. Save to write it back, or leave to discard your edits.',
+    )
+    expect(document.body.textContent).not.toContain('Load theirs')
+  })
+
+  it('a save over a deleted file creates it', async () => {
+    const shell = watching(vi.fn().mockResolvedValue({ gone: true }))
+    shell.doc.text = 'edited'
+    await moved()
+    expect(shell.preconditions('hero')).toEqual({ createOnly: true })
+    const write = vi.fn(async () => ({ etag: '"e3"' }))
+    expect(
+      await saveDocument(shell, { path: 'hero', label: 'hero', write }),
+    ).toBe('saved')
+    expect(write).toHaveBeenCalledWith({ createOnly: true })
+    expect(shell.remote).toBe('same')
+    expect(shell.preconditions('hero')).toEqual({ ifMatch: '"e3"' })
+  })
+
+  it('a newer read never toasts a draft that does not parse', async () => {
+    const shell = watching(vi.fn().mockResolvedValue(theirs))
+    // The JSON editor's flusher: a draft typed quietly, applied on flush
+    shell.registerFlush((options) => shell.applyJson('{ broken', options))
+    shell.applyJson('{ broken', { quiet: true })
+    await moved()
+    expect(notify.error).not.toHaveBeenCalled()
+    expect(shell.remote).toBe('diverged')
+    expect(shell.jsonDraft).toBe('{ broken')
+    expect(shell.doc).toEqual({ text: 'mine' })
+  })
+
   it("the user's own save does not raise the banner", async () => {
     let land: (r: Read) => void = () => {}
     const read = vi
@@ -678,6 +727,24 @@ describe('editorKeys', () => {
     expect(run).toHaveBeenCalledTimes(1)
     onkey(press({ key: 's' }))
     expect(save).toHaveBeenCalledTimes(2)
+  })
+
+  it('Shift+Ctrl+S saves and Shift+Ctrl+Enter runs', () => {
+    const ed = mount()
+    ed.startNew({})
+    const save = vi.fn()
+    const run = vi.fn()
+    const onkey = editorKeys(ed, { save, run })
+    const shiftS = press({ key: 'S', ctrlKey: true, shiftKey: true })
+    onkey(shiftS)
+    onkey(press({ key: 'S', metaKey: true, shiftKey: true }))
+    expect(save).toHaveBeenCalledTimes(2)
+    expect(shiftS.defaultPrevented).toBe(true)
+    const shiftEnter = press({ key: 'Enter', ctrlKey: true, shiftKey: true })
+    onkey(shiftEnter)
+    onkey(press({ key: 'Enter', metaKey: true, shiftKey: true }))
+    expect(run).toHaveBeenCalledTimes(2)
+    expect(shiftEnter.defaultPrevented).toBe(true)
   })
 
   it('ignores keys under an overlay, mid-composition and while busy', () => {

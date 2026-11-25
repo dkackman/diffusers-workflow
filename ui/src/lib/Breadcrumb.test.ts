@@ -66,8 +66,9 @@ it("shows the sidebar's labels", () => {
   expect(SECTION_LABELS.shared['prompt-edit']).toBe('Prompt editor')
 })
 
-it('a missing route reads Not found', () => {
+it('the not-found crumb is not a link', () => {
   at('#/ws/studio/nope')
   render(Breadcrumb)
-  expect(links()).toEqual([['Not found', '#/ws/studio/nope']])
+  expect(screen.queryAllByRole('link')).toEqual([])
+  expect(screen.getByText('Page not found').tagName).toBe('SPAN')
 })

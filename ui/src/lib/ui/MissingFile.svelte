@@ -1,9 +1,11 @@
 <script lang="ts">
   // What a page says under its header when the link's open= names a file
-  // its view does not list (mediaViewer.ts): the leaf, until dismissed
+  // its view does not list: missingFile.svelte.ts's `missing`, until
+  // dismissed
   import { X } from '@lucide/svelte'
 
-  let { leaf = $bindable('') }: { leaf: string } = $props()
+  let { leaf, ondismiss }: { leaf: string | null; ondismiss: () => void } =
+    $props()
 </script>
 
 {#if leaf}
@@ -14,7 +16,7 @@
       class="quiet icon"
       aria-label="Dismiss"
       title="Dismiss"
-      onclick={() => (leaf = '')}
+      onclick={ondismiss}
     >
       <X size={14} />
     </button>

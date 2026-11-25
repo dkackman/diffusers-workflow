@@ -9,7 +9,7 @@ import { ApiError } from '../apiErrors'
 import type { RequestWriteBody } from '../apiRequest'
 import type { UndoTarget } from '../destructive'
 import type { LedgerItem, LedgerRequest } from '../types'
-import { culprit, itemDiff, type Conflict } from './conflict'
+import { culprit, itemDiff, stateCulprit, type Conflict } from './conflict'
 import {
   apply,
   fold,
@@ -56,6 +56,10 @@ export type PlanIo = {
   /** A write of the user's was saved: what is held after it, for a
    * resource to `adopt` so the edit is never marked as someone else's */
   onsaved?: (held: LedgerRequest) => void
+  /** A read made to retry a stale write, after `onread`: the agent's
+   * change it found, for a resource to `observe` as a quiet read so it is
+   * marked, and not lost to the save's `adopt` */
+  onquiet?: (read: LedgerRequest) => void
 }
 
 /** The two calls a store makes for request `id` of workspace `ws` */
@@ -145,12 +149,13 @@ export class PlanStore {
 
   /** Read the request again and keep it unless what is held is newer
    * (`take`). Resolves with what is then held; a reply for a request the
-   * store has since been reset from is not taken. `get` is called before
-   * any await, so a resource loading through this tracks what it reads */
-  async refresh(): Promise<LedgerRequest> {
+   * store has since been reset from, or that `isCurrent` says a later read
+   * overtook, is not taken. `get` is called before any await, so a resource
+   * loading through this tracks what it reads */
+  async refresh(isCurrent?: () => boolean): Promise<LedgerRequest> {
     const epoch = this.#epoch
     const found = await this.#io.get()
-    if (epoch !== this.#epoch) return found
+    if (epoch !== this.#epoch || isCurrent?.() === false) return found
     this.take(found)
     return this.read ?? found
   }
@@ -310,8 +315,11 @@ export class PlanStore {
       key,
       title: entry.seen?.title ?? key ?? 'this request',
       // A state moved on may have been read before this write was asked
-      // for: the latest write names it, not only a later one
-      entry: culprit(basis.history, refusal === 'moved_on' ? 0 : entry.since),
+      // for: the write that set the state names it, however long ago
+      entry:
+        refusal === 'moved_on'
+          ? stateCulprit(basis.history)
+          : culprit(basis.history, entry.since),
       changes,
     }
     this.conflicts = [...this.conflicts, conflict]
@@ -372,7 +380,10 @@ export class PlanStore {
       return this.#reject(entry, error)
     try {
       const fresh = await this.#io.get()
-      if (epoch === this.#epoch) this.take(fresh)
+      if (epoch === this.#epoch) {
+        this.take(fresh)
+        this.#io.onquiet?.(fresh)
+      }
     } catch (failure) {
       if (epoch === this.#epoch) this.#reject(entry, failure)
     }

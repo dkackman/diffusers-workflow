@@ -99,6 +99,18 @@ const keepOutput = vi.hoisted(() => vi.fn())
 const listAssets = vi.hoisted(() =>
   vi.fn(() => Promise.resolve({ assets: [{ name: 'a.png' }] })),
 )
+// Use as input's workflows: two of the same leaf in different folders
+const listWorkflows = vi.hoisted(() =>
+  vi.fn(() =>
+    Promise.resolve({
+      workflows: ['people/edit', 'pets/edit'],
+      details: {
+        'people/edit': { variable_names: ['image'], writable: true },
+        'pets/edit': { variable_names: ['image'], writable: true },
+      },
+    }),
+  ),
+)
 const assess = vi.hoisted(() =>
   vi.fn<(name: string) => Promise<unknown>>(() => new Promise(() => {})),
 )
@@ -124,6 +136,7 @@ vi.mock('../api', async () => ({
     assess: (name: string) => assess(name),
     keepOutput: (...a: unknown[]) => keepOutput(...a),
     listAssets: () => listAssets(),
+    listWorkflows: () => listWorkflows(),
     getJob: () => new Promise(() => {}),
   },
 }))
@@ -695,8 +708,18 @@ it('marks each file with the version of the run that wrote it', async () => {
   // Two runs of one workflow write the same basename - the case where the
   // label alone tells a person nothing about which is which
   listing.files = [
-    { ...file('acorn/r1/film.mp4'), label: 'film.mp4', version: 1 },
-    { ...file('acorn/r2/film.mp4'), label: 'film.mp4', version: 4 },
+    {
+      ...file('acorn/r1/film.mp4'),
+      run_id: 'r1',
+      label: 'film.mp4',
+      version: 1,
+    },
+    {
+      ...file('acorn/r2/film.mp4'),
+      run_id: 'r2',
+      label: 'film.mp4',
+      version: 4,
+    },
   ]
   render(GalleryPage)
   await waitFor(() => expect(screen.getAllByText('film.mp4')).toHaveLength(2))
@@ -941,6 +964,26 @@ it('starring offers Undo, which unstars', async () => {
   expect(
     screen.getByRole('button', { name: 'Star', pressed: false }),
   ).toBeTruthy()
+})
+
+it("a star Undo leaves another writer's star", async () => {
+  await renderGallery()
+  await openFile('a.png')
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Star', pressed: false }),
+  )
+  await waitFor(() => expect(notifyUndo).toHaveBeenCalledTimes(1))
+  await waitFor(() => expect(starMark('a.png')).toBeTruthy())
+  // Unstarred elsewhere since: the listing that lands says so
+  feed.move(DEFAULT_WORKSPACE, 'gallery')
+  await waitFor(() => expect(starMark('a.png')).toBeNull())
+  notifyUndo.mock.calls[0][1]()
+  await waitFor(() =>
+    expect(notifyError).toHaveBeenCalledWith(
+      'Nothing undone: the star was changed since.',
+    ),
+  )
+  expect(setStarred).toHaveBeenCalledTimes(1)
 })
 
 it('an undo that fails is reported, not thrown', async () => {
@@ -1317,6 +1360,92 @@ it('an open= naming a file in a collapsed folder opens it and the folder', async
   expect(await viewer('demo/c.png')).toBeTruthy()
   expect(screen.queryByText(/is not in this view any more/)).toBeNull()
   await waitFor(() => expect(checkbox('demo/c.png')).toBeTruthy())
+  // the deep-linked folder is aria-expanded
+  expect(demoToggle()).toHaveAttribute('aria-expanded', 'true')
+})
+
+it('a stray open= said in one workspace is not said in the next', async () => {
+  location.hash = '#/ws/default/gallery?open=gone%2Fold.png'
+  await renderGallery()
+  await screen.findByText('old.png is not in this view any more.')
+  workspace.current = 'studio'
+  await waitFor(() =>
+    expect(screen.queryByText(/is not in this view any more/)).toBeNull(),
+  )
+  workspace.current = DEFAULT_WORKSPACE
+})
+
+it('a stray open= is unsaid when the file arrives', async () => {
+  location.hash = '#/ws/default/gallery?open=late.png'
+  await renderGallery()
+  await screen.findByText('late.png is not in this view any more.')
+  listing.files = [...listing.files, file('late.png')]
+  feed.move(DEFAULT_WORKSPACE, 'gallery')
+  await waitFor(() =>
+    expect(screen.queryByText(/is not in this view any more/)).toBeNull(),
+  )
+  // the link was cleared when it was said: the viewer stays shut
+  expect(screen.queryByRole('dialog')).toBeNull()
+})
+
+it('same-leaf tiles are told apart by their caption and name', async () => {
+  listing.files = [file('a.png'), file('one/x.png'), file('two/x.png')]
+  await renderGallery()
+  expect(tile('one/x.png')).toHaveTextContent('one/x.png')
+  expect(tile('two/x.png')).toHaveTextContent('two/x.png')
+  // a leaf no other file shares keeps the listing's own label
+  expect(tile('a.png')).toHaveTextContent(/^a$/)
+})
+
+const useAsInputFrom = async (more: boolean) => {
+  await renderGallery()
+  const sheet = await openFile('a.png')
+  if (more) {
+    await fireEvent.click(within(sheet).getByRole('button', { name: 'More' }))
+    const menu = await screen.findByRole('dialog', { name: 'More' })
+    await fireEvent.click(
+      within(menu).getByRole('button', { name: /Use as input/ }),
+    )
+  } else
+    await fireEvent.click(
+      within(sheet).getByRole('button', { name: /Use as input/ }),
+    )
+  return screen.findByRole('dialog', { name: 'Use a.png as input' })
+}
+
+it("Use as input's choose path opens the workflow with the file filled in", async () => {
+  const dialog = await useAsInputFrom(false)
+  // the two same-leaf workflows are told apart
+  await within(dialog).findByRole('button', { name: 'people/edit' })
+  await fireEvent.click(
+    within(dialog).getByRole('button', { name: 'pets/edit' }),
+  )
+  await waitFor(() =>
+    expect(location.hash).toBe('#/ws/default/workflows/pets/edit'),
+  )
+  expect(
+    JSON.parse(sessionStorage.getItem('dw-workflow-prefill') ?? 'null'),
+  ).toEqual({ workflow: 'pets/edit', arguments: { image: 'output:a.png' } })
+  sessionStorage.clear()
+})
+
+it("Use as input's dialog opens from More at a phone's width", async () => {
+  const widthOf = (px: number) => {
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      value: px,
+    })
+    window.dispatchEvent(new Event('resize'))
+  }
+  widthOf(390)
+  try {
+    const dialog = await useAsInputFrom(true)
+    expect(
+      await within(dialog).findByRole('button', { name: 'people/edit' }),
+    ).toBeTruthy()
+  } finally {
+    widthOf(1024)
+  }
 })
 
 it('the viewer steps on when its file is deleted elsewhere', async () => {
@@ -1360,8 +1489,7 @@ it("offers the file's reference and a download beside it", async () => {
 
 // Save as asset: the name dialog, and Replace or Keep both when it is taken
 
-// keep_output's exists refusal carries no code, only this wording
-// (dw/server/routes/assets.py)
+// keep_output's exists refusal: code 'exists' (dw/server/routes/assets.py)
 const TAKEN = 'asset:a.png already exists - pass overwrite=true to replace it'
 
 /** Press Save as asset and save under the name it offers */
@@ -1405,7 +1533,7 @@ it('offers Save as asset, never window.prompt, and lists nothing to save', async
 })
 
 it('cancelling the exists question on Save as asset shows no error', async () => {
-  keepOutput.mockRejectedValueOnce(new ApiError(TAKEN, 409))
+  keepOutput.mockRejectedValueOnce(new ApiError(TAKEN, 409, 'exists'))
   await renderGallery()
   await openFile('a.png')
   await saveAsAsset()
@@ -1425,7 +1553,7 @@ it('cancelling the exists question on Save as asset shows no error', async () =>
 
 it('Replace on Save as asset retries with overwrite, Keep both under a free name', async () => {
   keepOutput
-    .mockRejectedValueOnce(new ApiError(TAKEN, 409))
+    .mockRejectedValueOnce(new ApiError(TAKEN, 409, 'exists'))
     .mockResolvedValueOnce({ reference: 'asset:a.png' })
   await renderGallery()
   await openFile('a.png')
@@ -1438,7 +1566,7 @@ it('Replace on Save as asset retries with overwrite, Keep both under a free name
   await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
 
   keepOutput
-    .mockRejectedValueOnce(new ApiError(TAKEN, 409))
+    .mockRejectedValueOnce(new ApiError(TAKEN, 409, 'exists'))
     .mockResolvedValueOnce({ reference: 'asset:a-2.png' })
   await saveAsAsset()
   await fireEvent.click(
@@ -1817,4 +1945,15 @@ it('an empty gallery says where to go', async () => {
   render(GalleryPage)
   const link = await screen.findByRole('link', { name: 'Run a workflow' })
   expect(link.getAttribute('href')).toMatch(/^#\/ws\/[^/]+\/workflows$/)
+})
+
+it('GalleryPage says when each output changed', async () => {
+  const now = Math.floor(Date.now() / 1000)
+  listing.files = [{ ...file('a.png'), mtime: now - 10 * 60 }]
+  await renderGallery()
+  const stamp = tile('a.png')!
+    .closest('.filetile')!
+    .querySelector('.tile-meta time')!
+  expect(stamp.textContent?.trim()).toBe('changed 10 min ago')
+  expect(stamp.getAttribute('title')).toBeTruthy()
 })

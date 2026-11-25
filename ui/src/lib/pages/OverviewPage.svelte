@@ -21,8 +21,10 @@
   import PageHeader from '../ui/PageHeader.svelte'
   import Skeleton from '../ui/Skeleton.svelte'
   import { WORKSPACE } from '../references'
-  import { formatBytes, formatMtime } from '../format'
+  import { formatBytes } from '../format'
+  import Time from '../ui/Time.svelte'
   import { workflowName } from '../terms'
+  import { compareNames } from '../names'
   import { hiddenWorkspaces, setHidden } from '../hiddenWorkspaces.svelte'
   import { latestProofs, proofByRun } from '../proofs'
   import { fileHref, jobHref, sharedHref, wsHref } from '../routes'
@@ -31,7 +33,6 @@
     DEFAULT_WORKSPACE,
     invalidateWorkspaces,
     loadWorkspaces,
-    relistWorkspaces,
     workspace,
   } from '../workspace.svelte'
   import { deleteWorkspaceWithConfirm } from '../workspaceActions'
@@ -115,8 +116,11 @@
   // The note box is fed by `workspace.notes` alone, which only the
   // workspaces watch touches, and NoteEditor keeps an open draft when a
   // newer note arrives. The listing is module state (workspace.svelte.ts):
-  // this is how it stays fresh, not where it is held
-  resource(() => relistWorkspaces(), { watch: ['workspaces'] })
+  // this is how it stays fresh, not where it is held. The Sidebar, always
+  // mounted, relists on a `workspaces` move; this one only joins that read
+  // (`loadWorkspaces` hands back the one on its way), so a move lists the
+  // workspaces once, and it never reads at first: the shell already has
+  resource(() => loadWorkspaces(), { watch: ['workspaces'], lazy: true })
 
   // The ones that have produced something first - the same order the catalog
   // uses, so the overview and the catalog agree on what is "recent"
@@ -129,7 +133,7 @@
     [...(workflows.data?.names ?? [])]
       .sort(
         (l, r) =>
-          (proofs[l] ? 0 : 1) - (proofs[r] ? 0 : 1) || l.localeCompare(r),
+          (proofs[l] ? 0 : 1) - (proofs[r] ? 0 : 1) || compareNames(l, r),
       )
       .slice(0, WORKFLOWS),
   )
@@ -221,10 +225,9 @@
           <span class="wf">{workflowName(job)}</span>
         </span>
         <span class="when">
-          {#if when !== null}<span class="at">{formatMtime(when)}</span><span
-              class="sep"
-              aria-hidden="true"
-            >
+          {#if when !== null}<span class="at">
+              <Time at={when} />
+            </span><span class="sep" aria-hidden="true">
               &nbsp;·&nbsp;
             </span>{/if}<span class="jid" title={job.id}>{job.id}</span>
         </span>
@@ -251,6 +254,9 @@
           <span class="muted num" title="items done, of those in the plan">
             {doneFigure(req)}
           </span>
+          {#if req.updated_at}<span class="muted reqwhen">
+              <Time at={Date.parse(req.updated_at) / 1000} label="changed" />
+            </span>{/if}
           <span class="muted reqline">{attention(req).text}</span>
         </li>
       {/each}
@@ -446,6 +452,9 @@
   .jobs .reqrow {
     flex-wrap: wrap;
     row-gap: 0;
+  }
+  .jobs .reqwhen {
+    font-size: var(--t-xs);
   }
   .jobs .reqline {
     flex: 1 0 100%;

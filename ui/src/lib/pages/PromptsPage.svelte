@@ -5,15 +5,18 @@
   import LoadState from '../ui/LoadState.svelte'
   import PageHeader from '../ui/PageHeader.svelte'
   import FolderGroups from '../FolderGroups.svelte'
-  import { leafOf } from '../grouping'
+  import { groupOf, leafOf } from '../grouping'
   import HintBar from '../HintBar.svelte'
   import { sharedHref } from '../routes'
   import { writableRoot } from '../libraries'
   import type { PromptDetail } from '../types'
   import { hashState } from '../router.svelte'
+  import ListSort, { listSort, newestFirst } from '../ui/ListSort.svelte'
+  import Time from '../ui/Time.svelte'
 
   // In the hash, so Back from a prompt - or a shared link - keeps it
   const filter = hashState('q', '')
+  const sort = listSort()
 
   // A prompt an agent saves shows within one feed interval, marked
   const list = resource(() => api.listPrompts(), {
@@ -26,7 +29,7 @@
   )
   const promptDir = $derived(writableRoot(list.data?.libraries ?? []))
 
-  const visible = $derived(
+  const matching = $derived(
     prompts.filter((name) => {
       const needle = filter.value.toLowerCase()
       const detail = details[name]
@@ -38,6 +41,11 @@
       )
     }),
   )
+  // Newest first is one list across the folders
+  const newest = $derived(sort.value === 'newest')
+  const visible = $derived(
+    newest ? newestFirst(matching, (name) => details[name]?.mtime) : matching,
+  )
 
   const href = (name: string) => sharedHref('prompt-edit', ...name.split('/'))
 </script>
@@ -46,7 +54,7 @@
   <input placeholder="filter…" bind:value={filter.value} class="filter" />
 {/snippet}
 <PageHeader title="Prompts" filter={search}>
-  {#snippet actions()}<a
+  {#snippet actions()}<ListSort {sort} /><a
       class="quiet icon plain"
       href={sharedHref('prompt-edit')}
       title="new prompt"
@@ -77,6 +85,7 @@
     names={visible}
     collapseKey="collapsed-prompt-folders"
     filterActive={filter.value !== ''}
+    groupOf={newest ? () => '' : undefined}
     newHref="#/prompt-edit"
     onnewingroup={(group) =>
       sessionStorage.setItem('dw-prompt-editor-folder', group)}
@@ -93,7 +102,7 @@
           title={detail?.description || detail?.text || undefined}
         ></a>
         <span class="cardtop">
-          <span class="cardname" title={leafOf(name)}>{leafOf(name)}</span>
+          <span class="cardname" title={name}>{leafOf(name)}</span>
           {#if details[name]?.origin && details[name].origin !== 'workspace'}
             <span
               class="origin muted"
@@ -103,9 +112,19 @@
             </span>
           {/if}
         </span>
+        <!-- One list across the folders moves the folder onto the card, as
+           the Workflows page does -->
+        {#if newest && groupOf(name)}
+          <span class="cardfolder muted">{groupOf(name)}</span>
+        {/if}
         {#if detail?.description || detail?.text}
           <span class="carddesc muted">
             {detail.description || detail.text}
+          </span>
+        {/if}
+        {#if detail?.mtime}
+          <span class="stamp muted">
+            <Time at={detail.mtime} label="changed" />
           </span>
         {/if}
         {#if detail?.intended_model || detail?.tags?.length}
@@ -215,6 +234,10 @@
     display: flex;
     flex-wrap: wrap;
     gap: 0.3rem;
+  }
+  .stamp {
+    font-weight: 400;
+    font-size: var(--t-xs);
   }
   .modelchip {
     flex-shrink: 0;

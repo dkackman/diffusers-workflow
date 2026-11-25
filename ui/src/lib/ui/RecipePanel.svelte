@@ -11,6 +11,7 @@
   import { FolderOpen } from '@lucide/svelte'
   import CopyButton from '../CopyButton.svelte'
   import { api } from '../api'
+  import { ApiError } from '../apiErrors'
   import { outputUrl } from '../apiUrls'
   import { recipeRows } from '../recipe'
   import { ASSET, OUTPUT, reference, referenceName } from '../references'
@@ -91,6 +92,12 @@
   const jobRead = $derived(
     jobId && job.data?.id === jobId ? (job.data as JobDetail) : null,
   )
+  // The job's read found nothing: it left history since the file was listed
+  const jobGone = $derived(
+    job.status === 'error' &&
+      job.error instanceof ApiError &&
+      job.error.status === 404,
+  )
 
   const inputName = (input: GalleryInput) =>
     referenceName(input.reference, input.kind === 'asset' ? ASSET : OUTPUT) ??
@@ -135,7 +142,7 @@
   <h3>What made this</h3>
   <LoadState of={meta} label="what made this file">
     {#snippet children(m)}
-      {@const rows = recipeRows(m, jobRead, workspace)}
+      {@const rows = recipeRows(m, jobRead, workspace, { jobGone })}
       {@const head = rows.filter((r) => r.key !== 'argument')}
       {@const args = rows.filter((r) => r.key === 'argument')}
       {#if head.length}
@@ -160,7 +167,8 @@
           {/each}
         </dl>
       {/if}
-      {#if jobId && job.status === 'error'}
+      <!-- An image's recipe is what it embeds: its job's read is not missed -->
+      {#if jobId && job.status === 'error' && !m.metadata}
         <ErrorLine error={job.error} doing="load the job that made this file" />
       {/if}
       {#if embeddedWorkflow(m)}

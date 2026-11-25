@@ -211,7 +211,7 @@ export function describeError(e: unknown, what?: string): Described {
     kind,
     title,
     ...(remedy ? { remedy } : {}),
-    ...(message.length > title.length ? { detail: message } : {}),
+    ...(message && message !== title ? { detail: message } : {}),
     ...(e instanceof ApiError
       ? { status: e.status, ...(e.code ? { code: e.code } : {}) }
       : {}),

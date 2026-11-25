@@ -5,7 +5,8 @@
   // A saved note reads the file again through the panel, so the page can
   // carry what the server now says to the tile
   import type { GalleryFile, GalleryMetadata } from '../types'
-  import { formatBytes, formatMtime } from '../format'
+  import { formatBytes } from '../format'
+  import Time from '../ui/Time.svelte'
   import { versionTitle } from '../terms'
   import NoteEditor from '../ui/NoteEditor.svelte'
   import type { AssessState } from './assess.svelte'
@@ -72,7 +73,7 @@
       </span>
     {/if}
     <span class="num muted">
-      {formatBytes(file.size)} · {formatMtime(file.mtime)}
+      {formatBytes(file.size)} · <Time at={file.mtime} mode="exact" />
     </span>
   </p>
   {#if inherited}

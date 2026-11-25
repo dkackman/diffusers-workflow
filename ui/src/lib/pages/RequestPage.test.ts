@@ -488,6 +488,26 @@ it('an open request refreshes on its interval and a closed one on the feed', asy
   expect(reads()).toBe(calls + 1)
 })
 
+it('a read that keeps the interval does not re-arm the poll', async () => {
+  // Only the refresh timer: waitFor's 50 ms and a mark's own are faked too
+  const isTimer = (ms: unknown) => ms === ACTIVE_MS || ms === IDLE_MS
+  fakeInterval()
+  render(RequestPage, { requestId: 'r1' })
+  await loaded()
+  const armed = vi.spyOn(globalThis, 'setInterval')
+  // a newer revision, still open and idle: the same interval
+  data.request = { ...make(), revision: 5 }
+  feed.move('studio', 'requests')
+  await atRevision(5)
+  expect(armed.mock.calls.map((c) => c[1]).filter(isTimer)).toEqual([])
+  // a job in flight changes it: the timer is re-armed, once
+  data.request = { ...queued(), revision: 6 }
+  feed.move('studio', 'requests')
+  await atRevision(6)
+  expect(armed.mock.calls.map((c) => c[1]).filter(isTimer)).toEqual([ACTIVE_MS])
+  armed.mockRestore()
+})
+
 it('a feed read of a closed request at an older revision does not replace it', async () => {
   fakeInterval()
   data.request = { ...make(), state: 'done', revision: 6 }
@@ -540,6 +560,7 @@ it('an item an agent edited is marked', async () => {
     expect(row('Second poster, in red').classList).toContain('row-changed'),
   )
   expect(row('First poster').classList).not.toContain('row-changed')
+  // the mark's clearing after CHANGED_MARK_MS is pinned in resource.svelte.test.ts
 })
 
 it('a switch to another request marks against that request, never the one left', async () => {
@@ -665,7 +686,9 @@ it('says once when the agent answers a waiting note, and the toast goes to it', 
   expect(text).toBe(
     'The agent updated Launch posters after your note: “retook b with more red”',
   )
-  // a later read says nothing more
+  // a later read says nothing more. The poll is not re-armed by the read,
+  // so its tick waits until the read before it has settled
+  await new Promise((r) => setTimeout(r, 0))
   data.request = { ...answered, revision: 5 }
   vi.advanceTimersByTime(IDLE_MS)
   await atRevision(5)

@@ -489,3 +489,73 @@ it("a search shows each card's folder, and clearing restores the groups", async 
   for (const e of document.querySelectorAll('.cardname'))
     expect(e.textContent).toBe('text-to-image')
 })
+
+it('WorkflowsPage says when each workflow changed', async () => {
+  const now = Math.floor(Date.now() / 1000)
+  listing.details['templates/tti'].mtime = now - 5 * 60
+  await renderPage('tti')
+  const stamp = card('tti')!.querySelector('time')!
+  expect(stamp.textContent?.trim()).toBe('changed 5 min ago')
+  expect(stamp.getAttribute('title')).toBeTruthy()
+  // a listing entry with no time says nothing rather than a made-up one
+  expect(card('shot')!.querySelector('time')).toBeNull()
+})
+
+it('the newest-first sort', async () => {
+  const now = Math.floor(Date.now() / 1000)
+  listing.details['templates/tti'].mtime = now - 86_400
+  listing.details['templates/shot'].mtime = now - 3600
+  listing.details['models/flux-dev'].mtime = now - 60
+  await renderPage('tti')
+  const names = () =>
+    [...document.querySelectorAll('.cardname')].map((n) => n.textContent)
+  // by name, in folders, until asked
+  expect(names()).toEqual(['shot', 'tti', 'flux-dev'])
+  await fireEvent.click(screen.getByRole('button', { name: 'Newest' }))
+  await waitFor(() => expect(names()).toEqual(['flux-dev', 'shot', 'tti']))
+  expect(location.hash).toContain('sort=newest')
+})
+
+/** Each card's leaf name, in the order shown */
+const cardNames = () =>
+  [...document.querySelectorAll('.cardname')].map((n) => n.textContent)
+
+it('a page opened with sort=newest in its link is newest first', async () => {
+  const now = Math.floor(Date.now() / 1000)
+  listing.details['templates/tti'].mtime = now - 60
+  listing.details['templates/shot'].mtime = now - 3600
+  location.hash = '#/ws/default/workflows?sort=newest'
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
+  await renderPage('tti')
+  // flux-dev has no time, so it goes last
+  expect(cardNames()).toEqual(['tti', 'shot', 'flux-dev'])
+})
+
+it("Newest orders a search's matches too", async () => {
+  const now = Math.floor(Date.now() / 1000)
+  listing.details['templates/tti'].mtime = now - 60
+  listing.details['templates/shot'].mtime = now - 3600
+  listing.details['models/flux-dev'].mtime = now - 86_400
+  await renderPage('tti')
+  const box = screen.getByPlaceholderText('search workflows…')
+  await fireEvent.input(box, { target: { value: 'image' } })
+  // the search's own order, best match first
+  await waitFor(() => expect(cardNames()).toEqual(['flux-dev', 'shot', 'tti']))
+  await fireEvent.click(screen.getByRole('button', { name: 'Newest' }))
+  await waitFor(() => expect(cardNames()).toEqual(['tti', 'shot', 'flux-dev']))
+  // and Name gives the search's own order back
+  await fireEvent.click(screen.getByRole('button', { name: 'Name' }))
+  await waitFor(() => expect(cardNames()).toEqual(['flux-dev', 'shot', 'tti']))
+})
+
+it('the Name order is natural: take2 before take10', async () => {
+  listing.workflows = ['shots/take10', 'shots/take2']
+  listing.details = Object.fromEntries(
+    listing.workflows.map((w) => [
+      w,
+      { kinds: ['image'], steps: 1, variables: 0, shape: 'image', traits: [] },
+    ]),
+  )
+  await renderPage('take2')
+  expect(cardNames()).toEqual(['take2', 'take10'])
+})

@@ -250,3 +250,66 @@ it('the name has its own line, and the model chip sits with the tags', async () 
   expect(chip.parentElement?.firstElementChild).toBe(chip)
   expect(name.getAttribute('title')).toBe(long)
 })
+
+const dated = (prompts: Record<string, number | undefined>) => ({
+  libraries: [{ origin: 'workspace', root: '/srv/prompts', writable: true }],
+  shadowed: [],
+  prompts: Object.keys(prompts),
+  details: Object.fromEntries(
+    Object.entries(prompts).map(([p, mtime]) => [
+      p,
+      { ...detail('workspace', true), ...(mtime ? { mtime } : {}) },
+    ]),
+  ),
+})
+const cardOf = (name: string) =>
+  screen.getByText(name, { selector: '.cardname' }).closest('.card')!
+
+it('PromptsPage says when each prompt changed', async () => {
+  const now = Math.floor(Date.now() / 1000)
+  listPrompts.mockResolvedValue(dated({ fox: now - 2 * 3600, owl: undefined }))
+  render(PromptsPage)
+  await waitFor(() => expect(screen.getByText('fox')).toBeTruthy())
+  const stamp = cardOf('fox').querySelector('time')!
+  expect(stamp.textContent?.trim()).toBe('changed 2 h ago')
+  expect(stamp.getAttribute('title')).toBeTruthy()
+  expect(cardOf('owl').querySelector('time')).toBeNull()
+})
+
+it('the newest-first sort', async () => {
+  const now = Math.floor(Date.now() / 1000)
+  listPrompts.mockResolvedValue(
+    dated({ ant: now - 86_400, bee: now - 60, cat: now - 3600 }),
+  )
+  render(PromptsPage)
+  await waitFor(() => expect(screen.getByText('ant')).toBeTruthy())
+  const names = () =>
+    [...document.querySelectorAll('.cardname')].map((n) => n.textContent)
+  expect(names()).toEqual(['ant', 'bee', 'cat'])
+  await fireEvent.click(screen.getByRole('button', { name: 'Newest' }))
+  await waitFor(() => expect(names()).toEqual(['bee', 'cat', 'ant']))
+  expect(location.hash).toContain('sort=newest')
+})
+
+it('Newest names a foldered prompt by its leaf, its folder a chip', async () => {
+  const now = Math.floor(Date.now() / 1000)
+  listPrompts.mockResolvedValue(
+    dated({
+      'people/edit': now - 60,
+      'pets/edit': now - 3600,
+      top: now - 86_400,
+    }),
+  )
+  render(PromptsPage)
+  await waitFor(() => expect(screen.getByText('top')).toBeTruthy())
+  const texts = (selector: string) =>
+    [...document.querySelectorAll(selector)].map((n) => n.textContent?.trim())
+  // in folders, the heading says the folder: no chip
+  expect(texts('.cardfolder')).toEqual([])
+  await fireEvent.click(screen.getByRole('button', { name: 'Newest' }))
+  await waitFor(() =>
+    expect(texts('.cardname')).toEqual(['edit', 'edit', 'top']),
+  )
+  // the two same-leaf prompts are told apart by their folders
+  expect(texts('.cardfolder')).toEqual(['people', 'pets'])
+})

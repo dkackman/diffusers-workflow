@@ -7,6 +7,7 @@ import {
 } from '@testing-library/svelte'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import GalleryAside from './GalleryAside.svelte'
+import { formatExact, formatMtime } from '../format'
 import { attempt, item, request } from '../request/fixtures'
 import type { GalleryFile, GalleryLinkedJob, GalleryMetadata } from '../types'
 
@@ -120,6 +121,15 @@ it('says the role, the run and its version', () => {
   const version = screen.getByTitle('4th job of this workflow in this folder')
   expect(version.textContent).toContain('v4')
   expect(version.querySelector('code')?.textContent).toBe('run-1')
+})
+
+it('says the size and when the file was written, exact, to the second on hover', () => {
+  aside(meta())
+  const time = document.querySelector('time') as HTMLElement
+  expect(time.closest('span')?.textContent?.trim()).toBe(
+    `1 KB · ${formatMtime(file.mtime)}`,
+  )
+  expect(time.getAttribute('title')).toBe(formatExact(file.mtime))
 })
 
 it('a half-written run note survives "Note this file" and coming back', async () => {

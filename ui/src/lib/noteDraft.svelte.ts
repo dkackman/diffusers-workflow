@@ -3,7 +3,9 @@
 // request): what is in the box, kept in the tab's sessionStorage so a
 // reload or an unmount does not lose it, the keys (Ctrl/Cmd+Enter saves,
 // Escape closes and keeps the draft), the one discard question and the
-// character count near the limit. What a save does stays the editor's.
+// character count near the limit. Beside a kept draft goes the note it
+// answered (`base`), so an editor can tell a draft resumed over a newer
+// note. What a save does stays the editor's.
 import { untrack } from 'svelte'
 import { confirmDialog } from './confirm.svelte'
 import { draftAtRisk, keepDraft, readDraft } from './request/draft'
@@ -16,6 +18,14 @@ const COUNT_FROM = NOTE_MAX * 0.9
  * Request notes keep their own keys (`draft.ts`: `draftKey`). */
 export const noteKey = (workspace: string, target: string) =>
   `note:${workspace}:${target}`
+
+/** Where the note a kept draft answered is kept, beside the draft */
+const baseKey = (key: string | null) => (key ? `${key}#base` : null)
+
+function keep(key: string | null, text: string | null, base: string | null) {
+  keepDraft(key, text)
+  keepDraft(baseKey(key), text === null ? null : base)
+}
 
 export type NoteDraftOptions = {
   /** Where the draft is kept; a function when it can change, null for
@@ -40,6 +50,9 @@ export class NoteDraft {
   /** The box was closed over words that are not saved, and the draft is
    * set aside */
   #aside = $state(false)
+  /** The saved note a draft set aside answered, as it was when the box
+   * closed */
+  #base = $state<string | null>(null)
   #key: () => string | null
   #saved: () => string
   #save: (text: string) => Promise<void>
@@ -61,14 +74,14 @@ export class NoteDraft {
     untrack(() => this.#restore(last))
     $effect(() => {
       const key = this.#key()
-      const keep = (this.editing || this.kept) && this.atRisk
+      const kept = (this.editing || this.kept) && this.atRisk
       if (key !== last) {
         const old = last
         last = key
         if (options.rekey !== 'move') return untrack(() => this.#restore(key))
-        keepDraft(old, null)
+        keep(old, null, null)
       }
-      keepDraft(key, keep ? this.text : null)
+      keep(key, kept ? this.text : null, this.base)
     })
   }
 
@@ -80,6 +93,15 @@ export class NoteDraft {
     const atRisk = left !== null && draftAtRisk(left, this.#saved())
     this.text = atRisk ? left : ''
     this.#aside = atRisk
+    this.#base = atRisk ? readDraft(baseKey(key)) : null
+  }
+
+  /** The saved note the draft answers: the note as saved while the box is
+   * open; for a draft set aside, the note as it was when the box closed -
+   * null when that is not known (nothing is set aside, or the draft was
+   * kept before its note was) */
+  get base(): string | null {
+    return this.editing ? this.#saved() : this.#base
   }
 
   /** Closing the box now would lose words */
@@ -103,6 +125,7 @@ export class NoteDraft {
 
   /** Close the box, keeping words that are not saved for the next open */
   close() {
+    this.#base = this.atRisk ? this.#saved() : null
     this.#aside = this.atRisk
     this.editing = false
     this.#onclose?.()
@@ -112,8 +135,13 @@ export class NoteDraft {
    * typed (or Escape pressed) while it was out, which stay as the draft
    * over the note now saved. True when the box was emptied */
   done(sent: string): boolean {
-    if (this.text !== sent) return false
+    if (this.text !== sent) {
+      // A draft set aside meanwhile now answers the note just saved
+      this.#base = sent.trim() ? sent : ''
+      return false
+    }
     this.#aside = false
+    this.#base = null
     this.text = ''
     this.editing = false
     return true
@@ -132,6 +160,7 @@ export class NoteDraft {
     )
       return false
     this.#aside = false
+    this.#base = null
     this.text = ''
     this.editing = false
     return true

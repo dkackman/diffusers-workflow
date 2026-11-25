@@ -14,7 +14,8 @@
     orderRequests,
     summaryBands,
   } from '../request/attention'
-  import { formatMinutes, formatMtime, formatSpent } from '../format'
+  import { formatExact, formatMinutes, formatSpent } from '../format'
+  import Time from '../ui/Time.svelte'
   import { hashState } from '../router.svelte'
   import { wsHref } from '../routes'
   import { workspace } from '../workspace.svelte'
@@ -40,7 +41,9 @@
   const open = $derived(ordered.filter((req) => req.state === 'open'))
   const visible = $derived(show.value === 'all' ? ordered : open)
   const closed = $derived(ordered.length - open.length)
-  const written = (at: string) => formatMtime(Date.parse(at) / 1000)
+  // The row's hover says what its time is, then the time to the second
+  const writtenTitle = (at: number) =>
+    Number.isFinite(at) ? `last written ${formatExact(at)}` : 'last written'
 </script>
 
 <PageHeader title="Requests">
@@ -126,7 +129,12 @@
             {/if}
           </span>
           <span class="updated num muted" title="last written">
-            {req.updated_at ? written(req.updated_at) : ''}
+            {#if req.updated_at}{@const at =
+                Date.parse(req.updated_at) / 1000}<Time
+                {at}
+                label="changed"
+                title={writtenTitle(at)}
+              />{/if}
           </span>
         </a>
       {/each}

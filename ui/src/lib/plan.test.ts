@@ -225,6 +225,21 @@ describe('describePlan', () => {
     }
   })
 
+  it('an inherited host-RAM figure names its example', () => {
+    const lines = describePlan({
+      ...base,
+      host_memory: {
+        basis: 'inherited',
+        projected_mb: 20480,
+        runs: 2,
+        inherited_from: 'H3-template',
+      },
+    })
+    expect(lines[2].text).toBe(
+      'host RAM about 20 GB (inherited from H3-template)',
+    )
+  })
+
   it('an inherited figure with no source says it came from an example', () => {
     const [, figure] = describePlan({
       ...base,

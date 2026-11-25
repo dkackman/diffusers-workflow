@@ -39,6 +39,10 @@ function isExists(error: unknown): boolean {
   )
 }
 
+/** The listing read once more after the page's own write, for the page to
+ * hold as read (resource's `adopt`) rather than reload loudly */
+export const readListingAfterWrite = () => api.listAssets()
+
 type Entry = { file: File; name: string }
 
 export async function uploadAll(

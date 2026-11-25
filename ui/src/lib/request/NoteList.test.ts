@@ -92,12 +92,16 @@ it('shows each note with its line and what it is about, under one label', () => 
   ])
   const first = within(items[0])
   expect(first.getByText('warmer light')).toBeTruthy()
-  expect(first.getByText(/The agent has updated the plan since/)).toBeTruthy()
+  expect(items[0].querySelector('.noteline')?.textContent).toMatch(
+    /The agent has updated the plan since \(changed .+ by the agent\)\.$/,
+  )
   const file = first.getByRole('link', { name: 'take 2 · s3.mp4' })
   expect(file.getAttribute('href')).toContain('/outputs/run/s3.mp4')
   const second = within(items[1])
-  expect(second.getByText(/ · edited /)).toBeTruthy()
-  expect(second.getByText(/The agent isn't connected\. It reads/)).toBeTruthy()
+  // the note's line: written and changed, each a time, then where it stands
+  expect(items[1].querySelector('.noteline')?.textContent).toMatch(
+    /^written .+ · changed .+\. The agent isn't connected\. It reads/,
+  )
   const gone = second.getByText('take 1')
   expect(gone.getAttribute('title')).toBe('no longer exists')
   expect(gone.closest('a')).toBeNull()

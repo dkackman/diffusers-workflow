@@ -2,7 +2,7 @@
 // Where the --live state colour and the --select place colour may appear,
 // held mechanically (ui/CLAUDE.md; app.css's header says what each means)
 import { readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
 import { sourceFiles } from './arch-metrics.mjs'
@@ -10,9 +10,9 @@ import { sourceFiles } from './arch-metrics.mjs'
 const UI = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 // The places --live may appear: the header's running link and VRAM
-// pressure, a running row and status chip (app.css: `.row-live`,
-// `.chip.running`), the bar a changed tile or card shows (frames.css), the
-// job page's progress bar and current step, the flow view's active step and
+// pressure, a running row and status chip (frames.css: `.row-live`;
+// app.css: `.chip.running`), the bar a changed tile or card shows
+// (frames.css), the job page's progress bar and current step, the flow view's active step and
 // segment and its legend's key to them, a model download in flight, and a
 // request's progress bar
 const LIVE_FILES = [
@@ -71,6 +71,10 @@ it('the segmented and chip selected styles live only in Segmented.svelte and pat
   const declaring = sourceFiles()
     .filter((f) => /aria-pressed|\.activebtn/.test(styleOf(f)))
     .map((f) => f.slice(UI.length + 1).replaceAll('\\', '/'))
+  // the rule found its own declarations, so it is not passing on nothing
+  expect(declaring).toEqual(
+    expect.arrayContaining(['src/lib/ui/Segmented.svelte', 'src/patterns.css']),
+  )
   expect(declaring.filter((f) => f !== 'src/lib/ui/Segmented.svelte')).toEqual(
     declaring.filter((f) => f === 'src/patterns.css'),
   )
@@ -84,6 +88,8 @@ it('job status colours are declared only in StatusChip.svelte and app.css', () =
   const declaring = sourceFiles()
     .filter((f) => STATUS.test(styleOf(f)))
     .map((f) => f.slice(UI.length + 1).replaceAll('\\', '/'))
+  // the rule found the declarations it allows, so it is not passing on nothing
+  expect(declaring).toContain('src/app.css')
   expect(
     declaring.filter(
       (f) => f !== 'src/app.css' && f !== 'src/lib/ui/StatusChip.svelte',
@@ -105,29 +111,89 @@ function styleOf(file: string): string {
     .join('\n')
 }
 
-// A var(--x) that names nothing silently falls back (or to nothing): every
-// custom property read is defined by `--x:` somewhere in src, set with
-// `style:--x`, or is a Bits UI `--bits-*` name
-it('every var(--x) names a defined custom property', () => {
-  const files = sourceFiles()
-  const texts = files.map((f) => readFileSync(f, 'utf8'))
-  const defined = new Set<string>()
-  for (const t of texts) {
-    for (const m of t.matchAll(/(?<![\w-])(--[a-zA-Z0-9_-]+)\s*:/g))
-      defined.add(m[1])
-    for (const m of t.matchAll(/style:(--[a-zA-Z0-9_-]+)/g)) defined.add(m[1])
+// A var(--x) that names nothing silently falls back (or to nothing). A
+// custom property is defined for every file by a `:root` rule; for one file
+// by its own `--x:` or `style:--x`, or by a component that imports it (the
+// parent's value is inherited). A knob with a fallback, `var(--x, 1rem)`, is
+// defined when any file sets it. A templated name (`var(--tone-${t})`) is
+// not a name and is skipped, and Bits UI's `--bits-*` are its own
+const TOKEN = /(?<![\w-])(--[a-zA-Z0-9_-]+)\s*:/g
+const tokensIn = (text: string) => [...text.matchAll(TOKEN)].map((m) => m[1])
+
+/** The relative modules a file imports, as absolute paths */
+const importsOf = (file: string, text: string) =>
+  [...text.matchAll(/from\s+['"](\.[^'"]+)['"]/g)].map((m) =>
+    resolve(dirname(file), m[1]),
+  )
+
+/** Each `file: --x` that names no custom property defined for it */
+function undefinedTokens(sources: [string, string][]): string[] {
+  const root = new Set<string>()
+  const anywhere = new Set<string>()
+  const own = new Map<string, Set<string>>()
+  for (const [file, text] of sources) {
+    for (const block of text.matchAll(/:root\b[^{}]*\{([^{}]*)\}/g))
+      for (const name of tokensIn(block[1])) root.add(name)
+    const mine = new Set(tokensIn(text))
+    for (const m of text.matchAll(/style:(--[a-zA-Z0-9_-]+)/g)) mine.add(m[1])
+    own.set(file, mine)
+    for (const name of mine) anywhere.add(name)
   }
-  const undefinedUses: string[] = []
-  files.forEach((f, i) => {
-    for (const m of texts[i].matchAll(/var\(\s*(--[a-zA-Z0-9_-]+)/g)) {
-      if (!defined.has(m[1]) && !m[1].startsWith('--bits-'))
-        undefinedUses.push(`${f.slice(UI.length + 1)}: ${m[1]}`)
+  const parents = new Map<string, string[]>()
+  for (const [file, text] of sources)
+    for (const child of importsOf(file, text))
+      parents.set(child, [...(parents.get(child) ?? []), file])
+  const definedFor = (file: string, name: string, fallback: boolean) =>
+    root.has(name) ||
+    own.get(file)?.has(name) ||
+    (parents.get(file) ?? []).some((p) => own.get(p)?.has(name)) ||
+    (fallback && anywhere.has(name))
+  const found: string[] = []
+  for (const [file, text] of sources)
+    for (const m of text.matchAll(/var\(\s*(--[a-zA-Z0-9_-]+)([$]?)\s*(,?)/g)) {
+      const [, name, templated, fallback] = m
+      if (templated || name.startsWith('--bits-')) continue
+      if (!definedFor(file, name, fallback === ','))
+        found.push(`${file}: ${name}`)
     }
-  })
-  expect(undefinedUses).toEqual([])
+  return found
+}
+
+it('every var(--x) names a defined custom property', () => {
+  const sources = sourceFiles().map((f): [string, string] => [
+    f,
+    readFileSync(f, 'utf8'),
+  ])
+  const found = undefinedTokens(sources).map((u) => u.slice(UI.length + 1))
+  expect(found).toEqual([])
 })
 
-// app.css is full; a shared class that would grow it goes in patterns.css
+it('a custom property is defined by :root, its own file or its parent', () => {
+  const at = (name: string) => join(UI, 'probe', name)
+  const found = undefinedTokens([
+    [at('app.css'), ':root {\n  --bg: #fff;\n}\n.x { --stray: 1px }\n'],
+    [
+      at('Parent.svelte'),
+      "<script>import Child from './Child.svelte'</script>\n<style>.p { --gap: 2px }</style>",
+    ],
+    [
+      at('Child.svelte'),
+      '<style>.c { margin: var(--gap); color: var(--bg); padding: var(--stray); }</style>',
+    ],
+    [
+      at('Other.svelte'),
+      // --gap is not this file's parent's; a fallback knob set somewhere is
+      // fine, a templated name is skipped
+      '<style>.o { margin: var(--gap); width: var(--stray, 1px); color: var(--tone-${t}); }</style>',
+    ],
+  ])
+  expect(found).toEqual([
+    `${at('Child.svelte')}: --stray`,
+    `${at('Other.svelte')}: --gap`,
+  ])
+})
+
+// app.css is near its cap; a shared class that would grow it goes in patterns.css
 it('app.css stays at or under 600 lines', () => {
   const lines = readFileSync(join(UI, 'src/app.css'), 'utf8').split('\n')
   // a trailing newline is not a line

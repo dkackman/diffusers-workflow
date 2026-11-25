@@ -8,7 +8,7 @@
   import { ChevronDown, ChevronRight, RefreshCw } from '@lucide/svelte'
   import { onDestroy, tick, untrack } from 'svelte'
   import { ApiError } from '../api'
-  import { formatDuration } from '../format'
+  import { formatCount, formatDuration } from '../format'
   import type { JobEvent } from '../types'
   import {
     EVENT_LOG_CAP,
@@ -199,7 +199,7 @@
   const count = $derived(
     rows.length
       ? (kind ? `${shown.length} of ` : '') +
-          `${rows.length.toLocaleString('en-US')} events, seq ${rows[0].seq}–${rows[rows.length - 1].seq}`
+          `${formatCount(rows.length)} events, seq ${rows[0].seq}–${rows[rows.length - 1].seq}`
       : '',
   )
 </script>
@@ -292,8 +292,7 @@
         {/if}
         {#if capped}
           <p class="muted">
-            showing the first {rows.length.toLocaleString('en-US')}; more on the
-            server
+            showing the first {formatCount(rows.length)}; more on the server
           </p>
         {/if}
       {/if}

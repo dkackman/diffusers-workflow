@@ -65,7 +65,7 @@ export function sectionLabel(view: RouteView): string {
   if (view.kind === 'ws') return SECTION_LABELS.ws[view.section]
   if (view.kind === 'shared') return SECTION_LABELS.shared[view.section]
   if (view.kind === 'server') return SECTION_LABELS.server[view.section]
-  return 'Not found'
+  return 'Page not found'
 }
 
 const missing = (parts: string[]): RouteView => ({
@@ -87,13 +87,16 @@ const isServer = (s: string): s is ServerSection =>
   (SERVER_SECTIONS as readonly string[]).includes(s)
 
 export function parseView(parts: string[]): RouteView | null {
-  const [group, second, third, ...rest] = parts
+  // '#/ws/studio//requests' (a doubled slash) keeps its section: the empty
+  // parts after the workspace are dropped before matching
+  const [group, second, ...tail] = parts
+  const [third, ...rest] = group === 'ws' ? tail.filter(Boolean) : tail
   if (group === 'ws' && second) {
     // No section is the overview; an unknown one is missing, so the URL
     // stays as typed and the page says so
     // A trailing slash ('#/ws/studio/') leaves an empty third part; it
     // reads as no section, so it is the overview too
-    if (third === undefined || third === '') {
+    if (third === undefined) {
       return { kind: 'ws', workspace: second, section: 'overview', rest: [] }
     }
     if (isWs(third))

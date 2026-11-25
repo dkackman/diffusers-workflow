@@ -91,3 +91,15 @@ it('describes anything else as unknown', () => {
   expect(d.kind).toBe('unknown')
   expect(d.title).toBe('Something went wrong')
 })
+
+it('a short engine message keeps its detail', () => {
+  const d = describeError(new Error("KeyError: 'x'"))
+  expect(d.title).toBe('Something went wrong')
+  expect(d.detail).toBe("KeyError: 'x'")
+})
+
+it('a title taken from the message has no detail', () => {
+  const d = describeError(new ApiError('Name is taken', 409))
+  expect(d.title).toBe('Name is taken')
+  expect(d.detail).toBeUndefined()
+})

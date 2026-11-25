@@ -4,12 +4,15 @@ import { VARIABLE } from '../references'
 import StepEditor from './StepEditor.svelte'
 
 // The LoRA editor asks the catalog about a literal base repo; keep it offline
+const getWorkflow = vi.hoisted(() => vi.fn())
+
 vi.mock('../api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api')>()
   return {
     ...actual,
     api: {
       ...actual.api,
+      getWorkflow: (...a: unknown[]) => getWorkflow(...a),
       listLoras: () => Promise.resolve({ libraries: [], loras: [] }),
     },
   }
@@ -149,4 +152,28 @@ it('offers an image argument the results of the steps before it', async () => {
     .join('\n')
   expect(text).toContain('previous_result:still')
   expect(text).not.toContain('previous_result:later')
+})
+
+it('a step removed during the pause never reads its sub-workflow', async () => {
+  vi.useFakeTimers()
+  try {
+    getWorkflow.mockResolvedValue({ definition: { variables: { a: 'b' } } })
+    const sub = {
+      name: 'sub',
+      workflow: { path: 'child.json', arguments: {} },
+    }
+    const { unmount } = render(StepEditor, {
+      step: sub,
+      index: 0,
+      count: 1,
+      onremove: () => {},
+      onmove: () => {},
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    unmount()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(getWorkflow).not.toHaveBeenCalled()
+  } finally {
+    vi.useRealTimers()
+  }
 })

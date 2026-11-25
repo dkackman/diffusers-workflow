@@ -82,7 +82,7 @@ describe('parseView', () => {
       expect(SECTION_LABELS.shared[s]).toBeTruthy()
     for (const s of SERVER_SECTIONS)
       expect(SECTION_LABELS.server[s]).toBeTruthy()
-    expect(sectionLabel({ kind: 'missing', path: '/x' })).toBe('Not found')
+    expect(sectionLabel({ kind: 'missing', path: '/x' })).toBe('Page not found')
   })
   it('keeps a slash-joined name in rest', () => {
     expect(
@@ -233,5 +233,14 @@ describe('switchHref', () => {
     expect(switchHref('other', { kind: 'missing', path: '/nope' })).toBe(
       overview,
     )
+  })
+})
+
+it('a doubled slash keeps the section', () => {
+  expect(parseView(['ws', 'studio', '', 'requests'])).toEqual({
+    kind: 'ws',
+    workspace: 'studio',
+    section: 'requests',
+    rest: [],
   })
 })

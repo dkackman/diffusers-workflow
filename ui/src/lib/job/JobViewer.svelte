@@ -17,6 +17,8 @@
   import type { MediaFile } from '../media'
   import { isStarKey } from '../mediaViewer'
   import { leafName } from '../names'
+  import { STAR_CHANGED } from '../picks.svelte'
+  import { notify } from '../toast'
   import MediaViewer from '../ui/MediaViewer.svelte'
   import RecipePanel from '../ui/RecipePanel.svelte'
   import { workspace } from '../workspace.svelte'
@@ -59,7 +61,11 @@
     doing: 'star that file',
     undo: (done) => ({
       message: `${done.next ? 'Starred' : 'Unstarred'} ${leafName(done.name)}`,
-      revert: () => writeStar(done.name, !done.next),
+      revert: async () => {
+        if (starredNow(done.name) !== done.next)
+          return notify.error(STAR_CHANGED)
+        return writeStar(done.name, !done.next)
+      },
       target: {
         now: () => workspace.current,
         away: `Nothing undone: ${jobWorkspace} is not the open workspace now.`,
@@ -112,7 +118,11 @@
       name={file.name}
       source="output"
       workspace={file.workspace}
-      onread={(m) => (starRead[file.name] = m.starred === true)}
+      onread={(m) => {
+        // A read is the server's word: it outranks what this page wrote
+        starRead[file.name] = m.starred === true
+        delete starSet[file.name]
+      }}
     />
   {/key}
 {/snippet}

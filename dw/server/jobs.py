@@ -1102,7 +1102,12 @@ class JobManager(Dispatcher, Reruns):
         job it is running, whether its worker process is alive, and that
         process's resident host memory - the pool shares one machine's RAM.
         """
-        return worker_memory.describe_workers(self.slots, self._lock)
+
+        def workspace_of(job_id):
+            job = self.jobs.get(job_id)
+            return job.spec.get("workspace") if job else None
+
+        return worker_memory.describe_workers(self.slots, self._lock, workspace_of)
 
     # ---------------------------------------------------------------- memory
 

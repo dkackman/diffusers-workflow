@@ -158,3 +158,9 @@ it('says an argument change after a rename', () => {
       'The agent changed the workflow of The cut.',
   )
 })
+
+it('naming an untitled item is said', () => {
+  const untitled = request([item('shot', { title: '' })])
+  const named = request([item('shot', { title: 'Shot 3' })])
+  expect(announce(untitled, named)).toBe('The agent named Shot 3.')
+})

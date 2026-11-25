@@ -61,3 +61,15 @@ it('rename moves the mode', () => {
   // What was remembered moves with it; a session-only mark stays unstored
   expect(storageGet(KEY, {})).toEqual({ base: 'full' })
 })
+
+it('retain keeps present names and defaults new ones', () => {
+  const m = modes()
+  m.set({ name: 'gen' }, 'full')
+  m.mark('upscale', 'collapsed')
+  m.retain(['gen', 'caption'])
+  expect(m.of({ name: 'gen' })).toBe('full')
+  expect(m.of({ name: 'caption' })).toBe('compact')
+  // a name that left is forgotten: one coming back later opens as new
+  m.retain(['gen', 'upscale'])
+  expect(m.of({ name: 'upscale' })).toBe('compact')
+})

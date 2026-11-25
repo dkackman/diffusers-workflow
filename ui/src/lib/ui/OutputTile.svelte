@@ -3,7 +3,8 @@
   // Gallery, the asset library, the shadowed entries). One look per kind - a
   // picture is its thumbnail, letterboxed and never cropped; a clip is its
   // poster with the play badge and its length, never a <video>, so a tile
-  // never opens a stream; audio is its glyph, name and length; text is its
+  // never opens a stream; audio is its glyph, name and length (a cover
+  // widens to hold them); text is its
   // glyph and first lines, read once when the tile is first seen. The look
   // is `.filetile` in patterns.css; the glyphs are media.ts's.
   import type { Snippet } from 'svelte'
@@ -107,7 +108,12 @@
     return () => observer.disconnect()
   })
 
-  const classes = $derived(['filetile', `tile-${size}`, `caption-${caption}`])
+  const classes = $derived([
+    'filetile',
+    `tile-${size}`,
+    `caption-${caption}`,
+    `kind-${file.kind}`,
+  ])
 </script>
 
 {#snippet glyph()}
@@ -156,7 +162,11 @@
       {@render glyph()}
     {/if}
     {#if file.kind === 'video'}
-      <span class="videobadge" aria-hidden="true"><Play size={11} /></span>
+      <!-- The badge says it plays; a shadowed name has no URL, since the
+           server serves the file that won, so it is its film glyph alone -->
+      {#if file.url}
+        <span class="videobadge" aria-hidden="true"><Play size={11} /></span>
+      {/if}
       {#if duration}<span class="tile-time">{duration}</span>{/if}
     {/if}
   </span>

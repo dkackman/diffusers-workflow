@@ -19,6 +19,7 @@ from ..security import (
 )
 from ..library import suggest_workflow_names
 from ..presets import effective_variables
+from ..workspace import file_times
 from .catalog_shape import derive_catalog_metadata, input_kinds
 from .observed_cost import declared_drivers
 
@@ -392,6 +393,18 @@ def prompt_details(paths):
     # were not shadowed
     _prune_missing(_prompt_detail_cache)
     return details
+
+
+def with_times(details, roots):
+    """Each listing entry with its file's `mtime` and, where the filesystem
+    records one, `created` (dw.workspace.file_times) - the `times=true`
+    listing. `roots` maps a name to the library root (`.root`) holding
+    `<name>.json`. New dicts, so a cached detail never carries a time into a
+    listing that did not ask for one."""
+    return {
+        name: {**detail, **file_times(os.path.join(roots[name].root, f"{name}.json"))}
+        for name, detail in details.items()
+    }
 
 
 def matching_prompts(details, tag, intended_model):

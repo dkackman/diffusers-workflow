@@ -51,8 +51,12 @@ function itemChanges(
 ) {
   const said: string[] = []
   const was = before?.item.title
-  if (was !== undefined && was !== now.item.title)
-    said.push(`The agent renamed ${was} to ${now.item.title}.`)
+  if (before && was !== now.item.title)
+    said.push(
+      was
+        ? `The agent renamed ${was} to ${now.item.title}.`
+        : `The agent named ${now.item.title}.`,
+    )
   for (const edit of edits) {
     const what = edit.kind === 'changed' && edit.what && EDITED[edit.what]
     if (what) said.push(`The agent changed the ${what} of ${now.item.title}.`)

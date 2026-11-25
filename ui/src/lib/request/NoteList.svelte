@@ -197,7 +197,7 @@
             <ItemNote
               {note}
               {about}
-              line={noteLine(note, request, new Date(), channel.listening)}
+              line={noteLine(note, request, channel.listening)}
               answer={answerOf(note, request)}
               {editable}
               draftKey={draftKey(workspace, request.id, item, `@${note.id}`)}

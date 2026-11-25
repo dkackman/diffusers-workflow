@@ -104,3 +104,10 @@ it('a nameDialog opened while a confirm is up waits its turn', async () => {
   resolveChoice('cancel')
   expect(await third).toBe(false)
 })
+
+it("a filename's dot does not end the title", async () => {
+  const done = confirmDialog('Delete take.v2.png? This removes it on disk.')
+  expect(confirmState.title).toBe('Delete take.v2.png?')
+  resolveChoice(null)
+  await done
+})

@@ -2,16 +2,23 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
 import { afterEach, expect, it, vi } from 'vitest'
 import JobHeader from './JobHeader.svelte'
 import type { JobDetail, LedgerRequest } from '../types'
+import { formatExact, formatMtime } from '../format'
 
-const { rerunJob, cancelJob, confirmDialog, failure } = vi.hoisted(() => ({
-  rerunJob: vi.fn(),
-  cancelJob: vi.fn(),
-  confirmDialog: vi.fn(),
-  failure: vi.fn(),
-}))
+const { rerunJob, cancelJob, exportJob, confirmDialog, failure } = vi.hoisted(
+  () => ({
+    rerunJob: vi.fn(),
+    exportJob: vi.fn(),
+    cancelJob: vi.fn(),
+    confirmDialog: vi.fn(),
+    failure: vi.fn(),
+  }),
+)
 vi.mock('../api', async (original) => {
   const real = await original<typeof import('../api')>()
-  return { ApiError: real.ApiError, api: { rerunJob, cancelJob } }
+  return {
+    ApiError: real.ApiError,
+    api: { rerunJob, cancelJob, exportJob, exportZipUrl: vi.fn() },
+  }
 })
 vi.mock('../toast', () => ({
   notify: { error: vi.fn(), success: vi.fn(), failure, undo: vi.fn() },
@@ -154,5 +161,30 @@ it('a failed cancel is reported', async () => {
   await fireEvent.click(screen.getByRole('button', { name: /Cancel$/ }))
   await vi.waitFor(() =>
     expect(failure).toHaveBeenCalledWith('cancel e2e-card', boom),
+  )
+})
+
+it('the Replace question is titled and in danger', async () => {
+  const { ApiError } = await import('../api')
+  exportJob.mockRejectedValueOnce(new ApiError('already exported', 409))
+  confirmDialog.mockResolvedValue(false)
+  header(job())
+  await fireEvent.click(screen.getByRole('button', { name: /Export/ }))
+  await vi.waitFor(() => expect(confirmDialog).toHaveBeenCalledTimes(1))
+  expect(confirmDialog.mock.calls[0][1]).toEqual({
+    title: 'Replace the export?',
+    confirmLabel: 'Replace',
+    danger: true,
+  })
+})
+
+it('shows the start, exact, and hovering it gives start and finish to the second', () => {
+  const { container } = header(
+    job({ started_at: 1700000000, finished_at: 1700000243 }),
+  )
+  const time = container.querySelector('code time') as HTMLElement
+  expect(time.textContent?.trim()).toBe(formatMtime(1700000000))
+  expect(time.getAttribute('title')).toBe(
+    `started ${formatExact(1700000000)}\nfinished ${formatExact(1700000243)}`,
   )
 })

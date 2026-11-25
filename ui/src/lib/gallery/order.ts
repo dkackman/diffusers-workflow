@@ -1,6 +1,7 @@
 // The gallery grid's order and filter, kept out of the page so it can be
 // tested on its own.
 import { groupNames } from '../grouping'
+import { compareNames } from '../names'
 import type { Picks } from '../picks.svelte'
 import type { GalleryFile, OutputRole } from '../types'
 
@@ -80,9 +81,7 @@ export function gridFiles(
       matchesText(f, words, prompts),
   )
   if (query.sort === 'name')
-    return shown.sort((a, b) =>
-      a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
-    )
+    return shown.sort((a, b) => compareNames(a.name, b.name))
   return byRun(shown, query.sort === 'oldest')
 }
 

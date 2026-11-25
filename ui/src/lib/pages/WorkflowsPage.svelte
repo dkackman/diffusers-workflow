@@ -8,12 +8,15 @@
   import { writableRoot } from '../libraries'
   import FolderGroups from '../FolderGroups.svelte'
   import { groupOf, leafOf } from '../grouping'
+  import { compareNames } from '../names'
   import HintBar from '../HintBar.svelte'
   import { costFigure } from '../cost'
   import { observedText } from '../observed'
   import { latestProofs } from '../proofs'
   import { outputMedia } from '../media'
   import OutputTile from '../ui/OutputTile.svelte'
+  import ListSort, { listSort, newestFirst } from '../ui/ListSort.svelte'
+  import Time from '../ui/Time.svelte'
   import { sharedHref, wsHref } from '../routes'
   import { cardTitle } from '../workflowCard'
   import { catalogMatches, queryWords } from '../workflow/catalogSearch'
@@ -41,6 +44,7 @@
     [],
     codec.list as HashCodec<WorkflowTrait[]>,
   )
+  const sort = listSort()
 
   const list = resource(() => api.listWorkflows({ inputs: true }), {
     watch: ['workflows'],
@@ -118,20 +122,25 @@
   )
   // Words put the best match first, ahead of what has run before
   const searching = $derived(queryWords(filter.value).length > 0)
+  // Newest first is one list across the folders, as a search is
+  const flat = $derived(searching || sort.value === 'newest')
 
   /** Within a folder, workflows that have produced something come first,
    * then alphabetical as before. Two reasons, and both matter: the ones you
    * have actually used are the ones you come back to, and only those carry
    * a picture - so grouping them keeps the taller cards together instead of
    * punching holes through an otherwise even grid. */
+  // Newest orders a search's matches too; Name leaves them best first
   const ordered = $derived(
-    searching
-      ? visible
-      : [...visible].sort((left, right) => {
-          const leftRun = proofs[left] ? 0 : 1
-          const rightRun = proofs[right] ? 0 : 1
-          return leftRun - rightRun || left.localeCompare(right)
-        }),
+    sort.value === 'newest'
+      ? newestFirst(visible, (name) => details[name]?.mtime)
+      : searching
+        ? visible
+        : [...visible].sort((left, right) => {
+            const leftRun = proofs[left] ? 0 : 1
+            const rightRun = proofs[right] ? 0 : 1
+            return leftRun - rightRun || compareNames(left, right)
+          }),
   )
 
   const filterActive = $derived(
@@ -179,6 +188,7 @@
   filter={search}
 >
   {#snippet actions()}
+    <ListSort {sort} />
     {#if !examples && exampleCount}
       <a
         class="sidelink plain muted"
@@ -272,7 +282,7 @@
     {filterActive}
     newHref={examples ? undefined : wsHref(workspace.current, 'edit')}
     minColumn="200px"
-    groupOf={searching ? () => '' : undefined}
+    groupOf={flat ? () => '' : undefined}
     onnewingroup={(group) => sessionStorage.setItem('dw-editor-folder', group)}
   >
     {#snippet card(name)}
@@ -303,7 +313,7 @@
           <span class="cardname">{leafOf(name)}</span>
           <!-- Searching flattens the folders, so the folder moves onto the
              card: three text-to-image workflows must not look alike -->
-          {#if searching && groupOf(name)}
+          {#if flat && groupOf(name)}
             <span class="cardfolder muted">{groupOf(name)}</span>
           {/if}
           <span class="cardmeta muted">
@@ -331,6 +341,11 @@
           {#if detail?.summary || detail?.description}
             <span class="carddesc muted">
               {detail.summary || detail.description}
+            </span>
+          {/if}
+          {#if detail?.mtime}
+            <span class="cardfoot muted">
+              <Time at={detail.mtime} label="changed" />
             </span>
           {/if}
           {#if detail?.configures || detail?.writable === false}
@@ -416,13 +431,6 @@
     align-items: center;
     gap: 0.35rem;
     font-size: var(--t-xs);
-  }
-  .cardfolder {
-    font-family: var(--font-mono);
-    font-size: var(--t-xs);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
   .needs {
     font-size: var(--t-xs);

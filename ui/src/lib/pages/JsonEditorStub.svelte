@@ -1,4 +1,6 @@
 <script lang="ts">
+  import type { Flusher } from '../editorShell.svelte'
+
   // Test stand-in for the Monaco-backed JsonEditor: renders the value as
   // plain text so a test can assert what the page handed the viewer
   // without booting Monaco in jsdom. Text typed into its field is held, as
@@ -10,18 +12,19 @@
   }: {
     value: string
     onchange?: (value: string, options?: { quiet?: boolean }) => void
-    register?: (flush: () => void) => () => void
+    register?: (flush: Flusher) => () => void
   } = $props()
 
   let pending: string | null = null
 
   $effect(() => {
     if (!register) return
-    return register(() => {
+    return register((options) => {
       if (pending === null) return
       const text = pending
       pending = null
-      onchange?.(text)
+      if (options?.quiet) onchange?.(text, { quiet: true })
+      else onchange?.(text)
     })
   })
 </script>

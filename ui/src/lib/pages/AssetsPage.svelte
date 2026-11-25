@@ -8,12 +8,14 @@
   // beside it.
   import { FolderOpen } from '@lucide/svelte'
   import { api } from '../api'
-  import { assetMedia, type MediaFile } from '../media'
+  import { assetMedia, viewLabels, type MediaFile } from '../media'
   import { openInHash } from '../mediaViewer'
-  import { leafName } from '../names'
   import { groupNames } from '../grouping'
   import MissingFile from '../ui/MissingFile.svelte'
+  import { missingFile } from '../missingFile.svelte'
   import OutputTile from '../ui/OutputTile.svelte'
+  import ListSort, { listSort, newestFirst } from '../ui/ListSort.svelte'
+  import Time from '../ui/Time.svelte'
   import { untrack } from 'svelte'
   import { resource } from '../resource.svelte'
   import { applyEdits, noEdits, settleEdits, withPatch } from '../gallery/order'
@@ -29,7 +31,12 @@
   import { overlayOpen } from '../ui/layers.svelte'
   import { notify } from '../toast'
   import { collapsedState, type Collapsed } from '../collapsed.svelte'
-  import type { AssetFile, AssetLibrary, ShadowedAsset } from '../types'
+  import type {
+    AssetFile,
+    AssetLibrary,
+    AssetList,
+    ShadowedAsset,
+  } from '../types'
   import { workspace } from '../workspace.svelte'
   import { sharedHref, wsHref } from '../routes'
   import { hashState } from '../router.svelte'
@@ -37,6 +44,7 @@
   import {
     UPLOAD_EXTENSIONS,
     reportUploads,
+    readListingAfterWrite,
     uploadAll,
   } from '../assets/uploads'
   import AssetViewer from '../assets/AssetViewer.svelte'
@@ -48,6 +56,7 @@
   let { shared = false }: { shared?: boolean } = $props()
 
   const COLLAPSE_KEY = 'collapsed-asset-libraries'
+  const DURATIONS = 200
   // What each library is called in the page's own voice. `common` is the
   // shared library and `examples` a read-only tree an --examples-dir
   // brought; neither name means anything to someone who has not read the
@@ -61,37 +70,38 @@
   // An asset an agent adds or removes shows within one feed interval. The
   // search path itself, in order, and the entries a nearer library on it
   // hides, come from the server: the page never builds a path
-  const list = resource(
-    async () => {
-      // The note saves this read can have seen: those made before it began
-      const began = untrack(() => noteEdits.made)
-      return { ...(await api.listAssets()), began }
-    },
-    {
-      watch: ['assets'],
-      rows: (data) => data.assets.map((asset) => [asset.name, asset]),
-      // What is held carries the notes saved here still open, so a quiet
-      // reload never marks the page's own note (the gallery's merge)
-      merge: (_held, incoming) => {
-        noteEdits = settleEdits(incoming.assets, incoming.began, noteEdits)
-        return { ...incoming, assets: applyEdits(incoming.assets, noteEdits) }
-      },
-    },
-  )
+  async function readList(listing: () => Promise<AssetList>) {
+    // The note saves this read can have seen: those made before it began
+    const began = untrack(() => noteEdits.made)
+    return { ...(await listing()), began }
+  }
+  // What is held carries the notes saved here still open, so a quiet
+  // reload never marks the page's own note (the gallery's merge)
+  function withNotes(incoming: Awaited<ReturnType<typeof readList>>) {
+    noteEdits = settleEdits(incoming.assets, incoming.began, noteEdits)
+    return { ...incoming, assets: applyEdits(incoming.assets, noteEdits) }
+  }
+  const list = resource(() => readList(() => api.listAssets()), {
+    watch: ['assets'],
+    rows: (data) => data.assets.map((asset) => [asset.name, asset]),
+    merge: (_held, incoming) => withNotes(incoming),
+  })
   // Each clip's and sound's length: the listing again with `media`, read in
   // the background so the grid never waits on the probe (the gallery's
-  // durations); a tile takes its duration from here by name
+  // durations), for the newest DURATIONS assets - an older one's tile
+  // shows no length; a tile takes its duration from here by name
   const durations = resource(
     async () => {
-      const result = await api.listAssets({ media: true })
+      const result = await api.listAssets({ media: true, limit: DURATIONS })
       return new Map(result.assets.map((a) => [a.name, a.duration_seconds]))
     },
     { watch: ['assets'] },
   )
-  const tileOf = (asset: AssetFile) => ({
-    ...assetMedia(asset, list.data?.workspace ?? workspace.current),
-    duration: durations.data?.get(asset.name) ?? null,
-  })
+  const tileOf = (asset: AssetFile) =>
+    labelled({
+      ...assetMedia(asset, list.data?.workspace ?? workspace.current),
+      duration: durations.data?.get(asset.name) ?? null,
+    })
   // A note saved here, until a listing begun after the save lands (the
   // gallery's edits, gallery/order.ts)
   let noteEdits = $state(noEdits<AssetFile>())
@@ -100,6 +110,7 @@
   const shadowed = $derived<ShadowedAsset[]>(list.data?.shadowed ?? [])
   // In the hash, so Back from an asset - or a shared link - keeps it
   const filter = hashState('q', '')
+  const sort = listSort()
   // The asset open in the viewer, as `open=` in the hash: the viewer writes
   // it the way Back expects (mediaViewer.ts), and Back closes it
   let open = $state<string | null>(openInHash())
@@ -131,11 +142,37 @@
       list.adopt({ ...held, assets: applyEdits(held.assets, noteEdits) })
   }
 
+  // The page's own writes are held, never marked as another writer's and
+  // never a loud reload (resource's `adopt`): a delete leaves the held list
+  // without what went, an upload holds the listing read after it
+  function dropHeld(names: string[]) {
+    const held = list.data
+    if (held)
+      list.adopt({
+        ...held,
+        assets: held.assets.filter((a) => !names.includes(a.name)),
+      })
+  }
+  async function adoptListing() {
+    list.adopt(withNotes(await readList(() => readListingAfterWrite())))
+  }
+
   const filterActive = $derived(filter.value !== '')
   const matches = (name: string) =>
     name.toLowerCase().includes(filter.value.toLowerCase())
-  const visible = $derived(assets.filter((a) => matches(a.name)))
-  const byName = $derived(new Map(visible.map((a) => [a.name, a])))
+  const matched = $derived(assets.filter((a) => matches(a.name)))
+  const byName = $derived(new Map(matched.map((a) => [a.name, a])))
+  // Newest first is one list across a library's folders
+  const newest = $derived(sort.value === 'newest')
+  const visible = $derived(
+    newest
+      ? newestFirst([...byName.keys()], (n) => byName.get(n)?.mtime).map((n) =>
+          byName.get(n)!,
+        )
+      : matched,
+  )
+  // Same-leaf assets in different folders are told apart by their caption
+  const labelled = $derived(viewLabels(assets.map((a) => a.name)))
   const folderByName = $derived(new Map(assets.map((a) => [a.name, a.folder])))
   const originOf = $derived(new Map(assets.map((a) => [a.name, a.origin])))
   // A workspace's page shows the shared and examples libraries only as far
@@ -229,12 +266,17 @@
 
   // The library the open asset is in, remembered so a deleted one steps on
   // through the same library (MediaViewer)
-  let viewedOrigin = ''
-  const viewed = $derived.by(() => {
-    const at = sections.find((s) => s.assets.some((a) => a.name === open))
-    if (at) viewedOrigin = at.origin
-    return at ?? sections.find((s) => s.origin === viewedOrigin)
+  let viewedOrigin = $state('')
+  const viewing = $derived(
+    sections.find((s) => s.assets.some((a) => a.name === open)),
+  )
+  $effect(() => {
+    const origin = viewing?.origin
+    if (origin) untrack(() => (viewedOrigin = origin))
   })
+  const viewed = $derived(
+    viewing ?? sections.find((s) => s.origin === viewedOrigin),
+  )
   // What the viewer steps through: that library, in the grid's order,
   // minus a shut folder's assets
   const items = $derived.by((): MediaFile[] => {
@@ -242,31 +284,32 @@
     const shut = shutFolders[viewed.origin]
     const grouped = groupNames(
       viewed.assets.map((a) => a.name),
-      (name) => folderByName.get(name) ?? '',
+      (name) => (newest ? '' : (folderByName.get(name) ?? '')),
     )
     return [...grouped.entries()]
       .flatMap(([g, names]) => (!filterActive && shut?.has(g) ? [] : names))
       .map((name) => tileOf(byName.get(name)!))
   })
 
-  // An open= naming no asset on the page, once the listing is in: said
-  // under the header, and cleared. A link to one in a shut library or
-  // folder opens it; one that was listed and left is the viewer's
-  let missing = $state('')
-  let listed: string | null = null
+  // An open= naming no asset on the page (a filter can hide one), once
+  // the listing is in: said under the header (missingFile.svelte.ts), and
+  // cleared
+  const stray = missingFile({
+    open: () => open,
+    known: () => list.status === 'ready',
+    names: () => sections.flatMap((s) => s.assets.map((a) => a.name)),
+  })
+  $effect(() => void (stray.missing && untrack(() => (open = null))))
+  // A link to one in a shut library or folder opens it, once
+  let revealed: string | null = null
   $effect(() => {
     const name = open
-    if (!name || list.status !== 'ready') return
-    const at = sections.find((s) => s.assets.some((a) => a.name === name))
+    const origin = viewing?.origin
+    if (!name || !origin) return
     untrack(() => {
-      if (name === listed) return
-      if (!at) {
-        missing = leafName(name)
-        open = null
-        return
-      }
-      listed = name
-      reveal(at.origin, folderByName.get(name) ?? '')
+      if (name === revealed) return
+      revealed = name
+      reveal(origin, folderByName.get(name) ?? '')
     })
   })
   function reveal(origin: string, folder: string) {
@@ -292,7 +335,7 @@
         failed.map((f) => f.name),
       )
       reportFailures('delete', failed, names.length, 'assets')
-      await list.reload()
+      dropHeld(names.filter((n) => !failed.some((f) => f.name === n)))
     },
     {
       doing: 'delete the picked assets',
@@ -326,7 +369,7 @@
           .map((a) => a.name),
       )
       reportUploads(await uploadAll(files, { shared: isShared, taken }))
-      await list.reload()
+      await adoptListing()
     },
     { doing: 'upload the files' },
   )
@@ -338,7 +381,7 @@
     async (asset: AssetFile) => {
       await api.deleteAsset(asset.name)
       notify.success(`Deleted ${asset.reference}`)
-      await list.reload()
+      dropHeld([asset.name])
     },
     { doing: (asset) => `delete ${asset.name}`, confirm: assetConfirm },
   )
@@ -373,6 +416,7 @@
     filter={search}
   >
     {#snippet actions()}
+      <ListSort {sort} />
       {#if !shared && elsewhereCount}
         <a
           class="sidelink plain muted"
@@ -395,7 +439,7 @@
     {/snippet}
   </PageHeader>
 
-  <MissingFile bind:leaf={missing} />
+  <MissingFile leaf={stray.missing} ondismiss={stray.dismiss} />
 
   <HintBar storageKey="assets-hint-dismissed">
     An asset is input a workflow names by reference: an argument set to
@@ -456,7 +500,7 @@
     {#if isOpen(section.origin)}
       <FolderGroups
         names={section.assets.map((a) => a.name)}
-        groupOf={(name) => folderByName.get(name) ?? ''}
+        groupOf={(name) => (newest ? '' : (folderByName.get(name) ?? ''))}
         collapseKey="collapsed-asset-folders-{section.origin}"
         collapsed={shutFolders[section.origin]}
         {filterActive}
@@ -489,7 +533,18 @@
               onclick={() => (open = name)}
               aria-label="Open {asset.name}"
               title="Open this asset, with what made it"
-            />
+            >
+              {#snippet meta()}
+                <!-- Newest is one list across the folders, so the folder
+                   moves onto the tile, as the Workflows page does -->
+                {#if newest && asset.folder}
+                  <span class="cardfolder muted">{asset.folder}</span>
+                {/if}
+                <span class="muted">
+                  <Time at={asset.mtime} label="changed" />
+                </span>
+              {/snippet}
+            </OutputTile>
           </div>
         {/snippet}
       </FolderGroups>

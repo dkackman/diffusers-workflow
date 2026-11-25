@@ -1,6 +1,7 @@
 <script lang="ts">
   import ErrorLine from './ErrorLine.svelte'
   import { Pencil } from '@lucide/svelte'
+  import { action } from '../action.svelte'
   import { api, setNote } from '../api'
   import { ApiError } from '../apiErrors'
   import { confirmDialog } from '../confirm.svelte'
@@ -14,8 +15,9 @@
   // limit and says so in its error, which stays on screen beside the box.
   // The draft is a NoteDraft (src/lib/noteDraft.svelte.ts), kept for the tab
   // so a remount or reload does not lose it. A newer note handed down
-  // mid-edit (an agent, another tab) never replaces the draft: a notice
-  // shows it until the user picks Use theirs or Keep mine. The write sends
+  // mid-edit (an agent, another tab), or found when a kept draft is
+  // resumed over it, never replaces the draft: a notice shows it until the
+  // user picks Use theirs or Keep mine. The write sends
   // `If-Match` with the etag of the note the user last saw (GET
   // /api/notes), so one that changed since is refused, read and shown in
   // that notice - never overwritten unseen. A read that fails writes
@@ -29,6 +31,7 @@
     lines = 4,
     editing = $bindable(false),
     onsaved,
+    onresolved,
   }: {
     note: string | null | undefined
     target: string
@@ -43,6 +46,8 @@
      * changed only when no box shows it already */
     editing?: boolean
     onsaved?: (note: string | null) => void
+    /** The user answered a newer note (Use theirs or Keep mine) */
+    onresolved?: () => void
   } = $props()
 
   /** Where a save lands: kept from before any wait, so a box switched to
@@ -98,9 +103,12 @@
     }
   }
 
+  // A draft set aside answers the note it was written over (`draft.base`):
+  // resumed over a newer one, the notice shows it
   function edit() {
+    const answered = draft.kept ? draft.base : null
     draft.open()
-    base = shown
+    base = answered === null ? shown : answered || null
     error = null
     void learn(here())
   }
@@ -117,10 +125,12 @@
       return
     draft.text = shown ?? ''
     base = shown
+    onresolved?.()
   }
 
   function keepMine() {
     base = shown
+    onresolved?.()
   }
 
   /** Over a newer note the user has not taken in, ask first */
@@ -153,12 +163,15 @@
       const etag = etagOf(seen, at)
       // The read found a note the user has not seen: the notice has it
       if (shown !== seen || !etag) return
-      await write(at, draft.text, etag)
+      await writing.run(at, draft.text, etag)
     } finally {
       pending = false
     }
   }
 
+  // The write is an action like every other button's; it answers its own
+  // failures (refused), so the action never needs to
+  const writing = action(write, { doing: 'save the note' })
   async function write(at: At, text: string, etag: string) {
     saving = true
     error = null
@@ -237,7 +250,7 @@
         type="button"
         class="bare"
         onclick={() => draft.cancel()}
-        disabled={saving}
+        disabled={saving || pending}
       >
         Cancel
       </button>

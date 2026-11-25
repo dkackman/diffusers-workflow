@@ -5,7 +5,7 @@
   // the moment an action is chosen. The workflow list is read only while
   // the dialog is open
   import { api } from '../api'
-  import { leafName } from '../names'
+  import { distinctLeaves, leafName } from '../names'
   import type { MediaFile } from '../media'
   import type { MediaKind } from '../mediaArguments'
   import { resource } from '../resource.svelte'
@@ -30,6 +30,9 @@
   const targets = $derived(
     kind && catalog.data ? inputTargets(catalog.data.details, kind) : [],
   )
+  // Two workflows of one leaf in different folders keep the folders that
+  // tell them apart
+  const shown = $derived(distinctLeaves(targets.map((t) => t.workflow)))
 
   function choose(target: { workflow: string; variable: string }) {
     if (!file) return
@@ -56,7 +59,7 @@
                 onclick={() => choose(target)}
                 title={`${target.workflow} fills ${target.variable} with this file`}
               >
-                {leafName(target.workflow)}
+                {shown.get(target.workflow)}
               </button>
               <span class="muted"><code>{target.variable}</code></span>
             </li>

@@ -29,6 +29,8 @@ const metadata = vi.hoisted(() => ({
   byFile: {} as Record<string, Record<string, unknown>>,
   // The run inputs the route reports beside a file's metadata
   inputs: [] as Array<{ reference: string; kind: 'asset' | 'output' }>,
+  // Which files the route reports as starred
+  starred: {} as Record<string, boolean>,
 }))
 // The definition the job ran, for the flow view and the unsaved reasons,
 // and whether it is the realized copy or the definition as submitted
@@ -74,6 +76,7 @@ vi.mock('../api', () => ({
         name,
         metadata: metadata.byFile[name] ?? null,
         inputs: metadata.inputs,
+        starred: metadata.starred[name],
         job: null,
       }),
     ),
@@ -166,6 +169,7 @@ afterEach(() => {
   vi.mocked(api.getJob).mockClear()
   metadata.byFile = {}
   metadata.inputs = []
+  metadata.starred = {}
   ran.definition = null
   ran.realized = true
   ran.seedVariable = null
@@ -240,6 +244,34 @@ it('a bare S stars the open file, as its star says, and S again unstars it', asy
   await waitFor(() =>
     expect(api.setStarred).toHaveBeenLastCalledWith('a.png', false),
   )
+})
+
+it('a star Undo leaves a star another writer changed', async () => {
+  const { notify } = await import('../toast')
+  vi.mocked(notify.undo).mockClear()
+  vi.mocked(notify.error).mockClear()
+  detail.job = {
+    ...job([{ step: 'generate', files: ['a.png'] }]),
+    output_kinds: { 'a.png': 'image' },
+  }
+  render(JobPage, { jobId: 'j1' })
+  await fireEvent.click(await screen.findByLabelText('Open a.png'))
+  const sheet = await screen.findByRole('dialog', { name: 'a.png' })
+  const star = await within(sheet).findByRole('button', { name: 'Star' })
+  await waitFor(() => expect(star).not.toBeDisabled())
+  vi.mocked(api.setStarred).mockClear()
+  await fireEvent.keyDown(sheet, { key: 's' })
+  await waitFor(() => expect(notify.undo).toHaveBeenCalledTimes(1))
+  // Unstarred elsewhere since: the re-read says so
+  feed.move('default', 'gallery')
+  await waitFor(() => expect(star).toHaveAttribute('aria-pressed', 'false'))
+  vi.mocked(notify.undo).mock.calls[0][1]()
+  await waitFor(() =>
+    expect(notify.error).toHaveBeenCalledWith(
+      'Nothing undone: the star was changed since.',
+    ),
+  )
+  expect(api.setStarred).toHaveBeenCalledTimes(1)
 })
 
 it('sets the tab title to the workflow file the job ran', async () => {
@@ -823,10 +855,12 @@ it("saves the run note in the job's own workspace", async () => {
 describe('data changed underneath the page', () => {
   const notice = () => screen.queryByText('Updated by an agent or another tab')
   /** The feed moves `kind`, and the page's quiet re-reads land */
-  async function moved(kind: 'jobs' | 'gallery') {
+  async function moved(kind: 'jobs' | 'gallery' | 'workflows') {
     feed.move('default', kind)
     for (let i = 0; i < 6; i++) await Promise.resolve()
   }
+  /** The workflow JSON the page shows, once opened */
+  const shownJson = () => screen.queryByTestId('json-editor')?.textContent
   const noted = (note: string) => {
     detail.job = { ...job([]), run_dir: 'wf/run-1', note }
   }
@@ -865,6 +899,26 @@ describe('data changed underneath the page', () => {
     expect(box.value).toBe('my third pass')
   })
 
+  it('a resolved note does not say it was updated', async () => {
+    noted('second pass')
+    render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(screen.getByText('second pass')).toBeTruthy())
+    await fireEvent.click(screen.getByRole('button', { name: /edit note/i }))
+    await fireEvent.input(screen.getByRole('textbox'), {
+      target: { value: 'my third pass' },
+    })
+    noted('from the agent')
+    await moved('gallery')
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Keep mine' }),
+    )
+    await fireEvent.click(screen.getByRole('button', { name: /^save/i }))
+    await waitFor(() => expect(screen.queryByRole('textbox')).toBeNull())
+    await waitFor(() => expect(screen.getByText('my third pass')).toBeTruthy())
+    // The box answered that change: the page does not raise it again
+    expect(notice()).toBeNull()
+  })
+
   it("the page's own note save says nothing", async () => {
     noted('second pass')
     render(JobPage, { jobId: 'j1' })
@@ -885,24 +939,59 @@ describe('data changed underneath the page', () => {
     expect(notice()).toBeNull()
   })
 
-  it('a definition changed elsewhere says so', async () => {
-    detail.job = job([])
-    ran.definition = { steps: [{ name: 'base', pipeline: {} }] }
-    render(JobPage, { jobId: 'j1' })
-    await waitFor(() => expect(screen.getByText('realized')).toBeTruthy())
-    ran.definition = { steps: [{ name: 'edited', pipeline: {} }] }
-    await moved('jobs')
-    await waitFor(() => expect(notice()).toBeTruthy())
-  })
-
-  it("the run's own realized copy replacing the submitted one says nothing", async () => {
-    detail.job = job([])
+  it('an edit elsewhere to a job with no realized copy is shown and marked', async () => {
+    // Queued: what the page shows is the workflow file as it is now
+    detail.job = { ...job([]), status: 'queued', finished_at: null }
     ran.definition = { steps: [{ name: 'base', pipeline: {} }] }
     ran.realized = false
     render(JobPage, { jobId: 'j1' })
     await waitFor(() => expect(screen.getByText('as submitted')).toBeTruthy())
+    await fireEvent.click(screen.getByRole('button', { name: 'show JSON' }))
+    ran.definition = { steps: [{ name: 'edited', pipeline: {} }] }
+    await moved('workflows')
+    await waitFor(() => expect(shownJson()).toContain('"name": "edited"'))
+    expect(notice()).toBeTruthy()
+  })
+
+  it('a run deleted elsewhere flips "realized" off', async () => {
+    detail.job = { ...job([]), run_dir: 'wf/run-1' }
+    ran.definition = { steps: [{ name: 'base', pipeline: { seed: 7 } }] }
+    render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(screen.getByText('realized')).toBeTruthy())
+    // Delete run writes the gallery and jobs; the job's record and status
+    // stay as they were, and the live file answers in the run's place
+    ran.definition = { steps: [{ name: 'base', pipeline: {} }] }
+    ran.realized = false
+    await moved('gallery')
+    await waitFor(() => expect(screen.getByText('as submitted')).toBeTruthy())
+    expect(screen.queryByText('realized')).toBeNull()
+  })
+
+  it('a status move that brings a changed definition marks it', async () => {
+    detail.job = { ...job([]), status: 'queued', finished_at: null }
+    ran.definition = { steps: [{ name: 'base', pipeline: {} }] }
+    ran.realized = false
+    render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(screen.getByText('as submitted')).toBeTruthy())
+    await fireEvent.click(screen.getByRole('button', { name: 'show JSON' }))
+    // The file was edited, and only the job's start moved the feed
+    ran.definition = { steps: [{ name: 'edited', pipeline: {} }] }
+    detail.job = { ...job([]), status: 'running', finished_at: null }
+    await moved('jobs')
+    await waitFor(() => expect(shownJson()).toContain('"name": "edited"'))
+    expect(notice()).toBeTruthy()
+  })
+
+  it("the run's own realized copy replacing the submitted one says nothing", async () => {
+    detail.job = { ...job([]), status: 'running', finished_at: null }
+    ran.definition = { steps: [{ name: 'base', pipeline: {} }] }
+    ran.realized = false
+    render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(screen.getByText('as submitted')).toBeTruthy())
+    // The run ends: it wrote its realized copy as its status moved
     ran.definition = { steps: [{ name: 'base', pipeline: { seed: 7 } }] }
     ran.realized = true
+    detail.job = job([])
     await moved('jobs')
     await waitFor(() => expect(screen.getByText('realized')).toBeTruthy())
     expect(notice()).toBeNull()
@@ -913,15 +1002,26 @@ describe('data changed underneath the page', () => {
     ran.definition = { steps: [{ name: 'base', pipeline: {} }] }
     render(JobPage, { jobId: 'j1' })
     await waitFor(() => expect(screen.getByText('realized')).toBeTruthy())
-    const reads = vi.mocked(api.getJobWorkflow).mock.calls.length
     await moved('jobs')
-    await waitFor(() =>
-      expect(vi.mocked(api.getJobWorkflow).mock.calls.length).toBeGreaterThan(
-        reads,
-      ),
-    )
     await moved('gallery')
     expect(notice()).toBeNull()
+  })
+
+  it('a jobs move of another job reads no workflow', async () => {
+    noted('second pass')
+    ran.definition = { steps: [{ name: 'base', pipeline: {} }] }
+    render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(screen.getByText('realized')).toBeTruthy())
+    const reads = vi.mocked(api.getJobWorkflow).mock.calls.length
+    const jobReads = vi.mocked(api.getJob).mock.calls.length
+    await moved('jobs')
+    // This job's record is read again, its status unchanged: the workflow
+    // it ran is not
+    await waitFor(() =>
+      expect(vi.mocked(api.getJob).mock.calls.length).toBeGreaterThan(jobReads),
+    )
+    await moved('jobs')
+    expect(vi.mocked(api.getJobWorkflow).mock.calls.length).toBe(reads)
   })
 })
 

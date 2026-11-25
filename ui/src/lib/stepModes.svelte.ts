@@ -54,6 +54,18 @@ export class StepModes {
     this.#modes = storageGet(this.#key(), {})
   }
 
+  /** The steps are now `names` (the server's copy replaced them): each
+   * keeps its mode by name, and one that left is forgotten, so a step of
+   * that name coming back opens as any new one does. */
+  retain(names: string[]) {
+    const kept = (modes: Record<string, StepMode>) =>
+      Object.fromEntries(
+        Object.entries(modes).filter(([n]) => names.includes(n)),
+      )
+    this.#modes = kept(this.#modes)
+    storageSet(this.#key(), kept(storageGet(this.#key(), {})))
+  }
+
   reset(modes: Record<string, StepMode>) {
     this.#modes = modes
   }

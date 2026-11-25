@@ -9,6 +9,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import Sidebar from './Sidebar.svelte'
 import { invalidateWorkspaces, workspace } from './workspace.svelte'
 import { feed } from './test/feedMock'
+import { CLOCK_TICK_MS } from './clock.svelte'
 
 const listWorkspaces = vi.hoisted(() =>
   vi.fn(() =>
@@ -300,4 +301,83 @@ it('a workspace made elsewhere appears', async () => {
   // the move drops that cached listing, so the sidebar reads the server's
   feed.move(workspace.current, 'workspaces')
   await waitFor(() => expect(screen.getByText('agent-made')).toBeTruthy())
+})
+
+it('Sidebar says when each workspace changed', async () => {
+  const now = Math.floor(Date.now() / 1000)
+  listWorkspaces.mockResolvedValueOnce({
+    workspace_root: '/ws',
+    default: 'default',
+    workspaces: [
+      { name: 'default', default: true, mtime: now - 3 * 86_400 } as never,
+      { name: 'studio', default: false, mtime: now - 5 * 60 } as never,
+    ],
+  })
+  render(Sidebar, { collapsed: false, onToggle: () => {} })
+  await waitFor(() => expect(screen.getByText('default')).toBeTruthy())
+  const stampOf = (name: string) =>
+    screen
+      .getByText(name, { selector: '.name' })
+      .parentElement!.querySelector('time')
+  // the open row and a shut one, each relative with the exact time on hover
+  await waitFor(() =>
+    expect(stampOf('studio')?.textContent?.trim()).toBe('changed 5 min ago'),
+  )
+  expect(stampOf('default')?.textContent?.trim()).toBe('changed 3 days ago')
+  expect(stampOf('default')?.getAttribute('title')).toBeTruthy()
+})
+
+it('a change in the open workspace moves its Sidebar time without a page reload', async () => {
+  // Real time still runs (waitFor), but the clock's tick is the test's
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  try {
+    const now = Math.floor(Date.now() / 1000)
+    const listed = (studio: number) => ({
+      workspace_root: '/ws',
+      default: 'default',
+      workspaces: [
+        { name: 'default', default: true },
+        { name: 'studio', default: false, mtime: studio } as never,
+      ],
+    })
+    listWorkspaces.mockResolvedValueOnce(listed(now - 3 * 3600))
+    render(Sidebar, { collapsed: false, onToggle: () => {} })
+    const stamp = () =>
+      screen
+        .getByText('studio', { selector: '.name' })
+        .parentElement!.querySelector('time')
+        ?.textContent?.trim()
+    await waitFor(() => expect(stamp()).toBe('changed 3 h ago'))
+    const calls = listWorkspaces.mock.calls.length
+    // An output lands in the open workspace: read again, quietly, at once
+    listWorkspaces.mockResolvedValueOnce(listed(now))
+    feed.move(workspace.current, 'gallery')
+    await waitFor(() => expect(stamp()).toBe('changed just now'))
+    expect(listWorkspaces.mock.calls.length).toBe(calls + 1)
+    // A second move in the same clock tick waits for the next one
+    listWorkspaces.mockResolvedValueOnce(listed(now))
+    feed.move(workspace.current, 'workflows')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(listWorkspaces.mock.calls.length).toBe(calls + 1)
+    await vi.advanceTimersByTimeAsync(CLOCK_TICK_MS)
+    expect(listWorkspaces.mock.calls.length).toBe(calls + 2)
+    // and a tick with nothing owed reads nothing
+    await vi.advanceTimersByTimeAsync(CLOCK_TICK_MS)
+    expect(listWorkspaces.mock.calls.length).toBe(calls + 2)
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+it('one feed poll that moves the workspaces and a content kind lists them once', async () => {
+  render(Sidebar, { collapsed: false, onToggle: () => {} })
+  await waitFor(() => expect(screen.getByText('default')).toBeTruthy())
+  const calls = listWorkspaces.mock.calls.length
+  // a copy into the open workspace: one poll, both counters moved, each
+  // watcher called in turn (changes.svelte.ts)
+  feed.move(workspace.current, 'workspaces')
+  feed.move(workspace.current, 'assets')
+  await new Promise((r) => setTimeout(r, 10))
+  // the content resource joins the relist on its way
+  expect(listWorkspaces.mock.calls.length).toBe(calls + 1)
 })

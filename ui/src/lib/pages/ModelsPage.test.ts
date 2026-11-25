@@ -8,7 +8,7 @@ import {
 } from '@testing-library/svelte'
 import { afterEach, expect, it, vi } from 'vitest'
 import ModelsPage, { repoIdHint } from './ModelsPage.svelte'
-import { formatDay } from '../format'
+import { formatDay, formatExact } from '../format'
 import { connection } from '../connection.svelte'
 import { NetworkError } from '../apiErrors'
 import type { ModelCache, ModelRepo } from '../types'
@@ -116,6 +116,42 @@ it('shows the dw job date with no disk mark when last_job_use is set', async () 
   expect(cell.textContent?.trim()).toBe(formatDay(DW_USE))
   expect(cell.textContent).not.toContain('(disk)')
   expect(cell.classList.contains('muted')).toBe(false)
+})
+
+it('each cached revision says its day, the exact time on hover, and a dash when the cache has none', async () => {
+  cache.repos = [
+    {
+      ...repo('org/revs', DW_USE, ATIME),
+      revisions: [
+        {
+          commit_hash: 'a'.repeat(40),
+          refs: ['main'],
+          size_on_disk: 1024,
+          last_modified: ATIME,
+        },
+        {
+          commit_hash: 'b'.repeat(40),
+          refs: [],
+          size_on_disk: 1024,
+          last_modified: null,
+        },
+      ],
+    },
+  ]
+  render(ModelsPage)
+  await fireEvent.click(
+    await screen.findByRole('button', {
+      name: 'toggle revisions for org/revs',
+    }),
+  )
+  const cells = [...document.querySelectorAll('tr.revision td.lastused')]
+  expect(cells.map((td) => td.textContent?.trim())).toEqual([
+    formatDay(ATIME),
+    '—',
+  ])
+  expect(cells[0].querySelector('time')?.getAttribute('title')).toBe(
+    formatExact(ATIME),
+  )
 })
 
 it('falls back to the atime, muted and labelled "(disk)" with its tooltip', async () => {

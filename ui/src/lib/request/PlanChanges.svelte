@@ -1,6 +1,6 @@
 <script lang="ts">
   import ClampedText from '../ui/ClampedText.svelte'
-  import { formatExact, formatMtime } from '../format'
+  import Time from '../ui/Time.svelte'
   import { foldChanges, stateChange, who } from './planChanges'
   import { lineOf, type PlanChange, type Since } from './planDiff'
   import type { LedgerHistoryEntry } from '../types'
@@ -49,8 +49,8 @@
   <div class="entry" id="plan-change-r{entry.revision}">
     <p class="head">
       <span class="num">r{entry.revision}</span>
-      <span class="muted" title={formatExact(seconds(entry.at))}>
-        {formatMtime(seconds(entry.at))}
+      <span class="muted">
+        <Time at={seconds(entry.at)} mode="exact" />
       </span>
       <span class="by">{who(entry)}</span>
       {#if turned}<span class="state">{turned}</span>{/if}

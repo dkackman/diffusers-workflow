@@ -27,7 +27,7 @@
   import { PlanStore, requestRoutes } from '../request/planStore.svelte'
   import { itemRows, newerOf, refreshInterval } from '../request/refresh'
   import { resource } from '../resource.svelte'
-  import { formatMtime } from '../format'
+  import Time from '../ui/Time.svelte'
   import { SECTION_LABELS, wsHref } from '../routes'
   import PageHeader from '../ui/PageHeader.svelte'
   import { notify } from '../toast'
@@ -68,6 +68,8 @@
     // The user's own edit is never marked as an agent's: the next quiet
     // read diffs against what the save read back
     onsaved: (held) => reads.adopt(held),
+    // A stale retry's fresh read is another writer's change: marked
+    onquiet: (read) => reads.adopt(read, { mark: true }),
   })
 
   // The agent wrote after one of the user's waiting notes: said once per
@@ -110,9 +112,12 @@
   // never undoes an edit; a note's draft lives in its row, which the keyed
   // list keeps, and a refresh never moves focus. An item a quiet read
   // changed is marked (`changed`)
-  const reads = resource(() => store.refresh(), {
+  // The interval is derived, so a read that keeps it does not re-arm the
+  // timer: the resource's effect reads `interval`, not `store.read`
+  const interval = $derived(refreshInterval(store.read))
+  const reads = resource((current) => store.refresh(current), {
     watch: ['requests'],
-    alsoLive: () => refreshInterval(store.read),
+    alsoLive: () => interval,
     merge: newerOf,
     rows: itemRows,
   })
@@ -264,7 +269,10 @@
     {#if stale}
       <div class="panel warn-edge stale" role="status">
         <span>
-          Showing the plan as of {formatMtime(readAt)}. Couldn't refresh: {stale.title}
+          Showing the plan as of <Time
+            at={readAt}
+            mode="exact"
+          />{`. Couldn't refresh: ${stale.title}`}
         </span>
         <Details summary="Engine detail" detail={stale.detail ?? ''} />
         <button type="button" class="quiet" onclick={load}>Retry</button>
