@@ -89,11 +89,15 @@
   let reqId = $state('')
   let reqItem = $state('')
 
+  /** Which narrowing a listing was read under. */
+  const listingKey = (request: string, item: string) =>
+    `${request}\u0000${item}`
+
   // An output landing from outside shows within one feed interval. Only the
   // listing is read again: the open file and its note box are left as they are
   const list: Resource<Listing> = resource(
     async (): Promise<Listing> => {
-      const key = `${reqId}\u0000${reqItem}`
+      const key = listingKey(reqId, reqItem)
       // The edits this read can have seen: those made before it began
       const began = untrack(() => edits.made)
       const result = await api.gallery(
@@ -157,11 +161,14 @@
     if (held) list.adopt({ ...held, files: applyEdits(held.files, edits) })
   }
   const drop = (names: Iterable<string>) => (edits = withGone(edits, names))
-  // The editors' output: completions read the same listing
+  // The editors' output: completions read the same listing, but only when it
+  // is the whole of it - a request's files alone would be all they knew, as
+  // the library does not refetch a workspace it holds. Judged by the key the
+  // listing was read under, not the filter now, which can be ahead of it
   $effect(() => {
     const data = list.data
     untrack(() => {
-      if (!data) return
+      if (!data || data.key !== listingKey('', '')) return
       outputLibrary.items = data.files
       outputLibrary.workspace = workspace.current
     })
