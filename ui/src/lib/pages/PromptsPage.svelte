@@ -86,7 +86,7 @@
     collapseKey="collapsed-prompt-folders"
     filterActive={filter.value !== ''}
     groupOf={newest ? () => '' : undefined}
-    newHref="#/prompt-edit"
+    newHref={sharedHref('prompt-edit')}
     onnewingroup={(group) =>
       sessionStorage.setItem('dw-prompt-editor-folder', group)}
   >

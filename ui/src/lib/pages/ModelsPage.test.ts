@@ -7,7 +7,8 @@ import {
   waitFor,
 } from '@testing-library/svelte'
 import { afterEach, expect, it, vi } from 'vitest'
-import ModelsPage, { repoIdHint } from './ModelsPage.svelte'
+import ModelsPage from './ModelsPage.svelte'
+import { repoIdHint } from '../repoId'
 import { formatDay, formatExact } from '../format'
 import { connection } from '../connection.svelte'
 import { NetworkError } from '../apiErrors'
