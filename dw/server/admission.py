@@ -102,8 +102,8 @@ class Admission:
     # What a card must hold to run it, (gb, hard) or None - the worker pool
     # dispatches on it (dw/vram_estimate.py required_vram_gb, #462)
     vram_need: Optional[tuple] = None
-    # The host RAM it is projected to hold at its peak, (mb, basis, runs) or
-    # None for no figure (dw/server/host_ram_need.py, #869). Set by
+    # The host RAM it is projected to hold at its peak, (mb, basis, runs,
+    # inherited_from) or None for no figure (dw/server/host_ram_need.py, #869). Set by
     # admit_for, which has the server's history; nothing dispatches on it yet
     host_ram_need: Optional[tuple] = None
     # The Hub repos the run names (dw.plan_downloads.repos_named) - a

@@ -130,7 +130,7 @@ def host_too_small(definition, arguments, total_mb):
 
 
 def projected_peak(definition, arguments, history, *, rows=None, list_entries=None):
-    """(mb, basis, runs) for this run's projected host-RAM peak, or None.
+    """(mb, basis, runs, inherited_from) for the projected host-RAM peak, or None.
 
     A declared `host_ram_gb` (`declared_mb`) is a floor under the answer: the
     larger of it and the observed or fitted figure wins, basis `declared`

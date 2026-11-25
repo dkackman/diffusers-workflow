@@ -163,8 +163,8 @@ class WorkerInfo(ApiModel):
     pid: int = sometimes("The worker process's pid; absent while it is not running.")
     workspace: str = sometimes("The workspace of `current_job`; absent while idle.")
     oom_score_adj: int = sometimes(
-        "The worker's kernel oom_score_adj, read from /proc at call time (1000 for "
-        "the latest dispatch's worker in a pool); absent where unreadable."
+        "The kernel oom_score_adj read from /proc at call time: 1000 for a pool's "
+        "latest-dispatch worker, else its spawn value; absent where unreadable."
     )
 
 

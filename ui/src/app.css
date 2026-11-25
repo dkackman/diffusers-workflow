@@ -242,7 +242,8 @@ button:hover {
 :root:not([data-theme='light']) button:hover {
   filter: brightness(0.85);
 }
-button:disabled {
+button:disabled,
+button[aria-disabled='true'] {
   opacity: 0.4;
   cursor: default;
   filter: none;

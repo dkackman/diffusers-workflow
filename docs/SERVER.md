@@ -845,7 +845,7 @@ invalid answer carries no `plan` key.
 | `workspace` | The name of the workspace whose step cache was probed, so a `cached_steps: 0` against the wrong workspace's outputs can be seen |
 | `downloads_required` | What the run must fetch first (*Downloads* below); `[]` when nothing |
 | `estimate` | The run's minutes and what they rest on (*Estimate* below) |
-| `host_memory` | `{projected_mb, basis, runs}`, the run's projected host-RAM peak (*Host memory* below); absent when there is no figure |
+| `host_memory` | `{projected_mb, basis, runs}` (plus `inherited_from` when `basis` is `inherited`), the run's projected host-RAM peak (*Host memory* below); absent when there is no figure |
 
 **Fingerprint.** Taken over the realized, expanded definition after elision,
 with each `prompt:` inlined, the seed and every key that cannot change the
@@ -1007,7 +1007,8 @@ beside it so `minutes` can be reconciled against either. With nothing to
 blend toward, `minutes` is left alone and `low_confidence` is set instead.
 
 **Host memory.** `host_memory` is the run's projected host-RAM peak,
-`{projected_mb, basis, runs}`. `basis` is:
+`{projected_mb, basis, runs}`, plus `inherited_from` when `basis` is
+`inherited`. `basis` is:
 
 - `observed` - the largest committed job peak of this machine's successful
   runs with the same memory key, or the largest job peak RSS where none
@@ -1019,7 +1020,8 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
 - `inherited` - no run of its own memory key, no fit and no declaration: the
   largest peak among this machine's successful runs of the catalog templates
   that load the same single pipeline identity, each at its default
-  arguments; `runs` counts the runs of the template that gave it.
+  arguments; `runs` counts the runs of the template that gave it, and
+  `inherited_from` names that template.
 
 ## Files and models
 
@@ -1505,8 +1507,8 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
   which machine answered. `current_job` is the longest-running job and `worker_alive`
   is true if any worker is alive; `workers` has one entry per card (one with a
   single device): `{device, name, vram_gb, current_job, alive,
-  host_memory_rss_mb, pid, oom_score_adj}` - `device` is the ordinal (`cuda:1`) and `name` the
-  GPU's own name, the two halves of a job's `device` - the last three absent when the worker process isn't running (`oom_score_adj` is read from `/proc` at call time, so it shows the kernel's value: 1000 for the latest dispatch's worker in a pool, the spawn-time value - the server's own - for the others)
+  host_memory_rss_mb, pid, workspace, oom_score_adj}` - `device` is the ordinal (`cuda:1`) and `name` the
+  GPU's own name, the two halves of a job's `device` - the last three absent when the worker process isn't running, and `workspace` - the workspace of `current_job` - absent while the worker is idle (`oom_score_adj` is read from `/proc` at call time, so it shows the kernel's value: 1000 for the latest dispatch's worker in a pool, the spawn-time value - the server's own - for the others)
 - `POST /api/memory/clear` — drops every loaded pipeline and the step
   cache on each idle card (MCP `clear_memory`), and returns the memory
   reading taken right after. A card running a job is left alone: `workers`
