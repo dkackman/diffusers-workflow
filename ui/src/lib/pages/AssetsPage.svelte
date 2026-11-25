@@ -421,7 +421,7 @@
         <a
           class="sidelink plain muted"
           href={sharedHref('assets')}
-          title="the shared library every workspace under this root can use"
+          title="the shared asset library every workspace under this root can use"
         >
           shared <span class="num">{elsewhereCount}</span>
         </a>
@@ -446,13 +446,13 @@
     asset:name loads this file at run time, whatever run produced it. Drop files
     anywhere on the page to upload them here.
     {#if shared}
-      The shared library follows you between workspaces; an examples library is
-      read-only.
+      The shared asset library follows you between workspaces; an examples
+      library is read-only.
     {:else}
       This workspace's own assets come first, and a name here hides the same
-      name in the shared library. Shared assets are listed here only when one of
-      this workspace's workflows names them; the rest are on the Shared assets
-      page.
+      name in the shared asset library. Shared assets are listed here only when
+      one of this workspace's workflows names them; the rest are on the Shared
+      assets page.
     {/if}
   </HintBar>
 
@@ -469,7 +469,7 @@
       <a href={wsHref(workspace.current, 'gallery')}>Gallery</a> and Save as
       asset.
       {#if !shared && elsewhereCount}
-        The <a href={sharedHref('assets')}>shared library</a> has {elsewhereCount}
+        The <a href={sharedHref('assets')}>shared asset library</a> has {elsewhereCount}
         more.
       {/if}
     {/snippet}

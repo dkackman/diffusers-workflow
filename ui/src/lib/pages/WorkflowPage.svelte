@@ -87,7 +87,7 @@
   // The listing's own workspace: each proof's thumbnail and link name it
   const proofHome = $derived(proofRead.data?.workspace ?? workspace.current)
   /** The catalog card: this server's own measured run time for the
-   * workflow, and the maintainer's figure - "a maintainer's figure: ~3 min
+   * workflow, and the maintainer's figure - "a maintainer's figure: about 3 min
    * · 22 GB VRAM, measured on <card> at steps=30". Null when the card has
    * no cost - never "unknown cost". */
   const catalog = resource(() => api.listWorkflows({ inputs: true }), {

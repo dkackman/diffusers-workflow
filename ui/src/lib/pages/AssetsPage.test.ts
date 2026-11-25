@@ -856,7 +856,7 @@ it('says what a shared delete costs', async () => {
   const dialog = await waitFor(() => screen.getByRole('alertdialog'))
   expect(dialog.textContent).toContain('Delete asset:shared/logo.png?')
   expect(dialog.textContent).toContain(
-    'This removes it on disk. It is in the shared library, so every ' +
+    'This removes it on disk. It is in the shared asset library, so every ' +
       'workspace under this root loses it, and any workflow still carrying ' +
       'that reference stops loading.',
   )
@@ -900,7 +900,7 @@ it('counts the shared assets in a bulk delete confirm', async () => {
   const dialog = await waitFor(() => screen.getByRole('alertdialog'))
   expect(dialog.textContent).toContain('Delete 3 assets?')
   expect(dialog.textContent).toContain(
-    'This removes them on disk. 2 of them are in the shared library and go ' +
+    'This removes them on disk. 2 of them are in the shared asset library and go ' +
       'away for every workspace. Any workflow still carrying one of those ' +
       'references stops loading.',
   )

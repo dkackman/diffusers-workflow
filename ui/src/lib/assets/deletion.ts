@@ -10,20 +10,20 @@ import type { AssetFile } from '../types'
 export function assetConfirm(asset: AssetFile): ConfirmSpec {
   const consequence =
     asset.origin === 'common'
-      ? 'It is in the shared library, so every workspace under this root ' +
+      ? 'It is in the shared asset library, so every workspace under this root ' +
         'loses it, and any workflow still carrying that reference stops ' +
         'loading.'
       : 'Any workflow still carrying that reference stops loading.'
   return destroyConfirm({ name: asset.reference, noun: 'asset', consequence })
 }
 
-/** A ticked selection, `shared` of them from the shared library */
+/** A ticked selection, `shared` of them from the shared asset library */
 export function assetsConfirm(count: number, shared: number): ConfirmSpec {
   const them =
     count === 1 ? 'It is' : `${shared} of them ${shared === 1 ? 'is' : 'are'}`
   const goes = count === 1 || shared === 1 ? 'goes' : 'go'
   const sharedPart = shared
-    ? `${them} in the shared library and ${goes} away for every workspace. `
+    ? `${them} in the shared asset library and ${goes} away for every workspace. `
     : ''
   return destroyConfirm({
     count,

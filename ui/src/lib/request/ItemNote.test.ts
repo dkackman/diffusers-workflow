@@ -351,6 +351,9 @@ it('deletes an answered note at once, and asks before one still waiting', async 
   await fireEvent.click(screen.getByRole('button', { name: 'Delete note' }))
   await waitFor(() => expect(confirmDialog).toHaveBeenCalledTimes(1))
   expect(waiting.ondelete).not.toHaveBeenCalled()
+  expect(confirmDialog.mock.calls[0][0]).toBe(
+    'This removes it from the ledger. The agent has not had the chance to read it.',
+  )
   confirmDialog.mockResolvedValue(true)
   await fireEvent.click(screen.getByRole('button', { name: 'Delete note' }))
   await waitFor(() => expect(waiting.ondelete).toHaveBeenCalledTimes(1))

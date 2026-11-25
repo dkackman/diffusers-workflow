@@ -412,9 +412,6 @@
   .onrow {
     padding: 0 0.8rem var(--space-3) calc(0.2rem + 24px + var(--space-3));
   }
-  .list {
-    padding: 0.3rem;
-  }
   .items {
     list-style: none;
     margin: 0;

@@ -111,6 +111,8 @@ export const formatMinutes = (minutes: number) =>
  * min' in whole minutes, 'about 1 h 20 min' from an hour up. */
 export function formatApprox(seconds: number): string {
   const minutes = Math.round(seconds / 60)
+  // 30-59 s rounds to one minute, so the seconds test is what keeps it
+  // "under 1 min"
   if (seconds < 60 || minutes < 1) return 'under 1 min'
   if (minutes < 60) return `about ${minutes} min`
   const h = Math.floor(minutes / 60)

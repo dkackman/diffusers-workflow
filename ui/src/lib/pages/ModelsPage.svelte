@@ -537,8 +537,11 @@
   .sizenum {
     position: relative;
   }
+  /* A repo and its revisions are one group: no rule between them */
+  tbody > tr:has(+ tr.revision) > :global(td) {
+    border-bottom: none;
+  }
   .revision td {
-    border-top: none;
     padding-top: 0.1rem;
     padding-bottom: 0.1rem;
     font-size: 0.82rem;

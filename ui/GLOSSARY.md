@@ -19,6 +19,7 @@ The words the web UI uses for each concept, and the ones it does not. The vocabu
 | **the agent is connected** | The agent's notes channel is listening | "the agent is connected", "the agent isn't connected" | "session", "no session is listening" |
 | **Needs you** | What a request wants of the person: one sentence, the same on the list row and the request header | "Needs you: 1 waiting for your OK, 1 failed, 1 take to choose."; a held item is counted as waiting for your OK in place of ready | a held item counted as ready too |
 | **waiting for your OK** | A held item waiting for review | "<n items> waiting for your OK"; the hold text says "the agent will run it at 4:44 PM if it's connected" | "held for your review" |
+| **the shared asset library** | The assets every workspace under this root can use | "the shared asset library" in a sentence ("Shared library" is its section heading) | "the shared library" |
 | **Examples** | Starter workflows | **Examples** everywhere (the sidebar, "start from", the read-only banner); one of them is "an example" | "starter", "the blank starter", "a template", "the template" |
 | **card** ★ | A GPU, in the queue text (a job waiting for a free card) | **card** in the queue text | "GPU" in the queue text |
 | **GPU** ★ | The hardware line | "GPU" on the hardware line | "card" on the hardware line |
@@ -48,7 +49,7 @@ The piece each concept is built from. Reach for it before writing new markup or 
 | Concept | Use | Where |
 | --- | --- | --- |
 | A page's head (back link, h1 and tab title, count, filter, actions) | `PageHeader` | `src/lib/ui/PageHeader.svelte` |
-| A destructive action | `destroyConfirm` (a file, an asset, a workflow, a prompt, a request, a note), `serverConfirm` (a change to the server), or `undoToast` for what can be put back, each through `action()`'s `confirm` or `undo` | `src/lib/destructive.ts`, `src/lib/action.svelte.ts` |
+| A destructive action | `destroyConfirm` (a file, an asset, a workflow, a prompt, a request, a note), `serverConfirm` (a change to the server), or `undoToast` for what can be put back, each through `action()`'s `confirm` or `undo`; a record that is not a file (a request, a note) says `place: 'ledger'`, so it reads "from the ledger", not "on disk" | `src/lib/destructive.ts`, `src/lib/action.svelte.ts` |
 | A button that changes server state | `action()`, or `ActionButton` for a plain one | `src/lib/action.svelte.ts`, `src/lib/ui/ActionButton.svelte` |
 | Engine text (a traceback, a server detail) | `Details` behind a plain line; an inline failure is `ErrorLine` | `src/lib/ui/Details.svelte`, `src/lib/ui/ErrorLine.svelte` |
 | A name to type | `nameDialog` | `src/lib/confirm.svelte.ts` |

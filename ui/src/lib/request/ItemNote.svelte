@@ -90,6 +90,7 @@
     name: 'this note',
     noun: 'note',
     consequence: 'The agent has not had the chance to read it.',
+    place: 'ledger',
   })
 
   const saved = $derived(note?.text ?? null)

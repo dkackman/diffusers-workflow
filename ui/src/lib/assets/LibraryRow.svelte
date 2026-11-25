@@ -45,7 +45,7 @@
       class="withicon"
       onclick={() => onupload('shared')}
       disabled={busy}
-      title="lands in the shared library - visible from every workspace under this root and cannot be moved afterwards"
+      title="lands in the shared asset library - visible from every workspace under this root and cannot be moved afterwards"
     >
       <Upload size={14} />Upload to shared
     </button>

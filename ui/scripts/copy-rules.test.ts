@@ -36,6 +36,10 @@ const SAMPLES: Record<string, { bad: string[]; good: string[] }> = {
     bad: ['Result (latest)', 'the take: result (latest)'],
     good: ['latest take', 'the latest result'],
   },
+  'shared-library': {
+    bad: ['in the shared library and goes away', "the shared library's"],
+    good: ['the shared asset library', 'Shared library'],
+  },
   'held-review': {
     bad: ['held for your review', 'Held for your review.'],
     good: ['waiting for your OK', 'held for review by an agent'],
