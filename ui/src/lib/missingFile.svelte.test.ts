@@ -105,3 +105,40 @@ it('another stray open= takes its place', () => {
   flushSync()
   expect(stray.missing).toBe('two.png')
 })
+
+it('a listed file whose load failed is said when the page reports it', () => {
+  // the viewer stepped to a neighbour the listing still holds, and its
+  // read came back 404
+  view.open = 'run1/next.png'
+  view.names = ['run1/a.png', 'run1/next.png']
+  view.known = true
+  const stray = track()
+  expect(stray.missing).toBeNull()
+  stray.gone('run1/next.png')
+  flushSync()
+  expect(stray.missing).toBe('next.png')
+  // the page clears open=; the stale listing still naming it does not
+  // unsay it
+  view.open = null
+  flushSync()
+  expect(stray.missing).toBe('next.png')
+  // and once the listing drops it, it stays said until dismissed
+  view.names = ['run1/a.png']
+  flushSync()
+  expect(stray.missing).toBe('next.png')
+  stray.dismiss()
+  flushSync()
+  expect(stray.missing).toBeNull()
+})
+
+it('a failed load is reset by a workspace change', () => {
+  view.open = 'run1/next.png'
+  view.names = ['run1/next.png']
+  view.known = true
+  const stray = track()
+  stray.gone('run1/next.png')
+  flushSync()
+  workspace.current = 'studio'
+  flushSync()
+  expect(stray.missing).toBeNull()
+})

@@ -20,6 +20,7 @@
   import { ASSET, OUTPUT, reference, referenceName } from '../references'
   import { kindWithArticle } from '../referenceField'
   import { matchesWords } from '../ui/suggest'
+  import { compareNames } from '../names'
   import type { AssetFile } from '../types'
   import { workspace } from '../workspace.svelte'
 
@@ -100,7 +101,7 @@
       label: LIBRARY_LABELS[origin],
       tiles: matching
         .filter((asset) => asset.origin === origin)
-        .sort((a, b) => a.name.localeCompare(b.name))
+        .sort((a, b) => compareNames(a.name, b.name))
         .map((asset) => ({
           key: asset.name,
           file: assetMedia(asset, assetLibrary.workspace ?? workspace.current),

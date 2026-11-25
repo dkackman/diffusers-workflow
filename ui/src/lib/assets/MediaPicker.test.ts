@@ -100,6 +100,12 @@ it('shows the asset library by section, this workspace first, as thumbnails', ()
   )
 })
 
+it("orders a library's assets naturally: take2 before take10", () => {
+  assetLibrary.items = [asset('take10.png'), asset('take2.png')]
+  render(MediaPicker, { open: true, onpick: () => {} })
+  expect(tiles()).toEqual(['choose take2.png', 'choose take10.png'])
+})
+
 it('names the kind it chooses with its article', () => {
   render(MediaPicker, { open: true, kind: 'audio', onpick: () => {} })
   expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent(

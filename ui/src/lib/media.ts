@@ -79,6 +79,17 @@ export function viewLabels(
   }
 }
 
+/** viewLabels' key for outputs: a name without its run folder, since two
+ * runs' files are told apart by their version badge and a run id is never
+ * compared (the Gallery, Compare) */
+export function withoutRun(files: GalleryFile[]): (name: string) => string {
+  const runs = new Map(files.map((f) => [f.name, f.run_id]))
+  return (name) => {
+    const run = runs.get(name)
+    return run ? name.replace(`/${run}/`, '/') : name
+  }
+}
+
 /** An asset as a tile shows it */
 export function assetMedia(asset: AssetFile, workspace: string): MediaFile {
   return {

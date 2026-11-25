@@ -3,6 +3,7 @@
 // workflow page reads the fill once (WORKFLOW_PREFILL_KEY).
 import { WORKFLOW_PREFILL_KEY } from '../chainActions'
 import { mediaKindByName, type MediaKind } from '../mediaArguments'
+import { compareNames } from '../names'
 import { OUTPUT, reference } from '../references'
 import { go } from '../router.svelte'
 import type { WorkflowCard } from '../types'
@@ -24,7 +25,7 @@ export function inputTargets(
     )
     if (variable !== undefined) targets.push({ workflow, variable })
   }
-  return targets.sort((a, b) => a.workflow.localeCompare(b.workflow))
+  return targets.sort((a, b) => compareNames(a.workflow, b.workflow))
 }
 
 /** Open the workflow's page with `file` in its media variable */

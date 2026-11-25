@@ -16,6 +16,11 @@
 //   file arriving in `names()`.
 // - A name that was listed while open and then left the view is never
 //   said: the viewer steps on from it (MediaViewer).
+// - `gone(name)` is the page saying a listed file failed to load (its read
+//   came back 404): the viewer stepped to a neighbour the listing still
+//   holds and the file had been deleted. It is said as a stray is, and
+//   stays said while a stale listing still names it, until `dismiss()`, a
+//   workspace change or a later stray in its place.
 import { untrack } from 'svelte'
 import { leafName } from './names'
 import { workspace } from './workspaceState.svelte'
@@ -24,10 +29,16 @@ export function missingFile(opts: {
   open: () => string | null
   known: () => boolean
   names: () => readonly string[]
-}): { readonly missing: string | null; dismiss(): void } {
+}): {
+  readonly missing: string | null
+  dismiss(): void
+  gone(name: string): void
+} {
   let said = $state<string | null>(null)
   // The open name last seen listed: memory, not state
   let listed: string | null = null
+  // The name `gone()` said: a listing still naming it does not unsay it
+  let failed: string | null = null
   let shownIn = untrack(() => workspace.current)
 
   $effect(() => {
@@ -35,7 +46,7 @@ export function missingFile(opts: {
     untrack(() => {
       if (ws === shownIn) return
       shownIn = ws
-      said = listed = null
+      said = listed = failed = null
     })
   })
   $effect(() => {
@@ -45,11 +56,12 @@ export function missingFile(opts: {
     untrack(() => {
       if (here) listed = name
       else if (name !== listed) said = name
+      if (said !== failed) failed = null
     })
   })
   // The file arrived: nothing is missing any more
   $effect(() => {
-    if (said !== null && opts.names().includes(said))
+    if (said !== null && said !== failed && opts.names().includes(said))
       untrack(() => (said = null))
   })
 
@@ -58,7 +70,10 @@ export function missingFile(opts: {
       return said === null ? null : leafName(said)
     },
     dismiss() {
-      said = null
+      said = failed = null
+    },
+    gone(name) {
+      said = failed = name
     },
   }
 }

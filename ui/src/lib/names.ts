@@ -10,6 +10,14 @@ export function isNameSegment(name: string): boolean {
   return [...name].length <= MAX_NAME_LENGTH && SEGMENT.test(name)
 }
 
+// Names as a person reads them: take2 before take10, Cat beside cat
+const NATURAL = new Intl.Collator(undefined, {
+  numeric: true,
+  sensitivity: 'base',
+})
+/** The order every list of names shown to a person sorts by */
+export const compareNames = (a: string, b: string) => NATURAL.compare(a, b)
+
 /** The last segment of a slash path - a file's name without its folders. */
 export const leafName = (name: string) => name.split('/').pop() ?? name
 

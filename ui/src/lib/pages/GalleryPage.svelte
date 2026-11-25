@@ -3,7 +3,7 @@
   import { outputLibrary } from '../outputlib.svelte'
   import { api } from '../api'
   import DownloadLink from '../DownloadLink.svelte'
-  import { outputMedia, viewLabels, type MediaFile } from '../media'
+  import { outputMedia, viewLabels, withoutRun, type MediaFile } from '../media'
   import { isStarKey, openInHash } from '../mediaViewer'
   import MediaViewer from '../ui/MediaViewer.svelte'
   import MissingFile from '../ui/MissingFile.svelte'
@@ -131,16 +131,11 @@
     { watch: ['gallery'] },
   )
   const files = $derived(applyEdits(list.data?.files ?? [], edits))
-  // Same-leaf files in different folders are told apart by their caption;
-  // two runs' files by the version badge, so a run id is never compared
-  const runless = (name: string) => {
-    const run = byName.get(name)?.run_id
-    return run ? name.replace(`/${run}/`, '/') : name
-  }
+  // Same-leaf files in different folders are told apart by their caption
   const labelled = $derived(
     viewLabels(
       files.map((f) => f.name),
-      runless,
+      withoutRun(files),
     ),
   )
   const tileOf = (file: GalleryFile) => {

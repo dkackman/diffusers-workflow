@@ -6,7 +6,7 @@
   import { Columns2, Pause, Play, X } from '@lucide/svelte'
   import { api } from '../api'
   import { untrack } from 'svelte'
-  import { hasPicture, outputMedia } from '../media'
+  import { hasPicture, outputMedia, viewLabels, withoutRun } from '../media'
   import { openInHash } from '../mediaViewer'
   import { replaceRoute } from '../router.svelte'
   import { resource, type Resource } from '../resource.svelte'
@@ -110,12 +110,21 @@
 
   // The viewer steps through the pictures and clips compared, as the
   // Gallery's does: the open file is `open=` in the hash (mediaViewer.ts)
+  // Two same-leaf files compared are told apart as the Gallery tells them
+  const labelled = $derived.by(() => {
+    const files = cells.flatMap((c) => (c.file ? [c.file] : []))
+    return viewLabels(
+      files.map((f) => f.name),
+      withoutRun(files),
+    )
+  })
+  const shown = (cell: Cell) =>
+    cell.file ? labelled(outputMedia(cell.file, workspace.current)) : null
   const items = $derived(
-    cells.flatMap((c) =>
-      c.file && hasPicture(c.file.kind)
-        ? [outputMedia(c.file, workspace.current)]
-        : [],
-    ),
+    cells.flatMap((c) => {
+      const tile = shown(c)
+      return tile && hasPicture(tile.kind) ? [tile] : []
+    }),
   )
   let open = $state<string | null>(openInHash())
   // An open= naming no file compared is said and cleared (missingFile.svelte.ts)
@@ -176,19 +185,20 @@
 
   <div class="grid" style:--cols={cells.length}>
     {#each cells as cell (cell.name)}
+      {@const tile = shown(cell)}
       <figure class="cell">
-        {#if !cell.file}
+        {#if !tile}
           <p class="muted">{cell.name} is no longer in the gallery.</p>
-        {:else if hasPicture(cell.file.kind)}
+        {:else if hasPicture(tile.kind)}
           <button
             type="button"
             class="thumb"
-            aria-label="Open {cell.file.label}"
+            aria-label="Open {tile.label}"
             title="open this file large"
             onclick={() => (open = cell.name)}
           >
             <MediaBody
-              file={outputMedia(cell.file, workspace.current)}
+              file={tile}
               fit={false}
               controls={false}
               muted
@@ -196,7 +206,7 @@
             />
           </button>
         {:else}
-          <p class="muted">{cell.file.label}</p>
+          <p class="muted">{tile.label}</p>
         {/if}
         <button
           type="button"
@@ -209,7 +219,7 @@
         </button>
         {#if cell.file}
           <figcaption>
-            <span class="mono">{cell.file.label}</span>
+            <span class="mono">{tile?.label}</span>
             {#if cell.file.version}<span
                 class="num muted"
                 title={versionTitle(cell.file.version)}

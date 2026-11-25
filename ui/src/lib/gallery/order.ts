@@ -1,6 +1,7 @@
 // The gallery grid's order and filter, kept out of the page so it can be
 // tested on its own.
 import { groupNames } from '../grouping'
+import { compareNames } from '../names'
 import type { Picks } from '../picks.svelte'
 import type { GalleryFile, OutputRole } from '../types'
 
@@ -64,12 +65,6 @@ function byRun(shown: GalleryFile[], oldest: boolean): GalleryFile[] {
   return shown.sort((a, b) => way * (place(a) - place(b)) || rank(a) - rank(b))
 }
 
-// Names as a person reads them: take2 before take10, Cat beside cat
-const BY_NAME = new Intl.Collator(undefined, {
-  numeric: true,
-  sensitivity: 'base',
-})
-
 /** The files the grid shows, in its order: those matching every word of
  * `text` (matchesText), in one of `roles`, starred when `starredOnly`,
  * sorted by `sort` */
@@ -86,7 +81,7 @@ export function gridFiles(
       matchesText(f, words, prompts),
   )
   if (query.sort === 'name')
-    return shown.sort((a, b) => BY_NAME.compare(a.name, b.name))
+    return shown.sort((a, b) => compareNames(a.name, b.name))
   return byRun(shown, query.sort === 'oldest')
 }
 

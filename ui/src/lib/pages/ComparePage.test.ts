@@ -208,6 +208,19 @@ describe('ComparePage', () => {
     )
   })
 
+  it('two same-leaf files from different workflows are told apart', async () => {
+    listing.extra = ['wfA/r/a.png', 'wfB/r/a.png']
+    render(ComparePage, { props: { names: ['wfA/r/a.png', 'wfB/r/a.png'] } })
+    // the run is told by the version badge, so only the workflow is kept
+    expect(
+      await screen.findByRole('button', { name: 'Open wfA/a.png' }),
+    ).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Open wfB/a.png' })).toBeTruthy()
+    expect(
+      screen.getByText('wfA/a.png', { selector: 'figcaption .mono' }),
+    ).toBeTruthy()
+  })
+
   it('a cell opens in the viewer', async () => {
     location.hash = '#/ws/default/compare/x'
     render(ComparePage, { props: { names: ['wf/r1/a.png', 'wf/r2/b.png'] } })

@@ -29,6 +29,17 @@ it("offers workflows with a variable of the file's kind, first variable each", (
   ])
 })
 
+it('offers its workflows in natural order: shot2 before shot10', () => {
+  const cards = {
+    'mine/shot10': card(['image']),
+    'mine/shot2': card(['image']),
+  }
+  expect(inputTargets(cards, 'image').map((t) => t.workflow)).toEqual([
+    'mine/shot2',
+    'mine/shot10',
+  ])
+})
+
 it('offers none for audio', () => {
   const cards = { 'mine/edit': card(['image', 'video']) }
   expect(inputTargets(cards, 'audio' as never)).toEqual([])
