@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Plus } from '@lucide/svelte'
+  import { SvelteMap } from 'svelte/reactivity'
   import StepEditor from './StepEditor.svelte'
   import { emptyStep, emptyTaskStep, emptyWorkflowStep } from '../editor'
   import { undoToast } from '../destructive'
@@ -58,20 +59,32 @@
     modes.mark(step.name, 'full')
   }
 
+  /** Steps renamed in this editor, old name to new: an Undo finds its
+   * neighbour by the name it holds now */
+  const renamedTo = new SvelteMap<string, string>()
+  function currentName(name: string): string {
+    for (let hops = 0; renamedTo.has(name) && hops < 50; hops++)
+      name = renamedTo.get(name)!
+    return name
+  }
+
   /** Removed at once, with an Undo that puts the step back where it was -
-   * before the first step that followed it and is still there, else last -
+   * before the first step that followed it and is still there (renamed or
+   * not), else last -
    * under a free name, saying so when that name is not its own */
   function removeStep(index: number) {
     const list = steps ?? []
     const removed = $state.snapshot(list[index])
-    const after = new Set(list.slice(index + 1).map((s) => s.name))
+    const after = list.slice(index + 1).map((s) => s.name)
     steps = list.filter((_, at) => at !== index)
     undoToast(
       `Removed step ${removed.name}`,
       () => {
         const now = steps ?? []
         const step = { ...removed, name: freeName(removed.name) }
-        const found = now.findIndex((s) => after.has(s.name))
+        const found = now.findIndex((s) =>
+          after.some((name) => currentName(name) === s.name),
+        )
         const at = found < 0 ? now.length : found
         steps = [...now.slice(0, at), step, ...now.slice(at)]
         modes.mark(step.name, 'full')
@@ -107,6 +120,7 @@
         workflow[key] = next
     }
     modes.rename(from, to)
+    renamedTo.set(from, to)
     const n = result.count
     const carried =
       n > 0 ? `, and ${n} ${n === 1 ? 'reference' : 'references'} to it` : ''

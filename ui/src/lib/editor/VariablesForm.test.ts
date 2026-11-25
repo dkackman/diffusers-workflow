@@ -563,3 +563,44 @@ describe('VariablesForm folds and kinds', () => {
     expect(document.querySelector('input[type="file"]')).not.toBeNull()
   })
 })
+
+describe('the new variable name field', () => {
+  const field = () =>
+    screen.getByPlaceholderText('new variable name…') as HTMLInputElement
+
+  it('Enter while composing adds nothing', async () => {
+    render(VariablesForm, props({ variables: {} }))
+    await fireEvent.input(field(), { target: { value: 'ok' } })
+    await fireEvent.keyDown(field(), { key: 'Enter', isComposing: true })
+    expect(screen.queryByLabelText('ok')).toBeNull()
+    await fireEvent.keyDown(field(), { key: 'Enter' })
+    expect(document.getElementById('v-ok')).not.toBeNull()
+  })
+
+  it('a refused name is described to the input', async () => {
+    render(VariablesForm, props({ variables: {} }))
+    await fireEvent.input(field(), { target: { value: '9x' } })
+    await fireEvent.keyDown(field(), { key: 'Enter' })
+    const id = field().getAttribute('aria-describedby')
+    expect(id).toBeTruthy()
+    expect(document.getElementById(id!)?.textContent).toMatch(/starts with/)
+  })
+})
+
+describe('switching a text row to boolean', () => {
+  it('says why when the text is not true or false', async () => {
+    render(VariablesForm, props({ variables: { note: 'maybe' } }))
+    const type = screen.getByLabelText('type of note') as HTMLSelectElement
+    await fireEvent.change(type, { target: { value: 'boolean' } })
+    expect(
+      screen.getByText('Only true or false can be a boolean.'),
+    ).toBeTruthy()
+  })
+
+  it('says nothing when the text is true', async () => {
+    render(VariablesForm, props({ variables: { flag: 'true' } }))
+    const type = screen.getByLabelText('type of flag') as HTMLSelectElement
+    await fireEvent.change(type, { target: { value: 'boolean' } })
+    expect(screen.queryByText('Only true or false can be a boolean.')).toBeNull()
+  })
+})

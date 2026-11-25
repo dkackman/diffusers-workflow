@@ -235,3 +235,48 @@ it('a step that comes back renamed says so', async () => {
     'Step process came back as process-2',
   )
 })
+
+it('undo anchors on a neighbour that was renamed meanwhile', async () => {
+  const steps = [taskStep('a'), taskStep('b'), taskStep('c')]
+  render(StepList, {
+    steps,
+    workflow: { steps },
+    modes: new StepModes(() => 'test-step-modes'),
+    folder: '',
+    flow: [],
+    problemsByStep: new Map(),
+    stepReferences: [],
+    hovered: null,
+  })
+  await fireEvent.click(
+    screen.getAllByRole('button', { name: 'remove step' })[1],
+  )
+  await renameIn('c', 'tail')
+  await tick()
+  expect(names()).toEqual(['a', 'tail'])
+  notify.undo.mock.calls[0][1]()
+  await tick()
+  expect(names()).toEqual(['a', 'b', 'tail'])
+})
+
+it('a rename follows `previous_result: name` with a space', async () => {
+  const steps = [
+    taskStep('a'),
+    {
+      name: 'use',
+      task: { command: 'y', arguments: { image: 'previous_result: a.image' } },
+    },
+  ]
+  render(StepList, {
+    steps,
+    workflow: { steps },
+    modes: new StepModes(() => 'test-step-modes'),
+    folder: '',
+    flow: [],
+    problemsByStep: new Map(),
+    stepReferences: [],
+    hovered: null,
+  })
+  await renameIn('a', 'base')
+  expect((steps[1].task.arguments as { image: string }).image).toBe('previous_result: base.image')
+})

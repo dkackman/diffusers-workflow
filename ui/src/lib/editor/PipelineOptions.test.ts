@@ -59,7 +59,7 @@ it('offers the slots StableDiffusionPipeline takes', async () => {
   await vi.waitFor(() =>
     expect(describe).toHaveBeenCalledWith('StableDiffusionPipeline', 'init'),
   )
-  const select = screen.getByRole('combobox', { name: '' })
+  const select = screen.getByRole('combobox', { name: 'component to add' })
   await vi.waitFor(() =>
     expect([...select.querySelectorAll('option')].map((o) => o.value)).toEqual([
       '',
@@ -98,7 +98,7 @@ it('a constructor slot added from the pipeline shows, removes and leaves the sel
   render(PipelineOptionsHarness, {
     initial: { configuration: { component_type: 'SafetyProbePipeline' } },
   })
-  const select = screen.getByRole('combobox', { name: '' })
+  const select = screen.getByRole('combobox', { name: 'component to add' })
   await vi.waitFor(() =>
     expect(
       [...select.querySelectorAll('option')].map((o) => o.value),

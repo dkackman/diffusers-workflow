@@ -215,6 +215,24 @@ export const COMPONENT_SLOTS = [
   'model',
 ]
 
+/** The pipeline's own option keys that are not component slots: the schema's
+ * `$defs/pipeline` properties less COMPONENT_SLOTS, pinned by
+ * tests/test_ui_twins.py. */
+export const OPTION_KEYS = [
+  'configuration',
+  'shared_components',
+  'reused_components',
+  'scheduler',
+  'audio_scheduler',
+  'loras',
+  'ip_adapter',
+  'from_pretrained_arguments',
+  'remote_text_encoder',
+  'seed',
+  'chain',
+  'arguments',
+]
+
 /** A pipeline's offload modes, the schema's `offload` enum. */
 export const OFFLOAD_MODES = ['model', 'sequential']
 

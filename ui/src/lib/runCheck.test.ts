@@ -180,10 +180,17 @@ it('a note under a filled field asks to read it', () => {
   })
 })
 
-it('notes for the author alone read Ready to run', () => {
+it('notes for the author alone are a warning, not a green light', () => {
   const authored = answer({ warnings: ['a step has no output'] })
   expect(verdictFor(authored, ['seed'])).toMatchObject({
-    tone: 'good',
-    text: 'Ready to run.',
+    tone: 'warn',
+    text: 'Ready to run. Read the warnings.',
   })
+})
+
+it('a changed form is pending until its answer lands, and a refusal then counts', async () => {
+  const check = new RunCheck(() => Promise.resolve(answer({})))
+  check.changed('wf', { a: 1 })
+  expect(check.pending).toBe(true)
+  await vi.waitFor(() => expect(check.pending).toBe(false))
 })

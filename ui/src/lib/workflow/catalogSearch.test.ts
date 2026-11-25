@@ -79,3 +79,18 @@ it('a name that holds the words in the order asked ranks ahead of its reverse', 
     'templates/image-to-text',
   ])
 })
+
+it('a query word matches a whole word, not part of one', () => {
+  expect(catalogMatches(names, details, 'cat')).toEqual(['clip'])
+  expect(catalogMatches(names, details, 'ca')).toEqual([])
+  expect(catalogMatches(names, details, 'phot')).toEqual([])
+})
+
+it('punctuation is not part of a word', () => {
+  expect(catalogMatches(names, details, 'cat,')).toEqual(['clip'])
+  expect(catalogMatches(names, details, '"flux"?')).toEqual([
+    'flux-image',
+    'photo',
+  ])
+  expect(catalogMatches(names, details, '??')).toEqual(names)
+})

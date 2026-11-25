@@ -12,18 +12,20 @@ const STOP_WORDS = new Set([
   'with',
 ])
 
-/** The words a query asks for: lower-cased, split on whitespace, with the
- * words that carry no meaning dropped. */
+/** The words of a text: lower-cased and cut at anything that is not a letter
+ * or digit, so punctuation never rides along on a word. */
+const wordsOf = (text: string): string[] =>
+  text.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean)
+
+/** The words a query asks for: lower-cased, split at punctuation and
+ * whitespace, with the words that carry no meaning dropped. */
 export function queryWords(query: string): string[] {
-  return query
-    .toLowerCase()
-    .split(/\s+/)
-    .filter((word) => word && !STOP_WORDS.has(word))
+  return wordsOf(query).filter((word) => !STOP_WORDS.has(word))
 }
 
-/** Everything a card says about itself, lower-cased, to look words up in. */
-function textOf(name: string, card: WorkflowCard | undefined): string {
-  return [
+/** Every word a card says about itself, to look query words up in. */
+function textOf(name: string, card: WorkflowCard | undefined): string[] {
+  return wordsOf([
     name,
     card?.description,
     card?.summary,
@@ -31,17 +33,16 @@ function textOf(name: string, card: WorkflowCard | undefined): string {
     ...(card?.kinds ?? []),
     ...(card?.traits ?? []),
   ]
-    .join(' ')
-    .toLowerCase()
+    .join(' '))
 }
 
-/** Whether `text` holds every word, each after the one before. */
-function holdsInOrder(text: string, words: string[]): boolean {
+/** Whether `held` holds every word, each after the one before. */
+function holdsInOrder(held: string[], words: string[]): boolean {
   let from = 0
   for (const word of words) {
-    const at = text.indexOf(word, from)
+    const at = held.indexOf(word, from)
     if (at < 0) return false
-    from = at + word.length
+    from = at + 1
   }
   return true
 }
@@ -50,11 +51,14 @@ function holdsInOrder(text: string, words: string[]): boolean {
  * same-named one inside a model's folder. */
 const depthOf = (name: string) => name.split('/').length
 
-/** The workflows that answer a query by words, best first. A workflow's score
- * is how many of the query's words its text holds; only the highest score
- * above zero is kept, so `flux image` lists what holds both words and `video
- * of a cat` lists the video workflows, ties by how much of the query the name holds, then by how shallow its folder is, then by name. A query with no
- * meaningful word matches everything, in the order given. */
+/** The workflows that answer a query by words, best first. A word matches a
+ * whole word of the text, never part of one (`art` is not `smart`). A
+ * workflow's score is how many of the query's words its text holds; only the
+ * highest score above zero is kept, so `flux image` lists what holds both
+ * words and `video of a cat` lists the video workflows. Ties go by how much
+ * of the query the name holds, then by how shallow its folder is, then by
+ * name. A query with no meaningful word matches everything, in the order
+ * given. */
 export function catalogMatches(
   names: string[],
   details: Record<string, WorkflowCard>,
@@ -64,7 +68,7 @@ export function catalogMatches(
   if (!words.length) return names
   const scored = names.map((name) => {
     const text = textOf(name, details[name])
-    const named = name.toLowerCase()
+    const named = wordsOf(name)
     return {
       name,
       score: words.filter((word) => text.includes(word)).length,

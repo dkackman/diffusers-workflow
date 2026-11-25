@@ -47,8 +47,13 @@ function renamedReference(
   if (bare && !isReference(value)) return renamed(value, from, to)
   for (const prefix of [PREVIOUS_RESULT, GATHER]) {
     if (!value.startsWith(prefix)) continue
-    const rest = renamed(value.slice(prefix.length), from, to)
-    return rest === null ? null : prefix + rest
+    // the engine reads `previous_result: name` with a space too
+    const gap =
+      prefix === PREVIOUS_RESULT
+        ? (/^\s*/.exec(value.slice(prefix.length))?.[0] ?? '')
+        : ''
+    const rest = renamed(value.slice(prefix.length + gap.length), from, to)
+    return rest === null ? null : prefix + gap + rest
   }
   return null
 }
