@@ -529,3 +529,31 @@ it('a running job opens the file open= names once it arrives', async () => {
   expect(await screen.findByRole('dialog', { name: 's3.mp4' })).toBeTruthy()
   expect(screen.queryByText(/is not in this view any more/)).toBeNull()
 })
+
+// A read that left before a star write may answer after it, with the old star
+it('a recipe read asked before a star write does not undo the star', async () => {
+  render(JobResults, clips)
+  const sheet = await openOutput('run1/s3.mp4')
+  const star = await within(sheet).findByRole('button', {
+    name: 'Star',
+    pressed: false,
+  })
+  const original = api.galleryMetadata.getMockImplementation()!
+  const answers: (() => void)[] = []
+  api.galleryMetadata.mockImplementation((name: string) => {
+    // what the server held when the read was asked
+    const before = original(name)
+    return new Promise((resolve) => answers.push(() => resolve(before)))
+  })
+  try {
+    feed.move('w', 'gallery')
+    await waitFor(() => expect(answers.length).toBeGreaterThan(0))
+    await fireEvent.click(star)
+    await waitFor(() => expect(api.setStarred).toHaveBeenCalled())
+    answers.forEach((answer) => answer())
+    await new Promise((r) => setTimeout(r, 30))
+    expect(star.getAttribute('aria-pressed')).toBe('true')
+  } finally {
+    api.galleryMetadata.mockImplementation(original)
+  }
+})

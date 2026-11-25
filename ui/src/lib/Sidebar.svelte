@@ -55,6 +55,12 @@
   // What the listing holds is module state (workspace.svelte.ts), drawn
   // from there; the resource is how it stays fresh
   resource(() => relistWorkspaces(), { watch: ['workspaces'] })
+  // The workspace whose sections are open: the route's when it names one,
+  // else the one the UI is scoped to (a shared or server page still sits
+  // inside a workspace's context)
+  const expanded = $derived(
+    route.view.kind === 'ws' ? route.view.workspace : workspace.current,
+  )
   // The open workspace's own content moving (a save, an upload, an output
   // landing) moves its time: the listing is read again quietly, at most once
   // per clock tick, a move in a tick that already read it owed to the next,
@@ -70,7 +76,11 @@
       readIn = tick
       await relistOrJoin()
     },
-    { watch: ['workflows', 'prompts', 'assets', 'gallery'], lazy: true },
+    {
+      watch: ['workflows', 'prompts', 'assets', 'gallery'],
+      lazy: true,
+      workspace: () => expanded,
+    },
   )
   $effect(() => {
     void now.value
@@ -80,12 +90,6 @@
     })
   })
 
-  // The workspace whose sections are open: the route's when it names one,
-  // else the one the UI is scoped to (a shared or server page still sits
-  // inside a workspace's context)
-  const expanded = $derived(
-    route.view.kind === 'ws' ? route.view.workspace : workspace.current,
-  )
   // A switch is shown, not just repainted: the new workspace's sections
   // slide open where the old ones slid shut, and its name row settles from
   // a stronger --select tint to the block's resting one. The first render

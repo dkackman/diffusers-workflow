@@ -12,7 +12,7 @@
   import { api } from '../api'
   import DownloadLink from '../DownloadLink.svelte'
   import ReuseActions from '../gallery/ReuseActions.svelte'
-  import { saveAsAsset } from '../gallery/saveAsAsset'
+  import { SAVING_ASSET, saveAsAsset } from '../gallery/saveAsAsset'
   import UseAsInput from '../gallery/UseAsInput.svelte'
   import type { MediaFile } from '../media'
   import { isStarKey } from '../mediaViewer'
@@ -41,6 +41,10 @@
   // guess would offer an Undo that unstars a file starred elsewhere
   let starRead = $state<Record<string, boolean>>({})
   let starSet = $state<Record<string, boolean>>({})
+  // How many stars this viewer has written, and the count at each file's
+  // last one: a read asked before it may still hold the old star
+  let writes = 0
+  const wrote: Record<string, number> = {}
   // The listing's own word stands in while the read has not answered or
   // has failed; it was read once, so it never outranks the viewer's own
   const starredNow = (name: string): boolean | null =>
@@ -58,6 +62,7 @@
   async function writeStar(name: string, next: boolean) {
     await api.setStarred(name, next)
     starSet[name] = next
+    wrote[name] = ++writes
     return { name, next }
   }
   // A star is written in the open workspace, so its Undo is held to it
@@ -77,10 +82,7 @@
       },
     }),
   })
-  const saving = action(saveAsAsset, {
-    doing: 'save it as an asset',
-    success: (r) => `Saved as asset ${r.name}`,
-  })
+  const saving = action(saveAsAsset, SAVING_ASSET)
   let useInput = $state<MediaFile | null>(null)
   let useInputOpen = $state(false)
 
@@ -123,9 +125,12 @@
       name={file.name}
       source="output"
       workspace={file.workspace}
-      onread={(m) => {
+      stamp={() => writes}
+      onread={(m, asked) => {
         // A read, and the quiet one after the gallery moves, is the
-        // server's word: it outranks what this page wrote
+        // server's word: it outranks what this page wrote, unless it was
+        // asked before that write
+        if (asked < (wrote[file.name] ?? 0)) return
         starRead[file.name] = m.starred === true
         delete starSet[file.name]
       }}
