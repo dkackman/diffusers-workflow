@@ -1763,3 +1763,35 @@ it('the workflow updates when the job finishes', async () => {
   feed.move('default', 'jobs')
   await waitFor(() => expect(nodeFor(container, 'finish')).toBeTruthy())
 })
+
+it('a saved run note survives a record reload begun before the save', async () => {
+  const before: JobDetail = {
+    ...job([]),
+    run_dir: 'wf/run-1',
+    note: 'old note',
+  }
+  detail.job = before
+  render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(screen.getByText('old note')).toBeTruthy())
+  await fireEvent.click(screen.getByRole('button', { name: 'Edit note' }))
+  const box = screen.getByLabelText('Your note on this job')
+  await fireEvent.input(box, { target: { value: 'new note' } })
+  let land!: (value: JobDetail) => void
+  api.getJob.mockClear()
+  api.getJob.mockImplementationOnce(
+    () => new Promise((resolve) => (land = resolve)),
+  )
+  feed.move('default', 'jobs')
+  await waitFor(() => expect(api.getJob).toHaveBeenCalledTimes(1))
+  detail.job = { ...before, note: 'new note' }
+  await fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  await waitFor(() => expect(screen.getByText('new note')).toBeTruthy())
+
+  land(before)
+
+  await waitFor(() => expect(api.getJob).toHaveBeenCalledTimes(2))
+  await new Promise((r) => setTimeout(r, 10))
+  expect(screen.getByText('new note')).toBeTruthy()
+  expect(screen.queryByText('old note')).toBeNull()
+  expect(screen.queryByText(/updated by an agent/i)).toBeNull()
+})

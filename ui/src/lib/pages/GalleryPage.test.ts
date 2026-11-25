@@ -385,11 +385,17 @@ it('a listing that began before a star cannot undo it', async () => {
     () => new Promise<{ files: GalleryFile[] }>((resolve) => (land = resolve)),
   )
   feed.move(DEFAULT_WORKSPACE, 'gallery')
+  const before = listing.files
   await fireEvent.click(
     screen.getByRole('button', { name: 'Star', pressed: false }),
   )
   await waitFor(() => expect(starMark('a.png')).toBeTruthy())
-  land({ files: listing.files })
+  // The server carries the star from here on
+  listing.files = listing.files.map((f) =>
+    f.name === 'a.png' ? { ...f, starred: true } : f,
+  )
+  land({ files: before })
+  await waitFor(() => expect(gallery).toHaveBeenCalledTimes(3))
   await settle()
   expect(starMark('a.png')).toBeTruthy()
 })
@@ -897,21 +903,22 @@ it("the user's own star is not marked as another writer's change", async () => {
     () => new Promise<{ files: GalleryFile[] }>((resolve) => (land = resolve)),
   )
   feed.move(DEFAULT_WORKSPACE, 'gallery')
+  const before = listing.files
   await fireEvent.click(
     screen.getByRole('button', { name: 'Star', pressed: false }),
   )
   await waitFor(() => expect(starMark('a.png')).toBeTruthy())
-  land({ files: listing.files })
+  // the server carries the star from here on
+  listing.files = listing.files.map((f) =>
+    f.name === 'a.png' ? { ...f, starred: true } : f,
+  )
+  land({ files: before })
+  await waitFor(() => expect(gallery).toHaveBeenCalledTimes(3))
   await settle()
   expect(marked('a.png')).toBe(false)
-  // the star's own move of the feed: the server now says starred, and
-  // someone else retitled b
+  // the star's own move of the feed, and someone else retitled b
   listing.files = listing.files.map((f) =>
-    f.name === 'a.png'
-      ? { ...f, starred: true }
-      : f.name === 'b.png'
-        ? { ...f, label: 'b, retitled' }
-        : f,
+    f.name === 'b.png' ? { ...f, label: 'b, retitled' } : f,
   )
   feed.move(DEFAULT_WORKSPACE, 'gallery')
   await waitFor(() => expect(marked('b.png')).toBe(true))

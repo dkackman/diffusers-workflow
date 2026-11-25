@@ -1147,9 +1147,16 @@ it('a listing asked for before a note save cannot drop the note', async () => {
   )
   feed.move('default', 'assets')
   await waitFor(() => expect(listAssets).toHaveBeenCalledTimes(2))
+  const before = { ...listing, folders: [] }
   await saveIrisNote('hero shot')
-  // It lands carrying the note from before the save
-  answer({ ...listing, folders: [] })
+  // The server carries the note from here on
+  listing.assets = [
+    { ...asset('iris.png'), note: 'hero shot' },
+    asset('cast/priya.jpg'),
+  ]
+  // The held reply lands carrying the note from before the save
+  answer(before)
+  await waitFor(() => expect(listAssets).toHaveBeenCalledTimes(3))
   for (let i = 0; i < 3; i++) await new Promise((r) => setTimeout(r, 10))
   await step('Next file', 'cast/priya.jpg')
   await waitFor(() => expect(screen.queryByText('hero shot')).toBeNull())
@@ -1344,4 +1351,30 @@ it('Newest names a foldered asset by its leaf, its folder a chip', async () => {
     ]),
   )
   expect(chips()).toEqual(['cast', 'people', 'pets'])
+})
+
+it('a deleted asset stays gone when a reload begun before the delete lands', async () => {
+  await renderAssets()
+  const sheet = await openAsset('iris.png')
+  const before = {
+    ...listing,
+    assets: [...listing.assets],
+    folders: [],
+  } as never
+  let land!: (value: never) => void
+  listAssets.mockImplementationOnce(
+    () => new Promise((resolve) => (land = resolve)),
+  )
+  feed.move('default', 'assets')
+  await waitFor(() => expect(listAssets).toHaveBeenCalledTimes(2))
+  listing.assets = [asset('cast/priya.jpg')]
+  within(sheet).getByRole('button', { name: 'Delete' }).click()
+  await answerConfirm(true)
+  await waitFor(() => expect(screen.queryByText('iris.png')).toBeNull())
+
+  land(before)
+
+  await waitFor(() => expect(listAssets).toHaveBeenCalledTimes(3))
+  await new Promise((r) => setTimeout(r, 10))
+  expect(screen.queryByText('iris.png')).toBeNull()
 })
