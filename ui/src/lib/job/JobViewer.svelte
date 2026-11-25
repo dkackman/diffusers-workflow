@@ -6,7 +6,7 @@
   // (RecipePanel, its one read, which also says whether the file is
   // starred: the star waits for it). The open file is open= in the job route's
   // hash, written the way Back expects (mediaViewer.ts)
-  import { tick, untrack } from 'svelte'
+  import { tick } from 'svelte'
   import { FilePen } from '@lucide/svelte'
   import { action } from '../action.svelte'
   import { api } from '../api'
@@ -27,8 +27,11 @@
     items,
     open = $bindable(null),
     onnote,
+    listed = {},
   }: {
     items: MediaFile[]
+    /** Whether each file is starred, as the Results listing read it */
+    listed?: Record<string, boolean>
     open: string | null
     onnote?: (file: string) => void
   } = $props()
@@ -38,23 +41,10 @@
   // guess would offer an Undo that unstars a file starred elsewhere
   let starRead = $state<Record<string, boolean>>({})
   let starSet = $state<Record<string, boolean>>({})
-  // The listing's own word (an item's `starred`) stands in while the read
-  // has not answered or has failed
+  // The listing's own word stands in while the read has not answered or
+  // has failed; it was read once, so it never outranks the viewer's own
   const starredNow = (name: string): boolean | null =>
-    starSet[name] ??
-    starRead[name] ??
-    items.find((item) => item.name === name)?.starred ??
-    null
-  // The record moved under the open viewer (a quiet reload brings a new
-  // listing): what it says outranks what this viewer wrote earlier
-  $effect(() => {
-    for (const item of items)
-      if (typeof item.starred === 'boolean')
-        untrack(() => {
-          starRead[item.name] = item.starred as boolean
-          delete starSet[item.name]
-        })
-  })
+    starSet[name] ?? starRead[name] ?? listed[name] ?? null
   function toggleStar(name: string) {
     const now = starredNow(name)
     if (now !== null) starring.run(name, !now)
@@ -134,7 +124,8 @@
       source="output"
       workspace={file.workspace}
       onread={(m) => {
-        // A read is the server's word: it outranks what this page wrote
+        // A read, and the quiet one after the gallery moves, is the
+        // server's word: it outranks what this page wrote
         starRead[file.name] = m.starred === true
         delete starSet[file.name]
       }}

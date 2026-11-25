@@ -9,6 +9,7 @@ import {
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import JobResults from './JobResults.svelte'
 import { api } from '../test/apiMock'
+import { feed } from '../test/feedMock'
 import type { JobDetail } from '../types'
 import { workspace } from '../workspaceState.svelte'
 
@@ -62,6 +63,9 @@ vi.mock('../api', async () =>
     outputUrl: (path: string) => `/outputs/${path}`,
   }),
 )
+vi.mock('../changes.svelte', async () => ({
+  changes: (await import('../test/feedMock')).feed.changes,
+}))
 api.galleryMetadata.mockImplementation((name: string) =>
   held.reads
     ? new Promise(() => {})
@@ -383,6 +387,78 @@ it('the star is enabled from the listing when the recipe read fails', async () =
     pressed: true,
   })
   expect((star as HTMLButtonElement).disabled).toBe(false)
+})
+
+// The route names `starred` only for a starred file, so a listing read
+// without it says the file is not starred
+it('the star of an unstarred file is enabled from the listing when the recipe read fails', async () => {
+  render(JobResults, {
+    ...clips,
+    fileGroups: [group('gen', ['run1/a.png'])],
+    kinds: { 'run1/a.png': 'image' },
+  })
+  await waitFor(() => expect(api.galleryMetadata).toHaveBeenCalled())
+  await new Promise((r) => setTimeout(r, 50))
+  held.fail = true
+  const sheet = await openOutput('run1/a.png')
+  const star = await within(sheet).findByRole('button', {
+    name: 'Star',
+    pressed: false,
+  })
+  expect((star as HTMLButtonElement).disabled).toBe(false)
+  await fireEvent.click(star)
+  await waitFor(() =>
+    expect(api.setStarred).toHaveBeenCalledWith('run1/a.png', true),
+  )
+})
+
+it('a video-only run stars its first file from the listing when the recipe read fails', async () => {
+  render(JobResults, clips)
+  await waitFor(() => expect(api.galleryMetadata).toHaveBeenCalled())
+  await new Promise((r) => setTimeout(r, 50))
+  held.fail = true
+  const sheet = await openOutput('run1/s3.mp4')
+  const star = await within(sheet).findByRole('button', {
+    name: 'Star',
+    pressed: false,
+  })
+  expect((star as HTMLButtonElement).disabled).toBe(false)
+})
+
+// The listing is read once: it must not take back a star set since
+it('a star set in the viewer stands when the listing is rebuilt', async () => {
+  const one = {
+    ...clips,
+    fileGroups: [group('gen', ['run1/a.png'])],
+    kinds: { 'run1/a.png': 'image' },
+  }
+  const view = render(JobResults, one)
+  const sheet = await openOutput('run1/a.png')
+  await fireEvent.click(
+    await within(sheet).findByRole('button', { name: 'Star', pressed: false }),
+  )
+  await within(sheet).findByRole('button', { name: 'Star', pressed: true })
+  await view.rerender({
+    ...one,
+    fileGroups: [group('gen', ['run1/a.png', 'run1/b.png'])],
+    kinds: { 'run1/a.png': 'image', 'run1/b.png': 'image' },
+  })
+  await new Promise((r) => setTimeout(r, 50))
+  expect(within(sheet).getByRole('button', { name: 'Star' }).ariaPressed).toBe(
+    'true',
+  )
+})
+
+it("the viewer's star follows the record on a quiet reload", async () => {
+  render(JobResults, clips)
+  const sheet = await openOutput('run1/s3.mp4')
+  await within(sheet).findByRole('button', { name: 'Star', pressed: false })
+  starredOn.add('run1/s3.mp4')
+  feed.move('w', 'gallery')
+  await within(sheet).findByRole('button', { name: 'Star', pressed: true })
+  starredOn.delete('run1/s3.mp4')
+  feed.move('w', 'gallery')
+  await within(sheet).findByRole('button', { name: 'Star', pressed: false })
 })
 
 it("the star's Undo puts back a star the user did not just add", async () => {

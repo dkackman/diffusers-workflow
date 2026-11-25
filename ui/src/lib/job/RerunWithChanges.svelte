@@ -72,6 +72,9 @@
     Object.fromEntries(
       Object.entries(overrides).filter(
         ([key, raw]) =>
+          // New seed replaces a seed typed before it was ticked: the server
+          // refuses both
+          !(newSeed && key === seedVariable) &&
           !same(raw.trim(), started(key)) &&
           // a blank over a value that was blank is no change
           !(raw.trim() === '' && started(key) === ''),

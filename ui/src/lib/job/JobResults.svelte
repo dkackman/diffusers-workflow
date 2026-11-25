@@ -109,13 +109,7 @@
   const labelled = $derived(viewLabels(ordered))
   const tileOf = (file: string): MediaFile | null => {
     const kind = kindOf(file) as OutputKind | null
-    const starred = run.data?.starred[file]
-    return kind
-      ? labelled({
-          ...jobMedia(file, kind, job.id, job.workspace),
-          ...(starred !== undefined && { starred }),
-        })
-      : null
+    return kind ? labelled(jobMedia(file, kind, job.id, job.workspace)) : null
   }
   const items = $derived(
     ordered.map(tileOf).filter((t): t is MediaFile => t !== null),
@@ -290,7 +284,7 @@
   </ul>
 {/if}
 
-<JobViewer {items} bind:open {onnote} />
+<JobViewer {items} bind:open {onnote} listed={run.data?.starred} />
 
 <style>
   .roles details {
