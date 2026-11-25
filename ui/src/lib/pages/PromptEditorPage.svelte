@@ -88,10 +88,18 @@
   const enhancer = new Enhancer()
   const intendedModels = $derived(enhancer.intendedModels(promptDetails))
 
-  // The server's copy replaced the prompt: its idea is the enhancer's
+  // The idea the last read put in the enhancer: an idea still equal to it was
+  // not typed, so a newer read may replace it
+  let readIdea = ''
+
+  // The server's copy replaced the prompt: its idea is the enhancer's, unless
+  // the person has typed one of their own
   $effect(() => {
     if (!shell.remoteLoads) return
-    untrack(() => (enhancer.idea = shell.doc.enhanced?.idea ?? ''))
+    untrack(() => {
+      if (enhancer.idea !== readIdea) return
+      readIdea = enhancer.idea = shell.doc.enhanced?.idea ?? ''
+    })
   })
 
   function useResult() {
@@ -139,7 +147,7 @@
     const prompt = await openPrompt(shell, path, () => path !== name)
     if (!prompt) return
     opened = path
-    enhancer.idea = prompt.enhanced?.idea ?? ''
+    readIdea = enhancer.idea = prompt.enhanced?.idea ?? ''
     enhancer.preselect(shell.doc.intended_model)
   }
 

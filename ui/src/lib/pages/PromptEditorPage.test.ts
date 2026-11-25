@@ -391,6 +391,28 @@ it('a remote reload refreshes the enhancer idea', async () => {
   await waitFor(() => expect(idea().value).toBe('their idea'))
 })
 
+it('a remote reload keeps an enhancer idea the person typed', async () => {
+  vi.mocked(api.getPrompt).mockResolvedValueOnce({
+    prompt: { text: 'a hero at dawn', enhanced: { idea: 'my idea' } },
+    writable: true,
+    etag: '"p1"',
+  } as never)
+  await openHero()
+  const idea = () => document.getElementById('enhance-idea') as HTMLInputElement
+  await waitFor(() => expect(idea().value).toBe('my idea'))
+  await fireEvent.input(idea(), {
+    target: { value: 'typed, not enhanced yet' },
+  })
+  vi.mocked(api.getPrompt).mockResolvedValueOnce({
+    prompt: { text: 'their version', enhanced: { idea: 'their idea' } },
+    writable: true,
+    etag: '"p9"',
+  } as never)
+  feed.move('default', 'prompts')
+  await waitFor(() => expect(promptText().value).toBe('their version'))
+  expect(idea().value).toBe('typed, not enhanced yet')
+})
+
 it('a second Delete while the warning loads does nothing', async () => {
   await openHero()
   let land: (listing: unknown) => void = () => {}
