@@ -56,8 +56,9 @@
 //   an `api.<write>` handed on as a value, or a use of an imported plain .ts
 //   function whose code calls one, lexically inside no `action(` call's
 //   arguments and inside no guarded function declaration. `action` is the
-//   one src/lib/action.svelte.ts exports, under whatever local name; a
-//   local of that name guards nothing. A function declaration is guarded
+//   one imported from a module named `action.svelte` (the name is matched,
+//   not resolved to src/lib), under whatever local name; a local of that
+//   name guards nothing. A function declaration is guarded
 //   when it is used and every use of it outside its own body (a scope
 //   reference, so neither a property key nor a shadowing local) is inside an
 //   `action(` call's arguments: a helper also bound to `onclick={helper}` is
@@ -220,9 +221,12 @@ const MEDIA_TAGS = new Set([
 const MEDIA_HTML =
   /<\s*(img|video|audio|source|picture|track|embed|object|canvas)\b/i
 const MEDIA_CONSTRUCTORS = new Set(['Audio', 'Image'])
-/** A CSS background that paints a picture: `background-image: url(` or the
- * `background:` shorthand holding a `url(` */
-const MEDIA_CSS = /background(?:-image)?\s*:[^;{}<>]*\burl\(/g
+/** A CSS background that paints a picture: `background-image: url(`, the
+ * `background:` shorthand holding a `url(`, or the Svelte directive
+ * `style:background-image={...}` (`style:background=` is a colour as often
+ * as a picture, so it is not counted) */
+const MEDIA_CSS =
+  /background(?:-image)?\s*:[^;{}<>]*\burl\(|style:background-image\s*=/g
 
 /** The static text of a string literal or an expression-free template */
 function staticText(node) {
@@ -335,8 +339,10 @@ function mediaRule(found) {
 const isMediaOwner = (file) =>
   RAW_MEDIA_OWNERS.has(relative(UI, file).replaceAll('\\', '/'))
 
-/** CSS backgrounds that paint a picture, in a .css file or a .svelte file
- * (its <style> and its style attributes), outside RAW_MEDIA_OWNERS */
+/** CSS backgrounds that paint a picture, outside RAW_MEDIA_OWNERS. The whole
+ * text of a .css or .svelte file is scanned, not only <style> and style
+ * attributes, so one in a script string or markup text counts too; a
+ * background set from a script (`el.style.background = ...`) is not seen */
 export function cssMedia(file, text) {
   if (isMediaOwner(file) || file.endsWith('.ts')) return []
   return [...text.matchAll(MEDIA_CSS)].map((m) => {
@@ -477,7 +483,8 @@ const isWindowDialog = (callee) =>
     DIALOG_HOSTS.has(callee.object.name) &&
     DIALOG_NAMES.has(propertyName(callee)))
 
-/** The module `action` comes from (src/lib/action.svelte.ts) */
+/** The module `action` comes from: matched by name only (any module named
+ * `action.svelte`), the specifier is not resolved to src/lib/action.svelte.ts */
 const ACTION_MODULE = /(^|\/)action\.svelte(\.[jt]s)?$/
 /** A call of the `action` that action.svelte.ts exports, under whatever
  * local name it was imported as; a local of that name is no guard */

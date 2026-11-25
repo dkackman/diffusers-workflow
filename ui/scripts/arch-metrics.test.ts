@@ -530,14 +530,18 @@ export const ok = document.createElement('a')
   .y { background-image:url(c.png) }
 </style>
 `,
+      'c.svelte': `<div style:background-image={src}></div>
+<div style:background={colour}></div>
+`,
     })
     expect(detail.raw_media).toEqual([
       expect.stringMatching(/a\.css:2 css background$/),
       expect.stringMatching(/a\.css:5 css background$/),
       expect.stringMatching(/b\.svelte:1 css background$/),
       expect.stringMatching(/b\.svelte:4 css background$/),
+      expect.stringMatching(/c\.svelte:1 css background$/),
     ])
-    expect(metrics.raw_media).toBe(4)
+    expect(metrics.raw_media).toBe(5)
   })
 
   it('window_dialogs counts globalThis, self and a computed name', async () => {

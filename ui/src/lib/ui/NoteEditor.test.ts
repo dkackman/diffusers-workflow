@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as api from '../api'
 import { ApiError } from '../apiErrors'
 import { confirmDialog } from '../confirm.svelte'
+import { notify } from '../toast'
 import NoteEditor from './NoteEditor.svelte'
 
 vi.mock('../confirm.svelte', () => ({ confirmDialog: vi.fn() }))
@@ -291,6 +292,7 @@ describe('NoteEditor', () => {
     })
 
     it('a note that changed on the server is refused, shown, and never overwritten', async () => {
+      const failure = vi.spyOn(notify, 'failure')
       const spy = vi
         .spyOn(api, 'setNote')
         .mockRejectedValue(
@@ -313,6 +315,8 @@ describe('NoteEditor', () => {
       expect(screen.getByText('agent wrote this')).toBeTruthy()
       expect(draft()).toBe('mine')
       expect(spy).toHaveBeenCalledTimes(1)
+      // Shown inline only: the save's action raises no toast of its own
+      expect(failure).not.toHaveBeenCalled()
     })
 
     it('a cleared note says so', async () => {

@@ -97,7 +97,8 @@ const feedSyntax = [
 // P5 policy) names it, counts it, says how many are starred and puts the
 // button in danger, so no other module writes a Delete or Remove button of
 // its own - as a `confirmLabel` (a string or a template), a chooseDialog
-// choice's `label`, or a component's `confirmLabel=` attribute. Pinned by
+// choice's `label` (seen only when the choices array is written inside the
+// call), or a component's `confirmLabel=` attribute. Pinned by
 // scripts/lint-rules.test.ts
 const destroyMessage =
   'A delete asks through destroyConfirm() (src/lib/destructive.ts)'
