@@ -14,6 +14,11 @@ and h3_hold imports this module: a helper left behind would make the import a
 cycle. The guide blocks (dw/pipeline_processors/h3_guide_steps.py) encode a
 guide's audio through `encode_audio_span` here, which this module never
 imports back.
+
+The windowed refine's layout block (`DwH3LongRefineLayoutStep`) and the
+sequence arithmetic of one window and of a gated guide (`window_rows`,
+`window_inputs`, `without_rows`) live here as well; the loop that calls them
+is dw/pipeline_processors/h3_windows.py.
 """
 
 import dataclasses
@@ -21,7 +26,9 @@ import logging
 
 import torch
 from diffusers.modular_pipelines.minimax_h3.before_denoise import (
+    MiniMaxH3PrepareLayoutStep,
     MiniMaxH3SetTimestepsStep,
+    align_num_frames,
     patchify_video_latents,
 )
 from diffusers.modular_pipelines.minimax_h3.before_encoder import (
@@ -48,6 +55,9 @@ from .h3_rules import (
     HELD_LATENTS_OUTPUT,
     HELD_ROWS,
     HOLD_AUDIO_INPUT,
+    HYBRID_WINDOWS_INPUT,
+    REFINE_WINDOWS_INPUT,
+    lifts_duration_ceiling,
     REFINE_NOISE,
     REFINE_ROW_NOISE,
     REFINE_SIGMAS_INPUT,
@@ -697,3 +707,192 @@ def video_decode_steps(pipeline):
         holder[key]
         for holder, key in _video_decode_slots(getattr(pipeline, "_blocks", None))
     ]
+
+
+class _LongTakeComponents:
+    """`components` as the stock layout step reads them, with `max_duration`
+    raised to one call's take. A view, not a change: the pipeline itself, and
+    every other call, keep diffusers' ceiling."""
+
+    def __init__(self, components, max_duration):
+        self._components = components
+        self.max_duration = max_duration
+
+    def __getattr__(self, name):
+        return getattr(self._components, name)
+
+
+class DwH3LongRefineLayoutStep(MiniMaxH3PrepareLayoutStep):
+    model_name = "minimax-h3"
+
+    @property
+    def description(self):
+        return (
+            super().description
+            + " dw: a refine with `refine_windows` lays out a take longer than "
+            "15 s; every other call keeps the ceiling."
+        )
+
+    @property
+    def inputs(self):
+        return super().inputs + [
+            InputParam(name=REFINE_WINDOWS_INPUT, type_hint=dict, default=None),
+            InputParam(name=REFINE_STRENGTH_INPUT, default=None),
+            InputParam(name=HYBRID_WINDOWS_INPUT, type_hint=dict, default=None),
+        ]
+
+    def __call__(self, components, state):
+        block_state = self.get_block_state(state)
+        windowed = lifts_duration_ceiling(
+            {
+                name: getattr(block_state, name, None)
+                for name in (
+                    REFINE_WINDOWS_INPUT,
+                    REFINE_STRENGTH_INPUT,
+                    HYBRID_WINDOWS_INPUT,
+                )
+            }
+        )
+        if not windowed or block_state.num_frames is None:
+            return super().__call__(components, state)
+        aligned = align_num_frames(
+            block_state.num_frames,
+            components.vae_frames_per_chunk,
+            components.vae_latents_per_chunk,
+        )
+        ceiling = max(components.max_duration, aligned / components.fps)
+        if ceiling > components.max_duration:
+            logger.info(
+                f"Windowed refine: laying out {aligned} frames "
+                f"({aligned / components.fps:.2f}s), past H3's "
+                f"{components.max_duration:g}s ceiling"
+            )
+        super().__call__(_LongTakeComponents(components, ceiling), state)
+        return components, state
+
+
+# One window of the packed sequence (dw/pipeline_processors/h3_windows.py)
+
+
+def window_rows(
+    fields, video_rows, num_condition_video_rows, num_latent_frames, window
+):
+    """`(video, audio, sequence)` for one window `(start, stop)`: the local
+    rows of `latents` and `audio_latents` it covers, and their packed sequence
+    positions with every text row, sorted - the global order, kept.
+
+    The video rows are frame-major after the conditioning ones. The audio rows
+    are the ones whose rotary time lies in the window's span of the shared
+    clock: from its first frame's time to the next window frame's, or to the
+    end for the last frame of the take."""
+    start, stop = window
+    position_ids = fields["position_ids"]
+    video_indices = fields["video_indices"]
+    audio_indices = fields["audio_indices"]
+    generated = video_rows - num_condition_video_rows
+    if generated % num_latent_frames:
+        raise ValueError(
+            f"{generated} generated video rows do not split into "
+            f"{num_latent_frames} latent frames"
+        )
+    per_frame = generated // num_latent_frames
+    first = num_condition_video_rows
+    video = torch.arange(
+        first + start * per_frame, first + stop * per_frame, device=video_indices.device
+    )
+    times = position_ids[:, 0]
+    begin = times[video_indices[video[0]]]
+    audio_times = times[audio_indices]
+    inside = audio_times >= begin
+    if stop < num_latent_frames:
+        end = times[video_indices[first + stop * per_frame]]
+        inside &= audio_times < end
+    audio = inside.nonzero().squeeze(1)
+    sequence = (
+        torch.cat([fields["text_indices"], audio_indices[audio], video_indices[video]])
+        .sort()
+        .values
+    )
+    return video, audio, sequence
+
+
+def window_inputs(fields, plan_entry, window_rows_, rebase_from=None):
+    """The transformer's layout kwargs for one window's sub-sequence:
+    `position_ids`, `token_tags`, `timestep_indices` gathered at its packed
+    positions, and the three index tensors renumbered into it. With
+    `rebase_from` (the take's first generated video time), every media row's
+    time is shifted so the window's first frame lands there."""
+    video, audio, sequence = window_rows_
+    unique_timesteps, timestep_indices = plan_entry
+    position_ids = fields["position_ids"][sequence]
+    local = {
+        name: torch.searchsorted(sequence, indices)
+        for name, indices in (
+            ("video_indices", fields["video_indices"][video]),
+            ("audio_indices", fields["audio_indices"][audio]),
+            ("text_indices", fields["text_indices"]),
+        )
+    }
+    if rebase_from is not None:
+        offset = position_ids[local["video_indices"][0], 0] - rebase_from
+        media = torch.cat([local["audio_indices"], local["video_indices"]])
+        position_ids = position_ids.clone()
+        position_ids[media, 0] -= offset
+    return {
+        "position_ids": position_ids,
+        "token_tags": fields["token_tags"][sequence],
+        **local,
+    }, (unique_timesteps, timestep_indices[sequence])
+
+
+def clean_timesteps(plan_entry, positions):
+    """A window's `(unique_timesteps, timestep_indices)` with the sequence
+    rows `positions` at the clean timestep, t = 1 - a row the forward reads as
+    finished, the way it reads a held audio row. The clean value is reused when
+    the step already has it (a held track always does), else appended."""
+    unique, indices = plan_entry
+    clean = (unique == 1.0).nonzero()
+    if clean.numel():
+        index = clean[0, 0]
+    else:
+        unique = torch.cat([unique, unique.new_ones(1)])
+        index = unique.numel() - 1
+    indices = indices.clone()
+    indices[positions] = index
+    return unique, indices
+
+
+# 4. The late capstone's gate (#1187, #1199 Task 14 Step 4): EXPERIMENTAL.
+# A guide row marked `enter_below_sigma` is held out of the forward while the
+# step's sigma is at or above its gate - the sequence is the rest, as a window
+# is - and joins it once sigma falls below. H3's timesteps are 1 - sigma.
+
+
+def gated_out_rows(gates, t, device=None):
+    """The `latents` rows a step leaves out of its forward - every gated
+    guide's rows while the step's sigma (1 - t) is at or above its gate - or
+    None when it leaves none out."""
+    sigma = 1.0 - float(t)
+    rows = [
+        torch.arange(start, start + count, device=device)
+        for start, count, gate in gates or ()
+        if sigma >= gate
+    ]
+    return torch.cat(rows) if rows else None
+
+
+def without_rows(fields, num_video_rows, num_audio_rows, rows):
+    """`window_rows`' `(video, audio, sequence)` for the whole packed
+    sequence less the video rows `rows`."""
+    device = fields["video_indices"].device
+    keep = torch.ones(num_video_rows, dtype=torch.bool, device=device)
+    keep[rows] = False
+    sequence = torch.ones(
+        fields["position_ids"].shape[0], dtype=torch.bool, device=device
+    )
+    sequence[fields["video_indices"][rows]] = False
+    return (
+        keep.nonzero().squeeze(1),
+        torch.arange(num_audio_rows, device=device),
+        sequence.nonzero().squeeze(1),
+    )

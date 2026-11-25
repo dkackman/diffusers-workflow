@@ -119,7 +119,7 @@ class TestNumFrames:
 
 class TestWindowedRefine:
     """A `refine_windows` refine lays out a take of any length: the layout
-    step dw swaps in (h3_windows.DwH3LongRefineLayoutStep) lifts
+    step dw swaps in (h3_hold_steps.DwH3LongRefineLayoutStep) lifts
     `max_duration` for a call that carries both `refine_windows` and
     `refine_strength`, so validate must not refuse the literal count that
     call would run (0.21.0 review)."""

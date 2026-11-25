@@ -29,7 +29,6 @@ import math
 import numpy
 
 from ..assessment_rules import (
-    DEAD_AIR_FLOOR_DBFS,
     HOLE_VOICED_DBFS,
     crosses,
     finding,
@@ -39,7 +38,23 @@ from ..assessment_rules import (
 from .. import dsp
 from ..media import iter_rgb_frames, read_thumbnails_and_track
 from ..events import emit_warning
-from .image_ops import as_image, look_stats, thumbs_and_looks
+from .audio_utils import (  # noqa: F401 - re-exported: the level probes' names live here too
+    DEAD_AIR_WINDOW,
+    SILENCE_PEAK,
+    to_dbfs,
+    measure_dead_air,
+    measure_noise_floor,
+    window_levels,
+)
+from .image_ops import (  # noqa: F401 - re-exported: the look probes' names live here too
+    LOOK_MEASURES,
+    TYPICAL_DELTA_PERCENTILE,
+    measure_seam_look,
+    measure_segment_looks,
+    as_image,
+    look_stats,
+    thumbs_and_looks,
+)
 
 logger = logging.getLogger("dw")
 
@@ -50,14 +65,7 @@ THUMB_HEIGHT = 36
 # 3x3 high-pass still sees detail, small enough to reduce at decode speed
 LOOK_WIDTH = 128
 LOOK_HEIGHT = 72
-LOOK_MEASURES = ("lightness", "contrast", "saturation", "detail")
 
-# Frames either side of a seam its look is averaged over, and the floors
-# under a look step's local rate and a detail ratio's denominator - all on
-# the 0-255 scale, like frame_delta
-LOOK_WINDOW = 4
-LOOK_RATE_FLOOR = 1.0
-DETAIL_FLOOR = 0.5
 
 # Audio windows around a seam, in seconds. The edge windows say whether the
 # join itself is voiced (the hole guard) and what the balance does across it;
@@ -88,23 +96,9 @@ HELD_CLUSTER_GAP = 4
 HELD_CLUSTER_MIN = 2
 HELD_SERIES_POINTS = 240
 
-# The window a dead-air run inside a shot is measured in, seconds - fine
-# enough that a half-second gap the rule cares about still spans several
-# windows, coarse enough that ordinary syllable-to-syllable dips don't read
-# as a run on their own (#465)
-DEAD_AIR_WINDOW = 0.05
-TYPICAL_DELTA_PERCENTILE = 90
-
-# A shot's noise floor is this percentile of its DEAD_AIR_WINDOW levels, and
-# is reported only over at least this many windows (0.5 s): fewer leave the
-# percentile resting on one or two windows (#1442)
-NOISE_FLOOR_PERCENTILE = 10
-NOISE_FLOOR_MIN_WINDOWS = 10
 
 # A ratio against a zero neighbour has no size; report it capped
 CLICK_CAP_DB = 120.0
-
-_SILENCE = 1e-10
 
 
 class Media:
@@ -205,11 +199,11 @@ def seam_measures(thumbs, looks, previous, shot, fade=0):
     """The picture and look measurements `analyze_seams` takes at the seam
     `shot` opens, over thumbnails and looks already reduced - the public name
     the chain's per-segment check measures a seam by, before the segment is
-    on any timeline. `_seam_video` and `_seam_look` are the arithmetic."""
+    on any timeline. `_seam_video` and `measure_seam_look` are the arithmetic."""
     media = Media(thumbs, None, None, None, looks=looks)
     return {
         **_seam_video(media, previous, shot, fade),
-        **_seam_look(media, previous, shot, fade),
+        **measure_seam_look(media, previous, shot, fade),
     }
 
 
@@ -322,96 +316,11 @@ def sample_span(shot, media):
     return None, None, None
 
 
-def _db(value):
-    return None if value is None or value <= _SILENCE else dsp.dbfs(value)
-
-
 def _clip(media, start, end):
     total = media.audio.shape[1]
     start = max(0, min(total, int(start)))
     end = max(start, min(total, int(end)))
     return media.audio[:, start:end]
-
-
-def _round(value, places=2):
-    return None if value is None else round(float(value), places)
-
-
-def _window_levels(media, start, count):
-    """The RMS level of each whole `DEAD_AIR_WINDOW`-second window inside a
-    shot's audio span, in dBFS, None for a window of digital silence; and the
-    window's length in samples. `_dead_air` and `_noise_floor` both read these,
-    so the two can't disagree about what a window measured. ([], None) when
-    the span can't be placed."""
-    rate = media.sample_rate
-    if start is None or count is None or not rate:
-        return [], None
-    window_samples = max(1, int(round(DEAD_AIR_WINDOW * rate)))
-    end = min(media.audio.shape[1], start + count)
-    rms = dsp.window_rms(media.audio, start, end, window_samples)
-    return [_db(level) for level in rms], window_samples
-
-
-def _noise_floor(media, start, count, rms_dbfs):
-    """The `NOISE_FLOOR_PERCENTILE`th percentile of a shot's window levels, in
-    dBFS: the room tone plus any hiss under its quiet moments (#1442).
-
-    Nearest rank, counting a silent window as the quietest, so the answer is
-    always one window's own level and never NaN. None under
-    `NOISE_FLOOR_MIN_WINDOWS` windows, and None when that window is digital
-    silence - the value `rms_dbfs` gives for silence. Never above the shot's
-    own `rms_dbfs`: the partial window past the last whole one and a level
-    that is flat throughout could otherwise round the floor a hair above it.
-    """
-    levels, _window_samples = _window_levels(media, start, count)
-    if len(levels) < NOISE_FLOOR_MIN_WINDOWS:
-        return None
-    floor = dsp.nearest_rank(levels, NOISE_FLOOR_PERCENTILE)
-    if floor is None or rms_dbfs is None:
-        return None
-    return min(floor, rms_dbfs)
-
-
-def _dead_air(media, start, count):
-    """The longest run of consecutive `DEAD_AIR_WINDOW`-second windows inside
-    a shot's audio span that sit at or below `DEAD_AIR_FLOOR_DBFS` - a gap in
-    the middle of the take, not the shot's own overall level (`_findings`'s
-    `unless` guard reads that separately). A window whose RMS is digital
-    silence (`_db` answers None) counts as below the floor too - it is
-    quieter than the floor, not un-measurable.
-
-    Returns (seconds, at, floor_dbfs): `at` is seconds into the *file*
-    (matching the seams probe's own seconds fields), so a caller does not
-    have to add the shot's own start back on. All three are None when the
-    span holds fewer than two windows; `seconds` is 0.0 with no run found.
-    """
-    levels, window_samples = _window_levels(media, start, count)
-    if len(levels) < 2:
-        return None, None, None
-    rate = media.sample_rate
-    best_len, best_start, best_levels = 0, None, []
-    run_start, run_levels = None, []
-    for index, level in enumerate(levels):
-        if level is None or level <= DEAD_AIR_FLOOR_DBFS:
-            if run_start is None:
-                run_start = index
-            run_levels.append(level)
-            continue
-        if len(run_levels) > best_len:
-            best_len, best_start, best_levels = len(run_levels), run_start, run_levels
-        run_start, run_levels = None, []
-    if len(run_levels) > best_len:
-        best_len, best_start, best_levels = len(run_levels), run_start, run_levels
-    if best_len == 0:
-        return 0.0, None, None
-    floor_values = [level for level in best_levels if level is not None]
-    seconds = best_len * window_samples / rate
-    at = (start + best_start * window_samples) / rate
-    return (
-        _round(seconds, 2),
-        _round(at, 2),
-        _round(min(floor_values)) if floor_values else None,
-    )
 
 
 def _findings(probe, record, at, skip=()):
@@ -570,8 +479,8 @@ def shots_answer(media, records, source):
     for shot in records:
         start, count, samples_source = sample_span(shot, media)
         window = _clip(media, start, start + count) if start is not None else None
-        peak = _db(dsp.peak(window))
-        rms = _db(dsp.rms(window))
+        peak = to_dbfs(dsp.peak(window))
+        rms = to_dbfs(dsp.rms(window))
         balance = (
             dsp.spectral_balance(window, media.sample_rate)
             if window is not None and window.size
@@ -579,21 +488,27 @@ def shots_answer(media, records, source):
         )
         shares = dsp.band_shares(balance)
         dead_air_seconds, dead_air_at, dead_air_floor_dbfs = (
-            _dead_air(media, start, count) if start is not None else (None, None, None)
+            measure_dead_air(media, start, count)
+            if start is not None
+            else (None, None, None)
         )
         measured.append(
             {
                 "name": shot.get("name"),
                 "start_frame": shot.get("start_frame"),
                 "num_frames": shot.get("num_frames"),
-                "peak_dbfs": _round(peak),
-                "rms_dbfs": _round(rms),
-                "crest_db": _round(None if peak is None or rms is None else peak - rms),
-                **{key: _round(value) for key, value in balance.items()},
-                "high_share": _round(
+                "peak_dbfs": dsp.rounded(peak),
+                "rms_dbfs": dsp.rounded(rms),
+                "crest_db": dsp.rounded(
+                    None if peak is None or rms is None else peak - rms
+                ),
+                **{key: dsp.rounded(value) for key, value in balance.items()},
+                "high_share": dsp.rounded(
                     shares["high_dbfs"] if shares is not None else None, 4
                 ),
-                "noise_floor_dbfs": _round(_noise_floor(media, start, count, rms)),
+                "noise_floor_dbfs": dsp.rounded(
+                    measure_noise_floor(media, start, count, rms)
+                ),
                 "dead_air_seconds": dead_air_seconds,
                 "dead_air_at": dead_air_at,
                 "dead_air_floor_dbfs": dead_air_floor_dbfs,
@@ -607,7 +522,7 @@ def shots_answer(media, records, source):
     if len(voiced) > 1:
         loudest = max(voiced, key=lambda shot: shot["rms_dbfs"])
         quietest = min(voiced, key=lambda shot: shot["rms_dbfs"])
-        rms_range = _round(loudest["rms_dbfs"] - quietest["rms_dbfs"])
+        rms_range = dsp.rounded(loudest["rms_dbfs"] - quietest["rms_dbfs"])
         # Names repeat once a cut re-joins earlier episodes, so the shots'
         # positions in `shots` and their start frames say which is meant
         at = {
@@ -661,7 +576,7 @@ def _shot_rms(media, shot):
     start, count, _source = sample_span(shot, media)
     if start is None:
         return None
-    return _db(dsp.rms(_clip(media, start, start + count)))
+    return to_dbfs(dsp.rms(_clip(media, start, start + count)))
 
 
 def _seam_audio(media, before_end, after_start, previous_rms, next_rms):
@@ -674,8 +589,8 @@ def _seam_audio(media, before_end, after_start, previous_rms, next_rms):
     level = int(round(LEVEL_WINDOW * rate))
     before = _clip(media, before_end - level, before_end)
     after = _clip(media, after_start, after_start + level)
-    before_rms = _db(dsp.rms(before))
-    after_rms = _db(dsp.rms(after))
+    before_rms = to_dbfs(dsp.rms(before))
+    after_rms = to_dbfs(dsp.rms(after))
 
     centre = (before_end + after_start) // 2
     half_floor = max(1, int(round(FLOOR_WINDOW * rate / 2)))
@@ -684,7 +599,7 @@ def _seam_audio(media, before_end, after_start, previous_rms, next_rms):
         if after_start - before_end > 2 * half_floor
         else _clip(media, centre - half_floor, centre + half_floor)
     )
-    floor = _db(dsp.rms(join))
+    floor = to_dbfs(dsp.rms(join))
 
     half_click = max(1, int(round(CLICK_WINDOW * rate / 2)))
     neighbour = int(round(CLICK_NEIGHBOUR_WINDOW * rate))
@@ -696,10 +611,10 @@ def _seam_audio(media, before_end, after_start, previous_rms, next_rms):
         or 0.0,
     )
     click = None
-    if click_peak is not None and click_peak > _SILENCE:
+    if click_peak is not None and click_peak > SILENCE_PEAK:
         click = (
             CLICK_CAP_DB
-            if neighbour_peak <= _SILENCE
+            if neighbour_peak <= SILENCE_PEAK
             else min(CLICK_CAP_DB, 20.0 * math.log10(click_peak / neighbour_peak))
         )
 
@@ -711,18 +626,18 @@ def _seam_audio(media, before_end, after_start, previous_rms, next_rms):
         else None
     )
     return {
-        "before_rms_dbfs": _round(before_rms),
-        "after_rms_dbfs": _round(after_rms),
-        "before_shot_rms_dbfs": _round(previous_rms),
-        "after_shot_rms_dbfs": _round(next_rms),
-        "level_step_db": _round(
+        "before_rms_dbfs": dsp.rounded(before_rms),
+        "after_rms_dbfs": dsp.rounded(after_rms),
+        "before_shot_rms_dbfs": dsp.rounded(previous_rms),
+        "after_shot_rms_dbfs": dsp.rounded(next_rms),
+        "level_step_db": dsp.rounded(
             None
             if previous_rms is None or next_rms is None
             else abs(next_rms - previous_rms)
         ),
-        "floor_dbfs": _round(floor),
-        "click_db": _round(click),
-        "spectral_shift": _round(spectral_shift, 3),
+        "floor_dbfs": dsp.rounded(floor),
+        "click_db": dsp.rounded(click),
+        "spectral_shift": dsp.rounded(spectral_shift, 3),
     }
 
 
@@ -764,140 +679,10 @@ def _seam_video(media, previous, shot, fade):
         [TYPICAL_DELTA_FLOOR] + [value for value in typical if value is not None]
     )
     return {
-        "frame_delta": _round(frame_delta),
-        "typical_delta": _round(typical),
-        "jump_ratio": _round(frame_delta / typical),
+        "frame_delta": dsp.rounded(frame_delta),
+        "typical_delta": dsp.rounded(typical),
+        "jump_ratio": dsp.rounded(frame_delta / typical),
     }
-
-
-_LOOK_STEPS = ("saturation", "lightness", "contrast")
-_NO_LOOK = {
-    "saturation_step": None,
-    "lightness_step": None,
-    "contrast_step": None,
-    "look_ratio": None,
-    "look_ratio_measure": None,
-    "detail_ratio": None,
-}
-
-
-def _look_rate(values):
-    """The TYPICAL_DELTA_PERCENTILE of the change between one LOOK_WINDOW-frame
-    mean and the next inside `values` - the seam step's own statistic, taken
-    where no seam is - or None for a span too short to hold two windows."""
-    if values.shape[0] < 2 * LOOK_WINDOW:
-        return None
-    means = numpy.convolve(values, numpy.ones(LOOK_WINDOW) / LOOK_WINDOW, "valid")
-    return float(
-        numpy.percentile(
-            numpy.abs(means[LOOK_WINDOW:] - means[:-LOOK_WINDOW]),
-            TYPICAL_DELTA_PERCENTILE,
-        )
-    )
-
-
-def _shot_end(shot, frames):
-    count = int(shot.get("num_frames") or 0)
-    start = int(shot.get("start_frame", 0))
-    return min(frames, start + count) if count else frames
-
-
-def _seam_look(media, previous, shot, fade):
-    """Look measurements at the seam `shot` opens (#1031): the mean look of
-    the LOOK_WINDOW frames before it (before a dissolve's fade) against the
-    LOOK_WINDOW after, clipped to the shots. Each step is signed, after minus
-    before; `look_ratio` is the largest step against that measure's own
-    local rate inside either shot, floored, so a step inside a shot that is
-    itself changing that way (a sunrise) scores low. Measures, not rules."""
-    looks = media.looks
-    if looks is None:
-        return dict(_NO_LOOK)
-    frames = looks.shape[0]
-    start = min(frames, int(shot.get("start_frame", 0)))
-    previous_start = min(
-        start,
-        int(previous.get("start_frame", 0)) + int(previous.get("overlap_frames") or 0),
-    )
-    after_start = min(frames, start + fade)
-    after_end = _shot_end(shot, frames)
-    before = looks[max(previous_start, start - LOOK_WINDOW) : start]
-    after = looks[after_start : min(after_end, after_start + LOOK_WINDOW)]
-    if before.shape[0] == 0 or after.shape[0] == 0:
-        return dict(_NO_LOOK)
-    before_mean = before.mean(axis=0, dtype=numpy.float64)
-    after_mean = after.mean(axis=0, dtype=numpy.float64)
-    record = {}
-    ratio, ratio_measure = None, None
-    for measure in _LOOK_STEPS:
-        column = LOOK_MEASURES.index(measure)
-        step = float(after_mean[column] - before_mean[column])
-        record[f"{measure}_step"] = _round(step)
-        rates = [
-            _look_rate(looks[previous_start:start, column]),
-            _look_rate(looks[after_start:after_end, column]),
-        ]
-        rate = max([LOOK_RATE_FLOOR] + [value for value in rates if value is not None])
-        if ratio is None or abs(step) / rate > ratio:
-            ratio, ratio_measure = abs(step) / rate, measure
-    detail = LOOK_MEASURES.index("detail")
-    record["look_ratio"] = _round(ratio)
-    record["look_ratio_measure"] = ratio_measure
-    record["detail_ratio"] = (
-        _round(float(after_mean[detail] / before_mean[detail]))
-        if before_mean[detail] >= DETAIL_FLOOR
-        else None
-    )
-    return record
-
-
-def _window_look(looks, start, end):
-    """The mean of each LOOK_MEASURES column over looks[start:end]."""
-    means = looks[start:end].mean(axis=0, dtype=numpy.float64)
-    return {
-        measure: _round(means[column], 3)
-        for column, measure in enumerate(LOOK_MEASURES)
-    }
-
-
-def _segment_looks(media, records):
-    """Each shot's look at the start and the end of its own new frames (#1324):
-    the frames from after its `overlap_frames` (the dissolve fade
-    `_seam_look` steps over) to the next shot's start, or for the last shot
-    to the end of the take. `first` is the mean over the first second of
-    those frames, `last` over the last second, each clipped to the segment;
-    a segment shorter than two seconds splits its frames in half (a single
-    frame is both). With `next.first - this.last` at each seam, the seam
-    differences and the in-segment `last - first` changes sum exactly to the
-    take's last-minus-first. A measure only: no rule reads it. Empty for
-    media with no picture or fewer than two shots."""
-    looks = media.looks
-    if looks is None or not records or len(records) < 2:
-        return []
-    frames = looks.shape[0]
-    window = max(1, int(round(media.fps))) if media.fps else LOOK_WINDOW
-    segments = []
-    for index, shot in enumerate(records):
-        start = int(shot.get("start_frame", 0))
-        begin = min(frames, start + int(shot.get("overlap_frames") or 0))
-        end = _shot_end(shot, frames)
-        if index + 1 < len(records):
-            end = min(end, int(records[index + 1].get("start_frame", 0)))
-        end = max(begin, min(frames, end))
-        count = end - begin
-        entry = {"shot": shot.get("name"), "between_frames": None}
-        if count == 0:
-            entry.update(first=None, last=None)
-        else:
-            entry["between_frames"] = [begin, end - 1]
-            if count >= 2 * window:
-                head, tail = window, window
-            else:
-                head = max(1, count // 2)
-                tail = max(1, count - count // 2)
-            entry["first"] = _window_look(looks, begin, begin + head)
-            entry["last"] = _window_look(looks, end - tail, end)
-        segments.append(entry)
-    return segments
 
 
 def analyze_seams(video, shots=None):
@@ -952,7 +737,7 @@ def seams_answer(media, records, source):
         record = {
             "seam": index,
             "between": [previous.get("name"), shot.get("name")],
-            "seconds": _round(seconds, 3),
+            "seconds": dsp.rounded(seconds, 3),
             "kind": "dissolve" if fade else "cut",
             "hard_cut": bool(shot.get("hard_cut")),
         }
@@ -991,7 +776,7 @@ def seams_answer(media, records, source):
             skip.add("seam_hole")
         if media.thumbs is not None:
             record.update(_seam_video(media, previous, shot, fade))
-        record.update(_seam_look(media, previous, shot, fade))
+        record.update(measure_seam_look(media, previous, shot, fade))
         if record["hard_cut"] or "audio_bleed_ms" in record:
             # A bled seam is still a picture cut (#783)
             skip.add("seam_frame_jump")
@@ -1014,7 +799,7 @@ def seams_answer(media, records, source):
         )
     answer = _answer(
         "analyze_seams",
-        {"seams": seams, "segment_looks": _segment_looks(media, records)},
+        {"seams": seams, "segment_looks": measure_segment_looks(media, records)},
         findings,
         source,
         shot_dependent=True,
@@ -1065,8 +850,10 @@ def sync_drift_answer(media, records, source):
         end_frame = start_frame + int(shot.get("num_frames", 0))
         record = {
             "name": shot.get("name"),
-            "start_offset_ms": _round((int(start) / rate - start_frame / fps) * 1000.0),
-            "end_offset_ms": _round(
+            "start_offset_ms": dsp.rounded(
+                (int(start) / rate - start_frame / fps) * 1000.0
+            ),
+            "end_offset_ms": dsp.rounded(
                 ((int(start) + int(count)) / rate - end_frame / fps) * 1000.0
             ),
         }
@@ -1077,14 +864,14 @@ def sync_drift_answer(media, records, source):
                 record,
                 {
                     "shot": record["name"],
-                    "seconds": _round(end_frame / fps, 3),
+                    "seconds": dsp.rounded(end_frame / fps, 3),
                 },
             )
         )
 
     length_delta = None
     if media.audio_seconds is not None and media.video_seconds is not None:
-        length_delta = _round((media.audio_seconds - media.video_seconds) * 1000.0)
+        length_delta = dsp.rounded((media.audio_seconds - media.video_seconds) * 1000.0)
     answer = {
         "shots": measured,
         "max_offset_ms": (
@@ -1092,8 +879,8 @@ def sync_drift_answer(media, records, source):
             if measured
             else None
         ),
-        "video_seconds": _round(media.video_seconds, 4),
-        "audio_seconds": _round(media.audio_seconds, 4),
+        "video_seconds": dsp.rounded(media.video_seconds, 4),
+        "audio_seconds": dsp.rounded(media.audio_seconds, 4),
         "length_delta_ms": length_delta,
     }
     findings.extend(
@@ -1178,7 +965,7 @@ def _downsampled(d, points=HELD_SERIES_POINTS):
         chunk = indices[start : start + step]
         values = d[chunk]
         pick = int(chunk[int(numpy.argmin(values))]) if step > 1 else int(chunk[0])
-        series.append({"frame": pick, "d": _round(float(d[pick]), 3)})
+        series.append({"frame": pick, "d": dsp.rounded(float(d[pick]), 3)})
     return series
 
 
@@ -1248,7 +1035,7 @@ def held_frames_answer(media, records, source, detail=False):
     clusters = _held_clusters(held, media.fps)
     answer = {
         "held_frames": len(held),
-        "held_ratio": _round(len(held) / frames, 4) if frames else 0.0,
+        "held_ratio": dsp.rounded(len(held) / frames, 4) if frames else 0.0,
         "frames": frames,
         "clusters": clusters,
     }

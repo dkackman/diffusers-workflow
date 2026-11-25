@@ -245,7 +245,7 @@ def lifts_duration_ceiling(arguments):
     windowed refine (both `refine_windows` and `refine_strength`), or the
     experimental windowed generation (`experimental_hybrid_windows`, which
     only runs behind its flag). Asked by the layout step at the call
-    (h3_windows.py `DwH3LongRefineLayoutStep`) and by validate before the load
+    (h3_hold_steps.py `DwH3LongRefineLayoutStep`) and by validate before the load
     (dw/pipeline_limits.py); every other call keeps the ceiling."""
     if arguments.get(HYBRID_WINDOWS_INPUT) is not None:
         return True
