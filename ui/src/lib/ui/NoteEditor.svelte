@@ -1,6 +1,7 @@
 <script lang="ts">
   import ErrorLine from './ErrorLine.svelte'
   import { Pencil } from '@lucide/svelte'
+  import { action } from '../action.svelte'
   import { api, setNote } from '../api'
   import { ApiError } from '../apiErrors'
   import { confirmDialog } from '../confirm.svelte'
@@ -162,12 +163,15 @@
       const etag = etagOf(seen, at)
       // The read found a note the user has not seen: the notice has it
       if (shown !== seen || !etag) return
-      await write(at, draft.text, etag)
+      await writing.run(at, draft.text, etag)
     } finally {
       pending = false
     }
   }
 
+  // The write is an action like every other button's; it answers its own
+  // failures (refused), so the action never needs to
+  const writing = action(write, { doing: 'save the note' })
   async function write(at: At, text: string, etag: string) {
     saving = true
     error = null

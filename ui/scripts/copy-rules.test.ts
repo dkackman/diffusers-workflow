@@ -28,7 +28,25 @@ const SAMPLES: Record<string, { bad: string[]; good: string[] }> = {
   },
   session: { bad: ['No session is listening'], good: ['sessionStorage'] },
   starter: { bad: ['the blank starter'], good: ['workflows/templates'] },
+  'star-keep': {
+    bad: ['Star to keep it', 'star to keep the take'],
+    good: ['Star', 'Keep starred files', 'the stars to keep'],
+  },
+  'latest-result': {
+    bad: ['Result (latest)', 'the take: result (latest)'],
+    good: ['latest take', 'the latest result'],
+  },
+  'held-review': {
+    bad: ['held for your review', 'Held for your review.'],
+    good: ['waiting for your OK', 'held for review by an agent'],
+  },
 }
+
+/** `text` holds `term` whole: not inside a longer word or hyphenated name */
+const hasTerm = (text: string, term: string) =>
+  new RegExp(
+    `(?<![\\w-])${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`,
+  ).test(text)
 
 const rule = (id: string) => {
   const found = BANNED.find((b) => b.id === id)
@@ -47,10 +65,21 @@ describe('the banned terms', () => {
     }
   })
 
-  it("every banned term's replacement is in GLOSSARY.md", () => {
+  it('every banned term has sample rows', () => {
+    expect(Object.keys(SAMPLES).sort()).toEqual(BANNED.map((b) => b.id).sort())
+  })
+
+  it("every banned term's replacement is in GLOSSARY.md, as a whole term", () => {
     const glossary = readFileSync(join(UI, 'GLOSSARY.md'), 'utf8')
     for (const { id, use } of BANNED)
-      expect(glossary.includes(use), `${id}: ${use}`).toBe(true)
+      expect(hasTerm(glossary, use), `${id}: ${use}`).toBe(true)
+  })
+
+  it('a term inside a longer word is not the term', () => {
+    expect(hasTerm('a jobs list', 'job')).toBe(false)
+    expect(hasTerm('Starred files', 'Star')).toBe(false)
+    expect(hasTerm('one job, then', 'job')).toBe(true)
+    expect(hasTerm('**Star** a file', 'Star')).toBe(true)
   })
 })
 

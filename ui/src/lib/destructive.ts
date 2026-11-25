@@ -154,6 +154,27 @@ export function workspaceConfirm(
   }
 }
 
+/** The answers to deleting a ticked selection that holds starred files:
+ * all of it, only the `unstarred` ones (when there are any), or nothing */
+export function spareStarredChoices(unstarred: number): {
+  label: string
+  value: 'all' | 'unstarred' | 'cancel'
+  danger?: boolean
+}[] {
+  return [
+    { label: 'Delete all', value: 'all', danger: true },
+    ...(unstarred > 0
+      ? [
+          {
+            label: `Delete the ${unstarred} unstarred`,
+            value: 'unstarred' as const,
+          },
+        ]
+      : []),
+    { label: 'Cancel', value: 'cancel' },
+  ]
+}
+
 export type ServerSpec = {
   title: string
   message: string

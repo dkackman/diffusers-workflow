@@ -67,27 +67,43 @@ const JSON_EDITOR_CHUNKS = [
   'json.worker',
 ]
 
-/** A hashed asset's path is `/assets/<chunk>-<hash>.<ext>`. Vite's hash may
- * hold `-` and `_`, so a file is matched by its known chunk name as a prefix
- * and never by stripping a hash off its tail */
+/** A hashed asset's path is `/assets/<chunk>-<hash>.<ext>`, Vite's hash
+ * being 8 base64url characters, `-` and `_` among them. A file is matched by
+ * its chunk name followed by exactly one hash, so `monaco` names the Monaco
+ * chunk and never another `monaco-<name>-<hash>` chunk, and a hash is never
+ * stripped off a tail */
 const isChunk = (path: string, chunk: string, ext: string) =>
   path.startsWith(`/assets/${chunk}-`) &&
-  new RegExp(`^[\\w-]+\\.${ext}$`).test(path.slice(`/assets/${chunk}-`.length))
+  new RegExp(`^[\\w-]{8}\\.${ext}$`).test(
+    path.slice(`/assets/${chunk}-`.length),
+  )
 
 /** `names` has a file of this chunk's name (the hash varies per build) */
 const hasChunk = (names: string[], chunk: string, ext: string) =>
   names.some((n) => isChunk(n, chunk, ext))
 
 test('chunk names are matched whatever characters the hash holds', () => {
-  for (const hash of ['Ab12Cd34', 'Ab-12_Cd', '-a-b-c-', '_x_']) {
+  for (const hash of ['Ab12Cd34', 'Ab-12_Cd', '-a-b-c-d', '_x_y_z_w']) {
     expect(isChunk(`/assets/monaco-${hash}.js`, 'monaco', 'js')).toBe(true)
     expect(
       isChunk(`/assets/editor.worker-${hash}.js`, 'editor.worker', 'js'),
     ).toBe(true)
   }
-  expect(isChunk('/assets/monaco-x.css', 'monaco', 'js')).toBe(false)
-  expect(isChunk('/assets/tsMode-x.js', 'monaco', 'js')).toBe(false)
+  expect(isChunk('/assets/monaco-Ab12Cd34.css', 'monaco', 'js')).toBe(false)
+  expect(isChunk('/assets/tsMode-Ab12Cd34.js', 'monaco', 'js')).toBe(false)
   expect(isChunk('/assets/monaco-x/y.js', 'monaco', 'js')).toBe(false)
+})
+
+test('a chunk name is not a prefix: another monaco-* chunk is not monaco', () => {
+  for (const other of [
+    '/assets/monaco-tsMode-Ab12Cd34.js',
+    '/assets/monaco-basic-languages-Ab12Cd34.js',
+    '/assets/monaco-editor.api-Ab12Cd34.js',
+  ])
+    expect(isChunk(other, 'monaco', 'js'), other).toBe(false)
+  expect(isChunk('/assets/editor.api-Ab12Cd34.js', 'editor.api', 'js')).toBe(
+    true,
+  )
 })
 
 const kb = (bytes: number) => bytes / 1000
