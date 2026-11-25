@@ -31,6 +31,7 @@ it('removing a step offers Undo, and the step comes back where it was after anot
   const modes = new StepModes(() => 'test-step-modes')
   render(StepList, {
     steps: [taskStep('a'), taskStep('b'), taskStep('c')],
+    workflow: {},
     modes,
     folder: '',
     flow: [],
@@ -61,6 +62,7 @@ it('an undone step whose name was taken meanwhile comes back renamed', async () 
   const modes = new StepModes(() => 'test-step-modes')
   render(StepList, {
     steps: [taskStep('process'), taskStep('z')],
+    workflow: {},
     modes,
     folder: '',
     flow: [],
@@ -82,6 +84,7 @@ it('an undone step whose name was taken meanwhile comes back renamed', async () 
 it('a double click on Undo restores the step once', async () => {
   render(StepList, {
     steps: [taskStep('a'), taskStep('b')],
+    workflow: {},
     modes: new StepModes(() => 'test-step-modes'),
     folder: '',
     flow: [],
@@ -197,6 +200,7 @@ it('a refused rename keeps the old name and says why', async () => {
 it('undo puts a step back beside its old neighbour', async () => {
   render(StepList, {
     steps: [taskStep('a'), taskStep('b'), taskStep('c')],
+    workflow: {},
     modes: new StepModes(() => 'test-step-modes'),
     folder: '',
     flow: [],
@@ -218,6 +222,7 @@ it('undo puts a step back beside its old neighbour', async () => {
 it('a step that comes back renamed says so', async () => {
   render(StepList, {
     steps: [taskStep('process'), taskStep('z')],
+    workflow: {},
     modes: new StepModes(() => 'test-step-modes'),
     folder: '',
     flow: [],
@@ -278,5 +283,7 @@ it('a rename follows `previous_result: name` with a space', async () => {
     hovered: null,
   })
   await renameIn('a', 'base')
-  expect((steps[1].task.arguments as { image: string }).image).toBe('previous_result: base.image')
+  expect((steps[1].task.arguments as { image: string }).image).toBe(
+    'previous_result: base.image',
+  )
 })

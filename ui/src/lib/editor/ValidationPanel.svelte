@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { WorkflowDefinition } from '../types'
   import { CircleCheck, TriangleAlert, X } from '@lucide/svelte'
   import { describePlan } from '../plan'
   import { placeFindings } from '../findings'
@@ -22,7 +23,7 @@
   }: {
     validation: ValidationResult | null
     error?: unknown
-    doc: Record<string, any>
+    doc: WorkflowDefinition
     ondismiss: () => void
     onjump: (place: Place) => void
   } = $props()

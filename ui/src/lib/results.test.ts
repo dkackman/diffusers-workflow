@@ -6,7 +6,7 @@ import {
   unsavedReason,
   unsavedSteps,
 } from './results'
-import type { JobEvent } from './types'
+import type { JobEvent, WorkflowStep } from './types'
 
 const stepEnd = (
   step: string,
@@ -186,7 +186,10 @@ describe('sectionBySubfolder', () => {
 describe('unsavedReason', () => {
   it('names result.save when the workflow asked for no file', () => {
     expect(
-      unsavedReason({ result: { save: false, content_type: 'image/png' } }),
+      unsavedReason({
+        name: 's',
+        result: { save: false, content_type: 'image/png' },
+      }),
     ).toEqual({
       key: 'result.save',
       detail: 'is false, so the step is kept in memory and never written',
@@ -194,7 +197,7 @@ describe('unsavedReason', () => {
   })
 
   it('names result.content_type when there is no type to write', () => {
-    expect(unsavedReason({ task: { command: 'mux' } })).toEqual({
+    expect(unsavedReason({ name: 's', task: { command: 'mux' } })).toEqual({
       key: 'result.content_type',
       detail: 'is not declared, so there is no file type to write',
     })
@@ -202,13 +205,16 @@ describe('unsavedReason', () => {
 
   it('has no reason for a step that declares a file', () => {
     expect(
-      unsavedReason({ result: { content_type: 'video/mp4', save: true } }),
+      unsavedReason({
+        name: 's',
+        result: { content_type: 'video/mp4', save: true },
+      }),
     ).toBeNull()
   })
 })
 
 describe('unsavedSteps', () => {
-  const definition = (steps: Array<Record<string, unknown>>) => ({ steps })
+  const definition = (steps: WorkflowStep[]) => ({ steps })
   const steps = definition([
     { name: 'base', result: { save: false } },
     { name: 'edit', task: { command: 'mux' } },

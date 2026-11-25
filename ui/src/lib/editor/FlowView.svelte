@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { WorkflowDefinition } from '../types'
   import { dataFlowGraph, type FlowNode } from '../flow'
   import { formatDuration } from '../format'
   import FlowLegend from './FlowLegend.svelte'
@@ -34,7 +35,7 @@
     memberTimes = {},
     activeSegments = {},
   }: {
-    workflow: Record<string, any>
+    workflow: WorkflowDefinition
     onselect?: (stepName: string) => void
     /** Which steps onselect has somewhere to take the reader - every step
      * when not given. A step it rules out is drawn as no control at all. */

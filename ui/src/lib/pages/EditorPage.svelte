@@ -55,7 +55,7 @@
 
   let { name = '' }: { name?: string } = $props()
 
-  const ed = new DocumentEditor({
+  const ed = new DocumentEditor<WorkflowDefinition>({
     viewKey: 'dw-editor-view',
     views: ['form', 'split', 'json', 'flow'],
     // migrate the old boolean split preference
@@ -90,11 +90,7 @@
   // The server's copy replaced the steps: each keeps its mode by name
   $effect(() => {
     if (!ed.remoteLoads) return
-    untrack(() =>
-      modes.retain(
-        ((ed.doc.steps as Record<string, any>[]) ?? []).map((s) => s?.name),
-      ),
-    )
+    untrack(() => modes.retain((ed.doc.steps ?? []).map((s) => s?.name)))
   })
 
   // Existing folders, from the listing - one level is the designed depth,
@@ -162,6 +158,11 @@
     )
   })
 
+  /** A draft opens with its first step full */
+  function openFirstStep(draft: WorkflowDefinition) {
+    modes.reset({ [draft.steps?.[0]?.name ?? '']: 'full' })
+  }
+
   /** A new workflow: a hand-off's definition, else the blank starter. */
   function startDraft() {
     // A gallery "open as workflow" hands the definition over in
@@ -170,7 +171,7 @@
     // Built as a plain local object and assigned once: reading the
     // workflow proxy here would subscribe this effect to every edit and
     // re-fire all the listing calls on each keystroke
-    const fresh = imported ?? (emptyWorkflow() as Record<string, any>)
+    const fresh = imported ?? emptyWorkflow()
     const from = sessionStorage.getItem(FROM_KEY)
     startFrom = from ?? (imported ? IMPORTED : '')
     if (imported && from === null)
@@ -182,7 +183,7 @@
     // A new workflow has nowhere to save to yet - show the fields
     fileOpen = true
     if (imported) modes.restore()
-    else modes.reset({ [fresh.steps[0].name]: 'full' })
+    else openFirstStep(fresh)
   }
 
   /** Read `path` into the editor; a failure leaves nothing to save. */
@@ -195,10 +196,10 @@
 
   /** The missing file `name`, begun as a blank workflow. */
   function startMissing() {
-    const fresh = emptyWorkflow() as Record<string, any>
+    const fresh: WorkflowDefinition = emptyWorkflow()
     ed.startNew(fresh)
     fileOpen = true
-    modes.reset({ [fresh.steps[0].name]: 'full' })
+    openFirstStep(fresh)
   }
 
   /** Hand the draft to another workspace's editor - nothing is saved yet,
@@ -230,7 +231,7 @@
     try {
       const fresh = await startingWorkflow(example, emptyWorkflow)
       ed.startNew(fresh)
-      modes.reset(example ? {} : { [fresh.steps[0].name]: 'full' })
+      modes.reset(example ? {} : { [fresh.steps?.[0]?.name ?? '']: 'full' })
       followName(example)
       startFrom = example
     } catch (e) {
@@ -248,9 +249,7 @@
     }
     ed.busy = true
     try {
-      check.validation = await api.validate(
-        $state.snapshot(ed.doc) as WorkflowDefinition,
-      )
+      check.validation = await api.validate($state.snapshot(ed.doc))
       return check.validation.valid
     } catch (e) {
       notify.failure('validate the workflow', e)

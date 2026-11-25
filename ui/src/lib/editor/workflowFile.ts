@@ -16,7 +16,7 @@ import type { WorkflowDefinition, WorkflowList } from '../types'
  * once it is loaded; false when the read failed (the error is left on
  * `ed`) or `stale()` says the page has moved on to another file. */
 export async function openWorkflow(
-  ed: DocumentEditor,
+  ed: DocumentEditor<WorkflowDefinition>,
   name: string,
   stale: () => boolean = () => false,
 ): Promise<boolean> {
@@ -24,7 +24,7 @@ export async function openWorkflow(
   try {
     const { definition, etag, writable } = await api.getWorkflow(name)
     if (stale()) return false
-    ed.load(definition as Record<string, any>, { etag, path: name, writable })
+    ed.load(definition, { etag, path: name, writable })
     return true
   } catch (error) {
     if (!stale()) ed.failLoad(error)
@@ -33,9 +33,9 @@ export async function openWorkflow(
 }
 
 /** `read()`, or `{ gone: true }` when the file it reads is not there */
-export async function goneOn404(
-  read: () => Promise<RemoteRead>,
-): Promise<RemoteRead> {
+export async function goneOn404<T extends object>(
+  read: () => Promise<RemoteRead<T>>,
+): Promise<RemoteRead<T>> {
   try {
     return await read()
   } catch (error) {
@@ -48,13 +48,15 @@ export async function goneOn404(
  * agent's or another tab's write reloads it, or raises the banner over
  * unsaved edits, or says it was deleted (DocumentEditor.watchRemote). Call
  * during component init */
-export function watchWorkflow(ed: DocumentEditor): DocumentEditor {
+export function watchWorkflow(
+  ed: DocumentEditor<WorkflowDefinition>,
+): DocumentEditor<WorkflowDefinition> {
   ed.watchRemote({
     kind: 'workflows',
     read: () =>
       goneOn404(async () => {
         const read = await api.getWorkflow(ed.loadedPath ?? '')
-        const doc = read.definition as Record<string, any>
+        const doc = read.definition
         return { doc, etag: read.etag, writable: read.writable }
       }),
   })
@@ -64,7 +66,7 @@ export function watchWorkflow(ed: DocumentEditor): DocumentEditor {
 /** Save the document on screen to `path`, asking before it replaces a
  * file it did not read or one that changed since. */
 export function saveWorkflowAt(
-  ed: DocumentEditor,
+  ed: DocumentEditor<WorkflowDefinition>,
   path: string,
 ): Promise<SaveOutcome> {
   return saveDocument(ed, {
@@ -83,7 +85,7 @@ export function saveWorkflowAt(
  * when the check failed or a conflict question was cancelled, so nothing
  * was written. The page's action wraps it (busy guard, failure copy) */
 export async function validatedSave(
-  ed: DocumentEditor,
+  ed: DocumentEditor<WorkflowDefinition>,
   path: string,
   validate: () => Promise<boolean>,
 ): Promise<string | null> {
@@ -103,7 +105,7 @@ export async function validatedSave(
  * (images, sub-workflow files) the way running the saved file would - at
  * the workflow's own folder under `root` */
 export async function validatedRun(
-  ed: DocumentEditor,
+  ed: DocumentEditor<WorkflowDefinition>,
   root: string,
   validate: () => Promise<boolean>,
 ) {
@@ -149,10 +151,10 @@ export async function workflowVariables(
  * starter for none. Read on the click that chooses it */
 export async function startingWorkflow(
   example: string,
-  blank: () => Record<string, any>,
-): Promise<Record<string, any>> {
+  blank: () => WorkflowDefinition,
+): Promise<WorkflowDefinition> {
   if (!example) return blank()
-  return (await api.getWorkflow(example)).definition as Record<string, any>
+  return (await api.getWorkflow(example)).definition
 }
 
 /** What the editor takes from the workflow listing: the files the folder

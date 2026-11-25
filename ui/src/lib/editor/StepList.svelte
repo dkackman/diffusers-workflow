@@ -9,12 +9,13 @@
   import { notify } from '../toast'
   import type { StepFlow } from '../flow'
   import type { StepModes } from '../stepModes.svelte'
+  import type { WorkflowDefinition, WorkflowStep } from '../types'
 
   // The workflow's steps down a numbered rail, with the controls that add
   // them and set how much of each shows
   let {
     steps = $bindable(),
-    workflow = $bindable({}),
+    workflow = $bindable(),
     modes,
     folder,
     flow,
@@ -22,10 +23,10 @@
     stepReferences,
     hovered = $bindable(),
   }: {
-    steps: Record<string, any>[] | undefined
+    steps: WorkflowStep[] | undefined
     // The whole document: what a step's arguments take from earlier steps,
     // and the variables a rename carries a reference in
-    workflow?: Record<string, any>
+    workflow: WorkflowDefinition
     modes: StepModes
     // The folder the workflow saves into, which a sub-workflow step's
     // relative path resolves against
@@ -40,7 +41,7 @@
    * it. Step mode and flow-graph edges are keyed by name - two steps sharing
    * the factory default (e.g. 'generate') would collide in the step modes */
   function freeName(name: string): string {
-    const taken = new Set((steps ?? []).map((s: Record<string, any>) => s.name))
+    const taken = new Set((steps ?? []).map((s) => s.name))
     if (!taken.has(name)) return name
     let n = 2
     while (taken.has(`${name}-${n}`)) n++
@@ -106,7 +107,7 @@
       from,
       to,
     )
-    result.workflow.steps.forEach((next: Record<string, any>, at: number) => {
+    result.workflow.steps?.forEach((next, at) => {
       if (JSON.stringify(next) !== JSON.stringify($state.snapshot(list[at])))
         Object.assign(list[at], next)
     })

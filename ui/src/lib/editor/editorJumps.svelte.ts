@@ -2,6 +2,7 @@
 // shown and briefly lit, or a variable's field focused (findingPlace.ts names
 // the place).
 import type { DocumentEditor } from '../editorShell.svelte'
+import type { WorkflowDefinition } from '../types'
 import type { Place } from '../findingPlace'
 import type { StepModes } from '../stepModes.svelte'
 
@@ -10,10 +11,10 @@ import type { StepModes } from '../stepModes.svelte'
 export class EditorJumps {
   /** The step lit in the list: a rail chip's hover, or a jump's for 2s */
   hovered = $state<string | null>(null)
-  #ed: DocumentEditor
+  #ed: DocumentEditor<WorkflowDefinition>
   #modes: StepModes
 
-  constructor(ed: DocumentEditor, modes: StepModes) {
+  constructor(ed: DocumentEditor<WorkflowDefinition>, modes: StepModes) {
     this.#ed = ed
     this.#modes = modes
   }
@@ -37,7 +38,7 @@ export class EditorJumps {
    * field focused. */
   goTo = (place: Place) => {
     if (place.kind === 'step') {
-      this.#modes.set(this.#ed.doc.steps[place.index], 'full')
+      this.#modes.set(this.#ed.doc.steps![place.index], 'full')
       this.showStep(place.name)
       // Focus goes where the finding is: the step's name field, once the
       // list has drawn it open

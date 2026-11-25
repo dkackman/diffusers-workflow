@@ -23,7 +23,7 @@
     described = true,
     changed = undefined,
   }: {
-    ed: DocumentEditor
+    ed: DocumentEditor<{ description?: string }>
     /** The directory the document saves under, for the path shown */
     dir: string
     folders: string[]

@@ -4,6 +4,7 @@
  * one video (dw/pipeline_processors/chain.py). */
 
 import { VARIABLE, referenceName } from './references'
+import type { WorkflowDefinition, WorkflowStep } from './types'
 
 export interface ChainSummary {
   /** The segment count, when the definition gives it - a literal or a
@@ -36,7 +37,7 @@ type ChainRead = (key: string) => unknown
 /** The block's reader. A value may be a `variable:`, read from the declared
  * variables - undefined when it names none, or one left null. */
 function chainReader(
-  workflow: Record<string, any>,
+  workflow: WorkflowDefinition,
   chain: Record<string, unknown>,
 ): ChainRead {
   return (key) => {
@@ -92,8 +93,8 @@ function segmentCount(segments: unknown, matchAudio: unknown): number | null {
 
 /** The step's `chain` block summarized for the graph, or null without one. */
 export function chainSummary(
-  workflow: Record<string, any>,
-  step: Record<string, any>,
+  workflow: WorkflowDefinition,
+  step: WorkflowStep,
 ): ChainSummary | null {
   const chain = step.pipeline?.chain
   if (chain === null || typeof chain !== 'object') return null

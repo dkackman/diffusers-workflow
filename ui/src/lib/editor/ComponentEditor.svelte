@@ -4,6 +4,7 @@
   import { Trash2 } from '@lucide/svelte'
   import ArgumentsEditor from './ArgumentsEditor.svelte'
   import QuantizationEditor from './QuantizationEditor.svelte'
+  import type { PipelineComponent } from '../types'
 
   let {
     slot,
@@ -12,7 +13,7 @@
     onremove,
   }: {
     slot: string
-    component: Record<string, any>
+    component: PipelineComponent
     suggestions?: readonly string[]
     onremove: () => void
   } = $props()
@@ -53,27 +54,32 @@
     </button>
   </div>
 
-  {#if component.configuration}
+  {#if component.configuration && component.from_pretrained_arguments}
+    {@const configuration = component.configuration}
+    {@const pretrained = component.from_pretrained_arguments}
     <div class="formgrid top">
       <label for={`${uid}-type`}>class</label>
       <Suggest
         id={`${uid}-type`}
         suggestions={editorLists.modelClasses}
-        bind:value={component.configuration.component_type}
+        bind:value={
+          () => configuration.component_type ?? '',
+          (v) => (configuration.component_type = v)
+        }
         placeholder="e.g. FluxTransformer2DModel"
       />
 
       <label for={`${uid}-model`}>model</label>
       <input
         id={`${uid}-model`}
-        bind:value={component.from_pretrained_arguments.model_name}
+        bind:value={pretrained.model_name}
         placeholder="org/model or local path"
       />
 
       <label for={`${uid}-load`}>load args</label>
       <ArgumentsEditor
         bind:args={component.from_pretrained_arguments}
-        componentType={component.configuration.component_type ?? ''}
+        componentType={configuration.component_type ?? ''}
         target="load"
         hide={['model_name']}
         {suggestions}
@@ -82,12 +88,12 @@
       <label for={`${uid}-device`}>device</label>
       <input
         id={`${uid}-device`}
-        value={component.configuration.device ?? ''}
+        value={configuration.device ?? ''}
         placeholder="pipeline default"
         onchange={(e) => {
           const v = e.currentTarget.value
-          if (v) component.configuration.device = v
-          else delete component.configuration.device
+          if (v) configuration.device = v
+          else delete configuration.device
         }}
       />
 

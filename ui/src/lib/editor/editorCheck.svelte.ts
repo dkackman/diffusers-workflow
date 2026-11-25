@@ -8,11 +8,11 @@ import { onDestroy } from 'svelte'
 import { api } from '../api'
 import { emptyWorkflow } from '../editor'
 import type { DocumentEditor } from '../editorShell.svelte'
-import { RunCheck } from '../runCheck.svelte'
 import type { WorkflowDefinition } from '../types'
+import { RunCheck } from '../runCheck.svelte'
 
 /** The live check over `ed`'s document. Call during component init. */
-export function editorCheck(ed: DocumentEditor): RunCheck {
+export function editorCheck(ed: DocumentEditor<WorkflowDefinition>): RunCheck {
   const check = new RunCheck((sizes, signal) =>
     api.validate(
       { workflow: $state.snapshot(ed.doc) as WorkflowDefinition, sizes },
