@@ -52,11 +52,12 @@
   const file = $derived(name)
   const ws = $derived(workspace)
   const own = () => ws
-  // What `stamp` said when each reply was asked for
+  // What `stamp` said when each reply was asked for, read as the request
+  // starts (nothing can write between the call and this)
   const asked = new WeakMap<GalleryMetadata, number>()
-  async function read(name: string): Promise<GalleryMetadata> {
+  async function stamped(read: Promise<GalleryMetadata>) {
     const at = untrack(() => stamp?.()) ?? 0
-    const m = await api.galleryMetadata(name, ws)
+    const m = await read
     asked.set(m, at)
     return m
   }
@@ -64,14 +65,17 @@
   // with the library; the source is fixed for the panel's life
   const meta =
     untrack(() => source) === 'output'
-      ? resource(() => read(file), {
+      ? resource(() => stamped(api.galleryMetadata(file, ws)), {
           watch: ['gallery'],
           workspace: own,
         })
-      : resource(() => read(reference(ASSET, file)), {
-          watch: ['assets'],
-          workspace: own,
-        })
+      : resource(
+          () => stamped(api.galleryMetadata(reference(ASSET, file), ws)),
+          {
+            watch: ['assets'],
+            workspace: own,
+          },
+        )
 
   $effect(() => {
     const m = meta.status === 'ready' ? meta.data : null
