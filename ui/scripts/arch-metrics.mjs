@@ -77,8 +77,9 @@
 //   piece of copy. Detail is sorted by file, line and term.
 // - duplicate_blocks: over .svelte files, lines trimmed and their
 //   whitespace collapsed, blank and TRIVIAL_LINE lines dropped; a 6-line
-//   window whose sha1 occurs in two or more files is shared, and each
-//   file's maximal runs of consecutive shared windows are counted.
+//   window whose sha1 occurs in two or more files is shared, and every line
+//   inside a shared window is counted once - lines, not runs, so a fix in
+//   the middle of a run lowers the count and never raises it.
 // - raw_media: media elements outside RAW_MEDIA_OWNERS (OutputTile and
 //   MediaBody), in .svelte, .ts and .css files; a media file is shown
 //   through them. Counted forms: `<img>`, `<video>`, `<audio>`, `<source>`,
@@ -866,7 +867,9 @@ export const TRIVIAL_LINE =
   /^([{}()[\];,]*|<\/?[a-z]+>|\/\/.*|\/\*.*|\*.*|\*\/|-->|<!--.*)$/i
 export const BLOCK_LINES = 6
 
-/** Per .svelte file, the maximal runs of 6-line windows another file shares */
+/** Per .svelte file sharing any, the lines that lie in a 6-line window
+ * another file shares: `[file: N lines, ...]` and their total. Lines, not
+ * runs, so a fix in the middle of a run never raises the count */
 export function duplicateBlocks(texts) {
   const windows = new Map()
   const owners = new Map()
@@ -886,16 +889,19 @@ export function duplicateBlocks(texts) {
     }
     windows.set(file, hashes)
   }
-  const runs = []
+  const files = []
+  let lines = 0
   for (const [file, hashes] of windows) {
-    let inRun = false
+    const shared = new Set()
     hashes.forEach((hash, i) => {
-      const shared = owners.get(hash).size > 1
-      if (shared && !inRun) runs.push(`${relative(UI, file)}:window ${i + 1}`)
-      inRun = shared
+      if (owners.get(hash).size > 1)
+        for (let k = 0; k < BLOCK_LINES; k++) shared.add(i + k)
     })
+    if (!shared.size) continue
+    files.push(`${relative(UI, file)}: ${shared.size} lines`)
+    lines += shared.size
   }
-  return runs
+  return { files, lines }
 }
 
 /** The unguarded uses the lint left to resolve across modules: a use of a
@@ -1125,7 +1131,7 @@ export async function measure(
       unguarded_mutations: unguarded.length,
       banned_terms: banned.length,
       raw_media: rawMedia.length,
-      duplicate_blocks: duplicates.length,
+      duplicate_blocks: duplicates.lines,
     },
     detail: {
       cycles: components.map((c) => c.map((f) => relative(UI, f))),
@@ -1137,7 +1143,7 @@ export async function measure(
       unguarded_mutations: unguarded,
       banned_terms: banned,
       raw_media: rawMedia,
-      duplicate_blocks: duplicates,
+      duplicate_blocks: duplicates.files,
     },
   }
 }

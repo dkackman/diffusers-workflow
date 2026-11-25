@@ -693,17 +693,39 @@ export function guarded(write: () => Promise<unknown>) {
     ])
   })
 
-  it('duplicate_blocks counts one shared 6-line run once per file', async () => {
+  it('duplicate_blocks counts the lines in shared 6-line windows, per file', async () => {
     const block = Array.from(
       { length: 8 },
       (_, i) => `  <p class="row-${i}">line ${i}</p>`,
     ).join('\n')
-    const { metrics } = await measured({
+    const { metrics, detail } = await measured({
       'a.svelte': `<div>\n${block}\n</div>\n<p>only a</p>\n`,
       'b.svelte': `<section>\n  <h2>b</h2>\n${block.replaceAll('  <p', '      <p')}\n</section>\n`,
       'c.svelte': `<p>nothing shared</p>\n`,
     })
-    expect(metrics.duplicate_blocks).toBe(2)
+    expect(metrics.duplicate_blocks).toBe(16)
+    expect(detail.duplicate_blocks).toEqual([
+      expect.stringMatching(/a\.svelte: 8 lines$/),
+      expect.stringMatching(/b\.svelte: 8 lines$/),
+    ])
+  })
+
+  it('duplicate_blocks: a fix in the middle of a shared run never raises it', async () => {
+    const lines = Array.from({ length: 14 }, (_, i) => `<p>line ${i}</p>`)
+    const whole = await measured({
+      'a.svelte': lines.join('\n'),
+      'b.svelte': lines.join('\n'),
+    })
+    const split = lines.map((l, i) => (i === 7 ? '<p>changed</p>' : l))
+    const fixed = await measured({
+      'a.svelte': split.join('\n'),
+      'b.svelte': lines.join('\n'),
+    })
+    expect(whole.metrics.duplicate_blocks).toBe(28)
+    // the run splits in two, and the count falls rather than doubling
+    expect(fixed.metrics.duplicate_blocks).toBeLessThan(
+      whole.metrics.duplicate_blocks,
+    )
   })
 })
 
