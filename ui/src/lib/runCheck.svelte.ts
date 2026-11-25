@@ -38,19 +38,9 @@ function refused(placed: PlacedFindings): Verdict {
   return { tone: 'bad', text, issues }
 }
 
-/** What a validate answer says about running now, in plain words - the one
- * verdict the run check and the editor both show. It reads `valid`,
- * `errors`, `access_blocked`, `not_found` and what `placed` holds, and
- * derives nothing else. */
-export function verdictOf(
-  validation: ValidationResult | null,
-  error: unknown,
-  placed: PlacedFindings,
-): Verdict | null {
-  if (error !== null && error !== undefined)
-    return { tone: 'bad', text: "Couldn't check this workflow.", issues: 0 }
-  if (!validation) return null
-  if (!validation.valid) return refused(placed)
+/** The verdict a plan's downloads force, when one does: a model this box
+ * cannot reach or cannot find. */
+function downloadVerdict(validation: ValidationResult): Verdict | null {
   const downloads = validation.plan?.downloads_required ?? []
   if (downloads.some((d) => d.access_blocked)) {
     return {
@@ -69,6 +59,24 @@ export function verdictOf(
       issues: 0,
     }
   }
+  return null
+}
+
+/** What a validate answer says about running now, in plain words - the one
+ * verdict the run check and the editor both show. It reads `valid`,
+ * `errors`, `access_blocked`, `not_found` and what `placed` holds, and
+ * derives nothing else. */
+export function verdictOf(
+  validation: ValidationResult | null,
+  error: unknown,
+  placed: PlacedFindings,
+): Verdict | null {
+  if (error !== null && error !== undefined)
+    return { tone: 'bad', text: "Couldn't check this workflow.", issues: 0 }
+  if (!validation) return null
+  if (!validation.valid) return refused(placed)
+  const blocked = downloadVerdict(validation)
+  if (blocked) return blocked
   const noted = Object.values(placed.byVariable).filter((list) =>
     list.some((f) => f.tone === 'warn'),
   ).length

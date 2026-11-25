@@ -485,6 +485,64 @@ def terse_constraint(rule):
     return ", ".join(parts)
 
 
+def _compact_entry(detail, inputs):
+    """One workflow's compact listing entry: what choosing a template needs."""
+    slim = {
+        key: detail.get(key)
+        for key in COMPACT_FIELDS
+        if key not in _COMPACT_WHEN_SET or detail.get(key)
+    }
+    if isinstance(slim.get("cost"), list):
+        # `scales_with` is how `plan.estimate` prices a run off the
+        # defaults; the quote carries the answer, so the compact
+        # listing spends no tokens on the rule (#1199); the
+        # reference exponent (#1429) is a pricing rule alike
+        slim["cost"] = [
+            {
+                k: v
+                for k, v in entry.items()
+                if k not in ("scales_with", "video_reference_exponent")
+            }
+            if isinstance(entry, dict)
+            else entry
+            for entry in slim["cost"]
+        ]
+    if slim.get("constraints"):
+        # A rule that reaches only a list-entry field is reported
+        # beside that field under `lists`, so repeating it here
+        # would state it twice in one answer - and next to
+        # `variable_names`, which does not carry the name (#145).
+        # The full listing and `get_workflow` keep the block as the
+        # author wrote it
+        in_lists = {
+            field
+            for entry in (slim.get("lists") or {}).values()
+            for field in (entry.get("constraints") or {})
+        }
+        declared = set(detail.get("variable_names") or ())
+        slim["constraints"] = {
+            variable: terse_constraint(rule)
+            for variable, rule in slim["constraints"].items()
+            if variable in declared or variable not in in_lists
+        }
+        if not slim["constraints"]:
+            del slim["constraints"]
+    # This box's own history, at its two-key budget (#93/#101): the
+    # cold median, which is the one comparable to a curated `cost`,
+    # and how many runs stand behind it. The block with the
+    # cold/warm split, the drivers and `since` is in the full
+    # listing and in `get_workflow`
+    observed = detail.get("observed") or {}
+    if observed.get("cold_minutes") is not None:
+        slim["observed_minutes"] = observed["cold_minutes"]
+        slim["observed_runs"] = observed["cold_runs"]
+    if detail.get("configures_missing"):
+        slim["configures_missing"] = detail["configures_missing"]
+    if inputs and "inputs" in detail:
+        slim["inputs"] = detail["inputs"]
+    return slim
+
+
 def project_listing(
     details,
     *,
@@ -531,60 +589,7 @@ def project_listing(
         if is_model and not keep_models:
             continue
         if compact:
-            slim = {
-                key: detail.get(key)
-                for key in COMPACT_FIELDS
-                if key not in _COMPACT_WHEN_SET or detail.get(key)
-            }
-            if isinstance(slim.get("cost"), list):
-                # `scales_with` is how `plan.estimate` prices a run off the
-                # defaults; the quote carries the answer, so the compact
-                # listing spends no tokens on the rule (#1199); the
-                # reference exponent (#1429) is a pricing rule alike
-                slim["cost"] = [
-                    {
-                        k: v
-                        for k, v in entry.items()
-                        if k not in ("scales_with", "video_reference_exponent")
-                    }
-                    if isinstance(entry, dict)
-                    else entry
-                    for entry in slim["cost"]
-                ]
-            if slim.get("constraints"):
-                # A rule that reaches only a list-entry field is reported
-                # beside that field under `lists`, so repeating it here
-                # would state it twice in one answer - and next to
-                # `variable_names`, which does not carry the name (#145).
-                # The full listing and `get_workflow` keep the block as the
-                # author wrote it
-                in_lists = {
-                    field
-                    for entry in (slim.get("lists") or {}).values()
-                    for field in (entry.get("constraints") or {})
-                }
-                declared = set(detail.get("variable_names") or ())
-                slim["constraints"] = {
-                    variable: terse_constraint(rule)
-                    for variable, rule in slim["constraints"].items()
-                    if variable in declared or variable not in in_lists
-                }
-                if not slim["constraints"]:
-                    del slim["constraints"]
-            # This box's own history, at its two-key budget (#93/#101): the
-            # cold median, which is the one comparable to a curated `cost`,
-            # and how many runs stand behind it. The block with the
-            # cold/warm split, the drivers and `since` is in the full
-            # listing and in `get_workflow`
-            observed = detail.get("observed") or {}
-            if observed.get("cold_minutes") is not None:
-                slim["observed_minutes"] = observed["cold_minutes"]
-                slim["observed_runs"] = observed["cold_runs"]
-            if detail.get("configures_missing"):
-                slim["configures_missing"] = detail["configures_missing"]
-            if inputs and "inputs" in detail:
-                slim["inputs"] = detail["inputs"]
-            projected[name] = slim
+            projected[name] = _compact_entry(detail, inputs)
         else:
             # `inputs` is cached on every detail but listed only when asked
             projected[name] = (
