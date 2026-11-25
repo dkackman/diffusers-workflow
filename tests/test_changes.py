@@ -783,4 +783,6 @@ def test_keep_output_conflict_has_code_exists(client, run):
     assert r.status_code == 409
     detail = r.json()["detail"]
     assert detail["code"] == "exists"
-    assert detail["message"].endswith("already exists - pass overwrite=true to replace it")
+    assert detail["message"].endswith(
+        "already exists - pass overwrite=true to replace it"
+    )
