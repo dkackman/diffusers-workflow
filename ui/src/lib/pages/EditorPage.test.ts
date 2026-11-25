@@ -171,6 +171,38 @@ describe('EditorPage file bar', () => {
       ),
     )
   })
+
+  it('EditorPage says its own save at once, from no change feed', async () => {
+    const list = vi.mocked(api.listWorkflows)
+    const original = list.getMockImplementation()!
+    let changed = 1_790_000_000
+    list.mockImplementation(
+      async () =>
+        ({
+          workflows: ['e2e-card'],
+          details: { 'e2e-card': { mtime: changed } },
+          libraries: [
+            { origin: 'workspace', root: 'workflows', writable: true },
+          ],
+          shadowed: [],
+        }) as never,
+    )
+    try {
+      render(EditorPage, { name: 'e2e-card' })
+      const stamp = () => document.querySelector('.stamp time')?.textContent
+      await waitFor(() =>
+        expect(stamp()).toBe(`Changed ${formatMtime(changed)}`),
+      )
+      changed += 3600
+      await fireEvent.click(screen.getByRole('button', { name: /^save/i }))
+      // the feed never moves here: the save itself reads the time back
+      await waitFor(() =>
+        expect(stamp()).toBe(`Changed ${formatMtime(changed)}`),
+      )
+    } finally {
+      list.mockImplementation(original)
+    }
+  })
 })
 
 describe('EditorPage primary action', () => {

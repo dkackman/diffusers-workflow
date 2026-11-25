@@ -9,6 +9,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import Sidebar from './Sidebar.svelte'
 import { invalidateWorkspaces, workspace } from './workspace.svelte'
 import { feed } from './test/feedMock'
+import { CLOCK_TICK_MS } from './clock.svelte'
 
 const listWorkspaces = vi.hoisted(() =>
   vi.fn(() =>
@@ -324,4 +325,46 @@ it('Sidebar says when each workspace changed', async () => {
   )
   expect(stampOf('default')?.textContent?.trim()).toBe('changed 3 days ago')
   expect(stampOf('default')?.getAttribute('title')).toBeTruthy()
+})
+
+it('a change in the open workspace moves its Sidebar time without a page reload', async () => {
+  // Real time still runs (waitFor), but the clock's tick is the test's
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  try {
+    const now = Math.floor(Date.now() / 1000)
+    const listed = (studio: number) => ({
+      workspace_root: '/ws',
+      default: 'default',
+      workspaces: [
+        { name: 'default', default: true },
+        { name: 'studio', default: false, mtime: studio } as never,
+      ],
+    })
+    listWorkspaces.mockResolvedValueOnce(listed(now - 3 * 3600))
+    render(Sidebar, { collapsed: false, onToggle: () => {} })
+    const stamp = () =>
+      screen
+        .getByText('studio', { selector: '.name' })
+        .parentElement!.querySelector('time')
+        ?.textContent?.trim()
+    await waitFor(() => expect(stamp()).toBe('changed 3 h ago'))
+    const calls = listWorkspaces.mock.calls.length
+    // An output lands in the open workspace: read again, quietly, at once
+    listWorkspaces.mockResolvedValueOnce(listed(now))
+    feed.move(workspace.current, 'gallery')
+    await waitFor(() => expect(stamp()).toBe('changed just now'))
+    expect(listWorkspaces.mock.calls.length).toBe(calls + 1)
+    // A second move in the same clock tick waits for the next one
+    listWorkspaces.mockResolvedValueOnce(listed(now))
+    feed.move(workspace.current, 'workflows')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(listWorkspaces.mock.calls.length).toBe(calls + 1)
+    await vi.advanceTimersByTimeAsync(CLOCK_TICK_MS)
+    expect(listWorkspaces.mock.calls.length).toBe(calls + 2)
+    // and a tick with nothing owed reads nothing
+    await vi.advanceTimersByTimeAsync(CLOCK_TICK_MS)
+    expect(listWorkspaces.mock.calls.length).toBe(calls + 2)
+  } finally {
+    vi.useRealTimers()
+  }
 })

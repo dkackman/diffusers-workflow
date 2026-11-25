@@ -129,11 +129,12 @@
    * have actually used are the ones you come back to, and only those carry
    * a picture - so grouping them keeps the taller cards together instead of
    * punching holes through an otherwise even grid. */
+  // Newest orders a search's matches too; Name leaves them best first
   const ordered = $derived(
-    searching
-      ? visible
-      : sort.value === 'newest'
-        ? newestFirst(visible, (name) => details[name]?.mtime)
+    sort.value === 'newest'
+      ? newestFirst(visible, (name) => details[name]?.mtime)
+      : searching
+        ? visible
         : [...visible].sort((left, right) => {
             const leftRun = proofs[left] ? 0 : 1
             const rightRun = proofs[right] ? 0 : 1

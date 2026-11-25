@@ -299,6 +299,9 @@
       // A folder this save created must be in the picker at once, or the
       // select falls back to "(root)" while the state still names it
       if (catalog.data) catalog.adopt(withSaved(catalog.data, path))
+      // and the time it was saved at is the server's, read back quietly: the
+      // save names no mtime, and the listing has no rows, so nothing is marked
+      void catalog.refresh()
     } catch (e) {
       notify.failure('update the editor after saving', e)
     }

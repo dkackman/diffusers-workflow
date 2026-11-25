@@ -515,3 +515,35 @@ it('the newest-first sort', async () => {
   await waitFor(() => expect(names()).toEqual(['flux-dev', 'shot', 'tti']))
   expect(location.hash).toContain('sort=newest')
 })
+
+/** Each card's leaf name, in the order shown */
+const cardNames = () =>
+  [...document.querySelectorAll('.cardname')].map((n) => n.textContent)
+
+it('a page opened with sort=newest in its link is newest first', async () => {
+  const now = Math.floor(Date.now() / 1000)
+  listing.details['templates/tti'].mtime = now - 60
+  listing.details['templates/shot'].mtime = now - 3600
+  location.hash = '#/ws/default/workflows?sort=newest'
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
+  await renderPage('tti')
+  // flux-dev has no time, so it goes last
+  expect(cardNames()).toEqual(['tti', 'shot', 'flux-dev'])
+})
+
+it("Newest orders a search's matches too", async () => {
+  const now = Math.floor(Date.now() / 1000)
+  listing.details['templates/tti'].mtime = now - 60
+  listing.details['templates/shot'].mtime = now - 3600
+  listing.details['models/flux-dev'].mtime = now - 86_400
+  await renderPage('tti')
+  const box = screen.getByPlaceholderText('search workflows…')
+  await fireEvent.input(box, { target: { value: 'image' } })
+  // the search's own order, best match first
+  await waitFor(() => expect(cardNames()).toEqual(['flux-dev', 'shot', 'tti']))
+  await fireEvent.click(screen.getByRole('button', { name: 'Newest' }))
+  await waitFor(() => expect(cardNames()).toEqual(['tti', 'shot', 'flux-dev']))
+  // and Name gives the search's own order back
+  await fireEvent.click(screen.getByRole('button', { name: 'Name' }))
+  await waitFor(() => expect(cardNames()).toEqual(['flux-dev', 'shot', 'tti']))
+})

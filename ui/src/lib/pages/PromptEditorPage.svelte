@@ -209,6 +209,8 @@
       // Same as the workflow editor: the picker lists folders from the
       // listing, so a newly created one must be added or the select resets
       if (listing.data) listing.adopt(withSavedPrompt(listing.data, path))
+      // and its saved time read back quietly, as the workflow editor does
+      void listing.refresh()
       loadPromptLibrary()
       // The URL names the prompt now on screen: a first save, or a save as
       opened = path

@@ -38,6 +38,7 @@
   import NewWorkspace from './NewWorkspace.svelte'
   import { formatBytes } from './format'
   import Time from './ui/Time.svelte'
+  import { now } from './clock.svelte'
   import { wsColor } from './wsColor'
   import { groupWorkspaces } from './wsGroups'
   import { hiddenWorkspaces } from './hiddenWorkspaces.svelte'
@@ -54,6 +55,29 @@
   // What the listing holds is module state (workspace.svelte.ts), drawn
   // from there; the resource is how it stays fresh
   resource(() => relistWorkspaces(), { watch: ['workspaces'] })
+  // The open workspace's own content moving (a save, an upload, an output
+  // landing) moves its time: the listing is read again quietly, at most once
+  // per clock tick, a move in a tick that already read it owed to the next.
+  // Jobs are not watched: a queued job changes no folder until it lands
+  let tick = 0
+  let readIn = -1
+  let owed = false
+  const content = resource(
+    async () => {
+      owed = readIn === tick
+      if (owed) return
+      readIn = tick
+      await relistWorkspaces()
+    },
+    { watch: ['workflows', 'prompts', 'assets', 'gallery'], lazy: true },
+  )
+  $effect(() => {
+    void now.value
+    untrack(() => {
+      tick++
+      if (owed) void content.refresh()
+    })
+  })
 
   // The workspace whose sections are open: the route's when it names one,
   // else the one the UI is scoped to (a shared or server page still sits

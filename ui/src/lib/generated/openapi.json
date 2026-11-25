@@ -5477,7 +5477,7 @@
         "additionalProperties": false,
         "properties": {
           "created": {
-            "description": "When first written, where the filesystem records it.",
+            "description": "Birth time, if the filesystem has it; times=true only.",
             "title": "Created",
             "type": "number"
           },
@@ -5490,7 +5490,7 @@
             "type": "string"
           },
           "mtime": {
-            "description": "When it last changed, epoch seconds.",
+            "description": "Epoch seconds its file last changed; times=true only.",
             "title": "Mtime",
             "type": "number"
           },
@@ -7081,7 +7081,7 @@
                 "type": "null"
               }
             ],
-            "description": "One measured run per device; null means unknown, never derived.",
+            "description": "Measured runs, one per device the maintainer measured on; null means unknown, never derived.",
             "title": "Cost"
           },
           "cost_drivers": {
@@ -7090,7 +7090,7 @@
             "type": "object"
           },
           "created": {
-            "description": "When first written, where the filesystem records it.",
+            "description": "Birth time, if the filesystem has it; times=true only.",
             "title": "Created",
             "type": "number"
           },
@@ -7125,7 +7125,7 @@
             "type": "object"
           },
           "mtime": {
-            "description": "When it last changed, epoch seconds.",
+            "description": "Epoch seconds its file last changed; times=true only.",
             "title": "Mtime",
             "type": "number"
           },
@@ -7609,7 +7609,7 @@
             "title": "Common Assets"
           },
           "created": {
-            "description": "When first written, where the filesystem records it.",
+            "description": "Birth time, if the filesystem has it; times=true only.",
             "title": "Created",
             "type": "number"
           },
@@ -7618,7 +7618,7 @@
             "type": "boolean"
           },
           "mtime": {
-            "description": "When it last changed, epoch seconds.",
+            "description": "The newest mtime of its folders and their direct entries; times=true only.",
             "title": "Mtime",
             "type": "number"
           },

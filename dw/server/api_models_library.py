@@ -1,7 +1,6 @@
-"""Response models for the library routes - workspaces, workflows, prompts,
-enhancer presets, LoRAs, the asset library, the requests ledger, and the
-gallery's marks and request links on one file. Part of the UI's response
-contract `dw/server/api_models.py` describes; it re-exports every name."""
+"""Response models for the library routes: workspaces, workflows, prompts, enhancer
+presets, LoRAs, the asset library, the requests ledger, and one gallery file's marks
+and request links. Part of the UI response contract `api_models.py` re-exports."""
 
 from typing import Any, Literal
 
@@ -36,13 +35,14 @@ class DiskUsage(ApiModel):
 
 
 class Dated(ApiModel):
-    """A listing entry's times, each only with `times=true`."""
-
-    mtime: float = sometimes("When it last changed, epoch seconds.")
-    created: float = sometimes("When first written, where the filesystem records it.")
+    mtime: float = sometimes("Epoch seconds its file last changed; times=true only.")
+    created: float = sometimes("Birth time, if the filesystem has it; times=true only.")
 
 
 class WorkspaceInfo(Dated):
+    mtime: float = sometimes(
+        "The newest mtime of its folders and their direct entries; times=true only."
+    )
     name: str
     default: bool
     root: str | None
@@ -133,7 +133,8 @@ class WorkflowCard(Dated):
     constraints: dict[str, Any]
     cost_drivers: dict[str, Any]
     cost: list[WorkflowCost] | None = Field(
-        description="One measured run per device; null means unknown, never derived."
+        description="Measured runs, one per device the maintainer measured on; null "
+        "means unknown, never derived."
     )
     observed: dict[str, Any] = sometimes("This box's own history for it.")
     origin: Origin
@@ -219,11 +220,10 @@ class EnhancerPresets(ApiModel):
     presets: list[EnhancerPreset]
 
 
-# The LoRA catalog listing (GET /api/loras). A row is a catalog entry
-# (dw/lora_catalog_schema.json) as stored, plus where it came from. Every
-# field the schema allows is declared, so the strict suite fails on an entry
-# key the model does not know rather than the route dropping it; numbers are
-# `int | float` so a stored `1` goes out as `1`, not `1.0`.
+# The LoRA catalog listing (GET /api/loras): a row is a stored catalog entry
+# (dw/lora_catalog_schema.json) plus where it came from. Every field the schema allows
+# is declared, so the strict suite fails on a key the model lacks rather than the route
+# dropping it; numbers are `int | float`, so a stored `1` goes out as `1`, not `1.0`.
 
 
 class LoraScale(ApiModel):

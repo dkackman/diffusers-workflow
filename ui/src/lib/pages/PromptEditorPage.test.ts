@@ -487,3 +487,29 @@ it('PromptEditorPage says when the prompt was last saved', async () => {
     ),
   )
 })
+
+it('PromptEditorPage says its own save at once, from no change feed', async () => {
+  const list = vi.mocked(api.listPrompts)
+  const original = list.getMockImplementation()!
+  let changed = 1_790_000_000
+  list.mockImplementation(
+    async () =>
+      ({
+        prompts: ['portraits/hero'],
+        libraries: [{ origin: 'workspace', root: 'prompts', writable: true }],
+        shadowed: [],
+        details: { 'portraits/hero': { mtime: changed } },
+      }) as never,
+  )
+  try {
+    await openHero()
+    const stamp = () => document.querySelector('.stamp time')?.textContent
+    await waitFor(() => expect(stamp()).toBe(`Changed ${formatMtime(changed)}`))
+    changed += 3600
+    await fireEvent.click(saveButton())
+    // the feed never moves here: the save itself reads the time back
+    await waitFor(() => expect(stamp()).toBe(`Changed ${formatMtime(changed)}`))
+  } finally {
+    list.mockImplementation(original)
+  }
+})

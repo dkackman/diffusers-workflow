@@ -4466,7 +4466,7 @@ export interface components {
         PromptCard: {
             /**
              * Created
-             * @description When first written, where the filesystem records it.
+             * @description Birth time, if the filesystem has it; times=true only.
              */
             created?: number;
             /** Description */
@@ -4475,7 +4475,7 @@ export interface components {
             intended_model: string;
             /**
              * Mtime
-             * @description When it last changed, epoch seconds.
+             * @description Epoch seconds its file last changed; times=true only.
              */
             mtime?: number;
             /**
@@ -5179,7 +5179,7 @@ export interface components {
             };
             /**
              * Cost
-             * @description One measured run per device; null means unknown, never derived.
+             * @description Measured runs, one per device the maintainer measured on; null means unknown, never derived.
              */
             cost: components["schemas"]["WorkflowCost"][] | null;
             /** Cost Drivers */
@@ -5188,7 +5188,7 @@ export interface components {
             };
             /**
              * Created
-             * @description When first written, where the filesystem records it.
+             * @description Birth time, if the filesystem has it; times=true only.
              */
             created?: number;
             /** Description */
@@ -5208,7 +5208,7 @@ export interface components {
             };
             /**
              * Mtime
-             * @description When it last changed, epoch seconds.
+             * @description Epoch seconds its file last changed; times=true only.
              */
             mtime?: number;
             /**
@@ -5417,14 +5417,14 @@ export interface components {
             common_assets: string | null;
             /**
              * Created
-             * @description When first written, where the filesystem records it.
+             * @description Birth time, if the filesystem has it; times=true only.
              */
             created?: number;
             /** Default */
             default: boolean;
             /**
              * Mtime
-             * @description When it last changed, epoch seconds.
+             * @description The newest mtime of its folders and their direct entries; times=true only.
              */
             mtime?: number;
             /** Name */

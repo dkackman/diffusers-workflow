@@ -99,16 +99,28 @@ describe('the source', () => {
 
 // A date is formatted in one file, src/lib/format.ts, so every page says a
 // time the same way (and through `<Time>` in markup). What formats a date:
-// Date's toLocaleDateString/toLocaleTimeString, Intl.DateTimeFormat, and a
-// toLocaleString on a `new Date(...)` or given date or time options. A
-// number's toLocaleString (a count) is not a date and passes.
+// Date's toLocaleDateString/toLocaleTimeString, Intl.DateTimeFormat and
+// RelativeTimeFormat, a toLocaleString on a `new Date(...)` (one level of
+// nested parentheses inside), on a name the same file declares a Date
+// (`d = new Date(`, `when: Date`), or given date or time options. A number's
+// toLocaleString (a count) is not a date and passes. Out of reach: a Date
+// a function returns into a name with no type written beside it.
 const DATE_FORMATTING = [
   /\.toLocale(Date|Time)String\s*\(/,
-  /\bIntl\s*\.\s*DateTimeFormat\b/,
-  /\bnew Date\([^)]*\)\s*\.toLocaleString\s*\(/,
+  /\bIntl\s*\.\s*(DateTimeFormat|RelativeTimeFormat)\b/,
+  /\bnew Date\((?:[^()]|\([^()]*\))*\)\s*\.toLocaleString\s*\(/,
   /\.toLocaleString\s*\([^)]*\b(dateStyle|timeStyle|weekday|month|hour|minute)\b/,
 ]
-const formatsDate = (text: string) => DATE_FORMATTING.some((p) => p.test(text))
+/** The names a source declares as a Date: assigned one, or typed one */
+const dateNames = (text: string) =>
+  [...text.matchAll(/\b(\w+)\s*(?::\s*Date\b|=\s*new Date\b)/g)].map(
+    ([, name]) => name,
+  )
+const formatsDate = (text: string) =>
+  DATE_FORMATTING.some((p) => p.test(text)) ||
+  dateNames(text).some((name) =>
+    new RegExp(`\\b${name}\\s*\\.\\s*toLocaleString\\s*\\(`).test(text),
+  )
 const DATE_HOME = 'src/lib/format.ts'
 
 describe('dates', () => {
@@ -119,12 +131,18 @@ describe('dates', () => {
       'new Intl.DateTimeFormat(undefined, { dateStyle: "short" })',
       'new Date(at * 1000).toLocaleString()',
       'when.toLocaleString(undefined, {\n  month: "short",\n})',
+      'const started = new Date(at * 1000)\nstarted.toLocaleString()',
+      'function say(when: Date) {\n  return when.toLocaleString()\n}',
+      'new Date(Number(stamp)).toLocaleString()',
+      'new Intl.RelativeTimeFormat(undefined, { numeric: "auto" })',
     ])
       expect(formatsDate(text), text).toBe(true)
     for (const text of [
       "rows.length.toLocaleString('en-US')",
       'bytes.toLocaleString()',
       'n.toLocaleString(undefined, { maximumFractionDigits: 1 })',
+      'const total = rows.length\ntotal.toLocaleString()',
+      'const started = new Date(at * 1000)\nfiles.toLocaleString()',
     ])
       expect(formatsDate(text), text).toBe(false)
   })
