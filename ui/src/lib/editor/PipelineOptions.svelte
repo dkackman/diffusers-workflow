@@ -19,8 +19,9 @@
     isReference,
     emptyComponent,
     optionsWith,
-    setNumber,
+    finiteNumber,
   } from '../editor'
+  import { setNumber } from './commit'
   import type {
     PipelineBlock,
     PipelineComponent,
@@ -142,9 +143,8 @@
     const scheduler = pipeline[key]
     if (!scheduler) return
     const value = raw.trim()
-    const parsed = Number(value)
     if (!value) delete scheduler.shift
-    else scheduler.shift = Number.isNaN(parsed) ? value : parsed
+    else scheduler.shift = finiteNumber(value) ?? value
   }
 
   function toggleCache(enabled: boolean) {
@@ -346,7 +346,10 @@
           class="num"
           placeholder="threshold"
           value={cache.threshold ?? ''}
-          onchange={(e) => setNumber(cache, 'threshold', e.currentTarget.value)}
+          onchange={(e) => {
+            const input = e.currentTarget
+            input.value = setNumber(cache, 'threshold', input.value)
+          }}
         />
       {/if}
     </div>

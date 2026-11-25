@@ -60,14 +60,18 @@ export function booleanOf(raw: string): boolean | string {
   return raw
 }
 
+/** Typed text as a number, or null when it is blank or names no finite
+ * one: `Number` reads whitespace as 0, and Infinity serialises to null */
+export function finiteNumber(raw: string): number | null {
+  const n = Number(raw)
+  return raw.trim() !== '' && Number.isFinite(n) ? n : null
+}
+
 /** Turn what the input produced back into the JSON value the engine expects.
  * Reference strings and unparseable numbers stay strings - the engine
  * substitutes variables after schema validation. */
 export function coerce(widget: Widget, raw: string): unknown {
-  if (widget === 'number' && raw !== '' && !isReference(raw)) {
-    const parsed = Number(raw)
-    if (!Number.isNaN(parsed)) return parsed
-  }
+  if (widget === 'number') return finiteNumber(raw) ?? raw
   if (widget === 'boolean') return booleanOf(raw)
   if (widget === 'json') {
     try {
@@ -131,17 +135,6 @@ export function displayValue(value: unknown, pretty = false): string {
     return pretty ? JSON.stringify(value, null, 2) : JSON.stringify(value)
   }
   return String(value)
-}
-
-/** Parse a number into target[key], or delete the key on empty input. */
-export function setNumber(
-  target: Record<string, unknown>,
-  key: string,
-  raw: string,
-) {
-  const parsed = Number(raw)
-  if (raw === '') delete target[key]
-  else if (!Number.isNaN(parsed)) target[key] = parsed
 }
 
 export function emptyWorkflow() {
