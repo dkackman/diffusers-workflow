@@ -11,6 +11,7 @@ import OverviewPage from './OverviewPage.svelte'
 import Sidebar from '../Sidebar.svelte'
 import { firstRunSession } from '../firstRun'
 import { formatRelative } from '../format'
+import { api } from '../test/apiMock'
 import { feed } from '../test/feedMock'
 import { invalidateWorkspaces, workspace } from '../workspace.svelte'
 
@@ -31,79 +32,86 @@ const data = vi.hoisted(() => ({
 }))
 const calls = vi.hoisted(() => ({}) as Record<string, number>)
 const hit = (name: string) => (calls[name] = (calls[name] ?? 0) + 1)
-const deleteWorkspace = vi.hoisted(() => vi.fn())
 vi.mock('../changes.svelte', async () => ({
   changes: (await import('../test/feedMock')).feed.changes,
 }))
-vi.mock('../api', () => ({
-  api: {
-    gallery: () => (
-      hit('gallery'),
-      data.galleryError
-        ? Promise.reject(data.galleryError)
-        : Promise.resolve({
-            files: data.files,
-            workspace: data.galleryWorkspace,
-          })
-    ),
-    // Filters the fixture the way the server does: `status` is one state
-    // or a comma-separated set, `limit` keeps the newest (last) N
-    listJobs: (_ws?: string, limit?: number, status?: string) => {
-      hit('jobs')
-      const states = status?.split(',')
-      let jobs = data.jobs as Array<{ status: string }>
-      if (states) jobs = jobs.filter((j) => states.includes(j.status))
-      if (limit) jobs = jobs.slice(Math.max(0, jobs.length - limit))
-      return Promise.resolve({ jobs, total: jobs.length })
-    },
-    listRequests: (ws: string) => (
-      hit('requests'),
-      data.requestsFor
-        ? data.requestsFor(ws)
-        : data.requestsError
-          ? Promise.reject(data.requestsError)
-          : Promise.resolve({ workspace: 'studio', requests: data.requests })
-    ),
-    listWorkflows: () => (
-      hit('workflows'),
-      Promise.resolve({
-        libraries: [
-          { origin: 'workspace', root: '/ws/workflows', writable: true },
-        ],
-        shadowed: [],
-        workflows: data.workflows,
-        details: {},
-      })
-    ),
-    listAssets: () => (
-      hit('assets'),
-      Promise.resolve({
-        assets: data.assets,
-        libraries: [],
-        shadowed: [],
-        folders: [],
-        workspace: 'default',
-      })
-    ),
-    listWorkspaces: () => (
-      hit('workspaces'),
-      Promise.resolve({
-        workspace_root: '/ws',
-        default: 'default',
-        workspaces: [
-          { name: 'default', default: true },
-          {
-            name: 'studio',
-            default: false,
-            usage: { files: 4, bytes: 4096 },
-            note: 'client moodboards',
-          },
-        ],
-      })
-    ),
-    deleteWorkspace: (n: string, a?: boolean) => deleteWorkspace(n, a),
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
+api.gallery.mockImplementation(
+  () => (
+    hit('gallery'),
+    data.galleryError
+      ? Promise.reject(data.galleryError)
+      : Promise.resolve({
+          files: data.files,
+          workspace: data.galleryWorkspace,
+        })
+  ),
+)
+// Filters the fixture the way the server does: `status` is one state
+// or a comma-separated set, `limit` keeps the newest (last) N
+api.listJobs.mockImplementation(
+  (_ws?: string, limit?: number, status?: string) => {
+    hit('jobs')
+    const states = status?.split(',')
+    let jobs = data.jobs as Array<{ status: string }>
+    if (states) jobs = jobs.filter((j) => states.includes(j.status))
+    if (limit) jobs = jobs.slice(Math.max(0, jobs.length - limit))
+    return Promise.resolve({ jobs, total: jobs.length })
   },
-}))
+)
+api.listRequests.mockImplementation(
+  (ws: string) => (
+    hit('requests'),
+    data.requestsFor
+      ? data.requestsFor(ws)
+      : data.requestsError
+        ? Promise.reject(data.requestsError)
+        : Promise.resolve({ workspace: 'studio', requests: data.requests })
+  ),
+)
+api.listWorkflows.mockImplementation(
+  () => (
+    hit('workflows'),
+    Promise.resolve({
+      libraries: [
+        { origin: 'workspace', root: '/ws/workflows', writable: true },
+      ],
+      shadowed: [],
+      workflows: data.workflows,
+      details: {},
+    })
+  ),
+)
+api.listAssets.mockImplementation(
+  () => (
+    hit('assets'),
+    Promise.resolve({
+      assets: data.assets,
+      libraries: [],
+      shadowed: [],
+      folders: [],
+      workspace: 'default',
+    })
+  ),
+)
+api.listWorkspaces.mockImplementation(
+  () => (
+    hit('workspaces'),
+    Promise.resolve({
+      workspace_root: '/ws',
+      default: 'default',
+      workspaces: [
+        { name: 'default', default: true },
+        {
+          name: 'studio',
+          default: false,
+          usage: { files: 4, bytes: 4096 },
+          note: 'client moodboards',
+        },
+      ],
+    })
+  ),
+)
 vi.mock('../confirm.svelte', () => ({
   confirmDialog: vi.fn(() => Promise.resolve(true)),
 }))
@@ -121,7 +129,7 @@ beforeEach(async () => {
   data.requests = []
   data.requestsError = null
   data.requestsFor = null
-  deleteWorkspace.mockReset()
+  api.deleteWorkspace.mockReset()
   localStorage.clear()
   location.hash = '#/ws/studio/overview'
   window.dispatchEvent(new HashChangeEvent('hashchange'))
@@ -275,7 +283,7 @@ it('a deep queue does not hide the running job, and queued jobs are not "recent"
 })
 
 it('delete is offered off the default and goes through the shared action', async () => {
-  deleteWorkspace.mockResolvedValue({ name: 'studio', deleted: true })
+  api.deleteWorkspace.mockResolvedValue({ name: 'studio', deleted: true })
   render(OverviewPage)
   await waitFor(() =>
     expect(

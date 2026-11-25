@@ -7,6 +7,7 @@ import {
 } from '@testing-library/svelte'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import GalleryAside from './GalleryAside.svelte'
+import { api } from '../test/apiMock'
 import { formatExact, formatMtime } from '../format'
 import { attempt, item, request } from '../request/fixtures'
 import type { GalleryFile, GalleryLinkedJob, GalleryMetadata } from '../types'
@@ -14,21 +15,14 @@ import type { GalleryFile, GalleryLinkedJob, GalleryMetadata } from '../types'
 const setNote = vi.hoisted(() => vi.fn())
 // What the server holds as the note a save reads first (its etag read)
 const noteHeld = vi.hoisted(() => ({ note: null as string | null }))
-// The request-notes calls the file's note for the agent makes
-const ledger = vi.hoisted(() => ({
-  getRequest: vi.fn(),
-  addNote: vi.fn(),
-  notesChannel: vi.fn(),
-}))
-vi.mock('../api', async () => ({
-  ApiError: (await import('../apiErrors')).ApiError,
-  setNote: (t: string, n: string | null) => setNote(t, n),
-  api: {
-    noteForSave: (target: string) =>
-      Promise.resolve({ target, note: noteHeld.note, etag: '"e"' }),
-    ...ledger,
-  },
-}))
+vi.mock('../api', async () =>
+  (await import('../test/apiMock')).apiModule({
+    setNote: (t: string, n: string | null) => setNote(t, n),
+  }),
+)
+api.noteForSave.mockImplementation((target: string) =>
+  Promise.resolve({ target, note: noteHeld.note, etag: '"e"' }),
+)
 vi.mock('../toast', () => ({
   notify: { success: vi.fn(), error: vi.fn(), failure: vi.fn() },
 }))
@@ -250,10 +244,12 @@ describe('the note for the agent', () => {
     attempt: n,
   })
   beforeEach(() => {
-    for (const call of Object.values(ledger)) call.mockReset()
-    ledger.notesChannel.mockResolvedValue({ listening: false, last_seen: null })
-    ledger.addNote.mockResolvedValue({ revision: 4 })
-    ledger.getRequest.mockResolvedValue(
+    api.getRequest.mockReset()
+    api.addNote.mockReset()
+    api.notesChannel.mockReset()
+    api.notesChannel.mockResolvedValue({ listening: false, last_seen: null })
+    api.addNote.mockResolvedValue({ revision: 4 })
+    api.getRequest.mockResolvedValue(
       request([
         item('s3', {
           title: 'Shot 3',
@@ -291,7 +287,7 @@ describe('the note for the agent', () => {
   it('is not there for a file no take of a request item published', () => {
     aside(meta({ linked_jobs: [] }))
     expect(screen.queryByText('Note for the agent')).toBeNull()
-    expect(ledger.getRequest).not.toHaveBeenCalled()
+    expect(api.getRequest).not.toHaveBeenCalled()
   })
 
   it("with one take, shows the file's notes and a new one is about it", async () => {
@@ -300,8 +296,8 @@ describe('the note for the agent', () => {
     expect(screen.queryByText('about another file')).toBeNull()
     expect(screen.queryByRole('combobox')).toBeNull()
     await send('too much grain')
-    await waitFor(() => expect(ledger.addNote).toHaveBeenCalled())
-    expect(ledger.addNote).toHaveBeenCalledWith('default', {
+    await waitFor(() => expect(api.addNote).toHaveBeenCalled())
+    expect(api.addNote).toHaveBeenCalledWith('default', {
       request: 'r1',
       item: 's3',
       text: 'too much grain',
@@ -319,8 +315,8 @@ describe('the note for the agent', () => {
     await fireEvent.change(picker, { target: { value: 'j2' } })
     await screen.findByText('about this file')
     await send('the cached one is fine')
-    await waitFor(() => expect(ledger.addNote).toHaveBeenCalled())
-    expect(ledger.addNote.mock.calls[0][1].refs).toEqual([
+    await waitFor(() => expect(api.addNote).toHaveBeenCalled())
+    expect(api.addNote.mock.calls[0][1].refs).toEqual([
       { item: 's3', job: 'j2', output: file.name },
     ])
   })

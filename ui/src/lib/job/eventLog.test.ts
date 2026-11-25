@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { api } from '../api'
+import { api } from '../test/apiMock'
 import type { EventLogReply, JobEvent } from '../types'
 import {
   EVENT_LOG_CAP,
@@ -8,12 +8,12 @@ import {
   fetchEventLog,
 } from './eventLog'
 
-vi.mock('../api', () => ({ api: { eventLog: vi.fn() } }))
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
 
 /** A server holding events 0..total-1, paged the way the route pages:
  * after is exclusive, truncated when more lie past the page. */
 function serve(total: number, note: string | null = null) {
-  vi.mocked(api.eventLog).mockImplementation(
+  api.eventLog.mockImplementation(
     async (id, { after = -1, limit = 200 } = {}) => {
       const pending: JobEvent[] = []
       for (let seq = after + 1; seq < total; seq++)
@@ -31,7 +31,7 @@ function serve(total: number, note: string | null = null) {
   )
 }
 
-afterEach(() => vi.mocked(api.eventLog).mockReset())
+afterEach(() => api.eventLog.mockReset())
 
 describe('fetchEventLog', () => {
   it('reads one page when the server says it is whole', async () => {
@@ -41,9 +41,7 @@ describe('fetchEventLog', () => {
     expect(got.note).toBe('only the tail was kept')
     expect(got.capped).toBe(false)
     expect(got.lastSeq).toBe(2)
-    expect(vi.mocked(api.eventLog).mock.calls).toEqual([
-      ['j1', { after: -1, limit: 500 }],
-    ])
+    expect(api.eventLog.mock.calls).toEqual([['j1', { after: -1, limit: 500 }]])
   })
 
   it('follows truncated, paging on from each last_seq', async () => {
@@ -52,9 +50,9 @@ describe('fetchEventLog', () => {
     expect(got.events.length).toBe(1200)
     expect(got.events.map((e) => e.seq)).toEqual([...Array(1200).keys()])
     expect(got.capped).toBe(false)
-    expect(
-      vi.mocked(api.eventLog).mock.calls.map(([, query]) => query?.after),
-    ).toEqual([-1, 499, 999])
+    expect(api.eventLog.mock.calls.map(([, query]) => query?.after)).toEqual([
+      -1, 499, 999,
+    ])
   })
 
   it('stops at the cap and says the server holds more', async () => {
@@ -64,7 +62,7 @@ describe('fetchEventLog', () => {
     expect(EVENT_LOG_CAP).toBe(5000)
     expect(got.capped).toBe(true)
     expect(got.lastSeq).toBe(4999)
-    expect(vi.mocked(api.eventLog).mock.calls.length).toBe(10)
+    expect(api.eventLog.mock.calls.length).toBe(10)
   })
 
   it('is not capped when the log is exactly the cap', async () => {
@@ -79,7 +77,7 @@ describe('fetchEventLog', () => {
     const got = await fetchEventLog('j1', 9)
     expect(got.events).toEqual([])
     expect(got.lastSeq).toBe(9)
-    expect(vi.mocked(api.eventLog).mock.calls[0][1]?.after).toBe(9)
+    expect(api.eventLog.mock.calls[0][1]?.after).toBe(9)
   })
 })
 

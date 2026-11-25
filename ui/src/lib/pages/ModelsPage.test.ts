@@ -12,6 +12,7 @@ import { formatDay, formatExact } from '../format'
 import { connection } from '../connection.svelte'
 import { NetworkError } from '../apiErrors'
 import type { ModelCache, ModelRepo } from '../types'
+import { api } from '../test/apiMock'
 import { feed } from '../test/feedMock'
 import { workspace } from '../workspaceState.svelte'
 import { confirmDialog } from '../confirm.svelte'
@@ -46,40 +47,36 @@ const cache = vi.hoisted(() => ({
   // the diffusers status the page reads; null stays pending
   diffusers: null as unknown,
 }))
-const calls = vi.hoisted(() => ({
-  updateDiffusers: vi.fn(() => Promise.resolve({})),
-  startDownload: vi.fn(() => new Promise(() => {})),
-  deleteModel: vi.fn(() => Promise.resolve({})),
-}))
 vi.mock('../confirm.svelte', () => ({ confirmDialog: vi.fn() }))
 
-vi.mock('../api', () => ({
-  api: {
-    listModels: () =>
-      cache.error
-        ? Promise.reject(cache.error)
-        : Promise.resolve({
-            cache_dir: '/hub',
-            disk_free: null,
-            disk_total: null,
-            size_on_disk: 0,
-            warnings: [],
-            repos: cache.repos,
-          } satisfies ModelCache),
-    listDownloads: () =>
-      cache.error
-        ? Promise.reject(cache.error)
-        : Promise.resolve({ downloads: [] }),
-    diffusersStatus: () => {
-      cache.diffusersReads++
-      if (cache.error) return Promise.reject(cache.error)
-      return cache.diffusers
-        ? Promise.resolve(cache.diffusers)
-        : new Promise(() => {})
-    },
-    ...calls,
-  },
-}))
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
+api.listModels.mockImplementation(() =>
+  cache.error
+    ? Promise.reject(cache.error)
+    : Promise.resolve({
+        cache_dir: '/hub',
+        disk_free: null,
+        disk_total: null,
+        size_on_disk: 0,
+        warnings: [],
+        repos: cache.repos,
+      } satisfies ModelCache),
+)
+api.listDownloads.mockImplementation(() =>
+  cache.error
+    ? Promise.reject(cache.error)
+    : Promise.resolve({ downloads: [] }),
+)
+api.diffusersStatus.mockImplementation(() => {
+  cache.diffusersReads++
+  if (cache.error) return Promise.reject(cache.error)
+  return cache.diffusers
+    ? Promise.resolve(cache.diffusers)
+    : new Promise(() => {})
+})
+api.updateDiffusers.mockImplementation(() => Promise.resolve({}))
+api.startDownload.mockImplementation(() => new Promise(() => {}))
+api.deleteModel.mockImplementation(() => Promise.resolve({}))
 vi.mock('../changes.svelte', async () => ({
   changes: (await import('../test/feedMock')).feed.changes,
 }))
@@ -92,7 +89,9 @@ afterEach(() => {
   cache.diffusersReads = 0
   cache.diffusers = null
   vi.mocked(confirmDialog).mockReset()
-  Object.values(calls).forEach((c) => c.mockClear())
+  api.updateDiffusers.mockClear()
+  api.startDownload.mockClear()
+  api.deleteModel.mockClear()
 })
 
 async function lastUsedCell(repoId: string): Promise<HTMLElement> {
@@ -233,10 +232,10 @@ it('Update diffusers asks first and runs only on yes', async () => {
   vi.mocked(confirmDialog).mockResolvedValueOnce(false)
   await fireEvent.click(button)
   await waitFor(() => expect(confirmDialog).toHaveBeenCalledTimes(1))
-  expect(calls.updateDiffusers).not.toHaveBeenCalled()
+  expect(api.updateDiffusers).not.toHaveBeenCalled()
   vi.mocked(confirmDialog).mockResolvedValueOnce(true)
   await fireEvent.click(button)
-  await waitFor(() => expect(calls.updateDiffusers).toHaveBeenCalledTimes(1))
+  await waitFor(() => expect(api.updateDiffusers).toHaveBeenCalledTimes(1))
   expect(vi.mocked(confirmDialog).mock.calls[1]).toEqual([
     "This changes the server's Python environment and restarts the idle worker.",
     {
@@ -258,7 +257,7 @@ it('a second click while starting a download sends one request', async () => {
   await fireEvent.click(button)
   await fireEvent.click(button)
   await fireEvent.submit(input.closest('form') as HTMLFormElement)
-  expect(calls.startDownload).toHaveBeenCalledTimes(1)
+  expect(api.startDownload).toHaveBeenCalledTimes(1)
   expect(confirmDialog).not.toHaveBeenCalled()
 })
 
@@ -270,7 +269,7 @@ it('deleting a model asks with its size', async () => {
   await fireEvent.click(
     screen.getByRole('button', { name: 'delete org/big from the cache' }),
   )
-  await waitFor(() => expect(calls.deleteModel).toHaveBeenCalledWith('org/big'))
+  await waitFor(() => expect(api.deleteModel).toHaveBeenCalledWith('org/big'))
   expect(vi.mocked(confirmDialog).mock.calls[0]).toEqual([
     'The next workflow that needs it downloads it again.',
     {
@@ -340,7 +339,7 @@ it('a value that is not org/name says so and cannot be sent', async () => {
   const send = screen.getByRole('button', { name: /Download/ })
   expect((send as HTMLButtonElement).disabled).toBe(true)
   await fireEvent.submit(field.closest('form') as HTMLFormElement)
-  expect(calls.startDownload).not.toHaveBeenCalled()
+  expect(api.startDownload).not.toHaveBeenCalled()
 })
 
 it('a repo id can be sent', async () => {
@@ -351,7 +350,7 @@ it('a repo id can be sent', async () => {
   const send = screen.getByRole('button', { name: /Download/ })
   expect((send as HTMLButtonElement).disabled).toBe(false)
   await fireEvent.click(send)
-  expect(calls.startDownload).toHaveBeenCalledWith('org/name')
+  expect(api.startDownload).toHaveBeenCalledWith('org/name')
 })
 
 it("the phone rule hides only the Models table's wide columns", () => {

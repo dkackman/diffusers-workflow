@@ -22,6 +22,7 @@ import {
   revisedItem,
 } from '../request/fixtures'
 import type { LedgerRequest } from '../types'
+import { api } from '../test/apiMock'
 import { feed } from '../test/feedMock'
 
 // The page's edits against a ledger that keeps the server's rules: a stale
@@ -29,10 +30,6 @@ import { feed } from '../test/feedMock'
 const world = vi.hoisted(() => ({
   ledger: null as unknown as import('../request/fakeLedger').FakeLedger,
   confirm: vi.fn(),
-  validate: vi.fn(),
-  submitJob: vi.fn(),
-  deleteRequest: vi.fn(),
-  setStarred: vi.fn(),
   notify: {
     error: vi.fn(),
     failure: vi.fn(),
@@ -42,19 +39,13 @@ const world = vi.hoisted(() => ({
     news: vi.fn(),
   },
 }))
-vi.mock('../api', async () => ({
-  ApiError: (await import('../apiErrors')).ApiError,
-  api: {
-    getRequest: () => world.ledger.get(),
-    putRequest: (_ws: string, _id: string, body: never) =>
-      world.ledger.put(body),
-    addNote: (_ws: string, body: never) => world.ledger.addNote(body),
-    notesChannel: async () => ({ listening: false, last_seen: null }),
-    validate: (...args: unknown[]) => world.validate(...args),
-    submitJob: (...args: unknown[]) => world.submitJob(...args),
-    deleteRequest: (...args: unknown[]) => world.deleteRequest(...args),
-    setStarred: (...args: unknown[]) => world.setStarred(...args),
-  },
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
+api.getRequest.mockImplementation(() => world.ledger.get())
+api.putRequest.mockImplementation((_ws, _id, body) => world.ledger.put(body))
+api.addNote.mockImplementation((_ws, body) => world.ledger.addNote(body))
+api.notesChannel.mockImplementation(async () => ({
+  listening: false,
+  last_seen: null,
 }))
 vi.mock('../toast', () => ({ notify: world.notify }))
 vi.mock('../changes.svelte', async () => ({
@@ -91,7 +82,7 @@ beforeEach(() => {
   workspace.current = 'studio'
   world.ledger = fakeLedger(make())
   world.confirm.mockResolvedValue(true)
-  world.setStarred.mockResolvedValue({ name: '', starred: true })
+  api.setStarred.mockResolvedValue({ name: '', starred: true })
 })
 afterEach(() => {
   cleanup()
@@ -601,7 +592,7 @@ const runnable = (): LedgerRequest =>
     { history: [entry(3, 'agent', 'opened')] },
   )
 const priced = () => {
-  world.validate.mockResolvedValue({
+  api.validate.mockResolvedValue({
     valid: true,
     error: null,
     errors: [],
@@ -622,7 +613,7 @@ const priced = () => {
       },
     },
   })
-  world.submitJob.mockResolvedValue({ id: 'job-new' })
+  api.submitJob.mockResolvedValue({ id: 'job-new' })
 }
 
 it('the one filled button runs what is ready, through the priced dialog', async () => {
@@ -638,7 +629,7 @@ it('the one filled button runs what is ready, through the priced dialog', async 
   })
   await within(dialog).findByText(/about 6 min on cuda/)
   // opening it spent nothing
-  expect(world.submitJob).not.toHaveBeenCalled()
+  expect(api.submitJob).not.toHaveBeenCalled()
   expect(dialog.querySelector('.wont li')?.textContent).toBe(
     'The cut: waits on Shot 4 (ready)',
   )
@@ -649,7 +640,7 @@ it('the one filled button runs what is ready, through the priced dialog', async 
   await waitFor(() =>
     expect(world.notify.success).toHaveBeenCalledWith('Queued 1 job'),
   )
-  expect(world.submitJob).toHaveBeenCalledWith(
+  expect(api.submitJob).toHaveBeenCalledWith(
     expect.objectContaining({
       workflow_path: 'shot',
       arguments: { seed: 4 },
@@ -698,7 +689,7 @@ it('a ready row has Run…, a done one Another take… on the row and in its men
       'Nothing is accepted, so the new take becomes the result when it finishes.',
     ),
   ).toBeTruthy()
-  expect(world.submitJob).not.toHaveBeenCalled()
+  expect(api.submitJob).not.toHaveBeenCalled()
 })
 
 it('a closed request offers no run at all', async () => {
@@ -743,10 +734,10 @@ it('a closed request can be deleted, after a confirm, and the page goes to the l
   const closed = make()
   closed.state = 'done'
   world.ledger = fakeLedger(closed)
-  world.deleteRequest.mockResolvedValue({ deleted: true })
+  api.deleteRequest.mockResolvedValue({ deleted: true })
   await start()
   await headerMenu('Delete…')
-  await waitFor(() => expect(world.deleteRequest).toHaveBeenCalled())
+  await waitFor(() => expect(api.deleteRequest).toHaveBeenCalled())
   expect(world.confirm.mock.calls[0][0]).toContain(
     'Its jobs and their outputs are kept.',
   )
@@ -755,7 +746,7 @@ it('a closed request can be deleted, after a confirm, and the page goes to the l
     confirmLabel: 'Delete',
     danger: true,
   })
-  expect(world.deleteRequest).toHaveBeenCalledWith('studio', 'r1', 3)
+  expect(api.deleteRequest).toHaveBeenCalledWith('studio', 'r1', 3)
   await waitFor(() => expect(location.hash).toBe('#/ws/studio/requests'))
   expect(world.notify.success).toHaveBeenCalledWith('Deleted Launch posters')
 })
@@ -776,7 +767,7 @@ it('an open request has no Delete, and a declined confirm deletes nothing', asyn
   await start()
   await headerMenu('Delete…')
   await waitFor(() => expect(world.confirm).toHaveBeenCalled())
-  expect(world.deleteRequest).not.toHaveBeenCalled()
+  expect(api.deleteRequest).not.toHaveBeenCalled()
 })
 
 it('a delete refused while a job is in flight says so and stays', async () => {
@@ -784,7 +775,7 @@ it('a delete refused while a job is in flight says so and stays', async () => {
   const closed = make()
   closed.state = 'done'
   world.ledger = fakeLedger(closed)
-  world.deleteRequest.mockRejectedValue(
+  api.deleteRequest.mockRejectedValue(
     new ApiError('1 linked job is active', 409, 'request_has_active_jobs'),
   )
   location.hash = '#/ws/studio/requests/r1'
@@ -842,7 +833,7 @@ it('a revised item shows its result, why, and Run take 2 beside it; its dependen
     within(dialog).getByRole('button', { name: 'Run 1 job' }),
   )
   await waitFor(() =>
-    expect(world.submitJob).toHaveBeenCalledWith(
+    expect(api.submitJob).toHaveBeenCalledWith(
       expect.objectContaining({
         workflow_path: 'board',
         arguments: { seed: 7 },
@@ -947,7 +938,7 @@ it("Accept stars the take's file", async () => {
   await accept(1)
   await saved(4)
   await waitFor(() =>
-    expect(world.setStarred).toHaveBeenCalledWith('run1/a.png', true),
+    expect(api.setStarred).toHaveBeenCalledWith('run1/a.png', true),
   )
   expect(world.notify.undo).toHaveBeenCalledWith(
     'Accepted take 1 for Cast sheet and starred it',
@@ -963,13 +954,13 @@ it('a take with no file is accepted and stars nothing', async () => {
   await saved(4)
   expect(world.ledger.current.items[0].accepted?.job).toBe('j2')
   await new Promise((r) => setTimeout(r, 20))
-  expect(world.setStarred).not.toHaveBeenCalled()
+  expect(api.setStarred).not.toHaveBeenCalled()
 })
 
 it('a failed star leaves the acceptance', async () => {
   filedWorld()
   const boom = new Error('no')
-  world.setStarred.mockRejectedValue(boom)
+  api.setStarred.mockRejectedValue(boom)
   await start()
   await accept(1)
   await saved(4)
@@ -1000,11 +991,11 @@ it('two quick Accepts both star, the first star still on its way', async () => {
     ]),
   )
   // the first star never lands while the second is asked for
-  world.setStarred.mockReturnValueOnce(new Promise(() => {}))
+  api.setStarred.mockReturnValueOnce(new Promise(() => {}))
   await start()
   await accept(1)
   await saved(4)
-  await waitFor(() => expect(world.setStarred).toHaveBeenCalledTimes(1))
+  await waitFor(() => expect(api.setStarred).toHaveBeenCalledTimes(1))
   await fireEvent.click(
     within(row('poster')).getByRole('button', {
       name: 'Accept take 1 for Poster',
@@ -1012,9 +1003,9 @@ it('two quick Accepts both star, the first star still on its way', async () => {
   )
   await saved(5)
   await waitFor(() =>
-    expect(world.setStarred).toHaveBeenCalledWith('run2/b.png', true),
+    expect(api.setStarred).toHaveBeenCalledWith('run2/b.png', true),
   )
-  expect(world.setStarred).toHaveBeenCalledWith('run1/a.png', true)
+  expect(api.setStarred).toHaveBeenCalledWith('run1/a.png', true)
 })
 
 it('Undo takes back the acceptance and keeps the star', async () => {
@@ -1022,12 +1013,12 @@ it('Undo takes back the acceptance and keeps the star', async () => {
   await start()
   await accept(1)
   await saved(4)
-  await waitFor(() => expect(world.setStarred).toHaveBeenCalledTimes(1))
+  await waitFor(() => expect(api.setStarred).toHaveBeenCalledTimes(1))
   undo()
   await saved(5)
   expect(world.ledger.current.items[0].accepted).toBeNull()
-  expect(world.setStarred).toHaveBeenCalledTimes(1)
-  expect(world.setStarred).not.toHaveBeenCalledWith('run1/a.png', false)
+  expect(api.setStarred).toHaveBeenCalledTimes(1)
+  expect(api.setStarred).not.toHaveBeenCalledWith('run1/a.png', false)
 })
 
 it('a deep link to a take opens its row', async () => {

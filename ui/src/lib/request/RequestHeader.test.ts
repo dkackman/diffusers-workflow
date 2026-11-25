@@ -9,16 +9,18 @@ import { createRawSnippet } from 'svelte'
 import { afterEach, expect, it, vi } from 'vitest'
 import RequestHeader from './RequestHeader.svelte'
 import { planState } from './itemState'
+import { api } from '../test/apiMock'
 import { attempt, doneItem, entry, item, request } from './fixtures'
 import type { LedgerItem, LedgerRequest } from '../types'
 import { formatMtime } from '../format'
 
-const api = vi.hoisted(() => ({
-  addNote: vi.fn(),
-  editNote: vi.fn(),
-  notesChannel: vi.fn(async () => ({ listening: false, last_seen: null })),
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
+api.addNote.mockReturnValue(undefined)
+api.editNote.mockReturnValue(undefined)
+api.notesChannel.mockImplementation(async () => ({
+  listening: false,
+  last_seen: null,
 }))
-vi.mock('../api', () => ({ api }))
 vi.mock('../confirm.svelte', () => ({ confirmDialog: vi.fn() }))
 vi.mock('../toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
 

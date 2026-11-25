@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import ServerPage from './ServerPage.svelte'
 import { connection } from '../connection.svelte'
 import { ApiError, NetworkError } from '../apiErrors'
+import { api } from '../test/apiMock'
 import type { HealthInfo, MemoryInfo, ServerInfo } from '../types'
 
 const SECRET = 'super-secret-token-value'
@@ -41,17 +42,6 @@ const state = vi.hoisted(() => ({
   fail: '' as string,
   status: 0,
 }))
-const server = vi.hoisted(() =>
-  vi.fn(() =>
-    state.fail
-      ? Promise.reject(
-          state.status
-            ? new ApiError(state.fail, state.status)
-            : new Error(state.fail),
-        )
-      : Promise.resolve(state.info),
-  ),
-)
 const TRITON_COST =
   'The next first step of each SDNQ or compiled shape re-autotunes. ' +
   'This directory is shared with any other Triton user on this machine.'
@@ -83,33 +73,31 @@ const cacheList = () => ({
     },
   ] as Record<string, unknown>[],
 })
-const listCaches = vi.hoisted(() =>
-  vi.fn((): Promise<unknown> => Promise.resolve({ caches: [] })),
-)
-const clearCache = vi.hoisted(() =>
-  vi.fn((name: string): Promise<unknown> =>
-    Promise.resolve({ name, cleared: true, freed: 0, files: 0 }),
-  ),
-)
 const confirmDialog = vi.hoisted(() =>
   vi.fn((...args: [message: string, options?: unknown]): Promise<boolean> =>
     Promise.resolve(args.length > 0),
   ),
 )
-const deleteCacheEntry = vi.hoisted(() =>
-  vi.fn((name: string, entry: string): Promise<unknown> =>
-    Promise.resolve({ name, entry, deleted: true, freed: 0 }),
-  ),
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
+api.server.mockImplementation(() =>
+  state.fail
+    ? Promise.reject(
+        state.status
+          ? new ApiError(state.fail, state.status)
+          : new Error(state.fail),
+      )
+    : Promise.resolve(state.info),
 )
-vi.mock('../api', () => ({
-  api: {
-    server: () => server(),
-    listCaches: () => listCaches(),
-    clearCache: (name: string) => clearCache(name),
-    deleteCacheEntry: (name: string, entry: string) =>
-      deleteCacheEntry(name, entry),
-  },
-}))
+api.listCaches.mockImplementation((): Promise<unknown> =>
+  Promise.resolve({ caches: [] }),
+)
+api.clearCache.mockImplementation((name: string): Promise<unknown> =>
+  Promise.resolve({ name, cleared: true, freed: 0, files: 0 }),
+)
+api.deleteCacheEntry.mockImplementation(
+  (name: string, entry: string): Promise<unknown> =>
+    Promise.resolve({ name, entry, deleted: true, freed: 0 }),
+)
 // The page's own location: jsdom serves every test from localhost, so a
 // proxied or tunnelled reader is the origin this returns instead
 const page = vi.hoisted(() => ({ origin: null as string | null }))
@@ -148,13 +136,13 @@ beforeEach(() => {
   localStorage.setItem('dw-api-token', JSON.stringify(SECRET))
 })
 afterEach(() => {
-  server.mockClear()
+  api.server.mockClear()
   connection.health = null
   connection.memory = null
-  listCaches.mockReset()
-  listCaches.mockResolvedValue({ caches: [] })
-  clearCache.mockClear()
-  deleteCacheEntry.mockClear()
+  api.listCaches.mockReset()
+  api.listCaches.mockResolvedValue({ caches: [] })
+  api.clearCache.mockClear()
+  api.deleteCacheEntry.mockClear()
   confirmDialog.mockClear()
   localStorage.clear()
   page.origin = null
@@ -460,7 +448,7 @@ it('shows each worker pid and per-card free and reserved memory', async () => {
 
 /** Render with the cache list given, returning the container. */
 async function showCaches(list = cacheList()) {
-  listCaches.mockResolvedValue(list)
+  api.listCaches.mockResolvedValue(list)
   state.info = base
   state.fail = ''
   const { container } = render(ServerPage)
@@ -509,9 +497,9 @@ it('asks before clearing, quoting the cost and the shared-cache warning', async 
   expect(message).toContain('7.10 GB, 19683 files.')
   expect(message).toContain('re-autotunes')
   expect(message).toContain('shared with any other Triton user')
-  expect(clearCache).toHaveBeenCalledWith('triton')
+  expect(api.clearCache).toHaveBeenCalledWith('triton')
   // the list is read again after the clear, so the size shown drops
-  expect(listCaches).toHaveBeenCalledTimes(2)
+  expect(api.listCaches).toHaveBeenCalledTimes(2)
 })
 
 it('names an empty cache as 0 bytes in the confirm, not 1 KB', async () => {
@@ -531,7 +519,7 @@ it('does not clear when the confirm is declined', async () => {
   clearButton(container, 'inductor').click()
   await settle()
   expect(confirmDialog).toHaveBeenCalledOnce()
-  expect(clearCache).not.toHaveBeenCalled()
+  expect(api.clearCache).not.toHaveBeenCalled()
 })
 
 it('disables Clear with the reason when a cache is not clearable', async () => {
@@ -555,7 +543,7 @@ it("shows the server's text when a clear is refused as busy", async () => {
   const busy =
     'A job is running or queued - clearing a cache it may be writing ' +
     'would leave it a truncated artifact'
-  clearCache.mockRejectedValueOnce(
+  api.clearCache.mockRejectedValueOnce(
     Object.assign(new Error(busy), { status: 409 }),
   )
   const container = await showCaches()
@@ -650,13 +638,13 @@ it('deletes an entry after the confirm, then re-reads the caches', async () => {
   )
   expect(message).toMatch(/^3\.00 GB\. /)
   expect(message).toContain('re-quantizes')
-  expect(deleteCacheEntry).toHaveBeenCalledWith('quantized', ID_A)
-  expect(listCaches).toHaveBeenCalledTimes(2)
+  expect(api.deleteCacheEntry).toHaveBeenCalledWith('quantized', ID_A)
+  expect(api.listCaches).toHaveBeenCalledTimes(2)
 })
 
 it("shows the server's text when an entry delete is refused", async () => {
   const busy = 'A model download is active - try again when it finishes'
-  deleteCacheEntry.mockRejectedValueOnce(
+  api.deleteCacheEntry.mockRejectedValueOnce(
     Object.assign(new Error(busy), { status: 409 }),
   )
   const container = await showCaches(quantizedList())
@@ -685,7 +673,7 @@ it('warns when the volume is under the free-space floor', async () => {
 })
 
 it('ServerPage recovers after the server comes back', async () => {
-  server.mockImplementationOnce(() =>
+  api.server.mockImplementationOnce(() =>
     Promise.reject(new NetworkError('fetch failed')),
   )
   state.info = base

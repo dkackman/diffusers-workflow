@@ -1,11 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('./api', () => ({
-  api: {
-    listAssets: () => new Promise(() => {}),
-    gallery: () => new Promise(() => {}),
-  },
-}))
+vi.mock('./api', async () => (await import('./test/apiMock')).apiModule())
+api.listAssets.mockImplementation(() => new Promise(() => {}))
+api.gallery.mockImplementation(() => new Promise(() => {}))
 
 import { assetLibrary } from './assetlib.svelte'
 import { outputLibrary } from './outputlib.svelte'
@@ -17,6 +14,7 @@ import {
   previewOf,
 } from './referenceField'
 import type { AssetFile, GalleryFile } from './types'
+import { api } from './test/apiMock'
 
 const workflow = {
   variables: { prompt: 'a cat' },

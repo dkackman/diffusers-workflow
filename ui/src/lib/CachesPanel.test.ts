@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
 import { afterEach, expect, it, vi } from 'vitest'
 import CachesPanel from './CachesPanel.svelte'
+import { api } from './test/apiMock'
 import { feed } from './test/feedMock'
 import { workspace } from './workspaceState.svelte'
 import { formatExact, formatMtime } from './format'
@@ -20,13 +21,10 @@ const cache = (name: string) => ({
 })
 
 const listing = vi.hoisted(() => ({ caches: [] as unknown[] }))
-const listCaches = vi.hoisted(() =>
-  vi.fn(() => Promise.resolve({ caches: listing.caches })),
+vi.mock('./api', async () => (await import('./test/apiMock')).apiModule())
+api.listCaches.mockImplementation(() =>
+  Promise.resolve({ caches: listing.caches }),
 )
-const clearCache = vi.hoisted(() => vi.fn())
-vi.mock('./api', () => ({
-  api: { listCaches: () => listCaches(), clearCache },
-}))
 vi.mock('./confirm.svelte', () => ({ confirmDialog: vi.fn() }))
 vi.mock('./changes.svelte', async () => ({
   changes: (await import('./test/feedMock')).feed.changes,
@@ -34,7 +32,7 @@ vi.mock('./changes.svelte', async () => ({
 
 afterEach(() => {
   cleanup()
-  listCaches.mockClear()
+  api.listCaches.mockClear()
 })
 
 it('CachesPanel reloads on a models move', async () => {
@@ -46,14 +44,14 @@ it('CachesPanel reloads on a models move', async () => {
   feed.move(workspace.current, 'models')
   await screen.findByText('quantized')
   expect(screen.getByText('triton')).toBeTruthy()
-  expect(listCaches).toHaveBeenCalledTimes(2)
+  expect(api.listCaches).toHaveBeenCalledTimes(2)
 })
 
 it("a refused clear shows the server's reason in one line, the detail folded", async () => {
   const { ApiError } = await import('./apiErrors')
   const { confirmDialog } = await import('./confirm.svelte')
   listing.caches = [cache('triton')]
-  clearCache.mockRejectedValueOnce(
+  api.clearCache.mockRejectedValueOnce(
     new ApiError('A job is running.\nlong engine text', 409),
   )
   vi.mocked(confirmDialog).mockResolvedValue(true)
@@ -68,8 +66,8 @@ it("a refused clear shows the server's reason in one line, the detail folded", a
 it('clear asks with the cost and runs once', async () => {
   const { confirmDialog } = await import('./confirm.svelte')
   listing.caches = [cache('triton')]
-  clearCache.mockReset()
-  clearCache.mockResolvedValue({})
+  api.clearCache.mockReset()
+  api.clearCache.mockResolvedValue({})
   vi.mocked(confirmDialog).mockReset()
   vi.mocked(confirmDialog).mockResolvedValue(true)
   render(CachesPanel)
@@ -77,7 +75,7 @@ it('clear asks with the cost and runs once', async () => {
   const button = screen.getByRole('button', { name: /clear the triton/i })
   await fireEvent.click(button)
   await fireEvent.click(button)
-  await vi.waitFor(() => expect(clearCache).toHaveBeenCalledTimes(1))
+  await vi.waitFor(() => expect(api.clearCache).toHaveBeenCalledTimes(1))
   expect(vi.mocked(confirmDialog).mock.calls[0]).toEqual([
     '1 KB, 1 file. It is read again.',
     {

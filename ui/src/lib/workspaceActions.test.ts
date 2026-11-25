@@ -1,30 +1,22 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 // Read by tests/test_ui_twins.py too, so the two rules cannot drift apart
 import cases from '../../../tests/fixtures/workspace_names.json'
+import { api } from './test/apiMock'
 
-const createWorkspace = vi.hoisted(() => vi.fn())
-const deleteWorkspace = vi.hoisted(() => vi.fn())
-const gallery = vi.hoisted(() => vi.fn())
 const confirm = vi.hoisted(() => vi.fn())
 const errorToast = vi.hoisted(() => vi.fn())
 const failureToast = vi.hoisted(() => vi.fn())
 // Modules are reset between tests, so the class is read fresh each time
 const apiError = async (message: string, status: number) =>
   new (await import('./apiErrors')).ApiError(message, status)
-vi.mock('./api', () => ({
-  api: {
-    createWorkspace: (n: string) => createWorkspace(n),
-    deleteWorkspace: (n: string, ack?: boolean) => deleteWorkspace(n, ack),
-    gallery: () => gallery(),
-    listWorkspaces: vi.fn(() =>
-      Promise.resolve({
-        workspace_root: '/ws',
-        default: 'default',
-        workspaces: [{ name: 'default', default: true }],
-      }),
-    ),
-  },
-}))
+vi.mock('./api', async () => (await import('./test/apiMock')).apiModule())
+const { createWorkspace, deleteWorkspace, gallery } = api
+const listed = () =>
+  Promise.resolve({
+    workspace_root: '/ws',
+    default: 'default',
+    workspaces: [{ name: 'default', default: true }],
+  })
 vi.mock('./confirm.svelte', () => ({
   confirmDialog: (...a: unknown[]) => confirm(...a),
 }))
@@ -37,6 +29,7 @@ beforeEach(() => {
   deleteWorkspace.mockReset()
   gallery.mockReset()
   gallery.mockResolvedValue({ files: [] })
+  api.listWorkspaces.mockImplementation(listed)
   confirm.mockReset()
   errorToast.mockReset()
   failureToast.mockReset()
@@ -119,7 +112,8 @@ it("asks with the counts from the server's refusal and deletes only on yes", asy
   confirm.mockResolvedValue(false)
   expect(await deleteWorkspaceWithConfirm('studio')).toBe(false)
   expect(deleteWorkspace).toHaveBeenCalledTimes(1)
-  expect(deleteWorkspace).toHaveBeenCalledWith('studio', undefined)
+  // the first try carries no acknowledgement
+  expect(deleteWorkspace).toHaveBeenCalledWith('studio')
 })
 
 it('a declined confirm deletes nothing', async () => {

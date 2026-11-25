@@ -2,17 +2,14 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
 import { createRawSnippet } from 'svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import ReferenceField from './ReferenceField.svelte'
+import { api } from '../test/apiMock'
 import type { AssetFile } from '../types'
 
-const uploadMedia = vi.fn()
-vi.mock('../api', () => ({
-  api: {
-    uploadMedia: (f: File) => uploadMedia(f),
-    // The listings are set by hand below; a fetch never lands
-    listAssets: () => new Promise(() => {}),
-    gallery: () => new Promise(() => {}),
-  },
-}))
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
+// The listings are set by hand below; a fetch never lands
+api.listAssets.mockImplementation(() => new Promise(() => {}))
+api.gallery.mockImplementation(() => new Promise(() => {}))
+const uploadMedia = api.uploadMedia
 const chooseDialog = vi.hoisted(() => vi.fn())
 vi.mock('../confirm.svelte', async (orig) => ({
   ...(await orig<object>()),

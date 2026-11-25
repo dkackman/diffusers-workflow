@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { api } from './test/apiMock'
 
-vi.mock('./api', () => ({
-  api: { listWorkspaces: vi.fn(() => new Promise(() => {})) },
-}))
+vi.mock('./api', async () => (await import('./test/apiMock')).apiModule())
+api.listWorkspaces.mockImplementation(() => new Promise(() => {}))
 vi.mock('./toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
 
 // Each test loads its own router, and an earlier test's would still hear

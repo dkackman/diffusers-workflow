@@ -9,27 +9,24 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import NewWorkspace from './NewWorkspace.svelte'
 import { ApiError, describeError } from './apiErrors'
 import { invalidateWorkspaces } from './workspace.svelte'
+import { api } from './test/apiMock'
 
-const createWorkspace = vi.hoisted(() => vi.fn())
-vi.mock('./api', () => ({
-  api: {
-    listWorkspaces: () =>
-      Promise.resolve({
-        workspace_root: '/ws',
-        default: 'default',
-        workspaces: [
-          { name: 'default', default: true },
-          { name: 'fresh', default: false },
-        ],
-      }),
-    createWorkspace: (n: string) => createWorkspace(n),
-  },
-}))
+vi.mock('./api', async () => (await import('./test/apiMock')).apiModule())
+api.listWorkspaces.mockImplementation(() =>
+  Promise.resolve({
+    workspace_root: '/ws',
+    default: 'default',
+    workspaces: [
+      { name: 'default', default: true },
+      { name: 'fresh', default: false },
+    ],
+  }),
+)
 vi.mock('./toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
 
 let onclose: ReturnType<typeof vi.fn<() => void>>
 beforeEach(() => {
-  createWorkspace.mockReset()
+  api.createWorkspace.mockReset()
   invalidateWorkspaces()
   location.hash = '#/ws/default/gallery'
   onclose = vi.fn<() => void>()
@@ -54,15 +51,15 @@ it('opens with focus in the field', async () => {
 
 it('Enter creates once, however often pressed while busy', async () => {
   let finish: (v: unknown) => void = () => {}
-  createWorkspace.mockReturnValue(new Promise((r) => (finish = r)))
+  api.createWorkspace.mockReturnValue(new Promise((r) => (finish = r)))
   const input = await typed('fresh')
   await fireEvent.keyDown(input, { key: 'Enter' })
   await fireEvent.keyDown(input, { key: 'Enter' })
   await fireEvent.keyDown(input, { key: 'Enter' })
-  expect(createWorkspace).toHaveBeenCalledTimes(1)
+  expect(api.createWorkspace).toHaveBeenCalledTimes(1)
   finish({ name: 'fresh' })
   await waitFor(() => expect(onclose).toHaveBeenCalled())
-  expect(createWorkspace).toHaveBeenCalledTimes(1)
+  expect(api.createWorkspace).toHaveBeenCalledTimes(1)
 })
 
 it('a refused name is said beside the field and the form stays open', async () => {
@@ -72,7 +69,7 @@ it('a refused name is said beside the field and the form stays open', async () =
   await waitFor(() =>
     expect(screen.getByText('assets is reserved')).toBeTruthy(),
   )
-  expect(createWorkspace).not.toHaveBeenCalled()
+  expect(api.createWorkspace).not.toHaveBeenCalled()
   expect(onclose).not.toHaveBeenCalled()
   // the draft stays, to be corrected
   expect(field().value).toBe('assets')
@@ -80,7 +77,7 @@ it('a refused name is said beside the field and the form stays open', async () =
 
 it("a name the server refuses says the server's reason, and keeps the draft", async () => {
   const refusal = new ApiError('workspace exists: taken', 409)
-  createWorkspace.mockRejectedValue(refusal)
+  api.createWorkspace.mockRejectedValue(refusal)
   const input = await typed('taken')
   await fireEvent.keyDown(input, { key: 'Enter' })
   await waitFor(() =>
@@ -112,11 +109,11 @@ it('Escape closes it', async () => {
   const input = await typed('half-typed')
   await fireEvent.keyDown(input, { key: 'Escape' })
   expect(onclose).toHaveBeenCalledTimes(1)
-  expect(createWorkspace).not.toHaveBeenCalled()
+  expect(api.createWorkspace).not.toHaveBeenCalled()
 })
 
 it("success closes it and lands on the new workspace's overview", async () => {
-  createWorkspace.mockResolvedValue({ name: 'fresh' })
+  api.createWorkspace.mockResolvedValue({ name: 'fresh' })
   const input = await typed('fresh')
   await fireEvent.keyDown(input, { key: 'Enter' })
   await waitFor(() => expect(location.hash).toBe('#/ws/fresh/overview'))
@@ -124,15 +121,15 @@ it("success closes it and lands on the new workspace's overview", async () => {
 })
 
 it('the name is trimmed before it is created', async () => {
-  createWorkspace.mockResolvedValue({ name: 'fresh' })
+  api.createWorkspace.mockResolvedValue({ name: 'fresh' })
   const input = await typed('  fresh ')
   await fireEvent.keyDown(input, { key: 'Enter' })
-  await waitFor(() => expect(createWorkspace).toHaveBeenCalledWith('fresh'))
+  await waitFor(() => expect(api.createWorkspace).toHaveBeenCalledWith('fresh'))
 })
 
 it('is aria-busy while creating', async () => {
   let finish: (v: unknown) => void = () => {}
-  createWorkspace.mockReturnValue(new Promise((r) => (finish = r)))
+  api.createWorkspace.mockReturnValue(new Promise((r) => (finish = r)))
   const input = await typed('fresh')
   const form = input.closest('form')!
   expect(form.getAttribute('aria-busy')).toBe('false')
@@ -143,10 +140,10 @@ it('is aria-busy while creating', async () => {
 })
 
 it('Create creates', async () => {
-  createWorkspace.mockResolvedValue({ name: 'fresh' })
+  api.createWorkspace.mockResolvedValue({ name: 'fresh' })
   await typed('fresh')
   await fireEvent.click(screen.getByRole('button', { name: 'Create' }))
-  await waitFor(() => expect(createWorkspace).toHaveBeenCalledWith('fresh'))
+  await waitFor(() => expect(api.createWorkspace).toHaveBeenCalledWith('fresh'))
   await waitFor(() => expect(location.hash).toBe('#/ws/fresh/overview'))
 })
 
@@ -154,7 +151,7 @@ it('Cancel closes', async () => {
   await typed('half-typed')
   await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
   expect(onclose).toHaveBeenCalledTimes(1)
-  expect(createWorkspace).not.toHaveBeenCalled()
+  expect(api.createWorkspace).not.toHaveBeenCalled()
 })
 
 it('a click away closes an empty field', async () => {

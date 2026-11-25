@@ -8,22 +8,17 @@ import {
 } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import NoteList from './NoteList.svelte'
+import { api, resetApi } from '../test/apiMock'
 import { attempt, entry, item, request } from './fixtures'
 import type { LedgerNote, LedgerNoteRef } from '../types'
 
-const api = vi.hoisted(() => ({
-  addNote: vi.fn(),
-  editNote: vi.fn(),
-  deleteNote: vi.fn(),
-  notesChannel: vi.fn(),
-}))
-vi.mock('../api', () => ({ api }))
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
 vi.mock('../confirm.svelte', () => ({ confirmDialog: vi.fn() }))
 vi.mock('../toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
 
 beforeEach(() => {
   sessionStorage.clear()
-  for (const call of Object.values(api)) call.mockReset()
+  resetApi()
   api.notesChannel.mockResolvedValue({ listening: false, last_seen: null })
   api.addNote.mockResolvedValue({ revision: 4 })
   api.editNote.mockResolvedValue({ revision: 4 })

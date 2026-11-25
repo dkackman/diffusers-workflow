@@ -1,19 +1,16 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { Enhancer } from './enhancer.svelte'
-import { api } from './api'
+import { api } from './test/apiMock'
 import type { EnhancerPreset } from './types'
 
-vi.mock('./api', () => ({
-  api: {
-    listEnhancers: vi.fn(),
-    listModels: vi.fn().mockResolvedValue({ repos: [] }),
-    startDownload: vi.fn().mockResolvedValue({}),
-    listDownloads: vi.fn(),
-    enhance: vi.fn(),
-  },
-  fetchOutputText: vi.fn(),
-  streamJobEvents: vi.fn(() => () => {}),
-}))
+vi.mock('./api', async () =>
+  (await import('./test/apiMock')).apiModule({
+    fetchOutputText: vi.fn(),
+    streamJobEvents: vi.fn(() => () => {}),
+  }),
+)
+api.listModels.mockResolvedValue({ repos: [] })
+api.startDownload.mockResolvedValue({})
 
 const preset = (key: string, intended: string[] = []): EnhancerPreset => ({
   key,
@@ -25,7 +22,7 @@ const preset = (key: string, intended: string[] = []): EnhancerPreset => ({
 })
 
 beforeEach(() => {
-  vi.mocked(api.listEnhancers).mockResolvedValue({
+  api.listEnhancers.mockResolvedValue({
     presets: [preset('h3', ['minimax-h3']), preset('ltx', ['ltx-2'])],
   })
 })
@@ -37,7 +34,7 @@ it('loads the presets, and says so when the server has none', async () => {
   expect(enhancer.presets.map((p) => p.key)).toEqual(['h3', 'ltx'])
   expect(enhancer.down).toBe(false)
 
-  vi.mocked(api.listEnhancers).mockResolvedValue({ presets: [] })
+  api.listEnhancers.mockResolvedValue({ presets: [] })
   const empty = new Enhancer()
   await empty.load()
   expect(empty.down).toBe(true)
@@ -66,7 +63,7 @@ it('leaves a hand-typed model alone when the same preset is picked again', async
 
 it('reports a download that failed on the server', async () => {
   vi.useFakeTimers()
-  vi.mocked(api.listDownloads).mockResolvedValue({
+  api.listDownloads.mockResolvedValue({
     downloads: [{ repo_id: 'org/h3', status: 'failed', error: 'disk full' }],
   } as never)
   const enhancer = new Enhancer()
@@ -84,7 +81,7 @@ it('reports a download that failed on the server', async () => {
 it('a refused enhancement leads with the described title, not the raw message', async () => {
   const { ApiError } = await import('./apiErrors')
   const raw = 'Traceback (most recent call last): KeyError: preset'
-  vi.mocked(api.enhance).mockRejectedValue(new ApiError(raw, 500))
+  api.enhance.mockRejectedValue(new ApiError(raw, 500))
   const enhancer = new Enhancer()
   enhancer.idea = 'a cat'
   await enhancer.generate()

@@ -8,28 +8,21 @@ import {
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import Sidebar from './Sidebar.svelte'
 import { invalidateWorkspaces, workspace } from './workspace.svelte'
+import { api } from './test/apiMock'
 import { feed } from './test/feedMock'
 import { CLOCK_TICK_MS } from './clock.svelte'
 
-const listWorkspaces = vi.hoisted(() =>
-  vi.fn(() =>
-    Promise.resolve({
-      workspace_root: '/ws',
-      default: 'default',
-      workspaces: [
-        { name: 'default', default: true, usage: { files: 2, bytes: 2048 } },
-        { name: 'studio', default: false },
-      ],
-    }),
-  ),
+vi.mock('./api', async () => (await import('./test/apiMock')).apiModule())
+api.listWorkspaces.mockImplementation(() =>
+  Promise.resolve({
+    workspace_root: '/ws',
+    default: 'default',
+    workspaces: [
+      { name: 'default', default: true, usage: { files: 2, bytes: 2048 } },
+      { name: 'studio', default: false },
+    ],
+  }),
 )
-const createWorkspace = vi.hoisted(() => vi.fn())
-vi.mock('./api', () => ({
-  api: {
-    listWorkspaces: () => listWorkspaces(),
-    createWorkspace: (n: string) => createWorkspace(n),
-  },
-}))
 vi.mock('./changes.svelte', async () => ({
   changes: (await import('./test/feedMock')).feed.changes,
 }))
@@ -37,7 +30,7 @@ vi.mock('./toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
 
 beforeEach(() => {
   localStorage.clear()
-  createWorkspace.mockReset()
+  api.createWorkspace.mockReset()
   // The one router instance the component imported parsed the hash at load;
   // drive it the way the browser does rather than resetting modules, which
   // would hand the component a second Svelte runtime. jsdom fires its own
@@ -115,7 +108,7 @@ it('new opens the form in its place, and closing it brings new back empty', asyn
 })
 
 it('+ new creates and lands on the new overview', async () => {
-  createWorkspace.mockResolvedValue({ name: 'fresh' })
+  api.createWorkspace.mockResolvedValue({ name: 'fresh' })
   render(Sidebar, { collapsed: false, onToggle: () => {} })
   await waitFor(() => expect(screen.getByText('default')).toBeTruthy())
   await fireEvent.click(screen.getByRole('button', { name: /new workspace/i }))
@@ -130,7 +123,7 @@ it('+ new creates and lands on the new overview', async () => {
 })
 
 it('no workspace root says why there is no new', async () => {
-  listWorkspaces.mockResolvedValueOnce({
+  api.listWorkspaces.mockResolvedValueOnce({
     workspace_root: null as unknown as string,
     default: 'default',
     workspaces: [{ name: 'default', default: true }],
@@ -144,7 +137,7 @@ it('no workspace root says why there is no new', async () => {
 })
 
 it('a failed listing does not claim there is no workspace folder', async () => {
-  listWorkspaces.mockRejectedValueOnce(new Error('down'))
+  api.listWorkspaces.mockRejectedValueOnce(new Error('down'))
   render(Sidebar, { collapsed: false, onToggle: () => {} })
   await waitFor(() => expect(screen.getByText('default')).toBeTruthy())
   expect(workspace.listed).toBe(false)
@@ -239,7 +232,7 @@ it('marks the open workspace apart from its siblings', async () => {
 })
 
 it('folds a run of same-prefix workspaces into one group row', async () => {
-  listWorkspaces.mockResolvedValueOnce({
+  api.listWorkspaces.mockResolvedValueOnce({
     workspace_root: '/ws',
     default: 'main',
     workspaces: ['regression-a', 'regression-b', 'regression-c', 'main'].map(
@@ -260,8 +253,8 @@ it('a workspace made or deleted elsewhere shows when the workspaces counter move
   render(Sidebar, { collapsed: false, onToggle: () => {} })
   await waitFor(() => expect(screen.getByText('default')).toBeTruthy())
   expect(feed.watched(workspace.current)).toContain('workspaces')
-  const calls = listWorkspaces.mock.calls.length
-  listWorkspaces.mockImplementationOnce(() =>
+  const calls = api.listWorkspaces.mock.calls.length
+  api.listWorkspaces.mockImplementationOnce(() =>
     Promise.resolve({
       workspace_root: '/ws',
       default: 'default',
@@ -275,10 +268,10 @@ it('a workspace made or deleted elsewhere shows when the workspaces counter move
   feed.move(workspace.current, 'workspaces')
   // the cached listing is dropped and read again, once
   await waitFor(() => expect(screen.getByText('agent-made')).toBeTruthy())
-  expect(listWorkspaces.mock.calls.length).toBe(calls + 1)
+  expect(api.listWorkspaces.mock.calls.length).toBe(calls + 1)
   // another kind moving reads nothing
   feed.move(workspace.current, 'requests')
-  expect(listWorkspaces.mock.calls.length).toBe(calls + 1)
+  expect(api.listWorkspaces.mock.calls.length).toBe(calls + 1)
 })
 
 it('a workspace made elsewhere appears', async () => {
@@ -287,7 +280,7 @@ it('a workspace made elsewhere appears', async () => {
   await loadWorkspaces()
   render(Sidebar, { collapsed: false, onToggle: () => {} })
   await waitFor(() => expect(screen.getByText('default')).toBeTruthy())
-  listWorkspaces.mockImplementationOnce(() =>
+  api.listWorkspaces.mockImplementationOnce(() =>
     Promise.resolve({
       workspace_root: '/ws',
       default: 'default',
@@ -305,7 +298,7 @@ it('a workspace made elsewhere appears', async () => {
 
 it('Sidebar says when each workspace changed', async () => {
   const now = Math.floor(Date.now() / 1000)
-  listWorkspaces.mockResolvedValueOnce({
+  api.listWorkspaces.mockResolvedValueOnce({
     workspace_root: '/ws',
     default: 'default',
     workspaces: [
@@ -340,7 +333,7 @@ it('a change in the open workspace moves its Sidebar time without a page reload'
         { name: 'studio', default: false, mtime: studio } as never,
       ],
     })
-    listWorkspaces.mockResolvedValueOnce(listed(now - 3 * 3600))
+    api.listWorkspaces.mockResolvedValueOnce(listed(now - 3 * 3600))
     render(Sidebar, { collapsed: false, onToggle: () => {} })
     const stamp = () =>
       screen
@@ -348,22 +341,22 @@ it('a change in the open workspace moves its Sidebar time without a page reload'
         .parentElement!.querySelector('time')
         ?.textContent?.trim()
     await waitFor(() => expect(stamp()).toBe('changed 3 h ago'))
-    const calls = listWorkspaces.mock.calls.length
+    const calls = api.listWorkspaces.mock.calls.length
     // An output lands in the open workspace: read again, quietly, at once
-    listWorkspaces.mockResolvedValueOnce(listed(now))
+    api.listWorkspaces.mockResolvedValueOnce(listed(now))
     feed.move(workspace.current, 'gallery')
     await waitFor(() => expect(stamp()).toBe('changed just now'))
-    expect(listWorkspaces.mock.calls.length).toBe(calls + 1)
+    expect(api.listWorkspaces.mock.calls.length).toBe(calls + 1)
     // A second move in the same clock tick waits for the next one
-    listWorkspaces.mockResolvedValueOnce(listed(now))
+    api.listWorkspaces.mockResolvedValueOnce(listed(now))
     feed.move(workspace.current, 'workflows')
     await vi.advanceTimersByTimeAsync(0)
-    expect(listWorkspaces.mock.calls.length).toBe(calls + 1)
+    expect(api.listWorkspaces.mock.calls.length).toBe(calls + 1)
     await vi.advanceTimersByTimeAsync(CLOCK_TICK_MS)
-    expect(listWorkspaces.mock.calls.length).toBe(calls + 2)
+    expect(api.listWorkspaces.mock.calls.length).toBe(calls + 2)
     // and a tick with nothing owed reads nothing
     await vi.advanceTimersByTimeAsync(CLOCK_TICK_MS)
-    expect(listWorkspaces.mock.calls.length).toBe(calls + 2)
+    expect(api.listWorkspaces.mock.calls.length).toBe(calls + 2)
   } finally {
     vi.useRealTimers()
   }
@@ -372,12 +365,12 @@ it('a change in the open workspace moves its Sidebar time without a page reload'
 it('one feed poll that moves the workspaces and a content kind lists them once', async () => {
   render(Sidebar, { collapsed: false, onToggle: () => {} })
   await waitFor(() => expect(screen.getByText('default')).toBeTruthy())
-  const calls = listWorkspaces.mock.calls.length
+  const calls = api.listWorkspaces.mock.calls.length
   // a copy into the open workspace: one poll, both counters moved, each
   // watcher called in turn (changes.svelte.ts)
   feed.move(workspace.current, 'workspaces')
   feed.move(workspace.current, 'assets')
   await new Promise((r) => setTimeout(r, 10))
   // the content resource joins the relist on its way
-  expect(listWorkspaces.mock.calls.length).toBe(calls + 1)
+  expect(api.listWorkspaces.mock.calls.length).toBe(calls + 1)
 })

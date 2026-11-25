@@ -2,6 +2,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import RequestFilter from './RequestFilter.svelte'
 import { summary } from '../request/fixtures'
+import { api } from '../test/apiMock'
 import { feed } from '../test/feedMock'
 import { workspace } from '../workspaceState.svelte'
 
@@ -10,16 +11,13 @@ const data = vi.hoisted(() => ({
   error: null as Error | null,
   asked: [] as string[],
 }))
-vi.mock('../api', () => ({
-  api: {
-    listRequests: (ws: string) => {
-      data.asked.push(ws)
-      return data.error
-        ? Promise.reject(data.error)
-        : Promise.resolve({ workspace: ws, requests: data.requests })
-    },
-  },
-}))
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
+api.listRequests.mockImplementation((ws: string) => {
+  data.asked.push(ws)
+  return data.error
+    ? Promise.reject(data.error)
+    : Promise.resolve({ workspace: ws, requests: data.requests })
+})
 vi.mock('../changes.svelte', async () => ({
   changes: (await import('../test/feedMock')).feed.changes,
 }))

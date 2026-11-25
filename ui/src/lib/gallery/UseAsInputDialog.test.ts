@@ -1,10 +1,10 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, waitFor } from '@testing-library/svelte'
 import UseAsInput from './UseAsInput.svelte'
-import { api } from '../api'
+import { api } from '../test/apiMock'
 import type { MediaFile } from '../media'
 
-vi.mock('../api', () => ({ api: { listWorkflows: vi.fn() } }))
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
 vi.mock('../changes.svelte', async () => ({
   changes: (await import('../test/feedMock')).feed.changes,
 }))
@@ -20,7 +20,7 @@ const file = {
 afterEach(cleanup)
 
 it('says so plainly when no workflow takes the kind', async () => {
-  vi.mocked(api.listWorkflows).mockResolvedValue({
+  api.listWorkflows.mockResolvedValue({
     workflows: ['mine/text'],
     details: { 'mine/text': { variable_names: ['prompt'], writable: true } },
   } as never)
@@ -36,7 +36,7 @@ it('says so plainly when no workflow takes the kind', async () => {
 })
 
 it('lists a button per workflow that takes it', async () => {
-  vi.mocked(api.listWorkflows).mockResolvedValue({
+  api.listWorkflows.mockResolvedValue({
     workflows: ['mine/edit'],
     details: { 'mine/edit': { variable_names: ['image'], writable: true } },
   } as never)
@@ -47,7 +47,7 @@ it('lists a button per workflow that takes it', async () => {
 })
 
 it('two same-leaf workflows are told apart', async () => {
-  vi.mocked(api.listWorkflows).mockResolvedValue({
+  api.listWorkflows.mockResolvedValue({
     workflows: ['people/edit', 'pets/edit', 'solo'],
     details: {
       'people/edit': { variable_names: ['image'], writable: true },

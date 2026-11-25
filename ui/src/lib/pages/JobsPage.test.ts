@@ -11,11 +11,10 @@ import { ApiError, NetworkError } from '../apiErrors'
 import { formatExact, formatRelative } from '../format'
 import { workspace } from '../workspaceState.svelte'
 import type { JobSummary } from '../types'
+import { api } from '../test/apiMock'
 
 const data = vi.hoisted(() => ({
   jobs: [] as unknown[],
-  rerunRestartBatch: vi.fn(),
-  moveJob: vi.fn(),
   confirm: vi.fn(),
   // Every listing asked for, as [workspace, limit, status, request, item]
   listed: [] as unknown[][],
@@ -33,60 +32,62 @@ const data = vi.hoisted(() => ({
   // Whether a listing keeps only the workspace it names, as the server does
   byWorkspace: false,
 }))
-vi.mock('../api', async () => ({
-  ApiError: (await import('../apiErrors')).ApiError,
-  api: {
-    rerunRestartBatch: data.rerunRestartBatch,
-    moveJob: data.moveJob,
-    // Filters by request/item the way the server does
-    listJobs: (
-      ws?: string,
-      limit?: number,
-      status?: string,
-      request?: string,
-      item?: string,
-      opts?: { prompts?: boolean },
-    ) => {
-      data.listed.push([ws, limit, status, request, item])
-      if (limit !== 1) data.asked.push(!!opts?.prompts)
-      if (data.gate && limit !== 1)
-        return data.gate.then(() => ({ jobs: [], total: 0 }))
-      if (status === 'queued' && limit === 1)
-        return Promise.resolve({ jobs: [], total: data.queued })
-      if (data.listError) return Promise.reject(data.listError)
-      const states = status?.split(',')
-      const matched = (data.jobs as JobSummary[]).filter(
-        (j) =>
-          (!data.byWorkspace || !ws || j.workspace === ws) &&
-          (!request || j.request === request) &&
-          (!item || j.item === item) &&
-          (!states || states.includes(j.status)),
-      )
-      // The server keeps the newest `limit` and counts what matched before
-      const jobs = limit === undefined ? matched : matched.slice(-limit)
-      return Promise.resolve({
-        jobs,
-        total: matched.length,
-        ...(opts?.prompts ? { prompts: data.prompts } : {}),
-      })
-    },
-    gallery: () => Promise.resolve({ workspace: 'default', files: data.files }),
-    getJob: (id: string) => Promise.resolve({ progress: data.progress[id] }),
-    // The request picker's list, in whichever workspace it is asked for
-    listRequests: (ws: string) =>
-      Promise.resolve({
-        workspace: ws,
-        requests: [{ id: 'r1', title: 'Launch posters' }],
-      }),
-    // The listing names the default workspace, as the server's always does:
-    // a route parse that found it missing would redirect to overview
-    listWorkspaces: () =>
-      Promise.resolve({
-        default: 'default',
-        workspaces: [{ name: 'default', default: true }],
-      }),
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
+// Filters by request/item the way the server does
+api.listJobs.mockImplementation(
+  (
+    ws?: string,
+    limit?: number,
+    status?: string,
+    request?: string,
+    item?: string,
+    opts?: { prompts?: boolean },
+  ) => {
+    data.listed.push([ws, limit, status, request, item])
+    if (limit !== 1) data.asked.push(!!opts?.prompts)
+    if (data.gate && limit !== 1)
+      return data.gate.then(() => ({ jobs: [], total: 0 }))
+    if (status === 'queued' && limit === 1)
+      return Promise.resolve({ jobs: [], total: data.queued })
+    if (data.listError) return Promise.reject(data.listError)
+    const states = status?.split(',')
+    const matched = (data.jobs as JobSummary[]).filter(
+      (j) =>
+        (!data.byWorkspace || !ws || j.workspace === ws) &&
+        (!request || j.request === request) &&
+        (!item || j.item === item) &&
+        (!states || states.includes(j.status)),
+    )
+    // The server keeps the newest `limit` and counts what matched before
+    const jobs = limit === undefined ? matched : matched.slice(-limit)
+    return Promise.resolve({
+      jobs,
+      total: matched.length,
+      ...(opts?.prompts ? { prompts: data.prompts } : {}),
+    })
   },
-}))
+)
+api.gallery.mockImplementation(() =>
+  Promise.resolve({ workspace: 'default', files: data.files }),
+)
+api.getJob.mockImplementation((id: string) =>
+  Promise.resolve({ progress: data.progress[id] }),
+)
+// The request picker's list, in whichever workspace it is asked for
+api.listRequests.mockImplementation((ws: string) =>
+  Promise.resolve({
+    workspace: ws,
+    requests: [{ id: 'r1', title: 'Launch posters' }],
+  }),
+)
+// The listing names the default workspace, as the server's always does:
+// a route parse that found it missing would redirect to overview
+api.listWorkspaces.mockImplementation(() =>
+  Promise.resolve({
+    default: 'default',
+    workspaces: [{ name: 'default', default: true }],
+  }),
+)
 vi.mock('../changes.svelte', async () => ({
   changes: (await import('../test/feedMock')).feed.changes,
 }))
@@ -105,8 +106,8 @@ afterEach(() => {
   data.asked = []
   data.byWorkspace = false
   workspace.current = 'default'
-  data.rerunRestartBatch.mockReset()
-  data.moveJob.mockReset()
+  api.rerunRestartBatch.mockReset()
+  api.moveJob.mockReset()
   data.confirm.mockReset()
 })
 
@@ -419,18 +420,18 @@ it('previews on click with {} once, and the poll never calls the route', async (
   vi.useFakeTimers({ shouldAdvanceTime: true })
   try {
     data.jobs = [tombstone('t1', 'dead-a'), tombstone('t2', 'dead-a')]
-    data.rerunRestartBatch.mockResolvedValue(preview)
+    api.rerunRestartBatch.mockResolvedValue(preview)
     data.confirm.mockResolvedValue(false)
     const { container } = render(JobsPage)
     await waitFor(() => expect(banners(container)).toHaveLength(1))
     // several poll ticks with the banner up: no preview
     await vi.advanceTimersByTimeAsync(10_000)
-    expect(data.rerunRestartBatch).not.toHaveBeenCalled()
+    expect(api.rerunRestartBatch).not.toHaveBeenCalled()
     await fireEvent.click(screen.getByText('Rerun…'))
     await waitFor(() => expect(data.confirm).toHaveBeenCalledTimes(1))
-    expect(data.rerunRestartBatch).toHaveBeenCalledTimes(1)
+    expect(api.rerunRestartBatch).toHaveBeenCalledTimes(1)
     // any member names its batch; the call carries no acknowledgement
-    const [member, ...rest] = data.rerunRestartBatch.mock.calls[0]
+    const [member, ...rest] = api.rerunRestartBatch.mock.calls[0]
     expect(['t1', 't2']).toContain(member)
     expect(rest).toEqual([])
     const message = data.confirm.mock.calls[0][0] as string
@@ -440,7 +441,7 @@ it('previews on click with {} once, and the poll never calls the route', async (
     expect(message).toContain('total about 2 min, plus 1 with no figure')
     expect(message).toContain('t3: its workspace is gone')
     await vi.advanceTimersByTimeAsync(10_000)
-    expect(data.rerunRestartBatch).toHaveBeenCalledTimes(1)
+    expect(api.rerunRestartBatch).toHaveBeenCalledTimes(1)
   } finally {
     vi.useRealTimers()
   }
@@ -448,7 +449,7 @@ it('previews on click with {} once, and the poll never calls the route', async (
 
 it("one batch's rerun leaves the other banners", async () => {
   data.jobs = [tombstone('t1', 'dead-a', 2), tombstone('t2', 'dead-b', 1)]
-  data.rerunRestartBatch.mockResolvedValue(preview)
+  api.rerunRestartBatch.mockResolvedValue(preview)
   let answer: (ok: boolean) => void = () => {}
   data.confirm.mockReturnValue(new Promise<boolean>((r) => (answer = r)))
   const { container } = render(JobsPage)
@@ -469,19 +470,19 @@ it("one batch's rerun leaves the other banners", async () => {
 
 it('confirming sends acknowledged_cost: true; cancelling sends nothing more', async () => {
   data.jobs = [tombstone('t1', 'dead-a'), tombstone('t2', 'dead-a')]
-  data.rerunRestartBatch.mockResolvedValue(preview)
+  api.rerunRestartBatch.mockResolvedValue(preview)
   data.confirm.mockResolvedValue(false)
   const { container } = render(JobsPage)
   await waitFor(() => expect(banners(container)).toHaveLength(1))
   await fireEvent.click(screen.getByText('Rerun…'))
   await waitFor(() => expect(data.confirm).toHaveBeenCalledTimes(1))
   // cancel: only the preview went out
-  expect(data.rerunRestartBatch).toHaveBeenCalledTimes(1)
-  const member = data.rerunRestartBatch.mock.calls[0][0]
-  expect(data.rerunRestartBatch.mock.calls).toEqual([[member]])
+  expect(api.rerunRestartBatch).toHaveBeenCalledTimes(1)
+  const member = api.rerunRestartBatch.mock.calls[0][0]
+  expect(api.rerunRestartBatch.mock.calls).toEqual([[member]])
 
-  data.rerunRestartBatch.mockReset()
-  data.rerunRestartBatch.mockResolvedValueOnce(preview).mockResolvedValueOnce({
+  api.rerunRestartBatch.mockReset()
+  api.rerunRestartBatch.mockResolvedValueOnce(preview).mockResolvedValueOnce({
     ...preview,
     would_queue: [],
     queued: [
@@ -496,8 +497,8 @@ it('confirming sends acknowledged_cost: true; cancelling sends nothing more', as
     ),
   )
   await fireEvent.click(screen.getByText('Rerun…'))
-  await waitFor(() => expect(data.rerunRestartBatch).toHaveBeenCalledTimes(2))
-  expect(data.rerunRestartBatch.mock.calls).toEqual([[member], [member, true]])
+  await waitFor(() => expect(api.rerunRestartBatch).toHaveBeenCalledTimes(2))
+  expect(api.rerunRestartBatch.mock.calls).toEqual([[member], [member, true]])
   const { notify } = await import('../toast')
   await waitFor(() =>
     expect(notify.success).toHaveBeenCalledWith(
@@ -508,7 +509,7 @@ it('confirming sends acknowledged_cost: true; cancelling sends nothing more', as
 
 it('an empty preview says so, with Close only, and hides the banner', async () => {
   data.jobs = [tombstone('t1', 'dead-a')]
-  data.rerunRestartBatch.mockResolvedValue({
+  api.rerunRestartBatch.mockResolvedValue({
     server_instance: 'dead-a',
     queued: [],
     would_queue: [],
@@ -523,7 +524,7 @@ it('an empty preview says so, with Close only, and hides the banner', async () =
   expect(message).toContain('Nothing is left to rerun')
   expect(options).toMatchObject({ confirmLabel: 'Close', alert: true })
   // only the preview: nothing was queued
-  expect(data.rerunRestartBatch.mock.calls).toEqual([['t1']])
+  expect(api.rerunRestartBatch.mock.calls).toEqual([['t1']])
 })
 
 const linked = () => [
@@ -661,7 +662,7 @@ it("a request's queued job mid-queue can move both ways, though it is the only r
 it('a double click on a move sends one request', async () => {
   location.hash = '#/ws/default/jobs'
   data.queued = 2
-  data.moveJob.mockResolvedValue({})
+  api.moveJob.mockResolvedValue({})
   data.jobs = [
     summary({ id: 'q1', status: 'queued', queue_position: 0 }),
     summary({ id: 'q2', status: 'queued', queue_position: 1 }),
@@ -672,17 +673,17 @@ it('a double click on a move sends one request', async () => {
   // Both clicks land before the page renders the first one's busy state
   up.click()
   up.click()
-  await waitFor(() => expect(data.moveJob).toHaveBeenCalled())
+  await waitFor(() => expect(api.moveJob).toHaveBeenCalled())
   await new Promise((r) => setTimeout(r, 20))
-  expect(data.moveJob).toHaveBeenCalledTimes(1)
-  expect(data.moveJob).toHaveBeenCalledWith('q2', 'up')
+  expect(api.moveJob).toHaveBeenCalledTimes(1)
+  expect(api.moveJob).toHaveBeenCalledWith('q2', 'up')
 })
 
 it("a moving job's buttons are busy", async () => {
   location.hash = '#/ws/default/jobs'
   data.queued = 2
   let finish = () => {}
-  data.moveJob.mockReturnValue(new Promise<void>((r) => (finish = r)))
+  api.moveJob.mockReturnValue(new Promise<void>((r) => (finish = r)))
   data.jobs = [
     summary({ id: 'q1', status: 'queued', queue_position: 0 }),
     summary({ id: 'q2', status: 'queued', queue_position: 1 }),

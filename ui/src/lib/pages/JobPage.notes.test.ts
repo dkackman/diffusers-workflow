@@ -9,6 +9,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import JobPage from './JobPage.svelte'
 import '../router.svelte'
 import { attempt, entry, item, request } from '../request/fixtures'
+import { api, resetApi } from '../test/apiMock'
 import type { JobDetail, LedgerNote, LedgerRequest } from '../types'
 
 // The job page's note for the agent: a take of a request item gets a box
@@ -17,29 +18,13 @@ const held = vi.hoisted(() => ({
   job: null as JobDetail | null,
   request: null as LedgerRequest | null,
 }))
-const api = vi.hoisted(() => ({
-  getJob: vi.fn(),
-  getJobWorkflow: vi.fn(),
-  galleryMetadata: vi.fn(),
-  outputDownloadUrl: (name: string) => `/download/${name}`,
-  eventLog: vi.fn(),
-  getRequest: vi.fn(),
-  addNote: vi.fn(),
-  editNote: vi.fn(),
-  deleteNote: vi.fn(),
-  notesChannel: vi.fn(),
-}))
-vi.mock('../api', async () => {
-  const { ApiError } = await import('../apiErrors')
-  return {
-    ApiError,
-    TERMINAL_STATUSES: ['succeeded', 'failed', 'cancelled'],
-    api,
+vi.mock('../api', async () =>
+  (await import('../test/apiMock')).apiModule({
     outputUrl: (path: string) => `/outputs/${path}`,
     setNote: vi.fn(),
     streamJobEvents: () => () => {},
-  }
-})
+  }),
+)
 const notify = vi.hoisted(() => ({
   error: vi.fn(),
   success: vi.fn(),
@@ -101,9 +86,11 @@ beforeEach(() => {
   sessionStorage.clear()
   location.hash = '#/ws/studio/jobs/j2'
   window.dispatchEvent(new HashChangeEvent('hashchange'))
-  for (const call of Object.values(api))
-    if (vi.isMockFunction(call)) call.mockReset()
+  resetApi()
   for (const call of Object.values(notify)) call.mockReset()
+  api.outputDownloadUrl.mockImplementation(
+    (name: string) => `/download/${name}`,
+  )
   api.getJob.mockImplementation(async () => held.job)
   api.getJobWorkflow.mockRejectedValue(new Error('none'))
   api.galleryMetadata.mockResolvedValue({ metadata: null, inputs: [] })

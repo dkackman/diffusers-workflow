@@ -9,7 +9,7 @@ import {
   within,
 } from '@testing-library/svelte'
 import PromptEditorPage from './PromptEditorPage.svelte'
-import { api } from '../api'
+import { api } from '../test/apiMock'
 import { ApiError } from '../apiErrors'
 import { chooseDialog, confirmDialog } from '../confirm.svelte'
 import { feed } from '../test/feedMock'
@@ -31,43 +31,45 @@ vi.mock('../changes.svelte', async () => ({
   changes: (await import('../test/feedMock')).feed.changes,
 }))
 
-vi.mock('../api', () => ({
-  api: {
-    listPrompts: vi.fn().mockResolvedValue({
-      prompts: ['portraits/hero'],
-      libraries: [{ origin: 'workspace', root: 'prompts', writable: true }],
-      shadowed: [],
-      details: {},
-    }),
-    getPrompt: vi.fn().mockResolvedValue({
-      prompt: { text: 'a hero at dawn' },
-      writable: true,
-      etag: '"p1"',
-    }),
-    savePrompt: vi.fn().mockResolvedValue({ saved: {}, etag: '"p2"' }),
-    listModels: vi.fn().mockResolvedValue({ repos: [] }),
-    listEnhancers: vi.fn().mockResolvedValue({
-      presets: [
-        {
-          key: 'h3',
-          label: 'H3',
-          default_model: 'org/enhancer',
-          models: ['org/enhancer'],
-          intended_models: [],
-          placeholder: 'an idea',
-        },
-      ],
-    }),
-    startDownload: vi.fn().mockResolvedValue({}),
-    listDownloads: vi.fn().mockResolvedValue({
-      downloads: [{ repo_id: 'org/enhancer', status: 'downloading' }],
-    }),
-    listWorkflows: vi.fn().mockResolvedValue({ workflows: [], details: {} }),
-    promptDownloadUrl: (name: string) => `/api/prompts/${name}/download`,
-  },
-  fetchOutputText: vi.fn(),
-  streamJobEvents: vi.fn(() => () => {}),
-}))
+vi.mock('../api', async () =>
+  (await import('../test/apiMock')).apiModule({
+    fetchOutputText: vi.fn(),
+    streamJobEvents: vi.fn(() => () => {}),
+  }),
+)
+api.listPrompts.mockResolvedValue({
+  prompts: ['portraits/hero'],
+  libraries: [{ origin: 'workspace', root: 'prompts', writable: true }],
+  shadowed: [],
+  details: {},
+})
+api.getPrompt.mockResolvedValue({
+  prompt: { text: 'a hero at dawn' },
+  writable: true,
+  etag: '"p1"',
+})
+api.savePrompt.mockResolvedValue({ saved: {}, etag: '"p2"' })
+api.listModels.mockResolvedValue({ repos: [] })
+api.listEnhancers.mockResolvedValue({
+  presets: [
+    {
+      key: 'h3',
+      label: 'H3',
+      default_model: 'org/enhancer',
+      models: ['org/enhancer'],
+      intended_models: [],
+      placeholder: 'an idea',
+    },
+  ],
+})
+api.startDownload.mockResolvedValue({})
+api.listDownloads.mockResolvedValue({
+  downloads: [{ repo_id: 'org/enhancer', status: 'downloading' }],
+})
+api.listWorkflows.mockResolvedValue({ workflows: [], details: {} })
+api.promptDownloadUrl.mockImplementation(
+  (name: string) => `/api/prompts/${name}/download`,
+)
 vi.mock('../toast', () => ({
   notify: { error: vi.fn(), success: vi.fn(), dismiss: vi.fn() },
 }))

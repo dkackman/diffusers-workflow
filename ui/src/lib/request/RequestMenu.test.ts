@@ -3,6 +3,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { ApiError } from '../apiErrors'
 import RequestMenu from './RequestMenu.svelte'
 import type { LedgerRequest } from '../types'
+import { api } from '../test/apiMock'
 import { fakeLedger } from './fakeLedger'
 import { entry, item, request } from './fixtures'
 import { goneText } from './conflict'
@@ -15,11 +16,8 @@ const notify = vi.hoisted(() => ({
   undo: vi.fn(),
 }))
 vi.mock('../toast', () => ({ notify }))
-const api = vi.hoisted(() => ({ deleteRequest: vi.fn() }))
-vi.mock('../api', async (orig) => ({
-  ...(await orig<typeof import('../api')>()),
-  api,
-}))
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
+api.deleteRequest.mockReturnValue(undefined)
 vi.mock('../confirm.svelte', () => ({
   confirmDialog: vi.fn().mockResolvedValue(true),
 }))

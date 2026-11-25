@@ -2,17 +2,16 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { AssetFile, GalleryFile } from '../types'
 
-vi.mock('../api', () => ({
-  api: {
-    listAssets: () => new Promise(() => {}),
-    gallery: () => new Promise(() => {}),
-  },
-}))
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
 
 import MediaPicker from './MediaPicker.svelte'
 import { assetLibrary } from '../assetlib.svelte'
 import { outputLibrary } from '../outputlib.svelte'
 import { workspace } from '../workspace.svelte'
+import { api } from '../test/apiMock'
+
+api.listAssets.mockImplementation(() => new Promise(() => {}))
+api.gallery.mockImplementation(() => new Promise(() => {}))
 
 const asset = (
   name: string,

@@ -4,10 +4,10 @@ import { afterEach, expect, it, vi } from 'vitest'
 import NotFoundPage from './NotFoundPage.svelte'
 import { route } from '../router.svelte'
 import { workspace } from '../workspace.svelte'
+import { api } from '../test/apiMock'
 
-vi.mock('../api', () => ({
-  api: { listWorkspaces: vi.fn(() => new Promise(() => {})) },
-}))
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
+api.listWorkspaces.mockImplementation(() => new Promise(() => {}))
 vi.mock('../toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
 
 afterEach(cleanup)

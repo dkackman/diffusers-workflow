@@ -9,7 +9,8 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import JobPage from './JobPage.svelte'
 import '../router.svelte'
-import { api, setNote } from '../api'
+import { setNote } from '../api'
+import { api } from '../test/apiMock'
 import { ApiError, NetworkError } from '../apiErrors'
 import { connection } from '../connection.svelte'
 import type { JobDetail, JobEvent } from '../types'
@@ -52,77 +53,72 @@ vi.mock('../editor/JsonEditor.svelte', async () => ({
   default: (await import('./JsonEditorStub.svelte')).default,
 }))
 
-vi.mock('../api', () => ({
-  ApiError: class ApiError extends Error {
-    status: number
-    constructor(message: string, status = 500) {
-      super(message)
-      this.name = 'ApiError'
-      this.status = status
+vi.mock('../api', async () =>
+  (await import('../test/apiMock')).apiModule({
+    outputUrl: (path: string) => `/outputs/${path}`,
+    setNote: vi.fn((target: string, note: string | null) =>
+      Promise.resolve({ target, note, note_source: note ? 'run' : null }),
+    ),
+    streamJobEvents: (
+      _jobId: string,
+      after: number,
+      onEvent: (event: JobEvent) => void,
+      _onEnd: () => void,
+      onDrop?: () => void,
+    ) => {
+      stream.onEvent = onEvent
+      stream.onDrop = onDrop ?? null
+      stream.opened.push(after)
+      return () => {
+        stream.stopped++
+      }
+    },
+  }),
+)
+api.getJob.mockImplementation(() => Promise.resolve(detail.job))
+api.getJobWorkflow.mockImplementation(() =>
+  Promise.resolve({
+    definition: ran.definition,
+    realized: ran.realized,
+    seed_variable: ran.seedVariable,
+  }),
+)
+api.galleryMetadata.mockImplementation((name: string) =>
+  Promise.resolve({
+    name,
+    metadata: metadata.byFile[name] ?? null,
+    inputs: metadata.inputs,
+    starred: metadata.starred[name],
+    job: null,
+  }),
+)
+api.outputDownloadUrl.mockImplementation(
+  (name: string) => `/api/gallery/${name}/download`,
+)
+api.setStarred.mockImplementation((name: string, starred: boolean) =>
+  Promise.resolve({ name, starred }),
+)
+api.noteForSave.mockImplementation((target: string) =>
+  Promise.resolve({ target, note: detail.job?.note ?? null, etag: '"e"' }),
+)
+api.eventLog.mockImplementation(
+  async (id: string, query: { after?: number } = {}) => {
+    if (eventLog.status) {
+      const { ApiError } = await import('../api')
+      throw new ApiError('Unknown job', eventLog.status)
+    }
+    const after = query.after ?? -1
+    const page = eventLog.events.filter((e) => e.seq > after)
+    return {
+      id,
+      status: detail.job?.status ?? null,
+      events: page,
+      last_seq: page.length ? page[page.length - 1].seq : after,
+      truncated: false,
+      note: eventLog.note,
     }
   },
-  TERMINAL_STATUSES: ['succeeded', 'failed', 'cancelled'],
-  api: {
-    getJob: vi.fn(() => Promise.resolve(detail.job)),
-    getJobWorkflow: vi.fn(() =>
-      Promise.resolve({
-        definition: ran.definition,
-        realized: ran.realized,
-        seed_variable: ran.seedVariable,
-      }),
-    ),
-    galleryMetadata: vi.fn((name: string) =>
-      Promise.resolve({
-        name,
-        metadata: metadata.byFile[name] ?? null,
-        inputs: metadata.inputs,
-        starred: metadata.starred[name],
-        job: null,
-      }),
-    ),
-    outputDownloadUrl: (name: string) => `/api/gallery/${name}/download`,
-    setStarred: vi.fn((name: string, starred: boolean) =>
-      Promise.resolve({ name, starred }),
-    ),
-    noteForSave: vi.fn((target: string) =>
-      Promise.resolve({ target, note: detail.job?.note ?? null, etag: '"e"' }),
-    ),
-    eventLog: vi.fn(async (id: string, query: { after?: number } = {}) => {
-      if (eventLog.status) {
-        const { ApiError } = await import('../api')
-        throw new ApiError('Unknown job', eventLog.status)
-      }
-      const after = query.after ?? -1
-      const page = eventLog.events.filter((e) => e.seq > after)
-      return {
-        id,
-        status: detail.job?.status ?? null,
-        events: page,
-        last_seq: page.length ? page[page.length - 1].seq : after,
-        truncated: false,
-        note: eventLog.note,
-      }
-    }),
-  },
-  outputUrl: (path: string) => `/outputs/${path}`,
-  setNote: vi.fn((target: string, note: string | null) =>
-    Promise.resolve({ target, note, note_source: note ? 'run' : null }),
-  ),
-  streamJobEvents: (
-    _jobId: string,
-    after: number,
-    onEvent: (event: JobEvent) => void,
-    _onEnd: () => void,
-    onDrop?: () => void,
-  ) => {
-    stream.onEvent = onEvent
-    stream.onDrop = onDrop ?? null
-    stream.opened.push(after)
-    return () => {
-      stream.stopped++
-    }
-  },
-}))
+)
 vi.mock('../changes.svelte', async () => ({
   changes: (await import('../test/feedMock')).feed.changes,
 }))
@@ -166,7 +162,7 @@ afterEach(() => {
   stream.onDrop = null
   stream.opened = []
   stream.stopped = 0
-  vi.mocked(api.getJob).mockClear()
+  api.getJob.mockClear()
   metadata.byFile = {}
   metadata.inputs = []
   metadata.starred = {}
@@ -176,8 +172,8 @@ afterEach(() => {
   eventLog.events = []
   eventLog.note = null
   eventLog.status = 0
-  vi.mocked(api.galleryMetadata).mockClear()
-  vi.mocked(api.eventLog).mockClear()
+  api.galleryMetadata.mockClear()
+  api.eventLog.mockClear()
 })
 
 /** The flow view's box for one step of the definition. */
@@ -209,9 +205,7 @@ it('shows each image with its model and seed, its recipe in the viewer, and neve
   await waitFor(() => expect(tile).toHaveTextContent('org/model · seed 7'))
   // The metadata route decodes a video whole to probe it, and the page
   // shows nothing a probe would report
-  expect(vi.mocked(api.galleryMetadata).mock.calls.map((c) => c[0])).toEqual([
-    'a.png',
-  ])
+  expect(api.galleryMetadata.mock.calls.map((c) => c[0])).toEqual(['a.png'])
   await fireEvent.click(tile)
   const sheet = await screen.findByRole('dialog', { name: 'a.png' })
   await waitFor(() => expect(sheet).toHaveTextContent('a cat'))
@@ -231,7 +225,7 @@ it('a bare S stars the open file, as its star says, and S again unstars it', asy
   const sheet = await screen.findByRole('dialog', { name: 'a.png' })
   const star = await within(sheet).findByRole('button', { name: 'Star' })
   await waitFor(() => expect(star).not.toBeDisabled())
-  vi.mocked(api.setStarred).mockClear()
+  api.setStarred.mockClear()
   // a modified S is the browser's or the page's own
   await fireEvent.keyDown(sheet, { key: 'S', shiftKey: true })
   expect(api.setStarred).not.toHaveBeenCalled()
@@ -259,7 +253,7 @@ it('a star Undo leaves a star another writer changed', async () => {
   const sheet = await screen.findByRole('dialog', { name: 'a.png' })
   const star = await within(sheet).findByRole('button', { name: 'Star' })
   await waitFor(() => expect(star).not.toBeDisabled())
-  vi.mocked(api.setStarred).mockClear()
+  api.setStarred.mockClear()
   await fireEvent.keyDown(sheet, { key: 's' })
   await waitFor(() => expect(notify.undo).toHaveBeenCalledTimes(1))
   // Unstarred elsewhere since: the re-read says so
@@ -303,7 +297,7 @@ it("drops one job's image metadata when the page switches to another", async () 
   await rerender({ jobId: 'j2' })
   await waitFor(() => expect(screen.getByText(/org\/second/)).toBeTruthy())
   expect(screen.queryByText(/org\/first/)).toBeNull()
-  expect(vi.mocked(api.galleryMetadata).mock.calls.map((c) => c[0])).toEqual([
+  expect(api.galleryMetadata.mock.calls.map((c) => c[0])).toEqual([
     'a.png',
     'a.png',
   ])
@@ -816,9 +810,7 @@ it('reads Made from off the first output of a video-only run, probing once', asy
   expect(container.querySelector('.madefrom .role-tag')?.textContent).toBe(
     'Input',
   )
-  expect(vi.mocked(api.galleryMetadata).mock.calls.map((c) => c[0])).toEqual([
-    'a.mp4',
-  ])
+  expect(api.galleryMetadata.mock.calls.map((c) => c[0])).toEqual(['a.mp4'])
 })
 
 it('shows your note on the job when the job has a run', async () => {
@@ -931,10 +923,10 @@ describe('data changed underneath the page', () => {
     await waitFor(() => expect(screen.getByText('third pass')).toBeTruthy())
     // The save's own write moves the feed; the re-read holds that note
     noted('third pass')
-    const reads = vi.mocked(api.getJob).mock.calls.length
+    const reads = api.getJob.mock.calls.length
     await moved('gallery')
     await waitFor(() =>
-      expect(vi.mocked(api.getJob).mock.calls.length).toBeGreaterThan(reads),
+      expect(api.getJob.mock.calls.length).toBeGreaterThan(reads),
     )
     expect(notice()).toBeNull()
   })
@@ -1012,16 +1004,16 @@ describe('data changed underneath the page', () => {
     ran.definition = { steps: [{ name: 'base', pipeline: {} }] }
     render(JobPage, { jobId: 'j1' })
     await waitFor(() => expect(screen.getByText('realized')).toBeTruthy())
-    const reads = vi.mocked(api.getJobWorkflow).mock.calls.length
-    const jobReads = vi.mocked(api.getJob).mock.calls.length
+    const reads = api.getJobWorkflow.mock.calls.length
+    const jobReads = api.getJob.mock.calls.length
     await moved('jobs')
     // This job's record is read again, its status unchanged: the workflow
     // it ran is not
     await waitFor(() =>
-      expect(vi.mocked(api.getJob).mock.calls.length).toBeGreaterThan(jobReads),
+      expect(api.getJob.mock.calls.length).toBeGreaterThan(jobReads),
     )
     await moved('jobs')
-    expect(vi.mocked(api.getJobWorkflow).mock.calls.length).toBe(reads)
+    expect(api.getJobWorkflow.mock.calls.length).toBe(reads)
   })
 })
 
@@ -1029,7 +1021,7 @@ it('refetches the detail on queue_wait and on a live warning, not on a stall', a
   detail.job = { ...job([]), status: 'running', finished_at: null }
   render(JobPage, { jobId: 'j1' })
   await waitFor(() => expect(stream.onEvent).not.toBeNull())
-  const calls = () => vi.mocked(api.getJob).mock.calls.length
+  const calls = () => api.getJob.mock.calls.length
   const before = calls()
   stream.onEvent!({ seq: 1, event: 'queue_wait', reason: 'gpu_busy' })
   await waitFor(() => expect(calls()).toBe(before + 1))
@@ -1204,7 +1196,7 @@ describe('event log (#1478)', () => {
     const { container } = render(JobPage, { jobId: 'j1' })
     await waitFor(() => expect(logToggle()).toBeTruthy())
     expect(logToggle().getAttribute('aria-expanded')).toBe('false')
-    expect(vi.mocked(api.eventLog)).not.toHaveBeenCalled()
+    expect(api.eventLog).not.toHaveBeenCalled()
 
     await fireEvent.click(logToggle())
     await waitFor(() => expect(logRows(container).length).toBe(2))
@@ -1215,9 +1207,7 @@ describe('event log (#1478)', () => {
       ['41', '+1.5s', 'step_start', 'Started gen'],
       ['42', '+2.0s', 'step_end', 'Finished gen'],
     ])
-    expect(vi.mocked(api.eventLog).mock.calls).toEqual([
-      ['j1', { after: -1, limit: 500 }],
-    ])
+    expect(api.eventLog.mock.calls).toEqual([['j1', { after: -1, limit: 500 }]])
     // A finished job's log does not grow, so nothing offers to refresh it
     expect(
       screen.queryByRole('button', { name: 'Refresh event log' }),
@@ -1298,7 +1288,7 @@ describe('event log (#1478)', () => {
     )
     await waitFor(() => expect(logRows(container).length).toBe(5))
     expect(screen.getByText('5 events, seq 0–4')).toBeTruthy()
-    expect(vi.mocked(api.eventLog).mock.calls.at(-1)).toEqual([
+    expect(api.eventLog.mock.calls.at(-1)).toEqual([
       'j1',
       { after: 3, limit: 500 },
     ])
@@ -1496,7 +1486,7 @@ describe('event log (#1478)', () => {
 it("clears a previous job id's error when the id changes to a valid job", async () => {
   const good = job([])
   detail.job = good
-  vi.mocked(api.getJob).mockRejectedValueOnce(new ApiError('Unknown job', 404))
+  api.getJob.mockRejectedValueOnce(new ApiError('Unknown job', 404))
   const { rerender } = render(JobPage, { jobId: 'dead' })
   await screen.findByText("Couldn't load job dead: job dead wasn't found")
   await rerender({ jobId: 'j1' })
@@ -1515,12 +1505,10 @@ describe('after an outage', () => {
     detail.job = running()
     render(JobPage, { jobId: 'j1' })
     await waitFor(() => expect(stream.onDrop).not.toBeNull())
-    const before = vi.mocked(api.getJob).mock.calls.length
+    const before = api.getJob.mock.calls.length
     // Still running: the stream is EventSource's to repair, so it stays
     stream.onDrop!()
-    await waitFor(() =>
-      expect(vi.mocked(api.getJob).mock.calls.length).toBe(before + 1),
-    )
+    await waitFor(() => expect(api.getJob.mock.calls.length).toBe(before + 1))
     expect(stream.stopped).toBe(0)
     detail.job = { ...running(), status: 'succeeded', finished_at: 2 }
     stream.onDrop!()
@@ -1540,9 +1528,7 @@ describe('after an outage', () => {
     render(JobPage, { jobId: 'j1' })
     await waitFor(() => expect(stream.onDrop).not.toBeNull())
     await screen.findByText('Event log')
-    vi.mocked(api.getJob).mockRejectedValueOnce(
-      new ApiError('Unknown job', 404),
-    )
+    api.getJob.mockRejectedValueOnce(new ApiError('Unknown job', 404))
     stream.onDrop!()
     await screen.findByText("Couldn't load job j1: job j1 wasn't found")
     expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy()
@@ -1552,9 +1538,7 @@ describe('after an outage', () => {
 
   it('the page recovers when the server returns', async () => {
     detail.job = running()
-    vi.mocked(api.getJob).mockRejectedValueOnce(
-      new NetworkError('fetch failed'),
-    )
+    api.getJob.mockRejectedValueOnce(new NetworkError('fetch failed'))
     render(JobPage, { jobId: 'j1' })
     await screen.findByText("Couldn't load job j1: Can't reach the server")
     expect(stream.opened).toEqual([])
@@ -1580,19 +1564,19 @@ describe('after an outage', () => {
     render(JobPage, { jobId: 'j1' })
     await waitFor(() => expect(stream.onDrop).not.toBeNull())
     await screen.findByText('Event log')
-    const before = vi.mocked(api.getJob).mock.calls.length
+    const before = api.getJob.mock.calls.length
     connection.state = 'offline'
     try {
       // EventSource retries every few seconds while the server is down
       stream.onDrop!()
       stream.onDrop!()
       await new Promise((r) => setTimeout(r, 20))
-      expect(vi.mocked(api.getJob).mock.calls.length).toBe(before)
+      expect(api.getJob.mock.calls.length).toBe(before)
       expect(screen.queryByText(/Couldn't refresh job/)).toBeNull()
       connection.state = 'ok'
       connection.epoch++
       await waitFor(() => expect(stream.opened).toEqual([-1, -1]))
-      expect(vi.mocked(api.getJob).mock.calls.length).toBe(before + 1)
+      expect(api.getJob.mock.calls.length).toBe(before + 1)
     } finally {
       connection.state = 'unknown'
     }
@@ -1602,13 +1586,11 @@ describe('after an outage', () => {
     detail.job = running()
     const { rerender } = render(JobPage, { jobId: 'j1' })
     await screen.findByText('Event log')
-    vi.mocked(api.getJob).mockRejectedValueOnce(
-      new ApiError('Unknown job', 404),
-    )
+    api.getJob.mockRejectedValueOnce(new ApiError('Unknown job', 404))
     connection.epoch++
     await screen.findByText("Couldn't load job j1: job j1 wasn't found")
     let answer: (job: JobDetail) => void = () => {}
-    vi.mocked(api.getJob).mockImplementationOnce(
+    api.getJob.mockImplementationOnce(
       () => new Promise<JobDetail>((r) => (answer = r)),
     )
     await rerender({ jobId: 'j2' })
@@ -1625,13 +1607,11 @@ describe('after an outage', () => {
     render(JobPage, { jobId: 'j1' })
     await waitFor(() => expect(stream.onDrop).not.toBeNull())
     await screen.findByText('Event log')
-    vi.mocked(api.getJob).mockRejectedValueOnce(
-      new ApiError('Unknown job', 404),
-    )
+    api.getJob.mockRejectedValueOnce(new ApiError('Unknown job', 404))
     stream.onDrop!()
     await screen.findByText("Couldn't load job j1: job j1 wasn't found")
     let answer: (job: JobDetail) => void = () => {}
-    vi.mocked(api.getJob).mockImplementationOnce(
+    api.getJob.mockImplementationOnce(
       () => new Promise<JobDetail>((r) => (answer = r)),
     )
     await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
@@ -1646,9 +1626,7 @@ describe('after an outage', () => {
     render(JobPage, { jobId: 'j1' })
     await waitFor(() => expect(stream.opened).toEqual([-1]))
     connection.epoch++
-    await waitFor(() =>
-      expect(vi.mocked(api.getJob).mock.calls.length).toBeGreaterThan(1),
-    )
+    await waitFor(() => expect(api.getJob.mock.calls.length).toBeGreaterThan(1))
     expect(stream.opened).toEqual([-1])
   })
 })

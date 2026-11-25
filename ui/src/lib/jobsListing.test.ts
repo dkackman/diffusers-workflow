@@ -11,6 +11,7 @@ import {
   queueLength,
 } from './jobsListing'
 import type { JobSummary } from './types'
+import { api } from './test/apiMock'
 
 it("a workspace's Jobs page lists that workspace", () => {
   expect(listingWorkspace('workspace', 'other', 'studio', '')).toBe('studio')
@@ -44,31 +45,29 @@ const served = vi.hoisted(() => ({
   jobs: [] as unknown[],
   prompts: {} as Record<string, string>,
 }))
-vi.mock('./api', () => ({
-  api: {
-    // What the server does with `status`, `limit` and `prompts`
-    listJobs: (...args: unknown[]) => {
-      listed.push(args)
-      const [, limit, status, , , opts] = args as [
-        unknown,
-        number | undefined,
-        string | undefined,
-        unknown,
-        unknown,
-        { prompts?: boolean },
-      ]
-      const states = status?.split(',')
-      const matched = (served.jobs as JobSummary[]).filter(
-        (j) => !states || states.includes(j.status),
-      )
-      return Promise.resolve({
-        jobs: limit === undefined ? matched : matched.slice(-limit),
-        total: matched.length,
-        ...(opts?.prompts ? { prompts: served.prompts } : {}),
-      })
-    },
-  },
-}))
+vi.mock('./api', async () => (await import('./test/apiMock')).apiModule())
+
+// What the server does with `status`, `limit` and `prompts`
+api.listJobs.mockImplementation((...args: unknown[]) => {
+  listed.push(args)
+  const [, limit, status, , , opts] = args as [
+    unknown,
+    number | undefined,
+    string | undefined,
+    unknown,
+    unknown,
+    { prompts?: boolean },
+  ]
+  const states = status?.split(',')
+  const matched = (served.jobs as JobSummary[]).filter(
+    (j) => !states || states.includes(j.status),
+  )
+  return Promise.resolve({
+    jobs: limit === undefined ? matched : matched.slice(-limit),
+    total: matched.length,
+    ...(opts?.prompts ? { prompts: served.prompts } : {}),
+  })
+})
 
 const none = { request: '', item: '' }
 const job = (id: string, status: string, created_at: number) =>

@@ -2,10 +2,10 @@ import { cleanup, render, screen } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import Breadcrumb from './Breadcrumb.svelte'
 import { SECTION_LABELS } from './routes'
+import { api } from './test/apiMock'
 
-vi.mock('./api', () => ({
-  api: { listWorkspaces: vi.fn(() => new Promise(() => {})) },
-}))
+vi.mock('./api', async () => (await import('./test/apiMock')).apiModule())
+api.listWorkspaces.mockImplementation(() => new Promise(() => {}))
 vi.mock('./toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
 
 // The component's router parsed the hash at load; drive it the way the

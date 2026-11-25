@@ -1,13 +1,10 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { LinkedRequest } from './linkedRequest.svelte'
+import { api } from '../test/apiMock'
 import { entry, item, request } from './fixtures'
 import type { LedgerNote, LedgerRequest } from '../types'
 
-const api = vi.hoisted(() => ({ getRequest: vi.fn() }))
-vi.mock('../api', async () => {
-  const { ApiError } = await import('../apiErrors')
-  return { ApiError, api }
-})
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
 const notify = vi.hoisted(() => ({ news: vi.fn() }))
 vi.mock('../toast', () => ({ notify }))
 

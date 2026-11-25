@@ -2,32 +2,27 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
 import Harness from './LorasEditorHarness.svelte'
 import type { LoraList, LoraRow } from '../types'
+import { api } from '../test/apiMock'
 import { feed } from '../test/feedMock'
 import { workspace } from '../workspaceState.svelte'
 
-// The spy only records calls: vitest's own tracking of a returned rejected
-// promise would report it as unhandled, so the result comes from `reply`
-const listLoras = vi.hoisted(() =>
-  vi.fn<(q: { model: string; workflow?: string }) => void>(),
-)
+// The result comes from `reply`, not from the mock's own return: vitest's
+// tracking of a returned rejected promise would report it as unhandled
 const reply = vi.hoisted(() => ({
   next: (() =>
     Promise.resolve({ libraries: [], loras: [] })) as () => Promise<unknown>,
 }))
-vi.mock('../api', () => ({
-  api: {
-    listLoras: (q: { model: string; workflow?: string }) => {
-      listLoras(q)
-      return reply.next()
-    },
-  },
-}))
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
+const listLoras = api.listLoras
 
 vi.mock('../changes.svelte', async () => ({
   changes: (await import('../test/feedMock')).feed.changes,
 }))
 
-beforeEach(() => listLoras.mockReset())
+beforeEach(() => {
+  listLoras.mockReset()
+  listLoras.mockImplementation(() => reply.next())
+})
 afterEach(() => cleanup())
 
 const row = (over: Partial<LoraRow> = {}): LoraRow =>

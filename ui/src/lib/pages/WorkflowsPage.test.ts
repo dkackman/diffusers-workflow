@@ -10,6 +10,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 // Hoisted above the imports so the static import of the component below -
 // itself hoisted - sees an initialized mock
 import WorkflowsPage from './WorkflowsPage.svelte'
+import { api } from '../test/apiMock'
 import { feed } from '../test/feedMock'
 import '../router.svelte'
 
@@ -21,44 +22,36 @@ const listing = vi.hoisted(() => ({
   cost_basis: 'curated' as string,
 }))
 
-const listWorkflows = vi.hoisted(() =>
-  vi.fn(
-    () =>
-      new Promise((resolve) =>
-        setTimeout(
-          () =>
-            resolve({
-              libraries: [
-                {
-                  origin: 'workspace',
-                  root: '/workspace/workflows',
-                  writable: true,
-                },
-              ],
-              shadowed: [],
-              workflows: listing.workflows,
-              details: listing.details,
-              cost_basis: listing.cost_basis,
-            }),
-          0,
-        ),
-      ),
-  ),
-)
-
 vi.mock('../changes.svelte', async () => ({
   changes: (await import('../test/feedMock')).feed.changes,
 }))
-const gallery = vi.hoisted(() => vi.fn(() => Promise.resolve({ files: [] })))
-vi.mock('../api', () => ({
-  api: {
-    listWorkflows: () => listWorkflows(),
-    // The proof thumbnails load beside the listing. These tests are about
-    // the catalog's text, so the gallery answers empty and every card
-    // renders in its no-output form.
-    gallery: () => gallery(),
-  },
-}))
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
+api.listWorkflows.mockImplementation(
+  () =>
+    new Promise((resolve) =>
+      setTimeout(
+        () =>
+          resolve({
+            libraries: [
+              {
+                origin: 'workspace',
+                root: '/workspace/workflows',
+                writable: true,
+              },
+            ],
+            shadowed: [],
+            workflows: listing.workflows,
+            details: listing.details,
+            cost_basis: listing.cost_basis,
+          }),
+        0,
+      ),
+    ),
+)
+// The proof thumbnails load beside the listing. These tests are about
+// the catalog's text, so the gallery answers empty and every card
+// renders in its no-output form.
+api.gallery.mockImplementation(() => Promise.resolve({ files: [] }))
 
 /** The card for a workflow, found by the leaf name it is titled with -
  * the anchor's own accessible name is every badge and count as well. */
@@ -115,7 +108,7 @@ afterEach(() => {
   // Without this each render's DOM stays behind and the next test's
   // queries find two of everything
   cleanup()
-  listWorkflows.mockClear()
+  api.listWorkflows.mockClear()
   localStorage.clear()
 })
 
@@ -294,8 +287,8 @@ const settle = () => new Promise((r) => setTimeout(r, 10))
 it('reloads the listing when workflows move, keeping the cards on screen', async () => {
   await renderPage('tti')
   await settle()
-  const lists = listWorkflows.mock.calls.length
-  const proofs = gallery.mock.calls.length
+  const lists = api.listWorkflows.mock.calls.length
+  const proofs = api.gallery.mock.calls.length
   listing.workflows = [...listing.workflows, 'templates/new']
   listing.details = {
     ...listing.details,
@@ -304,37 +297,39 @@ it('reloads the listing when workflows move, keeping the cards on screen', async
   feed.move('default', 'workflows')
   expect(card('tti')).toBeTruthy()
   await waitFor(() => expect(card('new')).toBeTruthy())
-  expect(listWorkflows.mock.calls.length).toBe(lists + 1)
-  expect(gallery.mock.calls.length).toBe(proofs)
+  expect(api.listWorkflows.mock.calls.length).toBe(lists + 1)
+  expect(api.gallery.mock.calls.length).toBe(proofs)
 })
 
 it('reloads only the proofs when the gallery moves', async () => {
   await renderPage('tti')
   await settle()
-  const lists = listWorkflows.mock.calls.length
-  const proofs = gallery.mock.calls.length
+  const lists = api.listWorkflows.mock.calls.length
+  const proofs = api.gallery.mock.calls.length
   feed.move('default', 'gallery')
   await settle()
-  expect(gallery.mock.calls.length).toBe(proofs + 1)
-  expect(listWorkflows.mock.calls.length).toBe(lists)
+  expect(api.gallery.mock.calls.length).toBe(proofs + 1)
+  expect(api.listWorkflows.mock.calls.length).toBe(lists)
 })
 
 it("another workspace's move, or an unwatched kind, reloads nothing", async () => {
   await renderPage('tti')
   await settle()
-  const lists = listWorkflows.mock.calls.length
-  const proofs = gallery.mock.calls.length
+  const lists = api.listWorkflows.mock.calls.length
+  const proofs = api.gallery.mock.calls.length
   feed.move('studio', 'workflows')
   feed.move('studio', 'gallery')
   feed.move('default', 'jobs')
   await settle()
-  expect(listWorkflows.mock.calls.length).toBe(lists)
-  expect(gallery.mock.calls.length).toBe(proofs)
+  expect(api.listWorkflows.mock.calls.length).toBe(lists)
+  expect(api.gallery.mock.calls.length).toBe(proofs)
 })
 
 it('a quiet reload that fails keeps the cards under a refresh line', async () => {
   await renderPage('tti')
-  listWorkflows.mockImplementationOnce(() => Promise.reject(new Error('boom')))
+  api.listWorkflows.mockImplementationOnce(() =>
+    Promise.reject(new Error('boom')),
+  )
   feed.move('default', 'workflows')
   await settle()
   expect(card('tti')).toBeTruthy()
@@ -354,14 +349,14 @@ it('filtered to nothing keeps the shape and trait chips, and the library path', 
 })
 
 it('shows a skeleton while loading, not the empty state', async () => {
-  listWorkflows.mockReturnValueOnce(new Promise(() => {}))
+  api.listWorkflows.mockReturnValueOnce(new Promise(() => {}))
   render(WorkflowsPage)
   expect(screen.getByRole('status', { name: 'loading workflows' })).toBeTruthy()
   expect(screen.queryByText(/No workflows yet/)).toBeNull()
 })
 
 it('a failed first load offers Retry and Retry loads', async () => {
-  listWorkflows.mockRejectedValueOnce(new Error('boom'))
+  api.listWorkflows.mockRejectedValueOnce(new Error('boom'))
   render(WorkflowsPage)
   await screen.findByText(/Couldn't load workflows/)
   await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
@@ -369,7 +364,7 @@ it('a failed first load offers Retry and Retry loads', async () => {
 })
 
 it("a card's proof is its tile, from the listing's workspace, inside the one link", async () => {
-  gallery.mockImplementationOnce(() =>
+  api.gallery.mockImplementationOnce(() =>
     Promise.resolve({
       workspace: 'studio',
       files: [

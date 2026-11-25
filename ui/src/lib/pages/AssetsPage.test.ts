@@ -13,6 +13,7 @@ import AssetsPage from './AssetsPage.svelte'
 import ConfirmDialog from '../ui/ConfirmDialog.svelte'
 import type { AssetFile, AssetLibrary, ShadowedAsset } from '../types'
 import { DEFAULT_WORKSPACE, workspace } from '../workspace.svelte'
+import { api } from '../test/apiMock'
 import { feed } from '../test/feedMock'
 import { formatExact, formatMtime } from '../format'
 
@@ -87,52 +88,40 @@ const assetDurations = vi.hoisted(() =>
     return Promise.resolve({ assets: [] as AssetFile[] })
   }),
 )
-const deleteAsset = vi.hoisted(() =>
-  vi.fn<(name: string) => Promise<void>>(() => Promise.resolve()),
-)
-const archiveAssets = vi.hoisted(() =>
-  vi.fn<(names: string[]) => Promise<void>>(() => Promise.resolve()),
-)
-const uploadMedia = vi.hoisted(() =>
-  vi.fn<
-    (
-      file: File,
-      assetName?: string,
-      shared?: boolean,
-      pre?: unknown,
-    ) => Promise<unknown>
-  >(() => Promise.resolve({ reference: 'asset:uploads/x.png' })),
-)
 const setNote = vi.hoisted(() => vi.fn())
 // What the server holds as the note a save reads first (its etag read)
 const noteHeld = vi.hoisted(() => ({ note: null as string | null }))
 // Answered at once by default: the note and Used by sit under the recipe's
 // read (RecipePanel's children), so a read that never lands hides them
 const NO_RECIPE = { metadata: null, job: null }
+// The page also passes the workspace; the assertions here are on the
+// reference alone, so the stub forwards only that
 const galleryMetadata = vi.hoisted(() =>
   vi.fn<(reference: string) => Promise<unknown>>(() =>
     Promise.resolve({ metadata: null, job: null }),
   ),
 )
-vi.mock('../api', () => ({
-  setNote: (t: string, n: string | null) => setNote(t, n),
-  api: {
-    listAssets: (opts?: { media?: boolean; limit?: number }) =>
-      opts?.media ? assetDurations(opts) : listAssets(),
-    noteForSave: (target: string) =>
-      Promise.resolve({ target, note: noteHeld.note, etag: '"e"' }),
-    galleryMetadata: (reference: string) => galleryMetadata(reference),
-    getJob: () => new Promise(() => {}),
-    deleteAsset: (name: string) => deleteAsset(name),
-    archiveAssets: (names: string[]) => archiveAssets(names),
-    uploadMedia: (
-      file: File,
-      assetName?: string,
-      shared?: boolean,
-      pre?: unknown,
-    ) => uploadMedia(file, assetName, shared, pre),
-  },
-}))
+vi.mock('../api', async () =>
+  (await import('../test/apiMock')).apiModule({
+    setNote: (t: string, n: string | null) => setNote(t, n),
+  }),
+)
+api.listAssets.mockImplementation(
+  (opts?: { media?: boolean; limit?: number }) =>
+    opts?.media ? assetDurations(opts) : listAssets(),
+)
+api.noteForSave.mockImplementation((target: string) =>
+  Promise.resolve({ target, note: noteHeld.note, etag: '"e"' }),
+)
+api.galleryMetadata.mockImplementation((reference: string) =>
+  galleryMetadata(reference),
+)
+api.getJob.mockImplementation(() => new Promise(() => {}))
+api.deleteAsset.mockImplementation(() => Promise.resolve())
+api.archiveAssets.mockImplementation(() => Promise.resolve())
+api.uploadMedia.mockImplementation(() =>
+  Promise.resolve({ reference: 'asset:uploads/x.png' }),
+)
 
 vi.mock('../changes.svelte', async () => ({
   changes: (await import('../test/feedMock')).feed.changes,
@@ -158,8 +147,8 @@ beforeEach(() => {
   listing.assets = [asset('iris.png'), asset('cast/priya.jpg')]
   listing.libraries = [WORKSPACE_LIBRARY]
   listing.shadowed = []
-  deleteAsset.mockResolvedValue(undefined)
-  archiveAssets.mockResolvedValue(undefined)
+  api.deleteAsset.mockResolvedValue(undefined)
+  api.archiveAssets.mockResolvedValue(undefined)
 })
 afterEach(async () => {
   cleanup()
@@ -167,9 +156,9 @@ afterEach(async () => {
   assetDurations.mockClear()
   // Reset, not clear: one test sets an implementation, and mockClear
   // leaves it in place for whatever runs next
-  deleteAsset.mockReset()
-  archiveAssets.mockReset()
-  uploadMedia.mockClear()
+  api.deleteAsset.mockReset()
+  api.archiveAssets.mockReset()
+  api.uploadMedia.mockClear()
   galleryMetadata.mockReset()
   galleryMetadata.mockImplementation(() => Promise.resolve(NO_RECIPE))
   setNote.mockReset()
@@ -625,7 +614,7 @@ it('deletes an asset once the confirmation is answered', async () => {
 
   await answerConfirm(true)
 
-  await waitFor(() => expect(deleteAsset).toHaveBeenCalledWith('iris.png'))
+  await waitFor(() => expect(api.deleteAsset).toHaveBeenCalledWith('iris.png'))
   // gone from the listing, the viewer steps on to the one left
   listing.assets = [asset('cast/priya.jpg')]
   feed.move('default', 'assets')
@@ -640,7 +629,7 @@ it('deletes nothing when the confirmation is declined', async () => {
   await answerConfirm(false)
 
   await new Promise((r) => setTimeout(r, 10))
-  expect(deleteAsset).not.toHaveBeenCalled()
+  expect(api.deleteAsset).not.toHaveBeenCalled()
 })
 
 it('a read-only asset offers no delete', async () => {
@@ -712,9 +701,9 @@ it('downloads the ticked assets as one zip', async () => {
   )
   screen.getByRole('button', { name: /download the selected/i }).click()
 
-  await waitFor(() => expect(archiveAssets).toHaveBeenCalledTimes(1))
+  await waitFor(() => expect(api.archiveAssets).toHaveBeenCalledTimes(1))
   // The order the grid shows them in, not the order they were ticked
-  expect(archiveAssets).toHaveBeenCalledWith(['iris.png', 'cast/priya.jpg'])
+  expect(api.archiveAssets).toHaveBeenCalledWith(['iris.png', 'cast/priya.jpg'])
 })
 
 it('a double click on Download sends one request', async () => {
@@ -731,9 +720,9 @@ it('a double click on Download sends one request', async () => {
   download.click()
   download.click()
 
-  await waitFor(() => expect(archiveAssets).toHaveBeenCalled())
+  await waitFor(() => expect(api.archiveAssets).toHaveBeenCalled())
   await new Promise((r) => setTimeout(r, 20))
-  expect(archiveAssets).toHaveBeenCalledTimes(1)
+  expect(api.archiveAssets).toHaveBeenCalledTimes(1)
 })
 
 it('deletes every ticked asset and refetches once', async () => {
@@ -747,8 +736,8 @@ it('deletes every ticked asset and refetches once', async () => {
   screen.getByRole('button', { name: /^delete the selected/i }).click()
   await answerConfirm(true)
 
-  await waitFor(() => expect(deleteAsset).toHaveBeenCalledTimes(2))
-  expect(deleteAsset.mock.calls.map((c) => c[0])).toEqual([
+  await waitFor(() => expect(api.deleteAsset).toHaveBeenCalledTimes(2))
+  expect(api.deleteAsset.mock.calls.map((c) => c[0])).toEqual([
     'iris.png',
     'cast/priya.jpg',
   ])
@@ -757,7 +746,7 @@ it('deletes every ticked asset and refetches once', async () => {
 // A read-only asset answers 403. Whatever could not go stays ticked, so a
 // retry needs no re-ticking and the failure is visible rather than dropped
 it('keeps an asset that would not delete in the selection', async () => {
-  deleteAsset.mockImplementation((name: string) =>
+  api.deleteAsset.mockImplementation((name: string) =>
     name === 'iris.png'
       ? Promise.reject(new Error('read-only'))
       : Promise.resolve(),
@@ -834,8 +823,8 @@ it('uploads into the workspace from the workspace section', async () => {
   screen.getByRole('button', { name: /^Upload$/ }).click()
   const file = chooseFile()
 
-  await waitFor(() => expect(uploadMedia).toHaveBeenCalledTimes(1))
-  expect(uploadMedia).toHaveBeenCalledWith(file, 'kept.png', false, {
+  await waitFor(() => expect(api.uploadMedia).toHaveBeenCalledTimes(1))
+  expect(api.uploadMedia).toHaveBeenCalledWith(file, 'kept.png', false, {
     createOnly: true,
   })
 })
@@ -848,8 +837,8 @@ it('uploads into the shared library from the shared section', async () => {
   screen.getByRole('button', { name: /Upload to shared/ }).click()
   const file = chooseFile()
 
-  await waitFor(() => expect(uploadMedia).toHaveBeenCalledTimes(1))
-  expect(uploadMedia).toHaveBeenCalledWith(file, 'kept.png', true, {
+  await waitFor(() => expect(api.uploadMedia).toHaveBeenCalledTimes(1))
+  expect(api.uploadMedia).toHaveBeenCalledWith(file, 'kept.png', true, {
     createOnly: true,
   })
 })
@@ -1036,8 +1025,8 @@ it('a drop on the shared page uploads to the shared library without a button cli
   })
   document.querySelector('.dropzone')!.dispatchEvent(drop)
 
-  await waitFor(() => expect(uploadMedia).toHaveBeenCalledTimes(1))
-  expect(uploadMedia).toHaveBeenCalledWith(file, 'dropped.png', true, {
+  await waitFor(() => expect(api.uploadMedia).toHaveBeenCalledTimes(1))
+  expect(api.uploadMedia).toHaveBeenCalledWith(file, 'dropped.png', true, {
     createOnly: true,
   })
 })
@@ -1052,11 +1041,11 @@ it("a dropped batch is uploaded under the files' names", async () => {
   })
   document.querySelector('.dropzone')!.dispatchEvent(drop)
 
-  await waitFor(() => expect(uploadMedia).toHaveBeenCalledTimes(2))
-  expect(uploadMedia).toHaveBeenCalledWith(a, 'one.png', false, {
+  await waitFor(() => expect(api.uploadMedia).toHaveBeenCalledTimes(2))
+  expect(api.uploadMedia).toHaveBeenCalledWith(a, 'one.png', false, {
     createOnly: true,
   })
-  expect(uploadMedia).toHaveBeenCalledWith(b, 'two.png', false, {
+  expect(api.uploadMedia).toHaveBeenCalledWith(b, 'two.png', false, {
     createOnly: true,
   })
 })
@@ -1260,7 +1249,7 @@ it("an upload marks nothing and keeps an agent's fresh mark", async () => {
     expect(tileOf('cast/priya.jpg').classList).toContain('row-changed'),
   )
   // The page's own upload: the server now lists it
-  uploadMedia.mockResolvedValueOnce({ reference: 'asset:uploads/kept.png' })
+  api.uploadMedia.mockResolvedValueOnce({ reference: 'asset:uploads/kept.png' })
   listing.assets = [...listing.assets, asset('uploads/kept.png')]
   screen.getByRole('button', { name: /^Upload$/ }).click()
   chooseFile()

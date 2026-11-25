@@ -12,31 +12,22 @@ import { workspace } from '../workspaceState.svelte'
 import { ACTIVE_MS, IDLE_MS } from '../request/refresh'
 import { doneItem, entry, item, request } from '../request/fixtures'
 import type { LedgerRequest } from '../types'
+import { api } from '../test/apiMock'
 import { feed } from '../test/feedMock'
 import { readSnapshot, snapshotOf, writeSnapshot } from '../request/planDiff'
 
 const data = vi.hoisted(() => ({
   request: null as unknown,
   getError: null as { status: number; message: string } | null,
-  putRequest: vi.fn(),
-  addNote: vi.fn(),
-  notesChannel: vi.fn(),
 }))
-vi.mock('../api', async () => ({
-  ApiError: (await import('../apiErrors')).ApiError,
-  api: {
-    getRequest: vi.fn(async () => {
-      if (data.getError) {
-        const { ApiError } = await import('../api')
-        throw new ApiError(data.getError.message, data.getError.status)
-      }
-      return data.request
-    }),
-    putRequest: (...args: unknown[]) => data.putRequest(...args),
-    addNote: (...args: unknown[]) => data.addNote(...args),
-    notesChannel: (...args: unknown[]) => data.notesChannel(...args),
-  },
-}))
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
+api.getRequest.mockImplementation(async () => {
+  if (data.getError) {
+    const { ApiError } = await import('../api')
+    throw new ApiError(data.getError.message, data.getError.status)
+  }
+  return data.request
+})
 vi.mock('../changes.svelte', async () => ({
   changes: (await import('../test/feedMock')).feed.changes,
 }))
@@ -88,10 +79,10 @@ beforeEach(() => {
   workspace.current = 'studio'
   data.request = make()
   data.getError = null
-  data.putRequest.mockReset()
-  data.addNote.mockReset()
-  data.notesChannel.mockReset()
-  data.notesChannel.mockResolvedValue({ listening: false, last_seen: null })
+  api.putRequest.mockReset()
+  api.addNote.mockReset()
+  api.notesChannel.mockReset()
+  api.notesChannel.mockResolvedValue({ listening: false, last_seen: null })
   vi.clearAllMocks()
 })
 afterEach(() => {
@@ -225,9 +216,8 @@ it('says a missing request no longer exists, with the way back', async () => {
 })
 
 it('names itself and links back while the request loads', async () => {
-  const { api } = await import('../api')
   let land: (reply: unknown) => void = () => {}
-  vi.mocked(api.getRequest).mockImplementationOnce(
+  api.getRequest.mockImplementationOnce(
     () => new Promise((resolve) => (land = resolve)) as never,
   )
   render(RequestPage, { requestId: 'r1' })
@@ -296,29 +286,28 @@ function noted(key: string | null, text: string, revision = 4): LedgerRequest {
 const AT = '2026-01-04T00:00:00+00:00'
 
 it('saves a note through the note route, never the plan, and reads the plan again', async () => {
-  const { api } = await import('../api')
-  data.addNote.mockImplementation(async () => {
+  api.addNote.mockImplementation(async () => {
     data.request = noted('b', 'needs more red')
     return { revision: 4 }
   })
   render(RequestPage, { requestId: 'r1' })
   const box = await openNote('Second poster')
   await fireEvent.input(box, { target: { value: 'needs more red' } })
-  const reads = vi.mocked(api.getRequest).mock.calls.length
+  const reads = api.getRequest.mock.calls.length
   await saveNote('Second poster')
   await atRevision(4)
-  expect(data.addNote).toHaveBeenCalledWith('studio', {
+  expect(api.addNote).toHaveBeenCalledWith('studio', {
     request: 'r1',
     item: 'b',
     text: 'needs more red',
   })
-  expect(data.putRequest).not.toHaveBeenCalled()
-  expect(vi.mocked(api.getRequest).mock.calls.length).toBe(reads + 1)
+  expect(api.putRequest).not.toHaveBeenCalled()
+  expect(api.getRequest.mock.calls.length).toBe(reads + 1)
   await within(row('Second poster')).findByText('needs more red')
 })
 
 it("saves the request's own note with no item", async () => {
-  data.addNote.mockImplementation(async () => {
+  api.addNote.mockImplementation(async () => {
     data.request = noted(null, 'make it all warmer')
     return { revision: 4 }
   })
@@ -339,11 +328,11 @@ it("saves the request's own note with no item", async () => {
       screen.queryByLabelText('Note for the agent on this request'),
     ).toBeNull(),
   )
-  expect(data.addNote.mock.calls[0][1]).toEqual({
+  expect(api.addNote.mock.calls[0][1]).toEqual({
     request: 'r1',
     text: 'make it all warmer',
   })
-  expect(data.putRequest).not.toHaveBeenCalled()
+  expect(api.putRequest).not.toHaveBeenCalled()
   expect(
     within(head).getByText(/The agent isn't connected\. It reads/),
   ).toBeTruthy()
@@ -351,7 +340,7 @@ it("saves the request's own note with no item", async () => {
 
 it('a note the server refuses says why beside the draft, with a reload', async () => {
   const { ApiError } = await import('../api')
-  data.addNote.mockRejectedValue(
+  api.addNote.mockRejectedValue(
     new ApiError("item 'b' of request 'r1' was dropped", 422, 'item_dropped'),
   )
   render(RequestPage, { requestId: 'r1' })
@@ -378,9 +367,8 @@ it('links to its jobs and outputs through the req filter', async () => {
 })
 
 it('drops a request that lands after the page moved to another', async () => {
-  const { api } = await import('../api')
   let land: (reply: unknown) => void = () => {}
-  vi.mocked(api.getRequest).mockImplementationOnce(
+  api.getRequest.mockImplementationOnce(
     () => new Promise((resolve) => (land = resolve)) as never,
   )
   const view = render(RequestPage, { requestId: 'r1' })
@@ -412,16 +400,15 @@ function queued(): LedgerRequest {
 
 it('refreshes an idle open request, and a note draft survives it', async () => {
   fakeInterval()
-  const { api } = await import('../api')
   render(RequestPage, { requestId: 'r1' })
   const box = await openNote('Second poster')
   await fireEvent.input(box, { target: { value: 'half a thought' } })
   const next = queued()
   data.request = next
-  const calls = vi.mocked(api.getRequest).mock.calls.length
+  const calls = api.getRequest.mock.calls.length
   vi.advanceTimersByTime(IDLE_MS)
   await atRevision(4)
-  expect(vi.mocked(api.getRequest).mock.calls.length).toBe(calls + 1)
+  expect(api.getRequest.mock.calls.length).toBe(calls + 1)
   await waitFor(() => expect(chips()).toEqual(['done', 'queued']))
   expect(
     within(row('Second poster'))
@@ -457,8 +444,7 @@ it('tells a screen reader what a refresh changed, and nothing on first load', as
 // timer beside it while the request can change on its own (refreshInterval)
 it('an open request refreshes on its interval and a closed one on the feed', async () => {
   fakeInterval()
-  const { api } = await import('../api')
-  const reads = () => vi.mocked(api.getRequest).mock.calls.length
+  const reads = () => api.getRequest.mock.calls.length
   data.request = { ...make(), state: 'done', revision: 4 }
   render(RequestPage, { requestId: 'r1' })
   await loaded()
@@ -521,17 +507,16 @@ it('a feed read of a closed request at an older revision does not replace it', a
 })
 
 it('a refresh answered after a save does not put the old revision back', async () => {
-  const { api } = await import('../api')
   render(RequestPage, { requestId: 'r1' })
   const box = await openNote('Second poster')
   // The feed's read goes out and hangs
   let land: (reply: unknown) => void = () => {}
-  vi.mocked(api.getRequest).mockImplementationOnce(
+  api.getRequest.mockImplementationOnce(
     () => new Promise((resolve) => (land = resolve)) as never,
   )
   feed.move('studio', 'requests')
   // The save lands first, and the read after it is at revision 4
-  data.addNote.mockImplementation(async () => {
+  api.addNote.mockImplementation(async () => {
     data.request = noted('b', 'more red')
     return { revision: 4 }
   })
@@ -594,9 +579,8 @@ it('a switch away from a request that failed shows the skeleton, not its failure
   const view = render(RequestPage, { requestId: 'gone' })
   await screen.findByText(/This request no longer exists/)
   data.getError = null
-  const { api } = await import('../api')
   let land: (reply: unknown) => void = () => {}
-  vi.mocked(api.getRequest).mockImplementationOnce(
+  api.getRequest.mockImplementationOnce(
     () => new Promise((resolve) => (land = resolve)) as never,
   )
   await view.rerender({ requestId: 'r1' })
@@ -608,17 +592,16 @@ it('a switch away from a request that failed shows the skeleton, not its failure
 
 it('a refresh sent before a save and answered after it does not undo the save', async () => {
   fakeInterval()
-  const { api } = await import('../api')
   render(RequestPage, { requestId: 'r1' })
   const box = await openNote('Second poster')
   // The refresh goes out and hangs
   let land: (reply: unknown) => void = () => {}
-  vi.mocked(api.getRequest).mockImplementationOnce(
+  api.getRequest.mockImplementationOnce(
     () => new Promise((resolve) => (land = resolve)) as never,
   )
   vi.advanceTimersByTime(IDLE_MS)
   // The save lands first, and the read after it is at revision 4
-  data.addNote.mockImplementation(async () => {
+  api.addNote.mockImplementation(async () => {
     data.request = noted('b', 'more red')
     return { revision: 4 }
   })
@@ -747,7 +730,7 @@ it('tells again for the same note id on another request, and never on its first 
 
 it('a save that fails for the network says so, and keeps the draft', async () => {
   const { notify } = await import('../toast')
-  data.addNote.mockRejectedValue(new TypeError('Failed to fetch'))
+  api.addNote.mockRejectedValue(new TypeError('Failed to fetch'))
   render(RequestPage, { requestId: 'r1' })
   const box = await openNote('Second poster')
   await fireEvent.input(box, { target: { value: 'my draft' } })
@@ -897,7 +880,6 @@ it('a change seen live is not listed again on the next visit', async () => {
 })
 
 it('a read that does not move the revision writes nothing', async () => {
-  const { api } = await import('../api')
   localStorage.clear()
   seenAtR1('studio', 3)
   const set = vi.spyOn(Storage.prototype, 'setItem')
@@ -906,11 +888,11 @@ it('a read that does not move the revision writes nothing', async () => {
   try {
     render(RequestPage, { requestId: 'r1' })
     await loaded()
-    const reads = vi.mocked(api.getRequest).mock.calls.length
+    const reads = api.getRequest.mock.calls.length
     data.request = make()
     feed.move('studio', 'requests')
     await waitFor(() =>
-      expect(vi.mocked(api.getRequest).mock.calls.length).toBe(reads + 1),
+      expect(api.getRequest.mock.calls.length).toBe(reads + 1),
     )
     await new Promise((r) => setTimeout(r, 20))
     expect(seenWrites()).toBe(0)

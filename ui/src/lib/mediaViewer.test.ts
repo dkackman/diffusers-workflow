@@ -9,10 +9,10 @@ import {
   writeOpen,
 } from './mediaViewer'
 import { placeScroll } from './router.svelte'
+import { api } from './test/apiMock'
 
-vi.mock('./api', () => ({
-  api: { listWorkspaces: vi.fn(() => new Promise(() => {})) },
-}))
+vi.mock('./api', async () => (await import('./test/apiMock')).apiModule())
+api.listWorkspaces.mockImplementation(() => new Promise(() => {}))
 vi.mock('./toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
 
 const key = (init: KeyboardEventInit) => new KeyboardEvent('keydown', init)

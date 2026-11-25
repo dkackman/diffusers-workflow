@@ -1,12 +1,11 @@
 import { beforeEach, expect, it, vi } from 'vitest'
 import { openWorkflow, saveWorkflowAt } from './workflowFile'
 import type { DocumentEditor } from '../editorShell.svelte'
-import { api } from '../api'
+import { api } from '../test/apiMock'
 import { saveDocument } from '../documentSave'
 
-vi.mock('../api', () => ({
-  api: { getWorkflow: vi.fn(), saveWorkflow: vi.fn() },
-}))
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
+api.saveWorkflow.mockReturnValue(undefined)
 vi.mock('../documentSave', () => ({ saveDocument: vi.fn() }))
 
 function fakeEditor() {
@@ -22,7 +21,7 @@ beforeEach(() => vi.clearAllMocks())
 
 it('opens a workflow at the etag, path and origin it was read with', async () => {
   const ed = fakeEditor()
-  vi.mocked(api.getWorkflow).mockResolvedValue({
+  api.getWorkflow.mockResolvedValue({
     definition: { id: 'w', steps: [] },
     origin: 'examples',
     writable: false,
@@ -39,7 +38,7 @@ it('opens a workflow at the etag, path and origin it was read with', async () =>
 it('a failed read is left on the editor, not opened', async () => {
   const ed = fakeEditor()
   const error = new Error('down')
-  vi.mocked(api.getWorkflow).mockRejectedValue(error)
+  api.getWorkflow.mockRejectedValue(error)
   expect(await openWorkflow(ed, 'w')).toBe(false)
   expect(ed.failLoad).toHaveBeenCalledWith(error)
   expect(ed.load).not.toHaveBeenCalled()
@@ -47,10 +46,10 @@ it('a failed read is left on the editor, not opened', async () => {
 
 it('a read the page has moved on from touches nothing', async () => {
   const ed = fakeEditor()
-  vi.mocked(api.getWorkflow).mockRejectedValue(new Error('late'))
+  api.getWorkflow.mockRejectedValue(new Error('late'))
   expect(await openWorkflow(ed, 'w', () => true)).toBe(false)
   expect(ed.failLoad).not.toHaveBeenCalled()
-  vi.mocked(api.getWorkflow).mockResolvedValue({ definition: {} } as never)
+  api.getWorkflow.mockResolvedValue({ definition: {} } as never)
   expect(await openWorkflow(ed, 'w', () => true)).toBe(false)
   expect(ed.load).not.toHaveBeenCalled()
 })

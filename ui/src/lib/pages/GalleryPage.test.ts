@@ -16,6 +16,7 @@ import { confirmState, resolveChoice } from '../confirm.svelte'
 import { ApiError } from '../apiErrors'
 import type { GalleryFile } from '../types'
 import { DEFAULT_WORKSPACE, workspace } from '../workspace.svelte'
+import { api } from '../test/apiMock'
 import { feed } from '../test/feedMock'
 
 const file = (
@@ -41,16 +42,6 @@ const listing = vi.hoisted(() => ({
   prompts: {} as Record<string, string>,
 }))
 
-// Resolves on a macrotask so that a re-triggering effect cannot starve the
-// timers this test waits on - the failure then shows as a call count
-const listRequests = vi.hoisted(() =>
-  vi.fn(() =>
-    Promise.resolve({
-      workspace: 'default',
-      requests: [{ id: 'r1', title: 'Spring campaign' }] as unknown[],
-    }),
-  ),
-)
 const gallery = vi.hoisted(() =>
   vi.fn<
     (
@@ -80,66 +71,59 @@ const galleryMedia = vi.hoisted(() =>
     Promise.resolve({ files: [] }),
   ),
 )
-const deleteOutput = vi.hoisted(() =>
-  vi.fn<(name: string) => Promise<void>>(() => Promise.resolve()),
-)
-const archiveOutputs = vi.hoisted(() =>
-  vi.fn<(names: string[]) => Promise<void>>(() => Promise.resolve()),
-)
 const setNote = vi.hoisted(() => vi.fn())
-// What the server holds as the note a save reads first (its etag read)
-const noteHeld = vi.hoisted(() => ({ note: null as string | null }))
-const setStarred = vi.hoisted(() =>
-  vi.fn((name: string, starred: boolean) => Promise.resolve({ name, starred })),
-)
+// The page also passes the workspace; the assertions here are on the name
+// alone, so the stub forwards only that
 const galleryMetadata = vi.hoisted(() =>
   vi.fn<(name: string) => Promise<unknown>>(() => new Promise(() => {})),
 )
-const keepOutput = vi.hoisted(() => vi.fn())
-const listAssets = vi.hoisted(() =>
-  vi.fn(() => Promise.resolve({ assets: [{ name: 'a.png' }] })),
+// What the server holds as the note a save reads first (its etag read)
+const noteHeld = vi.hoisted(() => ({ note: null as string | null }))
+// Use as input's workflows: two of the same leaf in different folders
+vi.mock('../api', async () =>
+  (await import('../test/apiMock')).apiModule({
+    setNote: (t: string, n: string | null) => setNote(t, n),
+  }),
+)
+api.gallery.mockImplementation(
+  (
+    roles?: string[],
+    request?: string,
+    item?: string,
+    opts?: { media?: boolean; prompts?: boolean },
+  ) => (opts?.media ? galleryMedia() : gallery(roles, request, item, opts)),
+)
+api.listRequests.mockImplementation(() =>
+  Promise.resolve({
+    workspace: 'default',
+    requests: [{ id: 'r1', title: 'Spring campaign' }] as unknown[],
+  }),
+)
+api.outputDownloadUrl.mockImplementation((name: string) => `/download/${name}`)
+api.deleteOutput.mockImplementation(() => Promise.resolve())
+api.setStarred.mockImplementation((name: string, starred: boolean) =>
+  Promise.resolve({ name, starred }),
+)
+api.archiveOutputs.mockImplementation(() => Promise.resolve())
+api.galleryMetadata.mockImplementation((name: string) => galleryMetadata(name))
+api.noteForSave.mockImplementation((target: string) =>
+  Promise.resolve({ target, note: noteHeld.note, etag: '"e"' }),
+)
+api.assess.mockImplementation(() => new Promise(() => {}))
+api.listAssets.mockImplementation(() =>
+  Promise.resolve({ assets: [{ name: 'a.png' }] }),
 )
 // Use as input's workflows: two of the same leaf in different folders
-const listWorkflows = vi.hoisted(() =>
-  vi.fn(() =>
-    Promise.resolve({
-      workflows: ['people/edit', 'pets/edit'],
-      details: {
-        'people/edit': { variable_names: ['image'], writable: true },
-        'pets/edit': { variable_names: ['image'], writable: true },
-      },
-    }),
-  ),
+api.listWorkflows.mockImplementation(() =>
+  Promise.resolve({
+    workflows: ['people/edit', 'pets/edit'],
+    details: {
+      'people/edit': { variable_names: ['image'], writable: true },
+      'pets/edit': { variable_names: ['image'], writable: true },
+    },
+  }),
 )
-const assess = vi.hoisted(() =>
-  vi.fn<(name: string) => Promise<unknown>>(() => new Promise(() => {})),
-)
-vi.mock('../api', async () => ({
-  ApiError: (await import('../apiErrors')).ApiError,
-  setNote: (t: string, n: string | null) => setNote(t, n),
-  api: {
-    gallery: (
-      roles?: string[],
-      request?: string,
-      item?: string,
-      opts?: { media?: boolean; prompts?: boolean },
-    ) => (opts?.media ? galleryMedia() : gallery(roles, request, item, opts)),
-    listRequests: () => listRequests(),
-    galleryUrl: (name: string) => `/outputs/${name}`,
-    outputDownloadUrl: (name: string) => `/download/${name}`,
-    deleteOutput: (name: string) => deleteOutput(name),
-    setStarred: (name: string, starred: boolean) => setStarred(name, starred),
-    archiveOutputs: (names: string[]) => archiveOutputs(names),
-    galleryMetadata: (name: string) => galleryMetadata(name),
-    noteForSave: (target: string) =>
-      Promise.resolve({ target, note: noteHeld.note, etag: '"e"' }),
-    assess: (name: string) => assess(name),
-    keepOutput: (...a: unknown[]) => keepOutput(...a),
-    listAssets: () => listAssets(),
-    listWorkflows: () => listWorkflows(),
-    getJob: () => new Promise(() => {}),
-  },
-}))
+api.getJob.mockImplementation(() => new Promise(() => {}))
 
 vi.mock('../changes.svelte', async () => ({
   changes: (await import('../test/feedMock')).feed.changes,
@@ -171,18 +155,18 @@ afterEach(() => {
   galleryMedia.mockReset()
   galleryMedia.mockImplementation(() => Promise.resolve({ files: [] }))
   location.hash = '#/ws/default/gallery'
-  deleteOutput.mockReset()
-  deleteOutput.mockImplementation(() => Promise.resolve())
-  setStarred.mockClear()
-  archiveOutputs.mockClear()
+  api.deleteOutput.mockReset()
+  api.deleteOutput.mockImplementation(() => Promise.resolve())
+  api.setStarred.mockClear()
+  api.archiveOutputs.mockClear()
   notifyError.mockClear()
   notifyFailure.mockClear()
   notifyUndo.mockClear()
   notifySuccess.mockClear()
-  keepOutput.mockReset()
-  listAssets.mockClear()
-  assess.mockReset()
-  assess.mockImplementation(() => new Promise(() => {}))
+  api.keepOutput.mockReset()
+  api.listAssets.mockClear()
+  api.assess.mockReset()
+  api.assess.mockImplementation(() => new Promise(() => {}))
   while (confirmState.open) resolveChoice(null)
   galleryMetadata.mockReset()
   galleryMetadata.mockImplementation(() => new Promise(() => {}))
@@ -456,7 +440,7 @@ it('archives every selected file in one request', async () => {
   screen.getByRole('button', { name: /download/i }).click()
 
   await waitFor(() =>
-    expect(archiveOutputs).toHaveBeenCalledWith(['a.png', 'b.png']),
+    expect(api.archiveOutputs).toHaveBeenCalledWith(['a.png', 'b.png']),
   )
 })
 
@@ -470,9 +454,9 @@ it('a double click on Download sends one request', async () => {
   download.click()
   download.click()
 
-  await waitFor(() => expect(archiveOutputs).toHaveBeenCalled())
+  await waitFor(() => expect(api.archiveOutputs).toHaveBeenCalled())
   await new Promise((r) => setTimeout(r, 20))
-  expect(archiveOutputs).toHaveBeenCalledTimes(1)
+  expect(api.archiveOutputs).toHaveBeenCalledTimes(1)
 })
 
 it('drops deleted files from the grid and the selection', async () => {
@@ -489,11 +473,11 @@ it('drops deleted files from the grid and the selection', async () => {
   )
   expect(screen.queryByLabelText('select b.png')).toBeNull()
   expect(screen.queryByText(/selected/)).toBeNull()
-  expect(deleteOutput).toHaveBeenCalledTimes(2)
+  expect(api.deleteOutput).toHaveBeenCalledTimes(2)
 })
 
 it('keeps a file that failed to delete selected and reports it', async () => {
-  deleteOutput.mockImplementation((name: string) =>
+  api.deleteOutput.mockImplementation((name: string) =>
     name === 'b.png' ? Promise.reject(new Error('busy')) : Promise.resolve(),
   )
   await renderGallery()
@@ -508,7 +492,7 @@ it('keeps a file that failed to delete selected and reports it', async () => {
   expect(screen.queryByLabelText('select a.png')).toBeNull()
   expect(screen.getByLabelText('select b.png')).toBeTruthy()
   // Why, through describeError's copy, with the names in Copy details
-  const busy = deleteOutput.mock.results[1].value
+  const busy = api.deleteOutput.mock.results[1].value
   expect(notifyFailure).toHaveBeenCalledWith(
     'delete 1 of 2 files',
     await busy.catch((e: unknown) => e),
@@ -527,7 +511,7 @@ it('does not delete anything when the confirmation is declined', async () => {
   await answerConfirm(false)
 
   await new Promise((r) => setTimeout(r, 10))
-  expect(deleteOutput).not.toHaveBeenCalled()
+  expect(api.deleteOutput).not.toHaveBeenCalled()
 })
 
 it('drops a file deleted from the detail panel out of the selection', async () => {
@@ -686,7 +670,7 @@ it('leaves the viewer open when Escape answers a confirm dialog', async () => {
 
   await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
   expect(await viewer('a.png')).toBeTruthy()
-  expect(deleteOutput).not.toHaveBeenCalled()
+  expect(api.deleteOutput).not.toHaveBeenCalled()
 })
 
 it('an Escape that closes a confirm leaves the selection; the next clears it', async () => {
@@ -853,14 +837,16 @@ it('an arrow key typed in the note box does not move the viewer', async () => {
   await fireEvent.keyDown(box, { key: 'ArrowRight' })
   await fireEvent.keyDown(box, { key: 's' })
   expect(await viewer('a.png')).toBeTruthy()
-  expect(setStarred).not.toHaveBeenCalled()
+  expect(api.setStarred).not.toHaveBeenCalled()
 })
 
 it('S stars the open file and Delete asks, then steps on', async () => {
   await renderGallery()
   await openFile('a.png')
   await press({ key: 's' })
-  await waitFor(() => expect(setStarred).toHaveBeenCalledWith('a.png', true))
+  await waitFor(() =>
+    expect(api.setStarred).toHaveBeenCalledWith('a.png', true),
+  )
   await waitFor(() =>
     expect(
       screen.getByRole('button', { name: 'Star', pressed: true }),
@@ -868,18 +854,18 @@ it('S stars the open file and Delete asks, then steps on', async () => {
   )
   await press({ key: 'Delete' })
   await answerConfirm(true)
-  await waitFor(() => expect(deleteOutput).toHaveBeenCalledWith('a.png'))
+  await waitFor(() => expect(api.deleteOutput).toHaveBeenCalledWith('a.png'))
   expect(await viewer('b.png')).toHaveTextContent('1 of 2')
   await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
   // Cmd+Backspace deletes too
   await press({ key: 'Backspace', metaKey: true })
   await answerConfirm(true)
-  await waitFor(() => expect(deleteOutput).toHaveBeenCalledWith('b.png'))
+  await waitFor(() => expect(api.deleteOutput).toHaveBeenCalledWith('b.png'))
   expect(await viewer('demo/c.png')).toHaveTextContent('1 of 1')
 })
 
 it('a delete that fails leaves its file open in the viewer', async () => {
-  deleteOutput.mockImplementation((n) =>
+  api.deleteOutput.mockImplementation((n) =>
     n === 'b.png' ? Promise.reject(new Error('busy')) : Promise.resolve(),
   )
   await renderGallery()
@@ -936,7 +922,7 @@ it('stars the open file and can filter to starred files', async () => {
   await fireEvent.click(
     screen.getByRole('button', { name: 'Star', pressed: false }),
   )
-  expect(setStarred).toHaveBeenCalledWith('a.png', true)
+  expect(api.setStarred).toHaveBeenCalledWith('a.png', true)
   await waitFor(() => expect(starMark('a.png')).toBeTruthy())
   await fireEvent.click(screen.getByRole('button', { name: 'Close' }))
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
@@ -957,7 +943,7 @@ it('starring offers Undo, which unstars', async () => {
   await waitFor(() => expect(starMark('demo/c.png')).toBeTruthy())
   notifyUndo.mock.calls[0][1]()
   await waitFor(() =>
-    expect(setStarred).toHaveBeenLastCalledWith('demo/c.png', false),
+    expect(api.setStarred).toHaveBeenLastCalledWith('demo/c.png', false),
   )
   // Undone here at once, as the star was: no listing has to land first
   await waitFor(() => expect(starMark('demo/c.png')).toBeNull())
@@ -983,7 +969,7 @@ it("a star Undo leaves another writer's star", async () => {
       'Nothing undone: the star was changed since.',
     ),
   )
-  expect(setStarred).toHaveBeenCalledTimes(1)
+  expect(api.setStarred).toHaveBeenCalledTimes(1)
 })
 
 it('an undo that fails is reported, not thrown', async () => {
@@ -997,7 +983,7 @@ it('an undo that fails is reported, not thrown', async () => {
   expect(notifyUndo.mock.calls[0][0]).toBe('Unstarred a.png')
   // The file was deleted elsewhere before Undo was pressed
   const gone = new Error('no output a.png')
-  setStarred.mockImplementationOnce(() => Promise.reject(gone))
+  api.setStarred.mockImplementationOnce(() => Promise.reject(gone))
   // An unhandled rejection fails the vitest run, so reaching the end of
   // this test with the failure reported is the whole claim
   notifyUndo.mock.calls[0][1]()
@@ -1012,14 +998,16 @@ it('the S key stars the open file', async () => {
   await renderGallery()
   await openFile('a.png')
   await press({ key: 's' })
-  await waitFor(() => expect(setStarred).toHaveBeenCalledWith('a.png', true))
+  await waitFor(() =>
+    expect(api.setStarred).toHaveBeenCalledWith('a.png', true),
+  )
 })
 
 it('the S key leaves a bare s to the page: Shift-S does nothing', async () => {
   await renderGallery()
   await openFile('a.png')
   await press({ key: 'S', shiftKey: true })
-  expect(setStarred).not.toHaveBeenCalled()
+  expect(api.setStarred).not.toHaveBeenCalled()
 })
 
 it('unstarring the open file under Starred steps on from its place', async () => {
@@ -1032,7 +1020,9 @@ it('unstarring the open file under Starred steps on from its place', async () =>
   await fireEvent.click(screen.getByRole('button', { name: 'Starred' }))
   await openFile('a.png')
   await press({ key: 's' })
-  await waitFor(() => expect(setStarred).toHaveBeenCalledWith('a.png', false))
+  await waitFor(() =>
+    expect(api.setStarred).toHaveBeenCalledWith('a.png', false),
+  )
   await waitFor(() => expect(tile('a.png')).toBeNull())
   // the viewer goes on to what now fills its place
   expect(await viewer('b.png')).toHaveTextContent('1 of 1')
@@ -1127,7 +1117,7 @@ it('offers a request picker, and picking one reloads narrowed', async () => {
 })
 
 it('hides the picker when the workspace has no requests', async () => {
-  listRequests.mockResolvedValueOnce({ workspace: 'default', requests: [] })
+  api.listRequests.mockResolvedValueOnce({ workspace: 'default', requests: [] })
   await renderGallery()
   await Promise.resolve()
   expect(screen.queryByLabelText('filter by request')).toBeNull()
@@ -1164,8 +1154,8 @@ it('deleting a selection with starred files says how many and can spare them', a
     'This removes them on disk. 1 of them is starred.',
   )
   within(dialog).getByRole('button', { name: 'Delete the 1 unstarred' }).click()
-  await waitFor(() => expect(deleteOutput).toHaveBeenCalledTimes(1))
-  expect(deleteOutput).toHaveBeenCalledWith('a.png')
+  await waitFor(() => expect(api.deleteOutput).toHaveBeenCalledTimes(1))
+  expect(api.deleteOutput).toHaveBeenCalledWith('a.png')
 })
 
 it('shows a skeleton while loading, not the empty state', async () => {
@@ -1216,7 +1206,7 @@ it("a starred file's confirm says so", async () => {
   const yes = within(dialog).getByRole('button', { name: /^delete$/i })
   expect(yes.classList.contains('danger')).toBe(true)
   await answerConfirm(false)
-  expect(deleteOutput).not.toHaveBeenCalled()
+  expect(api.deleteOutput).not.toHaveBeenCalled()
 })
 
 it('a double click deletes once', async () => {
@@ -1226,9 +1216,9 @@ it('a double click deletes once', async () => {
   button.click()
   button.click()
   await answerConfirm(true)
-  await waitFor(() => expect(deleteOutput).toHaveBeenCalledWith('a.png'))
+  await waitFor(() => expect(api.deleteOutput).toHaveBeenCalledWith('a.png'))
   await settle()
-  expect(deleteOutput).toHaveBeenCalledTimes(1)
+  expect(api.deleteOutput).toHaveBeenCalledTimes(1)
   expect(screen.queryByRole('alertdialog')).toBeNull()
 })
 
@@ -1520,30 +1510,30 @@ const takenQuestion = () =>
 
 it('offers Save as asset, never window.prompt, and lists nothing to save', async () => {
   const prompt = vi.spyOn(window, 'prompt')
-  keepOutput.mockResolvedValueOnce({ reference: 'asset:a.png' })
+  api.keepOutput.mockResolvedValueOnce({ reference: 'asset:a.png' })
   await renderGallery()
   await openFile('a.png')
   await saveAsAsset()
   await waitFor(() =>
     expect(notifySuccess).toHaveBeenCalledWith('Saved as asset a.png'),
   )
-  expect(keepOutput).toHaveBeenCalledWith('a.png', 'a.png')
-  expect(listAssets).not.toHaveBeenCalled()
+  expect(api.keepOutput).toHaveBeenCalledWith('a.png', 'a.png')
+  expect(api.listAssets).not.toHaveBeenCalled()
   expect(prompt).not.toHaveBeenCalled()
 })
 
 it('cancelling the exists question on Save as asset shows no error', async () => {
-  keepOutput.mockRejectedValueOnce(new ApiError(TAKEN, 409, 'exists'))
+  api.keepOutput.mockRejectedValueOnce(new ApiError(TAKEN, 409, 'exists'))
   await renderGallery()
   await openFile('a.png')
   await saveAsAsset()
   const dialog = await takenQuestion()
-  expect(listAssets).toHaveBeenCalledTimes(1)
+  expect(api.listAssets).toHaveBeenCalledTimes(1)
   await fireEvent.click(
     within(dialog).getByRole('button', { name: /^cancel$/i }),
   )
   await settle()
-  expect(keepOutput).toHaveBeenCalledTimes(1)
+  expect(api.keepOutput).toHaveBeenCalledTimes(1)
   expect(notifyError).not.toHaveBeenCalled()
   expect(notifyFailure).not.toHaveBeenCalled()
   expect(notifySuccess).not.toHaveBeenCalled()
@@ -1552,7 +1542,7 @@ it('cancelling the exists question on Save as asset shows no error', async () =>
 })
 
 it('Replace on Save as asset retries with overwrite, Keep both under a free name', async () => {
-  keepOutput
+  api.keepOutput
     .mockRejectedValueOnce(new ApiError(TAKEN, 409, 'exists'))
     .mockResolvedValueOnce({ reference: 'asset:a.png' })
   await renderGallery()
@@ -1561,23 +1551,23 @@ it('Replace on Save as asset retries with overwrite, Keep both under a free name
   await fireEvent.click(
     within(await takenQuestion()).getByRole('button', { name: /^replace$/i }),
   )
-  await waitFor(() => expect(keepOutput).toHaveBeenCalledTimes(2))
-  expect(keepOutput).toHaveBeenLastCalledWith('a.png', 'a.png', true)
+  await waitFor(() => expect(api.keepOutput).toHaveBeenCalledTimes(2))
+  expect(api.keepOutput).toHaveBeenLastCalledWith('a.png', 'a.png', true)
   await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
 
-  keepOutput
+  api.keepOutput
     .mockRejectedValueOnce(new ApiError(TAKEN, 409, 'exists'))
     .mockResolvedValueOnce({ reference: 'asset:a-2.png' })
   await saveAsAsset()
   await fireEvent.click(
     within(await takenQuestion()).getByRole('button', { name: 'Keep both' }),
   )
-  await waitFor(() => expect(keepOutput).toHaveBeenCalledTimes(4))
-  expect(keepOutput).toHaveBeenLastCalledWith('a.png', 'a-2.png')
+  await waitFor(() => expect(api.keepOutput).toHaveBeenCalledTimes(4))
+  expect(api.keepOutput).toHaveBeenLastCalledWith('a.png', 'a-2.png')
 })
 
 it('a save refused for another reason shows the reason, not Replace', async () => {
-  keepOutput.mockRejectedValueOnce(
+  api.keepOutput.mockRejectedValueOnce(
     new ApiError('This workspace has no asset library', 409),
   )
   await renderGallery()
@@ -1594,7 +1584,7 @@ it('a save refused for another reason shows the reason, not Replace', async () =
   expect(
     screen.queryByRole('alertdialog', { name: /already in the asset/ }),
   ).toBeNull()
-  expect(keepOutput).toHaveBeenCalledTimes(1)
+  expect(api.keepOutput).toHaveBeenCalledTimes(1)
 })
 
 // Assess, and the findings beside the open file
@@ -1626,13 +1616,13 @@ it("disables an image's Assess and says why", async () => {
   expect(button.getAttribute('title')).toBe(
     'a still has no shots, seams or soundtrack to measure',
   )
-  expect(assess).not.toHaveBeenCalled()
+  expect(api.assess).not.toHaveBeenCalled()
 })
 
 it("Assess shows the reply's findings, their time and what did not apply", async () => {
   listing.files = clipFiles()
   galleryMetadata.mockResolvedValue(metaReply())
-  assess.mockResolvedValue(
+  api.assess.mockResolvedValue(
     assessReply([
       finding('info', 'picture jumps', 64.25),
       finding('warn', 'silent'),
@@ -1642,7 +1632,7 @@ it("Assess shows the reply's findings, their time and what did not apply", async
   await openFile('demo/clip.mp4')
   const region = await screen.findByRole('region', { name: 'Findings' })
   await fireEvent.click(screen.getByRole('button', { name: 'Assess' }))
-  expect(assess).toHaveBeenCalledWith('demo/clip.mp4')
+  expect(api.assess).toHaveBeenCalledWith('demo/clip.mp4')
   await waitFor(() => expect(region.querySelectorAll('li')).toHaveLength(2))
   const rows = [...region.querySelectorAll('li')]
   expect(rows[0].textContent).toContain('silent')
@@ -1664,14 +1654,14 @@ it('shows Assessing… while the request runs', async () => {
 it('a failed Assess keeps the earlier list and says why in plain words', async () => {
   listing.files = clipFiles()
   galleryMetadata.mockResolvedValue(metaReply())
-  assess.mockResolvedValueOnce(assessReply([finding('warn', 'silent')]))
+  api.assess.mockResolvedValueOnce(assessReply([finding('warn', 'silent')]))
   await renderGallery('demo/clip.mp4')
   await openFile('demo/clip.mp4')
   const region = await screen.findByRole('region', { name: 'Findings' })
   await fireEvent.click(screen.getByRole('button', { name: 'Assess' }))
   await waitFor(() => expect(region.textContent).toContain('silent'))
   const raw = 'ffprobe exited 1: moov atom not found in /runs/a/clip.mp4'
-  assess.mockRejectedValueOnce(new ApiError(raw, 500))
+  api.assess.mockRejectedValueOnce(new ApiError(raw, 500))
   await fireEvent.click(screen.getByRole('button', { name: 'Assess' }))
   const alert = await within(region).findByRole('alert')
   expect(alert.querySelector('.title')?.textContent).toBe(
@@ -1829,8 +1819,12 @@ it('select all with a collapsed folder picks only the files shown', async () => 
   await fireEvent.click(screen.getByRole('button', { name: /select all/i }))
   await waitFor(() => expect(screen.getByText('3 selected')).toBeTruthy())
   await fireEvent.click(screen.getByRole('button', { name: /^download/i }))
-  await waitFor(() => expect(archiveOutputs).toHaveBeenCalledTimes(1))
-  expect(archiveOutputs).toHaveBeenCalledWith(['a.png', 'b.png', 'zz/d.png'])
+  await waitFor(() => expect(api.archiveOutputs).toHaveBeenCalledTimes(1))
+  expect(api.archiveOutputs).toHaveBeenCalledWith([
+    'a.png',
+    'b.png',
+    'zz/d.png',
+  ])
 })
 
 it('a shift-range across a collapsed folder skips its files', async () => {
@@ -1868,8 +1862,8 @@ it('a delete confirm counts only the picks that are shown', async () => {
   within(dialog)
     .getByRole('button', { name: /^delete$/i })
     .click()
-  await waitFor(() => expect(deleteOutput).toHaveBeenCalledTimes(3))
-  expect(deleteOutput).not.toHaveBeenCalledWith('demo/c.png')
+  await waitFor(() => expect(api.deleteOutput).toHaveBeenCalledTimes(3))
+  expect(api.deleteOutput).not.toHaveBeenCalledWith('demo/c.png')
 })
 
 it('stars a selection, offers Undo, and marks nothing changed', async () => {
@@ -1891,9 +1885,11 @@ it('stars a selection, offers Undo, and marks nothing changed', async () => {
   expect(marked('b.png')).toBe(false)
   // Undo puts a back starred and b back unstarred
   notifyUndo.mock.calls[0][1]()
-  await waitFor(() => expect(setStarred).toHaveBeenCalledWith('b.png', false))
-  expect(setStarred).toHaveBeenLastCalledWith('b.png', false)
-  expect(setStarred).toHaveBeenCalledWith('a.png', true)
+  await waitFor(() =>
+    expect(api.setStarred).toHaveBeenCalledWith('b.png', false),
+  )
+  expect(api.setStarred).toHaveBeenLastCalledWith('b.png', false)
+  expect(api.setStarred).toHaveBeenCalledWith('a.png', true)
   await waitFor(() => expect(starMark('b.png')).toBeNull())
   expect(starMark('a.png')).toBeTruthy()
 })
@@ -1902,7 +1898,7 @@ it('names the files a bulk star could not star', async () => {
   await renderGallery()
   checkbox('a.png').click()
   checkbox('b.png').click()
-  setStarred.mockImplementationOnce(() => Promise.reject(new Error('gone')))
+  api.setStarred.mockImplementationOnce(() => Promise.reject(new Error('gone')))
   await fireEvent.click(await screen.findByRole('button', { name: 'Star' }))
 
   await waitFor(() => expect(notifyFailure).toHaveBeenCalled())
@@ -1915,11 +1911,11 @@ it('refuses a bulk star Undo after a workspace switch', async () => {
   checkbox('a.png').click()
   await fireEvent.click(await screen.findByRole('button', { name: 'Star' }))
   await waitFor(() => expect(notifyUndo).toHaveBeenCalledTimes(1))
-  setStarred.mockClear()
+  api.setStarred.mockClear()
   workspace.current = 'elsewhere'
   notifyUndo.mock.calls[0][1]()
   await settle()
-  expect(setStarred).not.toHaveBeenCalled()
+  expect(api.setStarred).not.toHaveBeenCalled()
   expect(notifyError).toHaveBeenCalledWith(
     'Nothing undone: another workspace is open now.',
   )
@@ -1933,9 +1929,9 @@ it('a double click on Star sends one round', async () => {
   star.click()
   star.click()
 
-  await waitFor(() => expect(setStarred).toHaveBeenCalledTimes(2))
+  await waitFor(() => expect(api.setStarred).toHaveBeenCalledTimes(2))
   await settle()
-  expect(setStarred).toHaveBeenCalledTimes(2)
+  expect(api.setStarred).toHaveBeenCalledTimes(2)
   expect(notifyUndo).toHaveBeenCalledTimes(1)
 })
 

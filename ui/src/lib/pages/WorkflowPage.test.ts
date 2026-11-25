@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
 import { tick } from 'svelte'
 import WorkflowPage from './WorkflowPage.svelte'
-import { api, streamJobEvents } from '../api'
+import { streamJobEvents } from '../api'
+import { api } from '../test/apiMock'
 import { notify } from '../toast'
 import { connection } from '../connection.svelte'
 import { ApiError, NetworkError } from '../apiErrors'
@@ -48,28 +49,22 @@ const valid: ValidationResult = {
   },
 } as unknown as ValidationResult
 
-vi.mock('../api', () => ({
-  api: {
-    getWorkflow: vi.fn(),
-    listWorkflows: vi.fn().mockResolvedValue({
-      workflows: [],
-      details: {},
-      libraries: [],
-      shadowed: [],
-    }),
-    gallery: vi.fn().mockResolvedValue({ files: [] }),
-    listPrompts: vi.fn().mockResolvedValue({ prompts: [], details: {} }),
-    validate: vi.fn(),
-    submitJob: vi.fn(),
-    workflowDownloadUrl: vi.fn().mockReturnValue('/download'),
-    listEnhancers: vi.fn(),
-    listModels: vi.fn().mockResolvedValue({ repos: [] }),
-    enhance: vi.fn(),
-    getJob: vi.fn(),
-  },
-  fetchOutputText: vi.fn().mockResolvedValue('A long, lit prompt'),
-  streamJobEvents: vi.fn(),
-}))
+vi.mock('../api', async () =>
+  (await import('../test/apiMock')).apiModule({
+    fetchOutputText: vi.fn().mockResolvedValue('A long, lit prompt'),
+    streamJobEvents: vi.fn(),
+  }),
+)
+api.listWorkflows.mockResolvedValue({
+  workflows: [],
+  details: {},
+  libraries: [],
+  shadowed: [],
+})
+api.gallery.mockResolvedValue({ files: [] })
+api.listPrompts.mockResolvedValue({ prompts: [], details: {} })
+api.workflowDownloadUrl.mockReturnValue('/download')
+api.listModels.mockResolvedValue({ repos: [] })
 
 vi.mock('../changes.svelte', async () => ({
   changes: (await import('../test/feedMock')).feed.changes,
@@ -95,7 +90,7 @@ async function type(name: string, value: string) {
   await fireEvent.input(field(name), { target: { value } })
 }
 
-const validateCalls = () => vi.mocked(api.validate).mock.calls
+const validateCalls = () => api.validate.mock.calls
 
 async function openPage() {
   render(WorkflowPage, { name: 'templates/text-to-image' })
@@ -106,20 +101,20 @@ async function openPage() {
 beforeEach(() => {
   localStorage.clear()
   vi.useFakeTimers()
-  vi.mocked(api.getWorkflow).mockResolvedValue({
+  api.getWorkflow.mockResolvedValue({
     definition,
     origin: 'examples',
     writable: false,
   } as never)
-  vi.mocked(api.validate).mockReset()
-  vi.mocked(api.validate).mockResolvedValue(valid)
-  vi.mocked(api.listWorkflows).mockResolvedValue({
+  api.validate.mockReset()
+  api.validate.mockResolvedValue(valid)
+  api.listWorkflows.mockResolvedValue({
     workflows: [],
     details: {},
     libraries: [],
     shadowed: [],
   } as never)
-  vi.mocked(api.submitJob).mockReset()
+  api.submitJob.mockReset()
   vi.mocked(notify.error).mockReset()
 })
 
@@ -146,7 +141,7 @@ it('the back link names Workflows here and Examples there', async () => {
 })
 
 it('the inpaint form offers upload and browse for its image and mask', async () => {
-  vi.mocked(api.getWorkflow).mockResolvedValue({
+  api.getWorkflow.mockResolvedValue({
     definition: {
       id: 'Inpaint',
       variables: { prompt: 'a cat', image: '', mask: '' },
@@ -155,7 +150,7 @@ it('the inpaint form offers upload and browse for its image and mask', async () 
     origin: 'examples',
     writable: false,
   } as never)
-  vi.mocked(api.listWorkflows).mockResolvedValue({
+  api.listWorkflows.mockResolvedValue({
     workflows: [],
     details: {
       'templates/text-to-image': { inputs: { image: 'image', mask: 'image' } },
@@ -171,7 +166,7 @@ it('the inpaint form offers upload and browse for its image and mask', async () 
 })
 
 it('a proof opens its file in the gallery', async () => {
-  vi.mocked(api.gallery).mockResolvedValueOnce({
+  api.gallery.mockResolvedValueOnce({
     workspace: 'studio',
     files: [
       {
@@ -239,7 +234,7 @@ describe('WorkflowPage run check', () => {
   })
 
   it('asks about exactly the arguments Run sends, blanks dropped', async () => {
-    vi.mocked(api.submitJob).mockResolvedValue({ id: 'job-1' } as never)
+    api.submitJob.mockResolvedValue({ id: 'job-1' } as never)
     await openPage()
     await type('prompt', 'a dog')
     await type('seed', '')
@@ -249,26 +244,26 @@ describe('WorkflowPage run check', () => {
 
     await fireEvent.click(screen.getByRole('button', { name: /Run/ }))
     await advance()
-    expect(vi.mocked(api.submitJob).mock.calls[0][0]).toEqual({
+    expect(api.submitJob.mock.calls[0][0]).toEqual({
       workflow_path: 'templates/text-to-image',
       arguments: asked.arguments,
     })
   })
 
   it('Run sends 30 as a number where the default is a number', async () => {
-    vi.mocked(api.submitJob).mockResolvedValue({ id: 'job-1' } as never)
+    api.submitJob.mockResolvedValue({ id: 'job-1' } as never)
     await openPage()
     await type('num_images_per_prompt', '30')
     await fireEvent.click(screen.getByRole('button', { name: /Run/ }))
     await advance()
-    expect(vi.mocked(api.submitJob).mock.calls[0][0]).toEqual({
+    expect(api.submitJob.mock.calls[0][0]).toEqual({
       workflow_path: 'templates/text-to-image',
       arguments: { num_images_per_prompt: 30 },
     })
   })
 
   it('a double click sends one request', async () => {
-    vi.mocked(api.submitJob).mockResolvedValue({ id: 'job-1' } as never)
+    api.submitJob.mockResolvedValue({ id: 'job-1' } as never)
     await openPage()
     const runButton = screen.getByRole('button', { name: /Run/ })
     // Both clicks land before the page renders the first one's busy state
@@ -280,7 +275,7 @@ describe('WorkflowPage run check', () => {
 
   it('checks once per pause, and asks for sizes only after 3 s idle', async () => {
     await openPage()
-    vi.mocked(api.validate).mockClear()
+    api.validate.mockClear()
     for (const value of ['a', 'a d', 'a do', 'a dog']) {
       await type('prompt', value)
       await advance(200)
@@ -309,7 +304,7 @@ describe('WorkflowPage run check', () => {
     let answerSizes: (result: ValidationResult) => void = () => {}
     await openPage()
     // the sizes check for the load fires, and hangs
-    vi.mocked(api.validate).mockImplementationOnce(
+    api.validate.mockImplementationOnce(
       () => new Promise((resolve) => (answerSizes = resolve)),
     )
     await advance(3000)
@@ -330,7 +325,7 @@ describe('WorkflowPage run check', () => {
   })
 
   it('puts an arguments.x error under field x and the rest in the general list', async () => {
-    vi.mocked(api.validate).mockResolvedValue({
+    api.validate.mockResolvedValue({
       valid: false,
       error: 'refused',
       errors: [
@@ -372,9 +367,9 @@ describe('WorkflowPage run check', () => {
   })
 
   it('clears a field error once the value is fixed', async () => {
-    vi.mocked(api.validate).mockResolvedValueOnce(valid)
+    api.validate.mockResolvedValueOnce(valid)
     await openPage()
-    vi.mocked(api.validate).mockResolvedValueOnce({
+    api.validate.mockResolvedValueOnce({
       valid: false,
       error: 'refused',
       errors: [{ path: 'arguments.seed', message: 'not an integer' }],
@@ -399,7 +394,7 @@ describe('WorkflowPage run check', () => {
     }) as unknown as ValidationResult
 
   it('a refused check turns Run into Fix 2 issues, which focuses the first field', async () => {
-    vi.mocked(api.validate).mockResolvedValue(
+    api.validate.mockResolvedValue(
       refused([
         { path: 'arguments.seed', message: 'not an integer' },
         { path: 'arguments.prompt', message: 'too long' },
@@ -414,7 +409,7 @@ describe('WorkflowPage run check', () => {
   })
 
   it('Fix scrolls to the first general issue when no field has one', async () => {
-    vi.mocked(api.validate).mockResolvedValue(
+    api.validate.mockResolvedValue(
       refused([{ path: 'model_name', message: 'unknown model' }]),
     )
     await openPage()
@@ -425,7 +420,7 @@ describe('WorkflowPage run check', () => {
   })
 
   it('Run comes back once the check stops refusing', async () => {
-    vi.mocked(api.validate).mockResolvedValueOnce(
+    api.validate.mockResolvedValueOnce(
       refused([{ path: 'arguments.seed', message: 'not an integer' }]),
     )
     await openPage()
@@ -433,7 +428,7 @@ describe('WorkflowPage run check', () => {
     await type('seed', '3')
     await advance(600)
     const run = screen.getByRole('button', { name: 'Run' })
-    vi.mocked(api.submitJob).mockRejectedValue(new Error('boom'))
+    api.submitJob.mockRejectedValue(new Error('boom'))
     await fireEvent.click(run)
     await advance()
     expect(notify.failure).toHaveBeenCalledWith(
@@ -443,7 +438,7 @@ describe('WorkflowPage run check', () => {
   })
 
   it('a gated verdict keeps Run', async () => {
-    vi.mocked(api.validate).mockResolvedValue({
+    api.validate.mockResolvedValue({
       ...valid,
       plan: {
         ...valid.plan,
@@ -461,14 +456,14 @@ describe('WorkflowPage run check', () => {
   })
 
   it('a check in flight does not block Run', async () => {
-    vi.mocked(api.validate).mockImplementation(() => new Promise(() => {}))
+    api.validate.mockImplementation(() => new Promise(() => {}))
     await openPage()
     const runButton = screen.getByRole('button', { name: /Run/ })
     expect((runButton as HTMLButtonElement).disabled).toBe(false)
   })
 
   it('renders hostile finding text as text', async () => {
-    vi.mocked(api.validate).mockResolvedValue({
+    api.validate.mockResolvedValue({
       ...valid,
       warnings: ['<img src=x onerror="alert(1)"> warned'],
     } as unknown as ValidationResult)
@@ -481,9 +476,7 @@ describe('WorkflowPage run check', () => {
   })
 
   it('names a check the server refused outright in the general list', async () => {
-    vi.mocked(api.validate).mockRejectedValue(
-      new ApiError('unknown workflow', 400),
-    )
+    api.validate.mockRejectedValue(new ApiError('unknown workflow', 400))
     await openPage()
     // a refusal's own first line is its title, led by what was being done
     expect(screen.getByLabelText('findings').textContent).toContain(
@@ -509,7 +502,7 @@ describe('WorkflowPage curated cost', () => {
   })
 
   it("shows the maintainer's figure and its settings above the observed text", async () => {
-    vi.mocked(api.listWorkflows).mockResolvedValueOnce(
+    api.listWorkflows.mockResolvedValueOnce(
       card([{ device: 'mps', name: 'M4 Max', vram_gb: 6.5, minutes: 2 }], {
         warm_minutes: 1.5,
         warm_runs: 2,
@@ -529,7 +522,7 @@ describe('WorkflowPage curated cost', () => {
   })
 
   it('prints no curated line for a null cost', async () => {
-    vi.mocked(api.listWorkflows).mockResolvedValueOnce(card(null) as never)
+    api.listWorkflows.mockResolvedValueOnce(card(null) as never)
     await openPage()
     expect(screen.queryByLabelText('curated cost')).toBeNull()
     expect(document.body.textContent).not.toContain("maintainer's figure")
@@ -538,9 +531,7 @@ describe('WorkflowPage curated cost', () => {
 
 describe('WorkflowPage recovery', () => {
   it('a failed load offers Retry and recovers on reconnect', async () => {
-    vi.mocked(api.getWorkflow).mockRejectedValueOnce(
-      new NetworkError('fetch failed'),
-    )
+    api.getWorkflow.mockRejectedValueOnce(new NetworkError('fetch failed'))
     await openPage()
     expect(
       screen.getByText(
@@ -562,7 +553,7 @@ describe('WorkflowPage recovery', () => {
   })
 
   it('a missing workflow is named in its 404', async () => {
-    vi.mocked(api.getWorkflow).mockRejectedValueOnce(
+    api.getWorkflow.mockRejectedValueOnce(
       new ApiError('Workflow not found', 404),
     )
     await openPage()
@@ -574,9 +565,7 @@ describe('WorkflowPage recovery', () => {
   })
 
   it('a failed proofs read leaves the form alone', async () => {
-    vi.mocked(api.gallery).mockRejectedValueOnce(
-      new NetworkError('fetch failed'),
-    )
+    api.gallery.mockRejectedValueOnce(new NetworkError('fetch failed'))
     await openPage()
     expect(screen.queryByText(/Couldn't load/)).toBeNull()
     expect(screen.queryByRole('alert')).toBeNull()
@@ -584,9 +573,7 @@ describe('WorkflowPage recovery', () => {
   })
 
   it('Retry reads the definition again', async () => {
-    vi.mocked(api.getWorkflow).mockRejectedValueOnce(
-      new NetworkError('fetch failed'),
-    )
+    api.getWorkflow.mockRejectedValueOnce(new NetworkError('fetch failed'))
     await openPage()
     await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
     await advance()
@@ -600,7 +587,7 @@ describe('WorkflowPage remote change', () => {
   it('a definition changed elsewhere says so', async () => {
     await openPage()
     expect(screen.queryByText('Updated by an agent or another tab')).toBeNull()
-    vi.mocked(api.getWorkflow).mockResolvedValue({
+    api.getWorkflow.mockResolvedValue({
       definition: { ...definition, description: 'edited by an agent' },
       origin: 'examples',
       writable: false,
@@ -632,12 +619,12 @@ describe('WorkflowPage run form', () => {
   beforeEach(() => {
     localStorage.clear()
     sessionStorage.clear()
-    vi.mocked(api.getWorkflow).mockResolvedValue({
+    api.getWorkflow.mockResolvedValue({
       definition: folded,
       origin: 'examples',
       writable: false,
     } as never)
-    vi.mocked(api.listWorkflows).mockResolvedValue({
+    api.listWorkflows.mockResolvedValue({
       workflows: [],
       details: { 'templates/text-to-image': { inputs: {} } },
       libraries: [],
@@ -666,7 +653,7 @@ describe('WorkflowPage run form', () => {
   })
 
   it('a field with a finding opens the fold, so Fix focuses it', async () => {
-    vi.mocked(api.validate).mockResolvedValue({
+    api.validate.mockResolvedValue({
       valid: false,
       error: null,
       errors: [{ path: 'arguments.dtype', message: 'unknown dtype' }],
@@ -752,7 +739,7 @@ describe('WorkflowPage run form', () => {
   })
 
   it('a Run keeps the draft', async () => {
-    vi.mocked(api.submitJob).mockResolvedValue({ id: 'job-1' } as never)
+    api.submitJob.mockResolvedValue({ id: 'job-1' } as never)
     await openPage()
     await type('prompt', 'a dog')
     await advance(300)
@@ -765,7 +752,7 @@ describe('WorkflowPage run form', () => {
 })
 
 it('only free-text fields offer Enhance', async () => {
-  vi.mocked(api.getWorkflow).mockResolvedValue({
+  api.getWorkflow.mockResolvedValue({
     definition: {
       ...definition,
       variables: { prompt: 'a cat', dtype: 'float16', seed: 0 },
@@ -782,7 +769,7 @@ describe('Enhance from the run form', () => {
 
   beforeEach(() => {
     stopStream.mockReset()
-    vi.mocked(api.getWorkflow).mockResolvedValue({
+    api.getWorkflow.mockResolvedValue({
       definition: {
         ...definition,
         variables: {
@@ -794,7 +781,7 @@ describe('Enhance from the run form', () => {
       origin: 'examples',
       writable: false,
     } as never)
-    vi.mocked(api.listEnhancers).mockResolvedValue({
+    api.listEnhancers.mockResolvedValue({
       presets: [
         {
           key: 'p',
@@ -805,11 +792,11 @@ describe('Enhance from the run form', () => {
         },
       ],
     } as never)
-    vi.mocked(api.enhance).mockResolvedValue({
+    api.enhance.mockResolvedValue({
       id: 'j1',
       workspace: 'w',
     } as never)
-    vi.mocked(api.getJob).mockResolvedValue({
+    api.getJob.mockResolvedValue({
       status: 'succeeded',
       workspace: 'w',
       manifest: [{ files: ['o.txt'] }],
@@ -890,7 +877,7 @@ describe('Enhance from the run form', () => {
 it('WorkflowPage says when the workflow changed', async () => {
   const changed = 1_790_000_000
   const created = 1_780_000_000
-  vi.mocked(api.listWorkflows).mockResolvedValue({
+  api.listWorkflows.mockResolvedValue({
     workflows: ['templates/text-to-image'],
     details: { 'templates/text-to-image': { mtime: changed, created } },
     libraries: [],
@@ -906,7 +893,7 @@ it('WorkflowPage says when the workflow changed', async () => {
 })
 
 it('WorkflowPage says no created time the listing does not give', async () => {
-  vi.mocked(api.listWorkflows).mockResolvedValue({
+  api.listWorkflows.mockResolvedValue({
     workflows: ['templates/text-to-image'],
     details: { 'templates/text-to-image': { mtime: 1_790_000_000 } },
     libraries: [],

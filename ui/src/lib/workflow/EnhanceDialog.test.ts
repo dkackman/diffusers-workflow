@@ -8,27 +8,24 @@ import {
   waitFor,
 } from '@testing-library/svelte'
 import EnhanceDialog from './EnhanceDialog.svelte'
-import { api } from '../api'
+import { api } from '../test/apiMock'
 
 vi.mock('../toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
-vi.mock('../api', () => ({
-  api: {
-    listEnhancers: vi.fn(),
-    listModels: vi.fn().mockResolvedValue({ repos: [] }),
-    enhance: vi.fn(),
-    getJob: vi.fn(),
-  },
-  fetchOutputText: vi.fn().mockResolvedValue('A long, lit prompt'),
-  streamJobEvents: vi.fn(
-    (_id: string, _from: number, _on: unknown, done: () => void) => {
-      queueMicrotask(done)
-      return () => {}
-    },
-  ),
-}))
+vi.mock('../api', async () =>
+  (await import('../test/apiMock')).apiModule({
+    fetchOutputText: vi.fn().mockResolvedValue('A long, lit prompt'),
+    streamJobEvents: vi.fn(
+      (_id: string, _from: number, _on: unknown, done: () => void) => {
+        queueMicrotask(done)
+        return () => {}
+      },
+    ),
+  }),
+)
+api.listModels.mockResolvedValue({ repos: [] })
 
 beforeEach(() => {
-  vi.mocked(api.listEnhancers).mockResolvedValue({
+  api.listEnhancers.mockResolvedValue({
     presets: [
       {
         key: 'p',
@@ -39,11 +36,11 @@ beforeEach(() => {
       },
     ],
   } as never)
-  vi.mocked(api.enhance).mockResolvedValue({
+  api.enhance.mockResolvedValue({
     id: 'j1',
     workspace: 'w',
   } as never)
-  vi.mocked(api.getJob).mockResolvedValue({
+  api.getJob.mockResolvedValue({
     status: 'succeeded',
     workspace: 'w',
     manifest: [{ files: ['o.txt'] }],

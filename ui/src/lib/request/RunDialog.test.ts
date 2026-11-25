@@ -8,6 +8,7 @@ import {
 } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import RunDialog from './RunDialog.svelte'
+import { api } from '../test/apiMock'
 import { attempt, doneItem, item, request } from './fixtures'
 import { planState } from './itemState'
 import { listening } from './listening.svelte'
@@ -16,17 +17,9 @@ import { ALL_CACHED, heldPlan, itemPlan, readyPlan } from './runPlan'
 import type { LedgerReview, Plan } from '../types'
 
 const world = vi.hoisted(() => ({
-  validate: vi.fn(),
-  submitJob: vi.fn(),
   notify: { error: vi.fn(), success: vi.fn(), undo: vi.fn() },
 }))
-vi.mock('../api', async () => ({
-  ApiError: (await import('../apiErrors')).ApiError,
-  api: {
-    validate: (...args: unknown[]) => world.validate(...args),
-    submitJob: (...args: unknown[]) => world.submitJob(...args),
-  },
-}))
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
 vi.mock('../toast', () => ({ notify: world.notify }))
 
 const quote = (minutes: number | null, over: Partial<Plan> = {}): Plan =>
@@ -86,11 +79,11 @@ const PLANS: Record<string, Plan | null> = {
 }
 beforeEach(() => {
   vi.clearAllMocks()
-  world.validate.mockImplementation(async (body: { workflow_path: string }) =>
-    answer(PLANS[body.workflow_path] ?? null),
+  api.validate.mockImplementation(async (body) =>
+    answer(PLANS[(body as { workflow_path: string }).workflow_path] ?? null),
   )
-  world.submitJob.mockImplementation(async (body: { item: string }) => ({
-    id: `job-${body.item}`,
+  api.submitJob.mockImplementation(async (body) => ({
+    id: `job-${(body as { item: string }).item}`,
   }))
 })
 afterEach(() => {
@@ -119,10 +112,11 @@ const runButton = () =>
 
 it('starts on Cancel, and cannot spend until every row is priced', async () => {
   let land: (value: unknown) => void = () => {}
-  world.validate.mockImplementation(
-    (body: { workflow_path: string }) =>
+  api.validate.mockImplementation(
+    (body) =>
       new Promise((resolve) => {
-        if (body.workflow_path === 'card') land = resolve
+        if ((body as { workflow_path: string }).workflow_path === 'card')
+          land = resolve
         else resolve(answer(PLANS.shot))
       }),
   )
@@ -145,13 +139,13 @@ it('starts on Cancel, and cannot spend until every row is priced', async () => {
   await within(runRow('title')).findByText(/about 5.5 min on cuda/)
   expect(runButton().disabled).toBe(false)
   expect(runButton().textContent).toBe('Run 2 jobs')
-  expect(world.submitJob).not.toHaveBeenCalled()
+  expect(api.submitJob).not.toHaveBeenCalled()
 })
 
 it('prices each item with its workflow, and says what the plan had estimated', async () => {
   open()
   await within(runRow('s4')).findByText(/about 9 min on cuda/)
-  expect(world.validate.mock.calls.map(([body]) => body)).toEqual([
+  expect(api.validate.mock.calls.map(([body]) => body)).toEqual([
     { workflow_path: 'shot', arguments: {}, workspace: 'studio' },
     { workflow_path: 'card', arguments: {}, workspace: 'studio' },
   ])
@@ -206,8 +200,8 @@ it('lists what will not run and why, and what becomes ready afterwards', async (
 })
 
 it('an item validation refuses moves to "Will not run" with its first error', async () => {
-  world.validate.mockImplementation(async (body: { workflow_path: string }) =>
-    body.workflow_path === 'card'
+  api.validate.mockImplementation(async (body) =>
+    (body as { workflow_path: string }).workflow_path === 'card'
       ? {
           valid: false,
           error: null,
@@ -298,9 +292,9 @@ it('failed items sit under their heading, unticked', async () => {
   await fireEvent.click(box)
   expect(runButton().textContent).toBe('Run 2 jobs')
   await fireEvent.click(runButton())
-  await waitFor(() => expect(world.submitJob).toHaveBeenCalledTimes(2))
+  await waitFor(() => expect(api.submitJob).toHaveBeenCalledTimes(2))
   // its stored arguments, exactly as the ledger holds them
-  expect(world.submitJob.mock.calls[1][0]).toMatchObject({
+  expect(api.submitJob.mock.calls[1][0]).toMatchObject({
     item: 'f1',
     workflow_path: 'card',
     arguments: { seed: 7 },
@@ -320,7 +314,7 @@ it('queues in plan order, each bound to its quote, then closes with a toast', as
   await within(runRow('title')).findByText(/about 5.5 min/)
   await fireEvent.click(runButton())
   await waitFor(() => expect(onclose).toHaveBeenCalledWith(2))
-  expect(world.submitJob.mock.calls.map(([body]) => body)).toEqual([
+  expect(api.submitJob.mock.calls.map(([body]) => body)).toEqual([
     {
       workflow_path: 'shot',
       arguments: {},
@@ -345,7 +339,7 @@ it('a row whose price moved re-prices in place; the others queue, and the dialog
   const { onclose } = open()
   await within(runRow('title')).findByText(/about 5.5 min/)
   const acknowledge = { fingerprint: 'fp-new', minutes: 12, downloads: [] }
-  world.submitJob.mockImplementationOnce(async () => {
+  api.submitJob.mockImplementationOnce(async () => {
     throw new ApiError("The run's shape changed", 409, undefined, {
       reason: 'fingerprint',
       plan: quote(12),
@@ -370,7 +364,7 @@ it('a row whose price moved re-prices in place; the others queue, and the dialog
     within(moved).getByRole('button', { name: 'Run at this price' }),
   )
   await waitFor(() => expect(onclose).toHaveBeenCalledWith(2))
-  expect(world.submitJob.mock.calls.at(-1)?.[0]).toMatchObject({
+  expect(api.submitJob.mock.calls.at(-1)?.[0]).toMatchObject({
     item: 's4',
     acknowledged_cost: acknowledge,
   })
@@ -379,7 +373,7 @@ it('a row whose price moved re-prices in place; the others queue, and the dialog
 
 it('a refused submit shows on its row in plain words, and the dialog stays open', async () => {
   const { ApiError } = await import('../apiErrors')
-  world.submitJob.mockRejectedValue(
+  api.submitJob.mockRejectedValue(
     new ApiError('request r1 is done', 422, 'request_closed'),
   )
   const { onclose } = open('s4')
@@ -398,7 +392,7 @@ it('a refused submit shows on its row in plain words, and the dialog stays open'
 it('a submit the server failed on leads with plain words, its text folded behind Details', async () => {
   const { ApiError } = await import('../apiErrors')
   const raw = 'worker crashed: CUDA error: out of memory at step 3'
-  world.submitJob.mockRejectedValue(new ApiError(raw, 500))
+  api.submitJob.mockRejectedValue(new ApiError(raw, 500))
   open('s4')
   await within(runRow('s4')).findByText(/about 9 min/)
   await fireEvent.click(runButton())
@@ -425,7 +419,7 @@ it('a single item has one row, no checkbox and no total', async () => {
 
 it('another take of a done item says what stands as the result meanwhile', async () => {
   PLANS.shot = quote(9)
-  world.validate.mockResolvedValue(answer(quote(3)))
+  api.validate.mockResolvedValue(answer(quote(3)))
   open('cast')
   await screen.findByRole('dialog', { name: 'Run another take of Cast sheet' })
   expect(
@@ -437,28 +431,28 @@ it('another take of a done item says what stands as the result meanwhile', async
 
 it('closing while the first job is being sent sends no more, and says when that one lands', async () => {
   let land = () => {}
-  world.submitJob.mockImplementation(
-    (body: { item: string }) =>
+  api.submitJob.mockImplementation(
+    (body) =>
       new Promise((resolve) => {
-        land = () => resolve({ id: `job-${body.item}` })
+        land = () => resolve({ id: `job-${(body as { item: string }).item}` })
       }),
   )
   const { onclose } = open()
   await within(runRow('title')).findByText(/about 5.5 min/)
   await fireEvent.click(runButton())
-  await waitFor(() => expect(world.submitJob).toHaveBeenCalledTimes(1))
+  await waitFor(() => expect(api.submitJob).toHaveBeenCalledTimes(1))
   await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
   await waitFor(() => expect(onclose).toHaveBeenCalled())
   const [queued, landing] = onclose.mock.calls[0]
   expect(queued).toBe(0)
   land()
   expect(await landing).toBe(1)
-  expect(world.submitJob).toHaveBeenCalledTimes(1)
+  expect(api.submitJob).toHaveBeenCalledTimes(1)
 })
 
 it('cancelling queues nothing and drops the pricing still out', async () => {
   let signal: AbortSignal | undefined
-  world.validate.mockImplementation(
+  api.validate.mockImplementation(
     (_body: unknown, given?: AbortSignal) =>
       new Promise(() => {
         signal = given
@@ -468,7 +462,7 @@ it('cancelling queues nothing and drops the pricing still out', async () => {
   await fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }))
   await waitFor(() => expect(onclose).toHaveBeenCalledWith(0))
   expect(signal?.aborted).toBe(true)
-  expect(world.submitJob).not.toHaveBeenCalled()
+  expect(api.submitJob).not.toHaveBeenCalled()
 })
 
 const UNTIL = '2026-11-21T15:30:00+00:00'

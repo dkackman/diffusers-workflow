@@ -1,12 +1,12 @@
 import { beforeEach, expect, it, vi } from 'vitest'
 import { openPrompt, savePromptAt } from './promptFile'
 import type { DocumentEditor } from './editorShell.svelte'
-import { api } from './api'
+import { api } from './test/apiMock'
 import { saveDocument } from './documentSave'
 
-vi.mock('./api', () => ({
-  api: { getPrompt: vi.fn(), savePrompt: vi.fn() },
-}))
+vi.mock('./api', async () => (await import('./test/apiMock')).apiModule())
+// The old mock's `savePrompt` was a bare vi.fn(): it answered undefined
+api.savePrompt.mockReturnValue(undefined)
 vi.mock('./documentSave', () => ({ saveDocument: vi.fn() }))
 
 function fakeEditor() {
@@ -23,7 +23,7 @@ beforeEach(() => vi.clearAllMocks())
 it('opens a prompt at the etag, path and library it was read with', async () => {
   const ed = fakeEditor()
   const prompt = { text: 'a hero at dawn' }
-  vi.mocked(api.getPrompt).mockResolvedValue({
+  api.getPrompt.mockResolvedValue({
     prompt,
     origin: 'examples',
     writable: false,
@@ -41,7 +41,7 @@ it('opens a prompt at the etag, path and library it was read with', async () => 
 it('a failed read is left on the editor, not opened', async () => {
   const ed = fakeEditor()
   const error = new Error('down')
-  vi.mocked(api.getPrompt).mockRejectedValue(error)
+  api.getPrompt.mockRejectedValue(error)
   expect(await openPrompt(ed, 'w')).toBeNull()
   expect(ed.failLoad).toHaveBeenCalledWith(error)
   expect(ed.load).not.toHaveBeenCalled()
@@ -49,10 +49,10 @@ it('a failed read is left on the editor, not opened', async () => {
 
 it('a read the page has moved on from touches nothing', async () => {
   const ed = fakeEditor()
-  vi.mocked(api.getPrompt).mockRejectedValue(new Error('late'))
+  api.getPrompt.mockRejectedValue(new Error('late'))
   expect(await openPrompt(ed, 'w', () => true)).toBeNull()
   expect(ed.failLoad).not.toHaveBeenCalled()
-  vi.mocked(api.getPrompt).mockResolvedValue({ prompt: {} } as never)
+  api.getPrompt.mockResolvedValue({ prompt: {} } as never)
   expect(await openPrompt(ed, 'w', () => true)).toBeNull()
   expect(ed.load).not.toHaveBeenCalled()
 })

@@ -11,13 +11,12 @@ import { createRawSnippet } from 'svelte'
 import MediaViewer from './MediaViewer.svelte'
 import { holdLayer } from './layers.svelte'
 import type { MediaFile } from '../media'
+import { api } from '../test/apiMock'
 
-vi.mock('../api', () => ({
-  api: {
-    listWorkspaces: vi.fn(() => new Promise(() => {})),
-    fileText: vi.fn(() => Promise.resolve('a text file')),
-  },
-}))
+api.listWorkspaces.mockImplementation(() => new Promise(() => {}))
+api.fileText.mockImplementation(() => Promise.resolve('a text file'))
+
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
 vi.mock('../toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
 
 // The stylesheet's text: vitest stubs a stylesheet's import, so it is read

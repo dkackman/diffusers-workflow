@@ -9,6 +9,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import PromptsPage from './PromptsPage.svelte'
 import '../router.svelte'
 import { DEFAULT_WORKSPACE, workspace } from '../workspace.svelte'
+import { api } from '../test/apiMock'
 import { feed } from '../test/feedMock'
 
 const detail = (origin: string, writable: boolean) => ({
@@ -20,22 +21,8 @@ const detail = (origin: string, writable: boolean) => ({
   writable,
 })
 
-const listPrompts = vi.hoisted(() =>
-  vi.fn(() =>
-    Promise.resolve({
-      libraries: [
-        { origin: 'workspace', root: '/srv/prompts', writable: true },
-        { origin: 'examples', root: '/ex/prompts', writable: false },
-      ],
-      shadowed: [],
-      prompts: ['mine', 'theirs'],
-      details: {},
-    } as unknown),
-  ),
-)
-vi.mock('../api', () => ({
-  api: { listPrompts: () => listPrompts() },
-}))
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
+const listPrompts = api.listPrompts
 
 vi.mock('../changes.svelte', async () => ({
   changes: (await import('../test/feedMock')).feed.changes,

@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import OutputTile from './OutputTile.svelte'
+import { api } from '../test/apiMock'
 import { assetMedia, type MediaFile } from '../media'
 
 // The stylesheet's text: vitest stubs a stylesheet's import, so it is read
@@ -11,12 +12,11 @@ const { readFileSync } = (await import(/* @vite-ignore */ FS)) as {
   readFileSync: (path: string, encoding: 'utf8') => string
 }
 
-const fileText = vi.hoisted(() =>
-  vi.fn<(url: string) => Promise<string>>(() =>
-    Promise.resolve('one\ntwo\nthree\nfour\n'),
-  ),
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
+api.fileText.mockImplementation(() =>
+  Promise.resolve('one\ntwo\nthree\nfour\n'),
 )
-vi.mock('../api', () => ({ api: { fileText: (url: string) => fileText(url) } }))
+const fileText = api.fileText
 
 const media = (fields: Partial<MediaFile>): MediaFile => ({
   name: 'demo/a.png',

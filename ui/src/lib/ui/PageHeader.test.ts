@@ -4,11 +4,14 @@ import { afterEach, expect, it, vi } from 'vitest'
 import PageHeader from './PageHeader.svelte'
 import { setHashQuery } from '../router.svelte'
 import { pageFrame } from '../pageFrame.svelte'
+import { api } from '../test/apiMock'
 
-vi.mock('../api', () => ({
-  api: { listWorkspaces: vi.fn(() => new Promise(() => {})) },
-  TERMINAL_STATUSES: ['succeeded', 'failed', 'cancelled'],
-}))
+vi.mock('../api', async () =>
+  (await import('../test/apiMock')).apiModule({
+    TERMINAL_STATUSES: ['succeeded', 'failed', 'cancelled'],
+  }),
+)
+api.listWorkspaces.mockImplementation(() => new Promise(() => {}))
 vi.mock('../toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
 
 afterEach(cleanup)

@@ -1,8 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AssetFile } from './types'
 
-const listAssets = vi.hoisted(() => vi.fn())
-vi.mock('./api', () => ({ api: { listAssets: () => listAssets() } }))
+vi.mock('./api', async () => (await import('./test/apiMock')).apiModule())
 
 import { assetLibrary } from './assetlib.svelte'
 import { promptLibrary } from './promptlib.svelte'
@@ -13,6 +12,7 @@ import {
   referenceCompletions,
 } from './refcomplete.svelte'
 import { workspace } from './workspace.svelte'
+import { api } from './test/apiMock'
 
 const asset = (
   name: string,
@@ -46,7 +46,7 @@ beforeEach(() => {
   promptLibrary.tags = { scenic: ['landscape'], 'cast/priya-intro': [] }
   promptLibrary.descriptions = { scenic: '', 'cast/priya-intro': 'opening' }
 })
-afterEach(() => listAssets.mockReset())
+afterEach(() => api.listAssets.mockReset())
 
 describe('referenceCompletions', () => {
   it('leaves a field that has not started a library reference alone', () => {
@@ -105,11 +105,11 @@ describe('assetChoices', () => {
 
   it('loads the library on first use, once', async () => {
     assetLibrary.workspace = undefined
-    listAssets.mockReturnValue(new Promise(() => {}))
+    api.listAssets.mockReturnValue(new Promise(() => {}))
     assetChoices('')
     assetChoices('x')
     await Promise.resolve()
-    expect(listAssets).toHaveBeenCalledTimes(1)
+    expect(api.listAssets).toHaveBeenCalledTimes(1)
   })
 })
 

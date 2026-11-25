@@ -2,24 +2,15 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
 import { afterEach, expect, it, vi } from 'vitest'
 import JobHeader from './JobHeader.svelte'
 import type { JobDetail, LedgerRequest } from '../types'
+import { api } from '../test/apiMock'
 import { formatExact, formatMtime } from '../format'
 
-const { rerunJob, cancelJob, exportJob, confirmDialog, failure } = vi.hoisted(
-  () => ({
-    rerunJob: vi.fn(),
-    exportJob: vi.fn(),
-    cancelJob: vi.fn(),
-    confirmDialog: vi.fn(),
-    failure: vi.fn(),
-  }),
-)
-vi.mock('../api', async (original) => {
-  const real = await original<typeof import('../api')>()
-  return {
-    ApiError: real.ApiError,
-    api: { rerunJob, cancelJob, exportJob, exportZipUrl: vi.fn() },
-  }
-})
+const { confirmDialog, failure } = vi.hoisted(() => ({
+  confirmDialog: vi.fn(),
+  failure: vi.fn(),
+}))
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
+api.exportZipUrl.mockReturnValue(undefined)
 vi.mock('../toast', () => ({
   notify: { error: vi.fn(), success: vi.fn(), failure, undo: vi.fn() },
 }))
@@ -110,12 +101,12 @@ it('links while the request is unread, and shows nothing for an unlinked job', (
 
 it('a double click on Run again queues one job', async () => {
   let release!: (v: { id: string }) => void
-  rerunJob.mockReturnValue(new Promise((r) => (release = r)))
+  api.rerunJob.mockReturnValue(new Promise((r) => (release = r)))
   header(job())
   const button = screen.getByRole('button', { name: /Run again$/ })
   await fireEvent.click(button)
   await fireEvent.click(button)
-  expect(rerunJob).toHaveBeenCalledTimes(1)
+  expect(api.rerunJob).toHaveBeenCalledTimes(1)
   expect(button.getAttribute('aria-busy')).toBe('true')
   release({ id: 'j2' })
 })
@@ -132,13 +123,13 @@ const running = (startedAgo: number) =>
   )
 
 it('cancel asks only past 60 seconds', async () => {
-  cancelJob.mockResolvedValue({})
+  api.cancelJob.mockResolvedValue({})
   running(10)
   await fireEvent.click(screen.getByRole('button', { name: /Cancel$/ }))
-  await vi.waitFor(() => expect(cancelJob).toHaveBeenCalledTimes(1))
+  await vi.waitFor(() => expect(api.cancelJob).toHaveBeenCalledTimes(1))
   expect(confirmDialog).not.toHaveBeenCalled()
   cleanup()
-  cancelJob.mockClear()
+  api.cancelJob.mockClear()
   confirmDialog.mockResolvedValue(false)
   running(125)
   await fireEvent.click(screen.getByRole('button', { name: /Cancel$/ }))
@@ -151,12 +142,12 @@ it('cancel asks only past 60 seconds', async () => {
     cancelLabel: 'Keep running',
     danger: true,
   })
-  expect(cancelJob).not.toHaveBeenCalled()
+  expect(api.cancelJob).not.toHaveBeenCalled()
 })
 
 it('a failed cancel is reported', async () => {
   const boom = new Error('gone')
-  cancelJob.mockRejectedValue(boom)
+  api.cancelJob.mockRejectedValue(boom)
   running(5)
   await fireEvent.click(screen.getByRole('button', { name: /Cancel$/ }))
   await vi.waitFor(() =>
@@ -166,7 +157,7 @@ it('a failed cancel is reported', async () => {
 
 it('the Replace question is titled and in danger', async () => {
   const { ApiError } = await import('../api')
-  exportJob.mockRejectedValueOnce(new ApiError('already exported', 409))
+  api.exportJob.mockRejectedValueOnce(new ApiError('already exported', 409))
   confirmDialog.mockResolvedValue(false)
   header(job())
   await fireEvent.click(screen.getByRole('button', { name: /Export/ }))

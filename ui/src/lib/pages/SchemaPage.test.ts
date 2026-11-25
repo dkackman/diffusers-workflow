@@ -3,17 +3,15 @@ import { afterEach, expect, it, vi } from 'vitest'
 import SchemaPage from './SchemaPage.svelte'
 import '../router.svelte'
 import { focusPageFilter } from '../pageFrame.svelte'
+import { api } from '../test/apiMock'
 
-vi.mock('../api', () => ({
-  api: {
-    getSchema: vi.fn(() =>
-      Promise.resolve({
-        description: 'd',
-        $defs: { Step: { type: 'object' } },
-      }),
-    ),
-  },
-}))
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
+api.getSchema.mockImplementation(() =>
+  Promise.resolve({
+    description: 'd',
+    $defs: { Step: { type: 'object' } },
+  }),
+)
 
 afterEach(cleanup)
 

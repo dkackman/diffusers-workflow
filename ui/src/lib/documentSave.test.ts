@@ -4,7 +4,7 @@ import type { DocumentEditor } from './editorShell.svelte'
 import { ApiError } from './apiErrors'
 import { chooseDialog } from './confirm.svelte'
 
-vi.mock('./api', () => ({ api: {} }))
+vi.mock('./api', async () => (await import('./test/apiMock')).apiModule())
 const notifyError = vi.hoisted(() => vi.fn())
 vi.mock('./toast', () => ({ notify: { error: notifyError } }))
 vi.mock('./confirm.svelte', () => ({ chooseDialog: vi.fn() }))

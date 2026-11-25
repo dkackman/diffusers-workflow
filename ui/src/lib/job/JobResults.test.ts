@@ -8,7 +8,7 @@ import {
 } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import JobResults from './JobResults.svelte'
-import { api } from '../api'
+import { api } from '../test/apiMock'
 import type { JobDetail } from '../types'
 
 const timeline = {
@@ -56,29 +56,31 @@ const starredOn = vi.hoisted(() => new Set<string>())
 const notifyUndo = vi.hoisted(() => vi.fn())
 // Reads that never land, while set
 const held = vi.hoisted(() => ({ reads: false }))
-vi.mock('../api', () => ({
-  api: {
-    galleryMetadata: vi.fn((name: string) =>
-      held.reads
-        ? new Promise(() => {})
-        : Promise.resolve({
-            name,
-            metadata: embedded[name] ?? null,
-            media: name.endsWith('.otioz') ? timeline : null,
-            inputs: [],
-            job: null,
-            findings: [],
-            linked_jobs: [],
-            ...(starredOn.has(name) && { starred: true }),
-          }),
-    ),
-    getJob: vi.fn(() => new Promise(() => {})),
-    archiveOutputs: vi.fn(() => Promise.resolve()),
-    setStarred: vi.fn(() => Promise.resolve()),
-    outputDownloadUrl: (name: string) => `/api/gallery/${name}/download`,
-  },
-  outputUrl: (path: string) => `/outputs/${path}`,
-}))
+vi.mock('../api', async () =>
+  (await import('../test/apiMock')).apiModule({
+    outputUrl: (path: string) => `/outputs/${path}`,
+  }),
+)
+api.galleryMetadata.mockImplementation((name: string) =>
+  held.reads
+    ? new Promise(() => {})
+    : Promise.resolve({
+        name,
+        metadata: embedded[name] ?? null,
+        media: name.endsWith('.otioz') ? timeline : null,
+        inputs: [],
+        job: null,
+        findings: [],
+        linked_jobs: [],
+        ...(starredOn.has(name) && { starred: true }),
+      }),
+)
+api.getJob.mockImplementation(() => new Promise(() => {}))
+api.archiveOutputs.mockImplementation(() => Promise.resolve())
+api.setStarred.mockImplementation(() => Promise.resolve())
+api.outputDownloadUrl.mockImplementation(
+  (name: string) => `/api/gallery/${name}/download`,
+)
 vi.mock('../toast', () => ({
   notify: {
     error: vi.fn(),
@@ -89,9 +91,9 @@ vi.mock('../toast', () => ({
 }))
 
 beforeEach(() => {
-  vi.mocked(api.galleryMetadata).mockClear()
-  vi.mocked(api.archiveOutputs).mockClear()
-  vi.mocked(api.setStarred).mockClear()
+  api.galleryMetadata.mockClear()
+  api.archiveOutputs.mockClear()
+  api.setStarred.mockClear()
   notifyUndo.mockClear()
   history.replaceState(null, '', `${location.pathname}#/ws/w/jobs/j1`)
 })
@@ -152,7 +154,7 @@ it('fetches an .otioz once and renders its timeline strip', async () => {
   })
   await waitFor(() => expect(screen.getByText('opening · 2 s')).toBeTruthy())
   expect(container.querySelector('[role="group"]')).toBeTruthy()
-  const calls = vi.mocked(api.galleryMetadata).mock.calls.map((c) => c[0])
+  const calls = api.galleryMetadata.mock.calls.map((c) => c[0])
   // Linked by recorded source; b.mp4 shares a job file's name but has none
   expect(
     screen.getByRole('link', { name: 'Download media/a.mp4' }),
@@ -367,7 +369,7 @@ it("the star's Undo puts back a star the user did not just add", async () => {
   expect(notifyUndo.mock.calls[0][0]).toBe('Unstarred s3.mp4')
   notifyUndo.mock.calls[0][1]()
   await waitFor(() => expect(api.setStarred).toHaveBeenCalledTimes(2))
-  expect(vi.mocked(api.setStarred).mock.calls[1]).toEqual(['run1/s3.mp4', true])
+  expect(api.setStarred.mock.calls[1]).toEqual(['run1/s3.mp4', true])
 })
 
 it('an open= naming no output is said once the job has finished, and cleared', async () => {

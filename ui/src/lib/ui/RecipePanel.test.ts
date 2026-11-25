@@ -3,31 +3,30 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { createRawSnippet } from 'svelte'
 import RecipePanel from './RecipePanel.svelte'
 import { ApiError } from '../apiErrors'
+import { api } from '../test/apiMock'
 import { ASSET } from '../references'
 import type { GalleryMetadata } from '../types'
 
 const reply = vi.hoisted(() => ({
   meta: null as Record<string, unknown> | null,
 }))
-const galleryMetadata = vi.hoisted(() =>
-  vi.fn((name: string, workspace?: string) => {
-    void name
-    void workspace
-    return Promise.resolve(reply.meta)
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
+const galleryMetadata = api.galleryMetadata
+const getJob = api.getJob
+galleryMetadata.mockImplementation((name: string, workspace?: string) => {
+  void name
+  void workspace
+  return Promise.resolve(reply.meta)
+})
+getJob.mockImplementation((id: string) =>
+  Promise.resolve({
+    id,
+    status: 'succeeded',
+    arguments: { prompt: 'waves at dusk', seed: 7 },
+    workflow: 'clip',
+    workflow_name: 'video/clip',
   }),
 )
-const getJob = vi.hoisted(() =>
-  vi.fn((id: string) =>
-    Promise.resolve({
-      id,
-      status: 'succeeded',
-      arguments: { prompt: 'waves at dusk', seed: 7 },
-      workflow: 'clip',
-      workflow_name: 'video/clip',
-    }),
-  ),
-)
-vi.mock('../api', () => ({ api: { galleryMetadata, getJob } }))
 vi.mock('../changes.svelte', async () => ({
   changes: (await import('../test/feedMock')).feed.changes,
 }))

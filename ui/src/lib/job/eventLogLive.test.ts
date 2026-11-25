@@ -1,14 +1,11 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { tick } from 'svelte'
-import { api } from '../api'
+import { api } from '../test/apiMock'
 import type { EventLogReply, JobEvent } from '../types'
 import EventLogHarness from './EventLogHarness.svelte'
 
-vi.mock('../api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../api')>()),
-  api: { eventLog: vi.fn() },
-}))
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
 
 // A server whose replies the test releases one at a time
 const served: JobEvent[] = []
@@ -33,7 +30,7 @@ beforeEach(() => {
   held = []
   hold = false
   served.push({ seq: 0, event: 'log', message: 'line 0' })
-  vi.mocked(api.eventLog).mockImplementation(async (_id, q = {}) => {
+  api.eventLog.mockImplementation(async (_id, q = {}) => {
     const after = q.after ?? -1
     if (!hold || after < 0) return reply(after)
     // Reads like a request in flight: the reply is what the server held
@@ -46,12 +43,12 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   vi.useRealTimers()
-  vi.mocked(api.eventLog).mockReset()
+  api.eventLog.mockReset()
 })
 
 const add = (seq: number) =>
   served.push({ seq, event: 'log', message: `line ${seq}` })
-const calls = () => vi.mocked(api.eventLog).mock.calls.length
+const calls = () => api.eventLog.mock.calls.length
 const seqs = (c: HTMLElement) =>
   [...c.querySelectorAll('tbody tr')].map(
     (r) => r.querySelector('td')?.textContent,
@@ -197,7 +194,7 @@ describe('EventLog live reads', () => {
   it('collects the closing events when the job ends during the first load', async () => {
     served.push({ seq: 1, event: 'log', message: 'line 1' })
     let release: () => void = () => {}
-    vi.mocked(api.eventLog).mockImplementation(async (_id, q = {}) => {
+    api.eventLog.mockImplementation(async (_id, q = {}) => {
       const out = reply(q.after ?? -1)
       if ((q.after ?? -1) < 0) {
         await new Promise<void>((resolve) => (release = resolve))

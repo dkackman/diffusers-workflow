@@ -9,6 +9,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import RequestsPage from './RequestsPage.svelte'
 import { summary } from '../request/fixtures'
 import { workspace } from '../workspaceState.svelte'
+import { api } from '../test/apiMock'
 import { feed } from '../test/feedMock'
 import { connection } from '../connection.svelte'
 import { formatExact, formatRelative } from '../format'
@@ -19,19 +20,16 @@ const data = vi.hoisted(() => ({
   error: null as Error | null,
   requestsFor: null as ((ws: string) => Promise<unknown>) | null,
 }))
-vi.mock('../api', () => ({
-  api: {
-    listRequests: (ws: string) => {
-      if (data.requestsFor) return data.requestsFor(ws)
-      if (data.error) return Promise.reject(data.error)
-      return Promise.resolve({
-        workspace: 'studio',
-        requests: data.requests,
-        unreadable: data.unreadable,
-      })
-    },
-  },
-}))
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
+api.listRequests.mockImplementation((ws: string) => {
+  if (data.requestsFor) return data.requestsFor(ws)
+  if (data.error) return Promise.reject(data.error)
+  return Promise.resolve({
+    workspace: 'studio',
+    requests: data.requests,
+    unreadable: data.unreadable,
+  })
+})
 
 vi.mock('../changes.svelte', async () => ({
   changes: (await import('../test/feedMock')).feed.changes,

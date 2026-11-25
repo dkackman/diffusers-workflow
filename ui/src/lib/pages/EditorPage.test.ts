@@ -9,7 +9,7 @@ import {
   within,
 } from '@testing-library/svelte'
 import EditorPage from './EditorPage.svelte'
-import { api } from '../api'
+import { api } from '../test/apiMock'
 import { ApiError } from '../apiErrors'
 import { chooseDialog, confirmDialog } from '../confirm.svelte'
 import { changeOnBlur } from '../test/changeOnBlur'
@@ -38,55 +38,52 @@ vi.mock('../changes.svelte', async () => ({
   changes: (await import('../test/feedMock')).feed.changes,
 }))
 
-vi.mock('../api', () => ({
-  api: {
-    saveWorkflow: vi.fn().mockResolvedValue({ saved: {}, etag: '"e2"' }),
-    submitJob: vi.fn().mockResolvedValue({ id: 'job-1' }),
-    listPipelines: vi.fn().mockResolvedValue({ pipelines: [] }),
-    listClasses: vi.fn().mockResolvedValue({ classes: [] }),
-    listTasks: vi.fn().mockResolvedValue({
-      commands: [],
-      image_processors: [],
-      video_processors: [],
-    }),
-    listWorkflows: vi.fn().mockResolvedValue({
-      workflows: [],
-      libraries: [{ origin: 'workspace', root: 'workflows', writable: true }],
-      shadowed: [],
-    }),
-    getWorkflow: vi.fn().mockResolvedValue({
-      definition: { id: 'ZImage', steps: [{ name: 'generate', pipeline: {} }] },
-      origin: 'workspace',
-      writable: true,
-      etag: '"e1"',
-    }),
-    listPrompts: vi.fn().mockResolvedValue({ prompts: [], details: {} }),
-    listWorkspaces: vi.fn().mockResolvedValue({
-      workspaces: [{ name: 'default' }, { name: 'studio' }],
-      workspace_root: '/w',
-    }),
-    validate: vi.fn().mockResolvedValue({
-      valid: true,
-      error: null,
-      errors: [],
-      warnings: [],
-      plan: {
-        fingerprint: 'sha256:abc',
-        steps: 3,
-        list_entries: { shots: 2 },
-        cached_steps: 0,
-        downloads_required: [{ repo: 'org/model', gb: 41.2 }],
-        estimate: {
-          minutes: 12,
-          basis: 'catalog',
-          device: 'cuda',
-          measured_on: 'card',
-          partial: false,
-        },
-      },
-    }),
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
+api.saveWorkflow.mockResolvedValue({ saved: {}, etag: '"e2"' })
+api.submitJob.mockResolvedValue({ id: 'job-1' })
+api.listPipelines.mockResolvedValue({ pipelines: [] })
+api.listClasses.mockResolvedValue({ classes: [] })
+api.listTasks.mockResolvedValue({
+  commands: [],
+  image_processors: [],
+  video_processors: [],
+})
+api.listWorkflows.mockResolvedValue({
+  workflows: [],
+  libraries: [{ origin: 'workspace', root: 'workflows', writable: true }],
+  shadowed: [],
+})
+api.getWorkflow.mockResolvedValue({
+  definition: { id: 'ZImage', steps: [{ name: 'generate', pipeline: {} }] },
+  origin: 'workspace',
+  writable: true,
+  etag: '"e1"',
+})
+api.listPrompts.mockResolvedValue({ prompts: [], details: {} })
+api.listWorkspaces.mockResolvedValue({
+  workspaces: [{ name: 'default' }, { name: 'studio' }],
+  workspace_root: '/w',
+})
+api.validate.mockResolvedValue({
+  valid: true,
+  error: null,
+  errors: [],
+  warnings: [],
+  plan: {
+    fingerprint: 'sha256:abc',
+    steps: 3,
+    list_entries: { shots: 2 },
+    cached_steps: 0,
+    downloads_required: [{ repo: 'org/model', gb: 41.2 }],
+    estimate: {
+      minutes: 12,
+      basis: 'catalog',
+      device: 'cuda',
+      measured_on: 'card',
+      partial: false,
+    },
   },
-}))
+})
 
 afterEach(() => {
   cleanup()

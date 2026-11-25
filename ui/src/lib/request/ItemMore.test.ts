@@ -8,14 +8,16 @@ import {
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import ItemMore from './ItemMore.svelte'
 import { moreId, planState } from './itemState'
+import { api } from '../test/apiMock'
 import { attempt, doneItem, item, request } from './fixtures'
 import type { LedgerItem, LedgerNoteRef, LedgerRequest } from '../types'
 
-const api = vi.hoisted(() => ({
-  addNote: vi.fn(),
-  notesChannel: vi.fn(async () => ({ listening: false, last_seen: null })),
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
+api.addNote.mockReturnValue(undefined)
+api.notesChannel.mockImplementation(async () => ({
+  listening: false,
+  last_seen: null,
 }))
-vi.mock('../api', () => ({ api }))
 vi.mock('../confirm.svelte', () => ({ confirmDialog: vi.fn() }))
 vi.mock('../toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
 

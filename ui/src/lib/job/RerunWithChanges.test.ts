@@ -7,23 +7,14 @@ import {
 } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import RerunWithChanges from './RerunWithChanges.svelte'
-import { ApiError, api } from '../api'
+import { ApiError } from '../api'
+import { api } from '../test/apiMock'
 import { go } from '../router.svelte'
 import type { JobDetail } from '../types'
 
-vi.mock('../api', async (original) => {
-  const real = await original<typeof import('../api')>()
-  return {
-    ApiError: real.ApiError,
-    api: {
-      rerunJob: vi.fn(),
-      getWorkflow: vi.fn(),
-      listWorkflows: vi.fn(),
-      listAssets: vi.fn(() => new Promise(() => {})),
-      gallery: vi.fn(() => new Promise(() => {})),
-    },
-  }
-})
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
+api.listAssets.mockImplementation(() => new Promise(() => {}))
+api.gallery.mockImplementation(() => new Promise(() => {}))
 vi.mock('../router.svelte', () => ({ go: vi.fn() }))
 vi.mock('../toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
 
@@ -49,17 +40,17 @@ const presets = {
 }
 
 beforeEach(() => {
-  vi.mocked(api.rerunJob).mockReset()
-  vi.mocked(api.rerunJob).mockResolvedValue({ id: 'next' } as JobDetail)
-  vi.mocked(api.getWorkflow).mockReset()
-  vi.mocked(api.getWorkflow).mockResolvedValue({
+  api.rerunJob.mockReset()
+  api.rerunJob.mockResolvedValue({ id: 'next' } as JobDetail)
+  api.getWorkflow.mockReset()
+  api.getWorkflow.mockResolvedValue({
     definition: { variables: declared, presets } as never,
     origin: 'workspace',
     writable: true,
     etag: null,
   })
-  vi.mocked(api.listWorkflows).mockReset()
-  vi.mocked(api.listWorkflows).mockResolvedValue({ details: {} } as never)
+  api.listWorkflows.mockReset()
+  api.listWorkflows.mockResolvedValue({ details: {} } as never)
   vi.mocked(go).mockReset()
 })
 afterEach(cleanup)
@@ -160,7 +151,7 @@ it('sends nothing when the only typed value equals the run', async () => {
 })
 
 it('shows a server refusal in the modal and stays open', async () => {
-  vi.mocked(api.rerunJob).mockRejectedValue(
+  api.rerunJob.mockRejectedValue(
     new ApiError("Unknown preset value 'giant' for size", 400),
   )
   render(RerunWithChanges, { job: job(), declared })
@@ -217,7 +208,7 @@ it('offers none for a selector the run does not declare', async () => {
 })
 
 it('offers none when the workflow cannot be fetched by name', async () => {
-  vi.mocked(api.getWorkflow).mockRejectedValue(new ApiError('not found', 404))
+  api.getWorkflow.mockRejectedValue(new ApiError('not found', 404))
   render(RerunWithChanges, { job: job(), declared })
   await waitFor(() => expect(api.getWorkflow).toHaveBeenCalled())
   await Promise.resolve()
@@ -245,7 +236,7 @@ it('notes explicit arguments the bundle would set', async () => {
 })
 
 it('an image variable can be swapped through the picker', async () => {
-  vi.mocked(api.listWorkflows).mockResolvedValue({
+  api.listWorkflows.mockResolvedValue({
     workflows: [],
     details: { tiny: { inputs: { image: 'image' } } },
     libraries: [],
