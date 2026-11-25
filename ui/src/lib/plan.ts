@@ -126,21 +126,27 @@ function figure(
     : { text: `${text}${forCard}`, tone: line.tone }
 }
 
+/** The card the run dispatches to when it says more than the backend, else
+ * nothing. */
+function pricedCard(estimate: Plan['estimate']): string {
+  const { priced_for, device } = estimate
+  return priced_for && priced_for !== device ? priced_for : ''
+}
+
 /** ` - for <card>` when the card the run dispatches to says more than the
  * backend, else nothing. */
 function dispatchCard(estimate: Plan['estimate']): string {
-  const { priced_for, device } = estimate
-  return priced_for && priced_for !== device ? ` - for ${priced_for}` : ''
+  const card = pricedCard(estimate)
+  return card ? ` - for ${card}` : ''
 }
 
 function rawFigure(
   estimate: PlanEstimate,
   listEntries: Plan['list_entries'],
 ): PlanLine {
-  const { minutes, basis, device, priced_for } = estimate
+  const { minutes, basis, device } = estimate
   if (basis === 'unknown' || minutes === null) return unpriced(estimate)
-  // the card the run dispatches to, when it says more than the backend
-  const on = priced_for && priced_for !== device ? priced_for : device
+  const on = pricedCard(estimate) || device
   const { card, along, missing } = qualifiers(estimate)
   if (basis === 'other_device') {
     return {
