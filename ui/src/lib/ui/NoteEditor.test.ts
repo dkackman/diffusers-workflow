@@ -12,6 +12,9 @@ import { ApiError } from '../apiErrors'
 import { confirmDialog } from '../confirm.svelte'
 import { notify } from '../toast'
 import NoteEditor from './NoteEditor.svelte'
+import { quiet, useQuietClock } from '../test/quiet'
+
+useQuietClock()
 
 vi.mock('../confirm.svelte', () => ({ confirmDialog: vi.fn() }))
 
@@ -269,7 +272,7 @@ describe('NoteEditor', () => {
       // the user picks another file while the question is up
       await view.rerender({ note: 'other', target: 'u', label: 'Run note' })
       answer(true)
-      await new Promise((r) => setTimeout(r, 0))
+      await quiet()
       expect(spy).not.toHaveBeenCalled()
     })
 
@@ -524,7 +527,6 @@ describe('NoteEditor', () => {
       })
       return view
     }
-    const settle = () => new Promise((r) => setTimeout(r, 0))
 
     it('a note not written yet saves with the etag of an empty one', async () => {
       holds(null)
@@ -552,7 +554,7 @@ describe('NoteEditor', () => {
       // the user picks another file while the read is out; both show no note
       await view.rerender({ ...at, target: 'u' })
       for (const read of reads) read()
-      await settle()
+      await quiet()
       expect(spy).not.toHaveBeenCalled()
       expect(sessionStorage.getItem('note:studio:u')).toBe('u draft')
       expect(sessionStorage.getItem('note:studio:t')).toBe('mine')
@@ -573,14 +575,14 @@ describe('NoteEditor', () => {
       const onsaved = vi.fn()
       const view = await typedOnT()
       await view.rerender({ ...at, target: 't', onsaved })
-      await settle()
+      await quiet()
       await fireEvent.click(screen.getByRole('button', { name: /^save/i }))
       await waitFor(() =>
         expect(spy).toHaveBeenCalledWith('t', 'mine', 'studio', 'e:'),
       )
       await view.rerender({ ...at, target: 'u', onsaved })
       land()
-      await settle()
+      await quiet()
       expect(spy).toHaveBeenCalledTimes(1)
       expect(onsaved).not.toHaveBeenCalled()
       expect(sessionStorage.getItem('note:studio:u')).toBe('u draft')

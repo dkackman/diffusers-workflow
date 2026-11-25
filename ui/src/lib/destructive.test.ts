@@ -8,6 +8,9 @@ import {
   undoToast,
   workspaceConfirm,
 } from './destructive'
+import { quiet, useQuietClock } from './test/quiet'
+
+useQuietClock()
 
 const notify = vi.hoisted(() => ({
   undo: vi.fn(),
@@ -135,7 +138,7 @@ it('an undo runs at most once: a second click on its fading toast does nothing',
   press()
   press()
   await vi.waitFor(() => expect(revert).toHaveBeenCalledTimes(1))
-  await new Promise((r) => setTimeout(r, 0))
+  await quiet()
   expect(revert).toHaveBeenCalledTimes(1)
 })
 
@@ -147,7 +150,7 @@ it('an undo is refused, with a notice, once its target is no longer open', async
   undoToast('Removed step b', revert, target)
   open = 'b'
   notify.undo.mock.calls[0][1]()
-  await new Promise((r) => setTimeout(r, 0))
+  await quiet()
   expect(revert).not.toHaveBeenCalled()
   expect(notify.error).toHaveBeenCalledWith('Nothing undone: elsewhere.')
 
