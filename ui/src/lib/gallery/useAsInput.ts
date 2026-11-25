@@ -5,7 +5,7 @@ import { WORKFLOW_PREFILL_KEY } from '../chainActions'
 import { mediaKindByName, type MediaKind } from '../mediaArguments'
 import { compareNames } from '../names'
 import { OUTPUT, reference } from '../references'
-import { go } from '../router.svelte'
+import { goCarrying } from '../router.svelte'
 import type { WorkflowCard } from '../types'
 import { workspace } from '../workspace.svelte'
 
@@ -30,12 +30,13 @@ export function inputTargets(
 
 /** Open the workflow's page with `file` in its media variable */
 export function useAsInput(target: InputTarget, file: string): void {
-  sessionStorage.setItem(
-    WORKFLOW_PREFILL_KEY,
-    JSON.stringify({
-      workflow: target.workflow,
-      arguments: { [target.variable]: reference(OUTPUT, file) },
-    }),
+  goCarrying(
+    ['ws', workspace.current, 'workflows', ...target.workflow.split('/')],
+    {
+      [WORKFLOW_PREFILL_KEY]: JSON.stringify({
+        workflow: target.workflow,
+        arguments: { [target.variable]: reference(OUTPUT, file) },
+      }),
+    },
   )
-  go('ws', workspace.current, 'workflows', ...target.workflow.split('/'))
 }

@@ -10,6 +10,7 @@ import {
 } from '@testing-library/svelte'
 import PromptEditorPage from './PromptEditorPage.svelte'
 import { api } from '../test/apiMock'
+import { route } from '../router.svelte'
 import { ApiError } from '../apiErrors'
 import { chooseDialog, confirmDialog } from '../confirm.svelte'
 import { feed } from '../test/feedMock'
@@ -546,4 +547,28 @@ it('the delete button is the danger one', async () => {
     name: 'delete this prompt from the library',
   })
   expect(trash.classList.contains('danger')).toBe(true)
+})
+
+it('a declined leave takes the duplicate hand-off back', async () => {
+  location.hash = '#/shared/prompt-edit/portraits/hero'
+  // the router has heard it before anything is edited
+  await waitFor(() =>
+    expect(`#/${route.parts.join('/')}`).toBe(
+      '#/shared/prompt-edit/portraits/hero',
+    ),
+  )
+  await openHero()
+  await fireEvent.input(promptText(), { target: { value: 'a hero at dusk' } })
+  vi.mocked(confirmDialog).mockClear().mockResolvedValueOnce(false)
+
+  await fireEvent.click(screen.getByRole('button', { name: /duplicate/i }))
+
+  await waitFor(() =>
+    expect(location.hash).toBe('#/shared/prompt-edit/portraits/hero'),
+  )
+  await waitFor(() =>
+    expect(Object.keys(sessionStorage)).toEqual(['dw-scrolls']),
+  )
+  expect(confirmDialog).toHaveBeenCalledTimes(1)
+  expect(promptText().value).toBe('a hero at dusk')
 })

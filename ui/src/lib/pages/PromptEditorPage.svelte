@@ -32,7 +32,7 @@
   import PageHeader from '../ui/PageHeader.svelte'
   import { writableRoot } from '../libraries'
   import DownloadLink from '../DownloadLink.svelte'
-  import { go } from '../router.svelte'
+  import { go, goCarrying } from '../router.svelte'
   import { SECTION_LABELS, sharedHref } from '../routes'
   import { notify } from '../toast'
   import { action } from '../action.svelte'
@@ -246,13 +246,12 @@
   }
 
   function duplicate() {
-    sessionStorage.setItem(
-      'dw-prompt-editor-import',
-      JSON.stringify($state.snapshot(shell.doc)),
-    )
+    const handOff: Record<string, string> = {
+      'dw-prompt-editor-import': JSON.stringify($state.snapshot(shell.doc)),
+    }
     if (shell.folder && shell.folder !== NEW_FOLDER)
-      sessionStorage.setItem('dw-prompt-editor-folder', shell.folder)
-    go('shared', 'prompt-edit')
+      handOff['dw-prompt-editor-folder'] = shell.folder
+    goCarrying(['shared', 'prompt-edit'], handOff)
   }
 </script>
 

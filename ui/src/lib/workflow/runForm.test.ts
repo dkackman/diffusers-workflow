@@ -92,6 +92,17 @@ describe('drafts', () => {
 })
 
 describe('a prefill is not a draft', () => {
+  it("leaves another workflow's prefill for the workflow it names", () => {
+    sessionStorage.setItem(
+      'dw-workflow-prefill',
+      JSON.stringify({ workflow: 'y', arguments: { b: 2 } }),
+    )
+    const wf = { id: 'x', variables: { b: 0 } } as WorkflowDefinition
+    expect(openingValues('w', 'x', wf).prefill).toEqual({})
+    expect(openingValues('w', 'y', wf).prefill).toEqual({ b: '2' })
+    expect(sessionStorage.getItem('dw-workflow-prefill')).toBeNull()
+  })
+
   it('opening reports the prefill apart from the draft', () => {
     writeDraft(draftKey('w', 'x'), { a: 'typed' })
     sessionStorage.setItem(

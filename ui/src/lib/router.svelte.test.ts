@@ -197,6 +197,36 @@ it('awaits an async guard', async () => {
   expect(route.view).toMatchObject({ rest: ['j1'] })
 })
 
+it('a hand-off is dropped when a guard declines the navigation', async () => {
+  const { addLeaveGuard, goCarrying } = await loadRouter()
+  await flush()
+  addLeaveGuard(() => false)
+  await nav(() => goCarrying(['shared', 'prompt-edit'], { handed: '1' }), 2)
+  expect(sessionStorage.getItem('handed')).toBeNull()
+})
+
+it('a hand-off stays for the destination when a guard allows it', async () => {
+  const { addLeaveGuard, goCarrying } = await loadRouter()
+  await flush()
+  addLeaveGuard(() => true)
+  await nav(() => goCarrying(['shared', 'prompt-edit'], { handed: '1' }))
+  expect(sessionStorage.getItem('handed')).toBe('1')
+})
+
+it('an unguarded hand-off asks no guard, for its own target only', async () => {
+  const { route, addLeaveGuard, goCarrying } = await loadRouter()
+  await flush()
+  const guard = vi.fn(() => false)
+  addLeaveGuard(guard)
+  await nav(() =>
+    goCarrying(['ws', 'studio', 'edit'], { handed: '1' }, { unguarded: true }),
+  )
+  expect(guard).not.toHaveBeenCalled()
+  expect(route.view).toMatchObject({ workspace: 'studio' })
+  await go('#/ws/studio/jobs', 2)
+  expect(guard).toHaveBeenCalledTimes(1)
+})
+
 // real history: a declined navigation leaves no duplicate or rewritten entry
 
 it('a declined link click undoes its push and Back/Forward still work', async () => {
