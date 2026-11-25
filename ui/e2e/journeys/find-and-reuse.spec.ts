@@ -158,7 +158,20 @@ test('find a file, read what made it, and reuse it', async ({
     .toHaveLength(1)
   await expect(page.getByText('Nothing to compare yet.')).toBeVisible()
 
-  // 8. The Overview's recent tile opens the file in the Gallery's viewer
+  // 8. The Overview's recent tile opens the file in the Gallery's viewer.
+  // The row holds the newest files, and what ran before this decides which
+  // those are: the real listing is served with the lighthouse first
+  await page.route(
+    (url) => url.pathname === '/api/gallery',
+    async (route) => {
+      const response = await route.fetch()
+      const body: { files: { name: string }[] } = await response.json()
+      body.files.sort(
+        (a, b) => Number(b.name === LIGHTHOUSE) - Number(a.name === LIGHTHOUSE),
+      )
+      await route.fulfill({ response, json: body })
+    },
+  )
   await page.goto('/#/ws/default/overview')
   await page.getByRole('link', { name: 'lighthouse.png', exact: true }).click()
   await expect(page).toHaveURL(/gallery/)
