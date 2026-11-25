@@ -176,14 +176,18 @@ it('an Undo the store gives up on says the plan changed, not a raw error', async
   expect(notify.failure).not.toHaveBeenCalled()
 })
 
-/** The agent abandons the request after the page marked it done */
+/** The agent abandons the request after the page marked it done: its
+ * entry names the state it set, as the server's does */
 function agentAbandons(ledger: ReturnType<typeof fakeLedger>) {
   const revision = ledger.current.revision + 1
   ledger.current = {
     ...ledger.current,
     state: 'abandoned',
     revision,
-    history: [...ledger.current.history, entry(revision, 'agent', 'abandoned')],
+    history: [
+      ...ledger.current.history,
+      entry(revision, 'agent', 'abandoned', { state: 'abandoned' }),
+    ],
   }
 }
 

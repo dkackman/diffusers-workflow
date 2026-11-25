@@ -867,6 +867,26 @@ describe('data changed underneath the page', () => {
     expect(box.value).toBe('my third pass')
   })
 
+  it('a resolved note does not say it was updated', async () => {
+    noted('second pass')
+    render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(screen.getByText('second pass')).toBeTruthy())
+    await fireEvent.click(screen.getByRole('button', { name: /edit note/i }))
+    await fireEvent.input(screen.getByRole('textbox'), {
+      target: { value: 'my third pass' },
+    })
+    noted('from the agent')
+    await moved('gallery')
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Keep mine' }),
+    )
+    await fireEvent.click(screen.getByRole('button', { name: /^save/i }))
+    await waitFor(() => expect(screen.queryByRole('textbox')).toBeNull())
+    await waitFor(() => expect(screen.getByText('my third pass')).toBeTruthy())
+    // The box answered that change: the page does not raise it again
+    expect(notice()).toBeNull()
+  })
+
   it("the page's own note save says nothing", async () => {
     noted('second pass')
     render(JobPage, { jobId: 'j1' })

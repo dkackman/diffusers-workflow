@@ -943,6 +943,26 @@ it('starring offers Undo, which unstars', async () => {
   ).toBeTruthy()
 })
 
+it("a star Undo leaves another writer's star", async () => {
+  await renderGallery()
+  await openFile('a.png')
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Star', pressed: false }),
+  )
+  await waitFor(() => expect(notifyUndo).toHaveBeenCalledTimes(1))
+  await waitFor(() => expect(starMark('a.png')).toBeTruthy())
+  // Unstarred elsewhere since: the listing that lands says so
+  feed.move(DEFAULT_WORKSPACE, 'gallery')
+  await waitFor(() => expect(starMark('a.png')).toBeNull())
+  notifyUndo.mock.calls[0][1]()
+  await waitFor(() =>
+    expect(notifyError).toHaveBeenCalledWith(
+      'Nothing undone: the star was changed since.',
+    ),
+  )
+  expect(setStarred).toHaveBeenCalledTimes(1)
+})
+
 it('an undo that fails is reported, not thrown', async () => {
   listing.files = [{ ...file('a.png'), starred: true }, file('b.png')]
   await renderGallery()

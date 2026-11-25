@@ -4,6 +4,9 @@ import { describeError } from './apiErrors'
 import type { UndoTarget } from './destructive'
 import { notify } from './toast'
 
+/** A star Undo over files whose star someone else changed meanwhile */
+export const STAR_CHANGED = 'Nothing undone: the star was changed since.'
+
 /** A tick-the-grid selection, for a contact sheet with bulk actions.
  *
  * The gallery and the assets page run the same selection: click a checkbox
@@ -65,8 +68,9 @@ export class Picks {
    * per click (the handle's action drops a double click). Failures are one
    * toast naming the files. The Undo puts each file back as `was` read it
    * before, not to `!next` - a mixed selection has files on both sides -
-   * and only the files that were set, and only in the place it was made
-   * (`target`). With nothing set, no Undo is offered. */
+   * and only the files that were set and whose star `was` still reads as
+   * this set it (another writer's star is left), and only in the place it
+   * was made (`target`). With nothing set, no Undo is offered. */
   star(
     set: (name: string, next: boolean) => Promise<unknown>,
     noun: string,
@@ -88,15 +92,8 @@ export class Picks {
         const before = Object.fromEntries(
           picked.map((name) => [name, was(name)]),
         )
-        const failures = await actOnEach(picked, (name) => put(name, next))
-        reportFailures(
-          next ? 'star' : 'unstar',
-          failures,
-          picked.length,
-          files(picked.length),
-        )
-        const bad = failures.map((f) => f.name)
-        const done = picked.filter((name) => !bad.includes(name))
+        const verb = next ? 'star' : 'unstar'
+        const done = await setEach(picked, () => next, put, verb, files)
         return done.length ? { done, next, before } : null
       },
       {
@@ -104,15 +101,10 @@ export class Picks {
         undo: ({ done, next, before }) => ({
           message: `${next ? 'Starred' : 'Unstarred'} ${done.length} ${files(done.length)}`,
           revert: async () => {
-            const failures = await actOnEach(done, (name) =>
-              put(name, before[name] ?? !next),
-            )
-            reportFailures(
-              'put back',
-              failures,
-              done.length,
-              files(done.length),
-            )
+            const still = done.filter((name) => was(name) === next)
+            if (!still.length) return notify.error(STAR_CHANGED)
+            const back = (name: string) => before[name] ?? !next
+            await setEach(still, back, put, 'put back', files)
           },
           target: opts.target,
         }),
@@ -206,6 +198,21 @@ export async function actOnEach(
     }
   }
   return failed
+}
+
+/** Set each of `names` to `value(name)` through `put`, with one toast
+ * naming what would not go (`verb`); the names that were set */
+async function setEach(
+  names: string[],
+  value: (name: string) => boolean,
+  put: (name: string, next: boolean) => Promise<void>,
+  verb: string,
+  files: (n: number) => string,
+): Promise<string[]> {
+  const failures = await actOnEach(names, (name) => put(name, value(name)))
+  reportFailures(verb, failures, names.length, files(names.length))
+  const bad = failures.map((f) => f.name)
+  return names.filter((name) => !bad.includes(name))
 }
 
 /** One toast for a bulk action's failures, as a single one would say it:

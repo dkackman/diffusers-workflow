@@ -14,7 +14,13 @@
   import LoadState from '../ui/LoadState.svelte'
   import FolderGroups from '../FolderGroups.svelte'
   import BulkBar from '../BulkBar.svelte'
-  import { Picks, actOnEach, reportFailures } from '../picks.svelte'
+  import {
+    Picks,
+    STAR_CHANGED,
+    actOnEach,
+    reportFailures,
+  } from '../picks.svelte'
+  import { notify } from '../toast'
   import { overlayOpen } from '../ui/layers.svelte'
   import { action } from '../action.svelte'
   import { askDeletion, fileConfirm } from '../gallery/deletion'
@@ -187,7 +193,8 @@
     inGroupOrder(visible, groups, (g) => !filterActive && collapsed.has(g)),
   )
   // A star is undone, not asked about: held here at once (`patch`), as is
-  // the Undo that takes it back
+  // the Undo that takes it back - unless the listing says another writer
+  // changed the star since, which the Undo leaves
   async function setStar(name: string, next: boolean) {
     await api.setStarred(name, next)
     patch(name, { starred: next })
@@ -202,12 +209,17 @@
     doing: 'star that file',
     undo: ({ name, next }) => ({
       message: `${next ? 'Starred' : 'Unstarred'} ${name.split('/').pop()}`,
-      revert: () => setStar(name, !next),
+      revert: async () => {
+        if (!!byName.get(name)?.starred !== next)
+          return notify.error(STAR_CHANGED)
+        return setStar(name, !next)
+      },
       target: STAR_TARGET,
     }),
   })
-  const byName = $derived(new Map(visible.map((f) => [f.name, f])))
-  // Each pick's star as the grid holds it, so Undo restores each as it was
+  // Every file's star as the grid holds it, a filter's hidden ones
+  // included: Undo restores each as it was, and leaves one changed since
+  const byName = $derived(new Map(files.map((f) => [f.name, f])))
   const starringPicked = picks.star(api.setStarred, 'file', {
     was: (name) => !!byName.get(name)?.starred,
     applied: (name, next) => patch(name, { starred: next }),

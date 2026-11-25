@@ -9,7 +9,7 @@ import { ApiError } from '../apiErrors'
 import type { RequestWriteBody } from '../apiRequest'
 import type { UndoTarget } from '../destructive'
 import type { LedgerItem, LedgerRequest } from '../types'
-import { culprit, itemDiff, type Conflict } from './conflict'
+import { culprit, itemDiff, stateCulprit, type Conflict } from './conflict'
 import {
   apply,
   fold,
@@ -315,8 +315,11 @@ export class PlanStore {
       key,
       title: entry.seen?.title ?? key ?? 'this request',
       // A state moved on may have been read before this write was asked
-      // for: the latest write names it, not only a later one
-      entry: culprit(basis.history, refusal === 'moved_on' ? 0 : entry.since),
+      // for: the write that set the state names it, however long ago
+      entry:
+        refusal === 'moved_on'
+          ? stateCulprit(basis.history)
+          : culprit(basis.history, entry.since),
       changes,
     }
     this.conflicts = [...this.conflicts, conflict]

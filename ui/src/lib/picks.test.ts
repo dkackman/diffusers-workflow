@@ -191,3 +191,38 @@ it('a star that fails for some names them and undoes only the rest', async () =>
     expect(undo).toHaveBeenCalledWith('Starred 1 file', expect.any(Function)),
   )
 })
+
+it("a star Undo leaves another writer's star", async () => {
+  const picks = picksOver('a', 'b')
+  const held: Record<string, boolean> = { a: false, b: false }
+  const set = vi.fn((name: string, next: boolean) => {
+    held[name] = next
+    return Promise.resolve()
+  })
+  const notifyMod = (await import('./toast')).notify
+  const error = vi.spyOn(notifyMod, 'error').mockImplementation(() => {})
+  const undo = vi.spyOn(notifyMod, 'undo').mockImplementation(() => {})
+  picks.selectAll()
+  picks.star(set, 'file', { was: (n) => held[n] }).run(true)
+  await vi.waitFor(() => expect(undo).toHaveBeenCalledTimes(1))
+  // Someone else unstarred b since: the Undo puts back only a
+  held.b = false
+  ;(undo.mock.calls[0][1] as () => void)()
+  await vi.waitFor(() => expect(held.a).toBe(false))
+  await new Promise((r) => setTimeout(r, 0))
+  expect(set.mock.calls.slice(2)).toEqual([['a', false]])
+  expect(error).not.toHaveBeenCalled()
+  // Both changed since: nothing is written, and the toast says why
+  undo.mockClear()
+  picks.star(set, 'file', { was: (n) => held[n] }).run(true)
+  await vi.waitFor(() => expect(undo).toHaveBeenCalledTimes(1))
+  held.a = false
+  held.b = false
+  ;(undo.mock.calls[0][1] as () => void)()
+  await vi.waitFor(() =>
+    expect(error).toHaveBeenCalledWith(
+      'Nothing undone: the star was changed since.',
+    ),
+  )
+  expect(set).toHaveBeenCalledTimes(5)
+})

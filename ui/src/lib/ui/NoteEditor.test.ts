@@ -368,6 +368,21 @@ describe('NoteEditor', () => {
       )
     })
 
+    it('Cancel waits for the Replace question', async () => {
+      let answer!: (yes: boolean) => void
+      vi.mocked(confirmDialog).mockReturnValue(
+        new Promise((resolve) => (answer = resolve)),
+      )
+      vi.spyOn(api, 'setNote').mockResolvedValue(stored)
+      await overtaken()
+      await fireEvent.click(screen.getByRole('button', { name: /^save/i }))
+      const cancel = screen.getByRole('button', { name: 'Cancel' })
+      // No discard question stacks on the Replace one
+      expect(cancel).toHaveProperty('disabled', true)
+      answer(false)
+      await waitFor(() => expect(cancel).toHaveProperty('disabled', false))
+    })
+
     it('a note that has not changed saves without asking', async () => {
       vi.spyOn(api, 'setNote').mockResolvedValue(stored)
       render(NoteEditor, { props: { note: 'old', target: 't' } })
@@ -421,6 +436,32 @@ describe('NoteEditor', () => {
       expect(sessionStorage.getItem('note:studio:wf/r/a.png')).toBe(
         'half a thought',
       )
+    })
+
+    it('a resumed draft over a newer note asks', async () => {
+      const spy = vi.spyOn(api, 'setNote')
+      const props = { note: 'old', target: 't', workspace: 'studio' }
+      const first = await typed('mine', props)
+      first.unmount()
+      // An agent writes a newer note before the page comes back
+      holds('agent wrote this')
+      render(NoteEditor, { props: { ...props, note: 'agent wrote this' } })
+      await fireEvent.click(screen.getByRole('button', { name: /edit note/i }))
+      expect(
+        screen.getByText(
+          'Note changed while you were editing, in another tab or by an agent',
+        ),
+      ).toBeTruthy()
+      expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe(
+        'mine',
+      )
+      vi.mocked(confirmDialog).mockResolvedValue(false)
+      await fireEvent.click(screen.getByRole('button', { name: /^save/i }))
+      expect(confirmDialog).toHaveBeenCalledWith(
+        'Note changed while you were editing. Replace it with yours?',
+        { confirmLabel: 'Replace', cancelLabel: 'Keep editing', danger: true },
+      )
+      expect(spy).not.toHaveBeenCalled()
     })
 
     it('Escape closes the box and keeps the draft', async () => {

@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { culprit, itemDiff } from './conflict'
+import { culprit, itemDiff, stateCulprit } from './conflict'
 import { attempt, entry, item } from './fixtures'
 
 it('says what changed about an item on the fields a decision rests on', () => {
@@ -54,4 +54,17 @@ it("names the agent's latest write since, or failing that the latest of any", ()
   expect(culprit(history, 5)).toBeNull()
   // up to, not including, the page's own write
   expect(culprit(history, 3, 4)).toBeNull()
+})
+
+it('moved_on names the write that moved the item', () => {
+  const history = [
+    entry(3, 'user', 'marked done', { state: 'done' }),
+    entry(4, 'agent', 'abandoned', { state: 'abandoned' }),
+    // The agent's latest write is not the one that moved the state
+    entry(5, 'agent', 'added shot 7'),
+    entry(6, 'user', 'comment on a'),
+  ]
+  expect(stateCulprit(history)?.why).toBe('abandoned')
+  // A history that no longer holds the write names none, never a guess
+  expect(stateCulprit(history.slice(2))).toBeNull()
 })

@@ -53,6 +53,16 @@ export function culprit(
   return later.findLast((e) => e.by === 'agent') ?? later.at(-1) ?? null
 }
 
+/** The write to name for a state that moved on (`moved_on`): the newest
+ * whose diff names the request's state - the one that set it as it is -
+ * whoever wrote later. Null when the history no longer holds it, rather
+ * than a write that did not move it */
+export function stateCulprit(
+  history: LedgerHistoryEntry[],
+): LedgerHistoryEntry | null {
+  return history.findLast((e) => e.state != null) ?? null
+}
+
 const who = (entry: LedgerHistoryEntry | null) =>
   entry?.by === 'agent' ? 'the agent' : 'another edit'
 const cite = (entry: LedgerHistoryEntry | null) =>

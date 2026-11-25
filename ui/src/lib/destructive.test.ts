@@ -156,6 +156,22 @@ it('an undo is refused, with a notice, once its target is no longer open', async
   await vi.waitFor(() => expect(revert).toHaveBeenCalledTimes(1))
 })
 
+it('a revert that waits asks again whether its target is still open', async () => {
+  notify.undo.mockClear()
+  notify.error.mockClear()
+  let open = 'a'
+  let ready: (() => boolean) | undefined
+  const target = { now: () => open, away: 'Nothing undone: elsewhere.' }
+  undoToast('Removed step b', (r) => void (ready = r), target)
+  notify.undo.mock.calls[0][1]()
+  await vi.waitFor(() => expect(ready).toBeDefined())
+  expect(ready!()).toBe(true)
+  // The revert's wait is over, and another target is open by then
+  open = 'b'
+  expect(ready!()).toBe(false)
+  expect(notify.error).toHaveBeenCalledWith('Nothing undone: elsewhere.')
+})
+
 it('an undo toast given an id is shown under it, for the caller to dismiss', () => {
   notify.undo.mockClear()
   undoToast('Dropped Shot 3', vi.fn(), undefined, 'request-undo-1')

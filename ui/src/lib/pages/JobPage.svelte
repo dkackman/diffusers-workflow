@@ -2,7 +2,7 @@
   import { Braces } from '@lucide/svelte'
   import { TERMINAL_STATUSES, api } from '../api'
   import { untrack } from 'svelte'
-  import { resource } from '../resource.svelte'
+  import { CHANGED_MARK_MS, resource } from '../resource.svelte'
   import { followJob, jobRecord } from '../job/followJob.svelte'
   import LoadState from '../ui/LoadState.svelte'
   import { replaceRoute, route } from '../router.svelte'
@@ -96,7 +96,19 @@
   // The run note's box is open: its own notice says a newer note, so the
   // page's line would be a second, and a wrong one (the box did not move)
   let noteEditing = $state(false)
-  const noteMoved = $derived(record.changed.has('note') && !noteEditing)
+  // Keep mine or Use theirs answered the change in the box: the line stays
+  // down for the rest of the change's mark, after the box closes too
+  let noteResolvedAt = $state<number | null>(null)
+  function noteResolved() {
+    const at = Date.now()
+    noteResolvedAt = at
+    setTimeout(() => {
+      if (noteResolvedAt === at) noteResolvedAt = null
+    }, CHANGED_MARK_MS)
+  }
+  const noteMoved = $derived(
+    record.changed.has('note') && !noteEditing && noteResolvedAt === null,
+  )
   const definition = $derived<Record<string, any> | null>(
     ran?.definition ?? null,
   )
@@ -406,6 +418,7 @@
           workspace={job.workspace}
           label="Your note on this job"
           bind:editing={noteEditing}
+          onresolved={noteResolved}
           onsaved={(note) =>
             job && record.adopt({ ...job, note: note ?? undefined })}
         />
