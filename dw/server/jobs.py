@@ -16,12 +16,13 @@ the identity changes. A cache probe and a plan's estimate ask about the card
 `route` names, the one the job would be dispatched to now. Memory is per
 card too: each slot keeps its own last reading.
 
-This module owns the queue, the dispatcher and the job history readers. The
+This module owns the queue and the job history readers. The
 rest lives beside it, and JobManager keeps a thin delegator for every name a
 route or test calls:
 - `dw/server/pool.py`: WorkerSlot and the lock-free fit and affinity policy;
 - `dw/server/dispatch.py`: the queue scan picking the next job and card,
-  with the host-RAM hold (`Dispatcher`, a mixin of JobManager);
+  with the host-RAM hold, and the loop that runs it (`Dispatcher`, a mixin
+  of JobManager);
 - `dw/server/reruns.py`: a rerun of one job, and of a dead server's restart
   batch (`Reruns`, a mixin of JobManager);
 - `dw/server/job_results.py`: folding a run's worker messages into its Job;
@@ -46,7 +47,7 @@ from collections import OrderedDict
 from contextlib import contextmanager
 
 from ..events import NON_INTERRUPTIBLE_PHASES
-from ..worker_protocol import Execute, workflow_identity
+from ..worker_protocol import workflow_identity
 from ..worker_manager import WorkerManager
 from ..security import (
     SecurityError,
@@ -59,7 +60,7 @@ from .. import model_use
 from ..runs import MANIFEST_FILE_NAME, REALIZED_FILE_NAME
 from ..settings import resolve_path
 from ..workspace import DEFAULT_WORKSPACE_NAME
-from . import dispatch, job_results, pool, worker_memory
+from . import pool, worker_memory
 from .changes import GALLERY as GALLERY_KIND
 from .changes import JOBS as JOBS_KIND
 from .changes import REQUESTS as REQUESTS_KIND
@@ -71,7 +72,6 @@ from .outputs import job_run_directory, proof_output, with_run_note, with_run_st
 from .job_record import (
     ACK_NONE,
     CANCELLED,
-    FAILED,
     QUEUED,
     RUNNING,
     TERMINAL_STATES,
@@ -884,46 +884,6 @@ class JobManager(Dispatcher, Reruns):
 
     # ---------------------------------------------------------------- runner
 
-    def _run_loop(self):
-        """The dispatcher: hand each free card the first queued job that
-        fits it, and start that job on its own thread."""
-        while True:
-            with self._wake:
-                while True:
-                    if self._stop.is_set():
-                        return
-                    picked = self._next_dispatch()
-                    if picked is not None:
-                        break
-                    if self._release_idle:
-                        self._release_idle_workers()
-                        continue
-                    # Host RAM frees outside dw too, so a job held for it is
-                    # looked at again on a timer, not only on a wake (#869)
-                    held = any(self._held_for_host_ram())
-                    self._wake.wait(dispatch.HOST_RAM_RECHECK_SECONDS if held else None)
-                slot, job = picked
-                job.status = RUNNING
-                job.started_at = time.time()
-                job.device_ordinal, job.device_card = slot.device_fields()
-                slot.current_job_id = job.id
-                slot.started_at = job.started_at
-                # The worker switches to this identity for the run
-                slot.last_identity = self._job_identity(job)
-            job.add_event({"event": "job_status", "status": RUNNING})
-            # Before the job's thread exists, so _finish always writes last
-            self._record_open(job)
-            self._changed(job)
-            thread = threading.Thread(
-                target=self._run_job,
-                args=(slot, job),
-                daemon=True,
-                name=f"job-{job.id}",
-            )
-            with self._lock:
-                self._job_threads.add(thread)
-            thread.start()
-
     def _slot_running(self, job_id):
         """The slot whose worker is running `job_id`, or None."""
         with self._lock:
@@ -982,70 +942,6 @@ class JobManager(Dispatcher, Reruns):
             ]
             for job in terminal[:-TERMINAL_JOBS_KEPT]:
                 del self.jobs[job.id]
-
-    def _run_job(self, slot, job):
-        """A dispatched job's thread: run it, then leave the set shutdown()
-        joins."""
-        try:
-            self._run_on(slot, job)
-        finally:
-            with self._lock:
-                self._job_threads.discard(threading.current_thread())
-
-    def _run_on(self, slot, job):
-        """Run one dispatched job on its slot's worker. The dispatcher has
-        already marked it RUNNING and the slot busy."""
-        manager = slot.manager
-        with slot.lock:
-            try:
-                if job.status != RUNNING or job.cancel_requested:
-                    # Cancelled between dispatch and here: nothing was sent,
-                    # so the outcome is the cancel itself
-                    outcome = (CANCELLED, None, None)
-                else:
-                    self._start_worker(slot, job)
-                    self._rank_for_oom(slot, job)
-                    command = Execute(
-                        # The snapshot admission checked, which the worker runs
-                        # as it is rather than reading the file again
-                        definition=job.spec.get("definition"),
-                        file_spec=job.spec.get("file_spec"),
-                        source=job.spec.get("source"),
-                        workflow_dir=job.spec.get("workflow_dir"),
-                        # The job's own roots, so a job queued for one workspace
-                        # still runs in it after the manager has served another
-                        output_dir=job.spec.get("output_dir") or self.output_dir,
-                        arguments=job.spec["arguments"],
-                        log_level=self.log_level,
-                        asset_dir=job.spec.get("asset_dir") or None,
-                    )
-                    manager.send_command(command.to_wire())
-                    if job.cancel_requested:
-                        # Asked while the worker was still idle; now it has
-                        # the job, and a second cancel lands behind it
-                        manager.cancel()
-                    outcome = job_results.consume_results(
-                        job,
-                        manager,
-                        slot,
-                        job.spec.get("output_dir") or self.output_dir,
-                        worker_memory.record_memory,
-                        on_run_start=lambda: self._on_run_start(job),
-                    )
-            except Exception as e:
-                logger.error(f"Job {job.id} failed: {e}", exc_info=True)
-                outcome = (FAILED, str(e), None)
-            finally:
-                # Cleared BEFORE the terminal status becomes visible - a
-                # client seeing "succeeded" must find the card idle - and
-                # the dispatcher woken, since the card is free again
-                with self._wake:
-                    slot.current_job_id = None
-                    slot.started_at = None
-                    self._wake.notify_all()
-        if job.status not in TERMINAL_STATES:
-            status, error, traceback_text = outcome
-            self._finish(job, status, error=error, traceback_text=traceback_text)
 
     def is_busy(self):
         """True while a job is running on any card or queued - the window in

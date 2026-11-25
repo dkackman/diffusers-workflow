@@ -6,7 +6,9 @@ over (`{job, item, status, run_id, run_dir, run_exists, note, created_at,
 started_at, finished_at, workflow, arguments, output, prompt_digests}`)
 and, for rule 2, a `prompts` callable (`name -> sha256 of that prompt's
 text now`, or None when it no longer resolves: `dw.prompts.PromptDigests`);
-nothing here reads the job store or the file. An item's `status`, `ready`, `attempts`, `result` and
+nothing here reads the job store.
+The read side of the file is here too (`read_requests`, which a write
+starts from, and `unreadable`). An item's `status`, `ready`, `attempts`, `result` and
 `spent_minutes` (and a revised item's `revised_because`), a request's `spent_minutes` and `remaining_minutes`, a list
 row's `cover`, and each note reference's `attempt` and `gone` are derived
 here at read time and never stored. `dw/ledger.py` owns the file, the
@@ -14,9 +16,12 @@ writes and their rules, and answers these views as `ledger.request_view`
 and `ledger.summary_view`.
 """
 
+import json
+import os
 from datetime import datetime, timezone
 
 from . import references
+from .workspace import REQUESTS_FILE_NAME
 
 # The list's `cover`: this many result outputs, found among at most
 # COVER_SCAN of a request's latest results - the bound on what one row of a
@@ -177,7 +182,7 @@ def revised_because(item, jobs, result=None, prompts=None):
     if not plan_held and (item.get("arguments") or {}) != (take.get("arguments") or {}):
         because.append("arguments")
     because += [
-        f"prompt:{name}"
+        references.make_ref(references.PROMPT, name)
         for name in _moved_prompts(item, take, current_prompts(item, prompts))
     ]
     # changed_at moved past every take but nothing differs from this one:
@@ -637,3 +642,136 @@ def note_waiting(note, request):
         return False
     saved, wrote = _instant(note.get("at")), _instant(request.get("agent_wrote_at"))
     return saved is None or wrote is None or saved >= wrote
+
+
+STATES = ("open", "done", "abandoned")
+
+
+class LedgerError(ValueError):
+    """A write the ledger refuses. `status` is the HTTP status the server
+    answers with and `code` a stable name a client can branch on."""
+
+    def __init__(self, message, *, status=400, code="invalid_request", **extra):
+        super().__init__(message)
+        self.status = status
+        self.code = code
+        self.extra = extra
+
+    def detail(self):
+        return {"code": self.code, "message": str(self), **self.extra}
+
+
+def ledger_path(root):
+    return os.path.join(root, REQUESTS_FILE_NAME)
+
+
+def _unreadable(why):
+    return LedgerError(
+        f"{REQUESTS_FILE_NAME} could not be read ({why}); fix or remove it "
+        "before writing",
+        status=409,
+        code="ledger_unreadable",
+    )
+
+
+def _request_fault(request_id, request):
+    """What is wrong with one stored request's shape, or None: the fields
+    the views read without checking."""
+    if not isinstance(request, dict):
+        return "is not an object"
+    if request.get("id") != request_id:
+        return "is stored under another id"
+    if request.get("state") not in STATES:
+        return "has no known state"
+    revision = request.get("revision")
+    if isinstance(revision, bool) or not isinstance(revision, int):
+        return "has no revision"
+    items = request.get("items")
+    if not isinstance(items, list) or not all(
+        isinstance(item, dict) and isinstance(item.get("key"), str) for item in items
+    ):
+        return "has items that are not a list of keyed objects"
+    history = request.get("history", [])
+    if not isinstance(history, list) or not all(isinstance(h, dict) for h in history):
+        return "has a history that is not a list of objects"
+    return None
+
+
+def _load(root):
+    """The stored ledger, `{}` when there is no file. Raises LedgerError
+    (`ledger_unreadable`) when the file is there but is not a ledger - not
+    readable, not JSON, or JSON of another shape - so a write never
+    replaces a file it could not read. The message never names the folder."""
+    path = ledger_path(root)
+    try:
+        with open(path) as handle:
+            data = json.load(handle)
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError) as e:
+        # An OSError's text carries the file's absolute path; its strerror
+        # does not
+        why = (e.strerror or type(e).__name__) if isinstance(e, OSError) else e
+        raise _unreadable(why) from e
+    requests = data.get("requests") if isinstance(data, dict) else None
+    if not isinstance(requests, dict):
+        raise _unreadable('it is not {"requests": {...}}')
+    for request_id, request in requests.items():
+        fault = _request_fault(request_id, request)
+        if fault:
+            raise _unreadable(f"request {str(request_id)[:64]!r} {fault}")
+        _upgrade(request)
+    return requests
+
+
+def _upgrade(request):
+    """Bring a stored request to the notes shape, in place, and return it.
+    A stored `comment {text, at}` (the request's, then each item's in plan
+    order) becomes one note `{id, text, created, at}` with `created = at`;
+    `next_note` counts past the ids handed out; `agent_wrote_at` is filled
+    from the latest agent entry in the history when it was never stored.
+    Idempotent, and `comment` is never written again."""
+    request.setdefault("next_note", 1)
+    for owner in (request, *request["items"]):
+        comment = owner.pop("comment", None)
+        owner.setdefault("notes", [])
+        if isinstance(comment, dict) and comment.get("text"):
+            at = comment.get("at")
+            owner["notes"].append(
+                {
+                    "id": f"n{request['next_note']}",
+                    "text": comment["text"],
+                    "created": at,
+                    "at": at,
+                }
+            )
+            request["next_note"] += 1
+    if "agent_wrote_at" not in request:
+        agent = [
+            h.get("at") for h in request.get("history") or [] if h.get("by") == "agent"
+        ]
+        request["agent_wrote_at"] = agent[-1] if agent else None
+    return request
+
+
+def read_requests(root):
+    """Every stored request by id, `{}` when there is none or the file is
+    unreadable. Takes no lock."""
+    if root is None:
+        return {}
+    try:
+        return _load(root)
+    except LedgerError:
+        return {}
+
+
+def unreadable(root):
+    """The `ledger_unreadable` LedgerError for a file that is there but is
+    not a ledger, or None."""
+    if root is None:
+        return None
+    try:
+        _load(root)
+    except LedgerError as e:
+        return e
+    return None

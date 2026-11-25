@@ -20,8 +20,8 @@ from dw.shots import shot_record
 from dw.tasks.assess import (
     THUMB_HEIGHT,
     THUMB_WIDTH,
-    _dead_air,
-    _window_levels,
+    measure_dead_air,
+    window_levels,
     analyze_held_frames,
     analyze_seams,
     analyze_shots,
@@ -352,20 +352,20 @@ class TestNoiseFloor:
 
 
 class TestDeadAirSharesTheWindows:
-    """`_dead_air` reads `_window_levels` now; its answers on the same
+    """`measure_dead_air` reads `window_levels` now; its answers on the same
     signals are pinned here (#1464)."""
 
     def test_dead_air_values_are_unchanged(self):
         video = TestShotDeadAir._shot(gap_dbfs=-80.0)
-        assert _dead_air(video, 0, video.audio.shape[1]) == (1.0, 1.0, -80.0)
+        assert measure_dead_air(video, 0, video.audio.shape[1]) == (1.0, 1.0, -80.0)
         shallow = TestShotDeadAir._shot(gap_dbfs=-58.0)
-        assert _dead_air(shallow, 0, shallow.audio.shape[1]) == (0.0, None, None)
+        assert measure_dead_air(shallow, 0, shallow.audio.shape[1]) == (0.0, None, None)
 
     def test_dead_air_needs_two_windows(self):
         video = _one_shot(make_tone(48000))
-        assert _dead_air(video, 0, 4799) == (None, None, None)
-        assert _dead_air(video, 0, 4800) == (0.0, None, None)
-        assert _dead_air(video, None, None) == (None, None, None)
+        assert measure_dead_air(video, 0, 4799) == (None, None, None)
+        assert measure_dead_air(video, 0, 4800) == (0.0, None, None)
+        assert measure_dead_air(video, None, None) == (None, None, None)
 
     def test_dead_air_digital_silence_has_no_floor(self):
         audio = numpy.concatenate(
@@ -377,11 +377,11 @@ class TestDeadAirSharesTheWindows:
             axis=1,
         )
         video = _one_shot(audio)
-        assert _dead_air(video, 0, audio.shape[1]) == (1.0, 1.0, None)
+        assert measure_dead_air(video, 0, audio.shape[1]) == (1.0, 1.0, None)
 
     def test_both_read_the_same_windows(self):
         video = TestShotDeadAir._shot(gap_dbfs=-80.0)
-        levels, window_samples = _window_levels(video, 0, video.audio.shape[1])
+        levels, window_samples = window_levels(video, 0, video.audio.shape[1])
         assert window_samples == 2400
         assert len(levels) == 60
         assert min(level for level in levels if level is not None) == pytest.approx(

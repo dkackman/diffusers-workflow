@@ -27,6 +27,9 @@ from .api_models_base import (
     sometimes,
 )
 from .api_models_library import (
+    GalleryFile,
+    GalleryList,
+    OutputDeleted,
     Origin,
     Shape,
     Trait,
@@ -84,6 +87,9 @@ from .api_models_library import (
 )
 
 __all__ = [  # re-exported from api_models_library/_base: import them from here
+    "GalleryFile",
+    "GalleryList",
+    "OutputDeleted",
     "STRICT",
     "ApiModel",
     "JobStatus",
@@ -957,55 +963,6 @@ class ValidationResult(ApiModel):
 
 
 # ---------------------------------------------------------------- gallery
-
-
-class GalleryFile(ApiModel):
-    name: str
-    folder: str
-    subfolder: str = Field(
-        description="What followed the run id in the file's path - the `final` / "
-        "`intermediate` a step's `result.subfolder` chose, `''` for none."
-    )
-    run_id: str = Field(
-        description="The run that wrote the file, `''` under the flat layout."
-    )
-    version: int | None = Field(
-        description="That run's ordinal among the workflow's runs - what the grid "
-        "shows as `v4`. Never renumbered, so a deleted sibling leaves a gap. Null "
-        "when there is no run."
-    )
-    url: str
-    absolute_url: str = sometimes()
-    kind: OutputKind
-    size: int
-    mtime: int | float
-    label: str
-    duration_seconds: int | float | None = sometimes("A/V length with `media=true`.")
-    role: Literal["final", "intermediate"] | None = sometimes(
-        "`final` for a deliverable, `intermediate` for a file a later step or "
-        "run consumed; null under the flat layout or when no manifest lists the file."
-    )
-    note: str = sometimes("The effective note: the file's own, else its run's.")
-    starred: bool = sometimes("True when the file is starred; absent otherwise.")
-
-
-class GalleryList(ApiModel):
-    files: list[GalleryFile] = Field(description="Newest first.")
-    total: int
-    offset: int
-    limit: int
-    folders: list[str]
-    subfolders: list[str]
-    workspace: str
-    prompts: dict[str, str] = sometimes("Run id -> prompt, with `prompts=true`.")
-
-
-class OutputDeleted(ApiModel):
-    name: str
-    deleted: bool
-    run_swept: str | None = Field(
-        description="The run directory the delete emptied and removed, if any."
-    )
 
 
 class JobRef(ApiModel):

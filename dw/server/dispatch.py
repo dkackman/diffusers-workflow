@@ -11,10 +11,15 @@ comparison `pool.host_ram_wait`). What a dispatch does to the other workers
 is here as well: the warm idle ones a held job asked released
 (`_release_idle_workers`, #1407) and the OOM-killer ranking set as a job
 starts (`_rank_for_oom`, #881).
+
+The loop that runs the pick is here too: `_run_loop` hands each pick to its
+own thread (`_run_job`), which drives the card's worker (`_run_on`) and
+folds its messages into the Job (`dw/server/job_results.py`).
 """
 
 import functools
 import logging
+import threading
 import time
 
 from ..devices import device_ordinal
@@ -24,8 +29,9 @@ from ..host_memory import (
     device_term_mb,
     host_memory_stats,
 )
-from . import pool, worker_memory
-from .job_record import QUEUED
+from ..worker_protocol import Execute
+from . import job_results, pool, worker_memory
+from .job_record import CANCELLED, FAILED, QUEUED, RUNNING, TERMINAL_STATES
 
 logger = logging.getLogger("dw")
 
@@ -400,3 +406,109 @@ class Dispatcher:
             f"waiting for host RAM: {reason.split(': ', 1)[-1]}; releasing the "
             f"warm idle worker on {cards} (~{gb:.0f} GB held) to make room"
         )
+
+    # ---------------------------------------------------------------- runner
+
+    def _run_loop(self):
+        """The dispatcher: hand each free card the first queued job that
+        fits it, and start that job on its own thread."""
+        while True:
+            with self._wake:
+                while True:
+                    if self._stop.is_set():
+                        return
+                    picked = self._next_dispatch()
+                    if picked is not None:
+                        break
+                    if self._release_idle:
+                        self._release_idle_workers()
+                        continue
+                    # Host RAM frees outside dw too, so a job held for it is
+                    # looked at again on a timer, not only on a wake (#869)
+                    held = any(self._held_for_host_ram())
+                    self._wake.wait(HOST_RAM_RECHECK_SECONDS if held else None)
+                slot, job = picked
+                job.status = RUNNING
+                job.started_at = time.time()
+                job.device_ordinal, job.device_card = slot.device_fields()
+                slot.current_job_id = job.id
+                slot.started_at = job.started_at
+                # The worker switches to this identity for the run
+                slot.last_identity = self._job_identity(job)
+            job.add_event({"event": "job_status", "status": RUNNING})
+            # Before the job's thread exists, so _finish always writes last
+            self._record_open(job)
+            self._changed(job)
+            thread = threading.Thread(
+                target=self._run_job,
+                args=(slot, job),
+                daemon=True,
+                name=f"job-{job.id}",
+            )
+            with self._lock:
+                self._job_threads.add(thread)
+            thread.start()
+
+    def _run_job(self, slot, job):
+        """A dispatched job's thread: run it, then leave the set shutdown()
+        joins."""
+        try:
+            self._run_on(slot, job)
+        finally:
+            with self._lock:
+                self._job_threads.discard(threading.current_thread())
+
+    def _run_on(self, slot, job):
+        """Run one dispatched job on its slot's worker. The dispatcher has
+        already marked it RUNNING and the slot busy."""
+        manager = slot.manager
+        with slot.lock:
+            try:
+                if job.status != RUNNING or job.cancel_requested:
+                    # Cancelled between dispatch and here: nothing was sent,
+                    # so the outcome is the cancel itself
+                    outcome = (CANCELLED, None, None)
+                else:
+                    self._start_worker(slot, job)
+                    self._rank_for_oom(slot, job)
+                    command = Execute(
+                        # The snapshot admission checked, which the worker runs
+                        # as it is rather than reading the file again
+                        definition=job.spec.get("definition"),
+                        file_spec=job.spec.get("file_spec"),
+                        source=job.spec.get("source"),
+                        workflow_dir=job.spec.get("workflow_dir"),
+                        # The job's own roots, so a job queued for one workspace
+                        # still runs in it after the manager has served another
+                        output_dir=job.spec.get("output_dir") or self.output_dir,
+                        arguments=job.spec["arguments"],
+                        log_level=self.log_level,
+                        asset_dir=job.spec.get("asset_dir") or None,
+                    )
+                    manager.send_command(command.to_wire())
+                    if job.cancel_requested:
+                        # Asked while the worker was still idle; now it has
+                        # the job, and a second cancel lands behind it
+                        manager.cancel()
+                    outcome = job_results.consume_results(
+                        job,
+                        manager,
+                        slot,
+                        job.spec.get("output_dir") or self.output_dir,
+                        worker_memory.record_memory,
+                        on_run_start=lambda: self._on_run_start(job),
+                    )
+            except Exception as e:
+                logger.error(f"Job {job.id} failed: {e}", exc_info=True)
+                outcome = (FAILED, str(e), None)
+            finally:
+                # Cleared BEFORE the terminal status becomes visible - a
+                # client seeing "succeeded" must find the card idle - and
+                # the dispatcher woken, since the card is free again
+                with self._wake:
+                    slot.current_job_id = None
+                    slot.started_at = None
+                    self._wake.notify_all()
+        if job.status not in TERMINAL_STATES:
+            status, error, traceback_text = outcome
+            self._finish(job, status, error=error, traceback_text=traceback_text)

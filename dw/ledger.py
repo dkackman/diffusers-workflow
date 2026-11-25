@@ -51,6 +51,14 @@ from .workspace import REQUESTS_FILE_NAME, REQUESTS_LOCK_NAME
 from .ledger_views import (  # noqa: F401 - COVER_* and the views are read as ledger.*
     COVER_SCAN,
     COVER_SIZE,
+    STATES,
+    LedgerError,
+    _load,
+    _unreadable,
+    _upgrade,
+    ledger_path,
+    read_requests,
+    unreadable,
     _live_keys,
     current_prompts,
     is_revised,
@@ -83,7 +91,6 @@ MAX_REVIEW_HOURS = 24  # and its longest
 # Seconds a write waits for another server's write to the same file
 LOCK_TIMEOUT = 10
 
-STATES = ("open", "done", "abandoned")
 AUTHORS = ("agent", "user")
 
 # A stored workflow name: a catalog or library name such as `my-shot`,
@@ -126,20 +133,6 @@ _locks = {}
 _locks_guard = threading.Lock()
 
 
-class LedgerError(ValueError):
-    """A write the ledger refuses. `status` is the HTTP status the server
-    answers with and `code` a stable name a client can branch on."""
-
-    def __init__(self, message, *, status=400, code="invalid_request", **extra):
-        super().__init__(message)
-        self.status = status
-        self.code = code
-        self.extra = extra
-
-    def detail(self):
-        return {"code": self.code, "message": str(self), **self.extra}
-
-
 def _lock(directory):
     key = os.path.realpath(directory)
     with _locks_guard:
@@ -174,122 +167,6 @@ def _writing(root):
 
 def _now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
-
-
-def ledger_path(root):
-    return os.path.join(root, REQUESTS_FILE_NAME)
-
-
-def _unreadable(why):
-    return LedgerError(
-        f"{REQUESTS_FILE_NAME} could not be read ({why}); fix or remove it "
-        "before writing",
-        status=409,
-        code="ledger_unreadable",
-    )
-
-
-def _request_fault(request_id, request):
-    """What is wrong with one stored request's shape, or None: the fields
-    the views read without checking."""
-    if not isinstance(request, dict):
-        return "is not an object"
-    if request.get("id") != request_id:
-        return "is stored under another id"
-    if request.get("state") not in STATES:
-        return "has no known state"
-    revision = request.get("revision")
-    if isinstance(revision, bool) or not isinstance(revision, int):
-        return "has no revision"
-    items = request.get("items")
-    if not isinstance(items, list) or not all(
-        isinstance(item, dict) and isinstance(item.get("key"), str) for item in items
-    ):
-        return "has items that are not a list of keyed objects"
-    history = request.get("history", [])
-    if not isinstance(history, list) or not all(isinstance(h, dict) for h in history):
-        return "has a history that is not a list of objects"
-    return None
-
-
-def _load(root):
-    """The stored ledger, `{}` when there is no file. Raises LedgerError
-    (`ledger_unreadable`) when the file is there but is not a ledger - not
-    readable, not JSON, or JSON of another shape - so a write never
-    replaces a file it could not read. The message never names the folder."""
-    path = ledger_path(root)
-    try:
-        with open(path) as handle:
-            data = json.load(handle)
-    except FileNotFoundError:
-        return {}
-    except (OSError, ValueError) as e:
-        # An OSError's text carries the file's absolute path; its strerror
-        # does not
-        why = (e.strerror or type(e).__name__) if isinstance(e, OSError) else e
-        raise _unreadable(why) from e
-    requests = data.get("requests") if isinstance(data, dict) else None
-    if not isinstance(requests, dict):
-        raise _unreadable('it is not {"requests": {...}}')
-    for request_id, request in requests.items():
-        fault = _request_fault(request_id, request)
-        if fault:
-            raise _unreadable(f"request {str(request_id)[:64]!r} {fault}")
-        _upgrade(request)
-    return requests
-
-
-def _upgrade(request):
-    """Bring a stored request to the notes shape, in place, and return it.
-    A stored `comment {text, at}` (the request's, then each item's in plan
-    order) becomes one note `{id, text, created, at}` with `created = at`;
-    `next_note` counts past the ids handed out; `agent_wrote_at` is filled
-    from the latest agent entry in the history when it was never stored.
-    Idempotent, and `comment` is never written again."""
-    request.setdefault("next_note", 1)
-    for owner in (request, *request["items"]):
-        comment = owner.pop("comment", None)
-        owner.setdefault("notes", [])
-        if isinstance(comment, dict) and comment.get("text"):
-            at = comment.get("at")
-            owner["notes"].append(
-                {
-                    "id": f"n{request['next_note']}",
-                    "text": comment["text"],
-                    "created": at,
-                    "at": at,
-                }
-            )
-            request["next_note"] += 1
-    if "agent_wrote_at" not in request:
-        agent = [
-            h.get("at") for h in request.get("history") or [] if h.get("by") == "agent"
-        ]
-        request["agent_wrote_at"] = agent[-1] if agent else None
-    return request
-
-
-def read_requests(root):
-    """Every stored request by id, `{}` when there is none or the file is
-    unreadable. Takes no lock."""
-    if root is None:
-        return {}
-    try:
-        return _load(root)
-    except LedgerError:
-        return {}
-
-
-def unreadable(root):
-    """The `ledger_unreadable` LedgerError for a file that is there but is
-    not a ledger, or None."""
-    if root is None:
-        return None
-    try:
-        _load(root)
-    except LedgerError as e:
-        return e
-    return None
 
 
 # --- views (dw/ledger_views.py derives them) -----------------------------
