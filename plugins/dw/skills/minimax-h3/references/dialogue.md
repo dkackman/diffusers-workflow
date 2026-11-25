@@ -92,6 +92,35 @@ truncate (row 7).
   what to do when every attempt fails are in the `long-form` skill's
   `references/run-and-repair.md`, from `bench/records/words.md`.
 
+## An off-screen voice (a radio, a phone)
+
+A voice with no speaker in frame (the other end of a call, a radio, a
+dispatcher) worked on its first try in the `fitz-light` run on lem (0.23.0-alpha.1,
+one 3090, #1523, field report #1621): the check-script similarity was 1.0
+and the listener's mouth stayed closed. The recipe it used:
+
+- **Give the voice an `(Sx)` id of its own**, distinct from every on-screen
+  speaker, and describe it once on first appearance (gender, age, pitch,
+  timbre, rate, and "thin and tinny" or "crackling" for the device), then repeat
+  that description verbatim in every shot it speaks.
+- **Mark it off screen in the `<d>` block's lead-in**, with the exact phrase
+  `says in an off-screen voiceover` (the reference guide's wording), and
+  follow the block with a sentence that the listener's lips remain closed.
+  The listener, the only person in frame, gets no `(Sx)` id: a character who
+  doesn't vocalise gets none.
+- **Don't name the source as off screen in the prose** ("the radio, out of
+  frame"): that puts it in the shot (row 10). Name only what is shown, such as the
+  man holding the phone, or the radio on the desk.
+- **The listener's mouth** stayed closed on both seeds even without the
+  closed-lips sentence when a man held a speakerphone (row 5, a phone voice
+  "thin and tinny", every transcript exact). Keep the sentence anyway: that probe
+  didn't test it, and a listener with no device in hand wasn't measured.
+
+Only the `fitz-light` result is from a full script; the exact prompt isn't
+in the repo, so treat the wording above as the recipe and the run as one
+sample, not a two-seed probe like the rows here. Check it with
+`words_similarity_min` as for any line.
+
 ## Text on screen
 
 Text quoted verbatim in the prompt, as the built-in enhancer writes it,
