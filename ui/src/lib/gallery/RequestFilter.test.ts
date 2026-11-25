@@ -1,4 +1,10 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/svelte'
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import RequestFilter from './RequestFilter.svelte'
 import { summary } from '../request/fixtures'
@@ -72,6 +78,22 @@ it("with a workspace prop, it lists that workspace's requests", async () => {
   expect(chip.querySelector('a')?.getAttribute('href')).toBe(
     '#/ws/shots/requests/r1',
   )
+})
+
+it('keeps the hash and the filter in step, both ways', async () => {
+  data.requests = [summary()]
+  history.replaceState(null, '', '#/ws/studio/gallery?req=r1/hero')
+  render(RequestFilter, { request: '', item: '' })
+  const chip = await screen.findByTestId('req-filter')
+  history.replaceState(null, '', '#/ws/studio/gallery?req=r2')
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
+  await waitFor(() => expect(chip.textContent).toMatch(/r2/))
+  expect(location.hash).toBe('#/ws/studio/gallery?req=r2')
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'remove the request filter' }),
+  )
+  await waitFor(() => expect(location.hash).toBe('#/ws/studio/gallery'))
+  expect(screen.queryByTestId('req-filter')).toBeNull()
 })
 
 it('offers no picker when it is not pickable', async () => {

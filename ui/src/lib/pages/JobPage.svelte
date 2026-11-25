@@ -457,7 +457,10 @@
       </div>
     {/if}
 
-    <EventLog {jobId} live={running} pulse={run.count} />
+    <!-- Another job is another log: its rows, filter and Follow start over -->
+    {#key jobId}
+      <EventLog {jobId} live={running} pulse={run.count} />
+    {/key}
   {/if}
 </LoadState>
 

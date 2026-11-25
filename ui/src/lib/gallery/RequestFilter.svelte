@@ -36,15 +36,17 @@
   }
   // Read at init, so the page's first listing already asks for it
   fromHash()
+  // One effect for both directions, so which side moved is not left to the
+  // order of two: a new hash is read into the props, and otherwise a change
+  // of the props (a pick, or the page clearing its filters) is written out
+  let seen = req.value
   $effect(() => {
-    void req.value
-    untrack(fromHash)
-  })
-  // The page clearing its filters clears this one too
-  $effect(() => {
-    const value = formatRequestFilter({ request, item })
+    const hash = req.value
+    const bound = formatRequestFilter({ request, item })
     untrack(() => {
-      if (value !== req.value) req.value = value
+      if (hash !== seen) fromHash()
+      else if (bound !== hash) req.value = bound
+      seen = req.value
     })
   })
 

@@ -18,6 +18,7 @@ import type { GalleryFile } from '../types'
 import { DEFAULT_WORKSPACE, workspace } from '../workspace.svelte'
 import { api } from '../test/apiMock'
 import { feed } from '../test/feedMock'
+import { CLOCK_TICK_MS } from '../clock.svelte'
 import { outputLibrary } from '../outputlib.svelte'
 
 const file = (
@@ -1799,6 +1800,25 @@ it('the count says n of m while filtered', async () => {
     target: { value: 'demo' },
   })
   await waitFor(() => expect(count()).toBe('1 of 3 files'))
+})
+
+it('the date headings move on once midnight passes', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  try {
+    vi.setSystemTime(new Date(2026, 4, 3, 23, 59, 50))
+    listing.files = [{ ...file('b.png'), mtime: Date.now() / 1000 }]
+    await hashEvent(() => (location.hash = '#/ws/default/gallery?group=date'))
+    await renderGallery('b.png')
+    const headings = () =>
+      [...document.querySelectorAll('button.group')].map((b) =>
+        b.textContent?.trim(),
+      )
+    expect(headings()).toEqual(['Today (1)'])
+    await vi.advanceTimersByTimeAsync(CLOCK_TICK_MS)
+    await waitFor(() => expect(headings()).toEqual(['Yesterday (1)']))
+  } finally {
+    vi.useRealTimers()
+  }
 })
 
 it('sort and group survive Back', async () => {
