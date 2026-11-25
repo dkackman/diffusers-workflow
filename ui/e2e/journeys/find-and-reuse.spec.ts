@@ -101,20 +101,25 @@ test('find a file, read what made it, and reuse it', async ({
     .toBe(`output:${LIGHTHOUSE}`)
 
   // 5. Save as asset: its tile is a thumbnail, and it opens with Saved from
-  await viewer.getByRole('button', { name: 'Save as asset' }).click()
-  const naming = page.getByRole('alertdialog', { name: 'Save as asset' })
-  await naming.getByRole('textbox').fill('lighthouse-ref')
-  await naming.getByRole('button', { name: 'Save' }).click()
-  await expect(page.getByText('Saved as asset lighthouse-ref')).toBeVisible()
-  await page.goto('/#/ws/default/assets')
-  const tile = page.locator('.filetile', { hasText: 'lighthouse-ref' })
-  await expect(tile).toBeVisible()
-  await expect(tile.locator('video')).toHaveCount(0)
-  const source = await tile.locator('img').first().getAttribute('src')
-  expect(source).toContain('/thumbnail')
-  expect(source).not.toMatch(/\/assets\/lighthouse-ref/)
-  await tile.click()
-  await expect(page.getByText('Saved from').first()).toBeVisible()
+  // The asset goes again whatever happens: a repeat saves the same name
+  try {
+    await viewer.getByRole('button', { name: 'Save as asset' }).click()
+    const naming = page.getByRole('alertdialog', { name: 'Save as asset' })
+    await naming.getByRole('textbox').fill('lighthouse-ref')
+    await naming.getByRole('button', { name: 'Save' }).click()
+    await expect(page.getByText('Saved as asset lighthouse-ref')).toBeVisible()
+    await page.goto('/#/ws/default/assets')
+    const tile = page.locator('.filetile', { hasText: 'lighthouse-ref' })
+    await expect(tile).toBeVisible()
+    await expect(tile.locator('video')).toHaveCount(0)
+    const source = await tile.locator('img').first().getAttribute('src')
+    expect(source).toContain('/thumbnail')
+    expect(source).not.toMatch(/\/assets\/lighthouse-ref/)
+    await tile.click()
+    await expect(page.getByText('Saved from').first()).toBeVisible()
+  } finally {
+    await request.delete('/api/assets/lighthouse-ref.png')
+  }
 
   // 6. Star two files, then Undo: neither is starred
   await page.goto(GALLERY)
