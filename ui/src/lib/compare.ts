@@ -9,12 +9,18 @@ export const COMPARE_MAX = 4
 
 type Meta = Record<string, unknown> | null
 
+/** The row for a workflow variable that is itself named `model`, beside the
+ * `model` row that reads the file's model. A variable name has no space, so
+ * this cannot collide with one */
+const MODEL_ARGUMENT = 'model (argument)'
+
 export function argumentOf(meta: Meta, key: string): unknown {
   if (!meta) return undefined
   if (key === 'model') return meta.model_name
   if (key === 'seed')
     return meta.seed ?? (meta.arguments as Record<string, unknown>)?.seed
-  return (meta.arguments as Record<string, unknown> | undefined)?.[key]
+  const name = key === MODEL_ARGUMENT ? 'model' : key
+  return (meta.arguments as Record<string, unknown> | undefined)?.[name]
 }
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
@@ -29,6 +35,7 @@ export function differingArguments(metas: Meta[]): string[] {
   for (const m of known)
     for (const k of Object.keys((m.arguments as object) ?? {})) keys.add(k)
   keys.delete('seed')
+  if (keys.delete('model')) keys.add(MODEL_ARGUMENT)
   const ordered = ['model', 'seed', ...[...keys].sort()]
   return ordered.filter((key) => {
     const first = argumentOf(known[0], key)

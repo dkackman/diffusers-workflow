@@ -28,9 +28,6 @@
   const caches = $derived(read.data?.caches ?? [])
   const refreshCaches = () => read.reload()
 
-  // formatBytes floors at 1 KB, so an empty cache would read as 1 KB
-  const cacheSize = (bytes: number) => (bytes ? formatBytes(bytes) : '0 bytes')
-
   // A refusal (a 409: a job running or queued) carries the server's reason,
   // which ErrorLine shows; the cache list is read again either way
   async function settle(run: () => Promise<unknown>) {
@@ -48,7 +45,7 @@
     (cache: DiskCacheInfo) => settle(() => api.clearCache(cache.name)),
     {
       doing: (cache) => `clear the ${cache.name} cache`,
-      confirm: (cache) => cacheClearConfirm(cache, cacheSize(cache.bytes)),
+      confirm: (cache) => cacheClearConfirm(cache, formatBytes(cache.bytes)),
     },
   )
 
@@ -76,7 +73,7 @@
         cacheEntryConfirm(
           cache.name,
           entryWhat(entry),
-          cacheSize(entry.bytes),
+          formatBytes(entry.bytes),
           cache.cost_of_clearing,
         ),
     },
@@ -108,7 +105,7 @@
             <tr>
               <td>{cache.name}</td>
               <td><code>{cache.root}</code></td>
-              <td>{cacheSize(cache.bytes)}</td>
+              <td>{formatBytes(cache.bytes)}</td>
               <td>{cache.files}</td>
               <td class="muted">
                 {#if cache.last_used}<Time
@@ -197,7 +194,7 @@
                               </td>
                               <td>{entry.model || '—'}</td>
                               <td>{entry.subfolder || '—'}</td>
-                              <td>{cacheSize(entry.bytes)}</td>
+                              <td>{formatBytes(entry.bytes)}</td>
                               <td class="muted">
                                 {#if entry.created}<Time
                                     at={entry.created}

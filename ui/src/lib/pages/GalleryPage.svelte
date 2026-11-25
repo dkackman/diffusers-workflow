@@ -36,6 +36,7 @@
   import { codec, goHref, hashState } from '../router.svelte'
   import { compareHref, wsHref } from '../routes'
   import { collapsedState } from '../collapsed.svelte'
+  import { now } from '../clock.svelte'
   import GalleryFind, { findState } from '../gallery/GalleryFind.svelte'
   import GalleryCell from '../gallery/GalleryCell.svelte'
   import RequestFilter from '../gallery/RequestFilter.svelte'
@@ -203,8 +204,11 @@
   // The headings, and the files in the order they show under them. Folders
   // and days are shut apart (a day is not a folder), and held here so a
   // shut one's files are out of the picks' and the viewer's order too
+  // The day the date headings are counted from, off the shared clock: it
+  // changes (and regroups) only when the day does
+  const today = $derived(new Date(now.value * 1000).toDateString())
   const groups = $derived(
-    gridGroups(visible, groupBy.value, sort.value, new Date()),
+    gridGroups(visible, groupBy.value, sort.value, new Date(today)),
   )
   const shutBy = {
     folder: collapsedState('collapsed-gallery-folders'),

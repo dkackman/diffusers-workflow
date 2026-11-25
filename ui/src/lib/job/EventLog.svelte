@@ -59,26 +59,6 @@
     spacer.cancel()
   })
 
-  // Another job is another log: drop this one's and close
-  $effect(() => {
-    void jobId
-    open = false
-    loaded = false
-    loading = false
-    rows = []
-    lastSeq = -1
-    note = null
-    capped = false
-    missing = false
-    error = null
-    kind = ''
-    follow = untrack(() => live)
-    lastTop = 0
-    touched = false
-    again = false
-    spacer.cancel()
-  })
-
   // A job queued at page load that starts later: follow it, unless the
   // user has already chosen
   $effect(() => {

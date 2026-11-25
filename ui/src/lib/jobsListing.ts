@@ -68,13 +68,14 @@ export const listJobs = (
   )
 
 /** The live jobs and the finished page as one listing: by creation, oldest
- * first, each id once (the live answer wins). `finished` is every finished
+ * first, each id once (the finished answer wins: a finished job stays so,
+ * while the live answer may be from before it finished). `finished` is every finished
  * job the server holds; `total` adds the live jobs the finished answer does
  * not already name, so a job caught finishing between the two reads counts
  * once. */
 export function mergeListings(live: JobList, done: JobList) {
   const byId = new Map<string, JobSummary>()
-  for (const job of [...done.jobs, ...live.jobs]) byId.set(job.id, job)
+  for (const job of [...live.jobs, ...done.jobs]) byId.set(job.id, job)
   const jobs = [...byId.values()].sort(
     (a, b) => (a.created_at ?? 0) - (b.created_at ?? 0),
   )

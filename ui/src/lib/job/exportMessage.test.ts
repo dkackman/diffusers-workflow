@@ -20,6 +20,12 @@ it('counts the files and the megabytes, and names the directory', () => {
   )
 })
 
+it('a small export is not 0.0 MB', () => {
+  expect(exportMessage({ ...result(1, 0), total_bytes: 20 * 1024 })).toMatch(
+    /\(20 KB\)/,
+  )
+})
+
 it('says how many referenced files are gone', () => {
   expect(exportMessage(result(2, 1))).toBe(
     'Exported 2 files (3.5 MB) to exports/abc - 1 referenced file no longer on disk',

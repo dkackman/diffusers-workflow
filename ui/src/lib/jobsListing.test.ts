@@ -140,7 +140,7 @@ it('a job in both answers is listed once, oldest first', () => {
   )
   expect(merged.jobs.map((j) => [j.id, j.status])).toEqual([
     ['b', 'succeeded'],
-    ['a', 'running'],
+    ['a', 'succeeded'],
   ])
 })
 

@@ -10,9 +10,13 @@ const MB = KB * 1024
 const GB = MB * 1024
 
 export function formatBytes(size: number): string {
-  if (size >= GB) return (size / GB).toFixed(2) + ' GB'
-  if (size < MB) return Math.max(1, Math.round(size / KB)) + ' KB'
-  return (size / MB).toFixed(1) + ' MB'
+  if (size === 0) return '0 bytes'
+  // Each unit is chosen on the rounded figure, so no size reads '1024 KB'
+  const kb = Math.max(1, Math.round(size / KB))
+  if (kb < KB) return kb + ' KB'
+  const mb = (size / MB).toFixed(1)
+  if (Number(mb) < KB) return mb + ' MB'
+  return (size / GB).toFixed(2) + ' GB'
 }
 
 /** A unix-seconds timestamp as a compact date and time in the viewer's
@@ -88,7 +92,8 @@ export const gbFromBytes = (bytes: number): string =>
  * log and the job header all show run time through this, so a step's figure
  * and the job's read the same way. */
 export function formatDuration(seconds: number): string {
-  if (seconds < 60) return `${seconds.toFixed(1)}s`
+  const tenths = seconds.toFixed(1)
+  if (Number(tenths) < 60) return `${tenths}s`
   const whole = Math.round(seconds)
   const pad = (n: number) => String(n).padStart(2, '0')
   if (whole < 3600) return `${Math.floor(whole / 60)}m ${pad(whole % 60)}s`
@@ -100,12 +105,11 @@ export function formatDuration(seconds: number): string {
 /** An estimate for a person: under one minute is 'under 1 min', anything
  * else keeps the measured value ('about 3 min', 'about 1.5 min') rather
  * than rounding it away. */
-export const formatMinutes = (minutes: number) =>
-  minutes < 1
-    ? 'under 1 min'
-    : minutes < 60
-      ? `about ${Number(minutes.toFixed(2))} min`
-      : formatApprox(minutes * 60)
+export const formatMinutes = (minutes: number) => {
+  if (minutes < 1) return 'under 1 min'
+  const shown = Number(minutes.toFixed(2))
+  return shown < 60 ? `about ${shown} min` : formatApprox(shown * 60)
+}
 
 /** A span of seconds as a rough figure - an ETA: 'under 1 min', 'about 3
  * min' in whole minutes, 'about 1 h 20 min' from an hour up. */
