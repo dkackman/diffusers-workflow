@@ -249,3 +249,18 @@ it('remove names the LoRA', async () => {
   ).toBeTruthy()
   expect(screen.getByRole('button', { name: 'remove this LoRA' })).toBeTruthy()
 })
+
+it('two rows keep their own field ids, each label naming its own input', () => {
+  mount({
+    loras: [
+      { configuration: { model_name: 'org/a' }, weight_name: 'a.safetensors' },
+      { configuration: { model_name: 'org/b' }, weight_name: 'b.safetensors' },
+    ],
+  })
+  const ids = Array.from(document.querySelectorAll('[id]')).map((e) => e.id)
+  expect(new Set(ids).size).toBe(ids.length)
+  const labels = Array.from(document.querySelectorAll('label[for]'))
+  expect(labels.length).toBeGreaterThanOrEqual(6)
+  for (const label of labels)
+    expect(document.getElementById(label.getAttribute('for')!)).not.toBeNull()
+})

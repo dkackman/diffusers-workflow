@@ -569,6 +569,17 @@ describe('EditorPage new workflow origin', () => {
     ).toBe('ZImage')
   })
 
+  it('the example banner goes after Save', async () => {
+    vi.mocked(api.listWorkflows).mockResolvedValue(withExample as never)
+    render(EditorPage, { name: '' })
+    await waitFor(() => expect(startFrom().options.length).toBe(2))
+    await fireEvent.change(startFrom(), { target: { value: 'templates/tti' } })
+    await waitFor(() => expect(startFrom().value).toBe('templates/tti'))
+    await fireEvent.click(screen.getByRole('button', { name: /^Save/ }))
+    await waitFor(() => expect(api.saveWorkflow).toHaveBeenCalled())
+    await waitFor(() => expect(screen.queryByLabelText('start from')).toBeNull())
+  })
+
   it('a draft started from an example is checked at once', async () => {
     vi.mocked(api.listWorkflows).mockResolvedValue(withExample as never)
     render(EditorPage, { name: '' })

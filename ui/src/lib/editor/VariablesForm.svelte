@@ -210,9 +210,13 @@
       fresh.delete(key) || type === 'none' ? inferValue(raw) : asType(raw, type)
   }
 
+  // Keys whose switch to boolean was refused: their text is not true or false
+  let notBoolean = $state<Record<string, boolean>>({})
+
   function retype(key: string, type: string) {
     fresh.delete(key)
     variables[key] = asType(displayValue(variables[key]), type as VariableType)
+    notBoolean[key] = type === 'boolean' && typeof variables[key] !== 'boolean'
   }
 
   // An override is live as it is typed, so Run takes what is in the box
@@ -316,6 +320,7 @@
           kind={mode === 'override' ? (kinds[key] ?? 'file') : undefined}
           placeholder={placeholderFor(key) || undefined}
           fallback={defaultFile(key)}
+          title={promptTooltip(effective(key), promptLibrary.texts)}
           oninput={(raw) => draft(key, raw)}
           onchange={(raw) => commit(key, raw)}
         >
@@ -344,6 +349,11 @@
         >
           {#each VARIABLE_TYPES as type (type)}<option>{type}</option>{/each}
         </select>
+        {#if notBoolean[key] && typeOf(variables[key]) !== 'boolean'}
+          <span class="muted" role="status">
+            Only true or false can be a boolean.
+          </span>
+        {/if}
       {/if}
     </fieldset>
   </div>

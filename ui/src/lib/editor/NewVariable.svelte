@@ -11,6 +11,8 @@
     onadd: (name: string) => void
   } = $props()
 
+  const uid = $props.id()
+  const problemId = `${uid}-problem`
   let name = $state('')
   let problem = $state<string | null>(null)
 
@@ -27,8 +29,9 @@
   placeholder="new variable name…"
   bind:value={name}
   oninput={() => (problem = null)}
-  onkeydown={(e) => e.key === 'Enter' && add()}
+  onkeydown={(e) => e.key === 'Enter' && !e.isComposing && add()}
   aria-invalid={problem ? true : undefined}
+  aria-describedby={problem ? problemId : undefined}
 />
 <button
   class="quiet icon addvar"
@@ -40,7 +43,7 @@
   <Plus size={14} />
 </button>
 <span></span>
-{#if problem}<p class="error problem" role="alert">{problem}</p>{/if}
+{#if problem}<p id={problemId} class="error problem" role="alert">{problem}</p>{/if}
 
 <style>
   .problem {

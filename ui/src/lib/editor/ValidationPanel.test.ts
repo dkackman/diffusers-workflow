@@ -89,6 +89,38 @@ describe('ValidationPanel', () => {
     expect(screen.getByText('Ready to run.')).toBeTruthy()
   })
 
+  it('a valid answer with an author warning is not green', () => {
+    const { container } = render(ValidationPanel, {
+      validation: result({ warnings: ['WARN-PLAIN something to read'] }),
+      ...quiet,
+    })
+    const verdict = container.querySelector('.verdict')!
+    expect(verdict.classList.contains('warn')).toBe(true)
+    expect(verdict.classList.contains('good')).toBe(false)
+    expect(screen.getByText(/WARN-PLAIN something to read/)).toBeTruthy()
+  })
+
+  it('a plan line that warns opens the plan, a plain plan stays shut', () => {
+    render(ValidationPanel, { validation: result({ plan }), ...quiet })
+    expect(
+      screen.getByText('What a job will do').closest('details')!.open,
+    ).toBe(true)
+    cleanup()
+    render(ValidationPanel, {
+      validation: result({
+        plan: {
+          ...plan,
+          downloads_required: [],
+          estimate: { ...plan.estimate, minutes: 2, basis: 'observed' },
+        },
+      }),
+      ...quiet,
+    })
+    expect(
+      screen.getByText('What a job will do').closest('details')!.open,
+    ).toBe(false)
+  })
+
   it('an answer without a plan shows none', () => {
     render(ValidationPanel, {
       validation: result({

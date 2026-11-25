@@ -147,6 +147,7 @@
             id={`${uid}-${key}`}
             value={displayValue(args[key])}
             alwaysExpandable
+            title={promptTooltip(args[key], promptLibrary.texts)}
             onchange={(raw) => update(key, raw)}
             onpromptpick={(name) => {
               args[key] = reference(PROMPT, name)

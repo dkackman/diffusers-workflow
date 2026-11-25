@@ -36,6 +36,12 @@ export const PREFIXES = [
 export const VARIABLE_NAME_CHARACTERS =
   'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-'
 
+/** The characters a variable name may start with: the engine's
+ * `validate_variable_name` pattern `^[a-zA-Z_]`, pinned by
+ * tests/test_ui_twins.py. */
+export const VARIABLE_NAME_FIRST =
+  'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_'
+
 /** Joins a for_each step's name to an entry's: `<step>@<entry>`. */
 export const MEMBER_SEPARATOR = '@'
 

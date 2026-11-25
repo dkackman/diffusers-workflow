@@ -14,6 +14,7 @@
     ATTENTION_BACKENDS,
     CACHE_TYPES,
     COMPONENT_SLOTS,
+    OPTION_KEYS,
     classDescription,
     isReference,
     emptyComponent,
@@ -38,31 +39,15 @@
 
   // ---- optional blocks: components, loras, scheduler, acceleration ----
 
-  // The pipeline's own option keys (schema $defs/pipeline); any other key
-  // whose value carries from_pretrained_arguments is a component the engine
-  // loads under that name
-  const OPTION_KEYS = new Set([
-    'configuration',
-    'shared_components',
-    'reused_components',
-    'scheduler',
-    'audio_scheduler',
-    'controlnet',
-    'loras',
-    'ip_adapter',
-    'from_pretrained_arguments',
-    'remote_text_encoder',
-    'seed',
-    'chain',
-    'arguments',
-  ])
+  // Any key outside COMPONENT_SLOTS and OPTION_KEYS whose value carries
+  // from_pretrained_arguments is a component the engine loads under that name
   const activeSlots = $derived.by(() => {
     if (!pipeline) return []
     const known: readonly string[] = COMPONENT_SLOTS
     const extra = Object.keys(pipeline).filter(
       (key) =>
         !known.includes(key) &&
-        !OPTION_KEYS.has(key) &&
+        !(OPTION_KEYS as readonly string[]).includes(key) &&
         pipeline[key] !== null &&
         typeof pipeline[key] === 'object' &&
         'from_pretrained_arguments' in pipeline[key],
@@ -89,6 +74,12 @@
     slotsFrom(
       classLookup.status === 'ready' ? (classLookup.data ?? null) : null,
     ),
+  )
+  // The class's own list is on its way: say so rather than offer the
+  // schema's, which the answer may then narrow
+  const slotsLoading = $derived(
+    !!pipeline?.configuration?.component_type &&
+      classLookup.status === 'loading',
   )
   const offeredSlots = $derived(
     (pipelineSlots ?? [...COMPONENT_SLOTS]).filter(
@@ -187,8 +178,10 @@
       />
     {/each}
     <div class="addrow">
-      <select bind:value={addSlot}>
-        <option value="">add component…</option>
+      <select bind:value={addSlot} aria-label="component to add" aria-busy={slotsLoading}>
+        <option value="">
+          {slotsLoading ? 'reading the pipeline…' : 'add component…'}
+        </option>
         {#each offeredSlots as slot (slot)}
           <option value={slot}>{slot}</option>
         {/each}

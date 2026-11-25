@@ -72,6 +72,13 @@ export function verdictOf(
   const noted = Object.values(placed.byVariable).filter((list) =>
     list.some((f) => f.tone === 'warn'),
   ).length
+  if (placed.author.length) {
+    return {
+      tone: 'warn',
+      text: 'Ready to run. Read the warnings.',
+      issues: 0,
+    }
+  }
   if (noted) {
     return {
       tone: 'warn',
@@ -88,6 +95,9 @@ export class RunCheck {
    * caught: shown through ErrorLine, never as its raw message. */
   error = $state<unknown>(null)
   checking = $state(false)
+  /** The values changed and their answer has not landed: what `validation`
+   * holds is the answer to an earlier form */
+  pending = $state(false)
 
   // Not state: bookkeeping for which answer is still wanted
   #ask: (sizes: boolean, signal?: AbortSignal) => Promise<ValidationResult>
@@ -125,6 +135,7 @@ export class RunCheck {
     this.#generation += 1
     this.#checkedFor = ''
     this.checking = false
+    this.pending = false
   }
 
   /** The page's word that `name` would now run with `args`: checks at once
@@ -135,6 +146,7 @@ export class RunCheck {
     if (key === this.#checkedFor) return
     const first = !this.#checkedFor.startsWith(`${name}\n`)
     this.#checkedFor = key
+    this.pending = true
     if (first) {
       this.validation = null
       this.error = null
@@ -162,11 +174,13 @@ export class RunCheck {
       this.#appliedCall = call
       this.validation = answer
       this.error = null
+      this.pending = false
     } catch (e) {
       if (stale() || isAbort(e)) return
       this.#appliedCall = call
       this.validation = null
       this.error = e
+      this.pending = false
     } finally {
       if (mine === this.#generation) this.checking = false
     }

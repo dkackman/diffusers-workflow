@@ -178,9 +178,13 @@
     verdictOf(runCheck.validation, runCheck.error, placed),
   )
 
-  /** A refused check turns Run into Fix: nothing else gates Run */
+  /** A refused check turns Run into Fix: nothing else gates Run. Only the
+   * latest answer counts: while a changed form awaits its check, the errors
+   * of the last answer may be gone */
   const fixing = $derived(
-    verdict?.tone === 'bad' && verdict.issues > 0 ? verdict.issues : 0,
+    !runCheck.pending && verdict?.tone === 'bad' && verdict.issues > 0
+      ? verdict.issues
+      : 0,
   )
 
   /** Bring the first issue into view: the first field with an error, in

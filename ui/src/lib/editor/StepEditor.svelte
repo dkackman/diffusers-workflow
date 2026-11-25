@@ -34,7 +34,7 @@
     step = $bindable(),
     index,
     count,
-    workflow = {},
+    workflow,
     references = [],
     baseFolder = '',
     mode = 'full',
@@ -51,7 +51,7 @@
     count: number
     // The document the step belongs to: what its media arguments take
     // from the steps before it
-    workflow?: Record<string, any>
+    workflow: Record<string, any>
     references?: string[]
     baseFolder?: string
     mode?: 'collapsed' | 'compact' | 'full'

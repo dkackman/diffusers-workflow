@@ -582,6 +582,8 @@ def project_listing(
                 slim["observed_runs"] = observed["cold_runs"]
             if detail.get("configures_missing"):
                 slim["configures_missing"] = detail["configures_missing"]
+            if inputs and "inputs" in detail:
+                slim["inputs"] = detail["inputs"]
             projected[name] = slim
         else:
             # `inputs` is cached on every detail but listed only when asked

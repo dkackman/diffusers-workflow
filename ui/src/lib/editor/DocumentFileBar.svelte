@@ -107,12 +107,12 @@
       </div>
 
       {#if described}
-        <label for="wf-description">description</label>
+        <label for="doc-description">description</label>
         <input
-          id="wf-description"
+          id="doc-description"
           spellcheck="true"
           value={ed.doc.description ?? ''}
-          placeholder="shown on the workflow card"
+          placeholder="shown on the card"
           title="a short description of what this file does"
           oninput={(e) => {
             const v = e.currentTarget.value

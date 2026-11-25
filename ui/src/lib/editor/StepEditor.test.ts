@@ -28,6 +28,7 @@ const step = () => ({
 it('shows a dtype and a content type it does not list as selected', () => {
   const { container } = render(StepEditor, {
     step: step(),
+    workflow: {},
     index: 0,
     count: 1,
     onremove: () => {},
@@ -52,6 +53,7 @@ it('opens full on a step whose schedulers set only a shift', () => {
   })
   render(StepEditor, {
     step: h3,
+    workflow: {},
     index: 0,
     count: 1,
     mode: 'full',
@@ -78,6 +80,7 @@ it('opens full on a step whose cache is a variable reference', () => {
   Object.assign(s.pipeline.configuration, { cache: ref })
   render(StepEditor, {
     step: s,
+    workflow: {},
     index: 0,
     count: 1,
     mode: 'full',
@@ -103,6 +106,7 @@ it('leaves a step with no torch_dtype unchanged on opening full', async () => {
   const before = JSON.stringify(s)
   render(StepEditor, {
     step: s,
+    workflow: {},
     index: 0,
     count: 1,
     mode: 'full',
@@ -154,6 +158,7 @@ it('a step removed during the pause never reads its sub-workflow', async () => {
     }
     const { unmount } = render(StepEditor, {
       step: sub,
+      workflow: {},
       index: 0,
       count: 1,
       onremove: () => {},
