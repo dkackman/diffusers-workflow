@@ -32,7 +32,7 @@ const loaded = (img: Locator) =>
     .toBeGreaterThan(0)
 /** Open a row that is not open: a row opens itself for some states */
 async function expand(row: Locator, title: string) {
-  const toggle = row.locator('.title')
+  const toggle = row.getByTestId('item-title')
   await expect(toggle).toHaveText(title)
   if ((await toggle.getAttribute('aria-expanded')) === 'false')
     await toggle.click()
@@ -48,9 +48,9 @@ test('the requests list says what the request wants and shows its latest results
   await expect(page).toHaveURL(/#\/ws\/default\/requests$/)
   await expect(page.getByRole('heading', { name: 'Requests' })).toBeVisible()
 
-  const row = page.locator('a.row', { hasText: ID })
+  const row = page.getByTestId('request-row').filter({ hasText: ID })
   await expect(row).toHaveCount(1)
-  await expect(row.locator('.tag')).toHaveText('open')
+  await expect(row.getByTestId('state-tag')).toHaveText('open')
   // nothing of it is running, and one of its two planned items can be run
   await expect(row.locator('.attention')).toHaveText(
     'Needs you: 1 ready to run, 1 take to choose.',
@@ -77,18 +77,22 @@ test('the list hides closed requests until asked, and keeps the choice in the ha
   page,
 }) => {
   await page.goto('/#/ws/default/requests')
-  await expect(page.locator('a.row', { hasText: ID })).toBeVisible()
+  await expect(
+    page.getByTestId('request-row').filter({ hasText: ID }),
+  ).toBeVisible()
   await page.getByRole('combobox', { name: 'show' }).selectOption('all')
   await expect(page).toHaveURL(/#\/ws\/default\/requests\?show=all$/)
-  await expect(page.locator('a.row', { hasText: ID })).toBeVisible()
+  await expect(
+    page.getByTestId('request-row').filter({ hasText: ID }),
+  ).toBeVisible()
 })
 
 test('a request leads with where it stands and what needs you', async ({
   page,
 }) => {
   await page.goto(REQUEST)
-  const head = page.locator('.reqhead')
-  await expect(head.locator('.tag')).toHaveText('open')
+  const head = page.getByTestId('req-head')
+  await expect(head.getByTestId('state-tag')).toHaveText('open')
   await expect(head.locator('.standing')).toHaveText(
     'Nothing is running. 1 of 3 done.',
   )
@@ -119,27 +123,29 @@ test('each item says its state in words: ready apart from waiting, with what it 
 
   // a job could be queued for it now
   const alt = item(page, 'Alternate poster')
-  await expect(alt.locator('.row .chip')).toHaveText('ready')
+  await expect(alt.getByTestId('item-chip')).toHaveText('ready')
   await expect(alt.getByRole('img')).toHaveCount(0)
 
   // planned too, but on an item that is not done: it names it
   const sheet = item(page, 'Contact sheet')
-  await expect(sheet.locator('.row .chip')).toHaveText('waiting')
-  await expect(sheet.locator('.row')).toContainText(
+  await expect(sheet.getByTestId('item-chip')).toHaveText('waiting')
+  await expect(sheet.getByTestId('item-row')).toContainText(
     'waits on Alternate poster (ready)',
   )
   await sheet.getByRole('button', { name: 'Alternate poster' }).click()
-  await expect(alt.locator('.title')).toBeFocused()
+  await expect(alt.getByTestId('item-title')).toBeFocused()
 
   // dropped: out of the plan, in its own closed group, with its failed take
-  const group = page.locator('details.droppedgroup')
+  const group = page.getByTestId('dropped-group')
   await expect(group.locator(':scope > summary')).toHaveText('Dropped (1)')
   const cut = item(page, 'Cut scene')
   await expect(cut).toBeHidden()
   await group.locator(':scope > summary').click()
-  await expect(cut.locator('.row .chip')).toHaveText('dropped')
+  await expect(cut.getByTestId('item-chip')).toHaveText('dropped')
   await expand(cut, 'Cut scene')
-  await expect(cut.locator('.strip .tile')).toHaveCount(1)
+  await expect(
+    cut.getByRole('list', { name: /^Takes of/ }).locator('.tile'),
+  ).toHaveCount(1)
   await expect(cut.locator('.strip .chip')).toHaveText('failed')
   // the ledger keeps a dropped item as stored: no note is offered on one
   await expect(cut.getByRole('button', { name: /note/i })).toHaveCount(0)
@@ -151,14 +157,19 @@ test('a done item shows its takes as pictures, the latest marked as the result',
 }) => {
   await page.goto(REQUEST)
   const hero = item(page, 'Hero poster')
-  await expect(hero.locator('.row .chip')).toHaveText('done')
+  await expect(hero.getByTestId('item-chip')).toHaveText('done')
   // two good takes and none accepted: it says so, and opens to show them;
   // open, the row's own picture steps aside for the takes
-  await expect(hero.locator('.row')).toContainText('2 takes')
-  await expect(hero.locator('.row')).toContainText('latest, none accepted')
-  await expect(hero.locator('.title')).toHaveAttribute('aria-expanded', 'true')
-  await expect(hero.locator('.proofcell')).toHaveClass(/under/)
-  const takes = hero.locator('.strip .tile')
+  await expect(hero.getByTestId('item-row')).toContainText('2 takes')
+  await expect(hero.getByTestId('item-row')).toContainText(
+    'latest, none accepted',
+  )
+  await expect(hero.getByTestId('item-title')).toHaveAttribute(
+    'aria-expanded',
+    'true',
+  )
+  await expect(hero.getByTestId('item-proof')).toHaveClass(/under/)
+  const takes = hero.getByRole('list', { name: /^Takes of/ }).locator('.tile')
   await expect(takes).toHaveCount(2)
   await expect(takes.nth(0)).toContainText('take 1')
   await expect(takes.nth(0).locator('.mark')).toHaveCount(0)
@@ -176,12 +187,12 @@ test('a done item shows its takes as pictures, the latest marked as the result',
     hero.getByRole('button', { name: 'Accept take 1 for Hero poster' }),
   ).toHaveAttribute('aria-pressed', 'false')
   // closed, the row's proof is the result, and leads to the job that made it
-  await hero.locator('.title').click()
-  const proof = hero.locator('.proofcell').getByRole('img', {
+  await hero.getByTestId('item-title').click()
+  const proof = hero.getByTestId('item-proof').getByRole('img', {
     name: 'result of Hero poster',
   })
   await loaded(proof)
-  await expect(hero.locator('.proofcell a')).toHaveAttribute(
+  await expect(hero.getByTestId('item-proof').locator('a')).toHaveAttribute(
     'href',
     '#/ws/default/jobs/e2ereqdone02',
   )
@@ -220,7 +231,7 @@ test('a note for the agent says whether the agent is connected, and is in the le
       /^written .+\. The agent isn't connected\. It reads this the next time it updates the plan\.$/,
     ),
   ).toBeVisible()
-  await expect(page.locator('.reqhead .figures')).toContainText(
+  await expect(page.getByTestId('req-head').locator('.figures')).toContainText(
     /\d+ notes? waiting/,
   )
   // the write was a revision of the request, by the user
@@ -231,13 +242,16 @@ test('a note for the agent says whether the agent is connected, and is in the le
   await page.reload()
   const again = item(page, 'Alternate poster')
   // a note the agent has not had the chance to read opens its row
-  await expect(again.locator('.title')).toHaveAttribute('aria-expanded', 'true')
+  await expect(again.getByTestId('item-title')).toHaveAttribute(
+    'aria-expanded',
+    'true',
+  )
   await expect(again.getByText(text)).toBeVisible()
   // the other items came back as they were: the dropped one still dropped
-  await expect(page.locator('details.droppedgroup > summary')).toHaveText(
-    'Dropped (1)',
-  )
-  await expect(item(page, 'Hero poster').locator('.row .chip')).toHaveText(
+  await expect(
+    page.locator('[data-testid="dropped-group"] > summary'),
+  ).toHaveText('Dropped (1)')
+  await expect(item(page, 'Hero poster').getByTestId('item-chip')).toHaveText(
     'done',
   )
 })
@@ -247,7 +261,7 @@ test("a note on the whole request is saved by an item note's rules", async ({
 }) => {
   const text = `make it all warmer (${Date.now()})`
   await page.goto(REQUEST)
-  const head = page.locator('.reqhead')
+  const head = page.getByTestId('req-head')
   await head.getByRole('button', { name: 'Add a note for the agent' }).click()
   await head
     .getByRole('textbox', { name: 'Note for the agent on this request' })
@@ -261,10 +275,10 @@ test("a note on the whole request is saved by an item note's rules", async ({
   expect((await post).status()).toBe(200)
   await expect(head.getByText(text)).toBeVisible()
   await page.reload()
-  await expect(page.locator('.reqhead').getByText(text)).toBeVisible()
+  await expect(page.getByTestId('req-head').getByText(text)).toBeVisible()
   await expect(
     page
-      .locator('.reqhead')
+      .getByTestId('req-head')
       .getByText(/The agent isn't connected\. It reads/)
       .first(),
   ).toBeVisible()
@@ -274,7 +288,10 @@ test("a request's jobs link narrows the Jobs page to it, with a chip", async ({
   page,
 }) => {
   await page.goto(REQUEST)
-  await page.locator('.reqhead').getByRole('link', { name: 'its jobs' }).click()
+  await page
+    .getByTestId('req-head')
+    .getByRole('link', { name: 'its jobs' })
+    .click()
   await expect(page).toHaveURL(new RegExp(`#/ws/default/jobs\\?req=${ID}$`))
   const chip = page.getByTestId('req-filter')
   // the link's title, not its text: the request's own title replaces the id
@@ -347,12 +364,14 @@ test('a row at 1300 px keeps its title on one line', async ({ page }) => {
   const lines = page.locator('li.item .titleline')
   await expect(lines.first()).toBeVisible()
   for (const line of await lines.all()) {
-    const title = (await line.locator('.title').boundingBox())!
+    const title = (await line.getByTestId('item-title').boundingBox())!
     const key = (await line.locator('.key').boundingBox())!
     // the key beside the title, not under it, and the title one line
     expect(key.y).toBeLessThan(title.y + title.height)
     expect(
-      await line.locator('.name').evaluate((el) => el.getClientRects().length),
+      await line
+        .getByTestId('item-name')
+        .evaluate((el) => el.getClientRects().length),
     ).toBe(1)
   }
 })
@@ -421,9 +440,13 @@ test('accepting a take is shown at once, is in the ledger, and the toast takes i
   await expect(first).toHaveAttribute('aria-pressed', 'true')
   await expect(first).toHaveText('Accepted')
   expect((await put).status()).toBe(200)
-  await expect(board.locator('.row')).toContainText('accepted')
+  await expect(board.getByTestId('item-row')).toContainText('accepted')
   await expect(
-    board.locator('.strip .tile').nth(0).locator('.mark'),
+    board
+      .getByRole('list', { name: /^Takes of/ })
+      .locator('.tile')
+      .nth(0)
+      .locator('.mark'),
   ).toHaveText('accepted')
   // the row stays open under the button, and focus stays on it
   await expect(first).toBeFocused()
@@ -445,7 +468,7 @@ test('accepting a take is shown at once, is in the ledger, and the toast takes i
   stored = await ledger(request)
   expect(stored.items[0].accepted).toBeNull()
   await page.reload()
-  await expect(boardRow(page, 'board').locator('.row')).toContainText(
+  await expect(boardRow(page, 'board').getByTestId('item-row')).toContainText(
     'latest, none accepted',
   )
 })
@@ -464,7 +487,9 @@ test('Back closes the take viewer', async ({ page }) => {
   await expect(viewer).toHaveCount(0)
   await expect(page).not.toHaveURL(/open=/)
   await expect(page).toHaveURL(new RegExp(BOARD_ID))
-  await expect(board.locator('.strip .tile')).toHaveCount(2)
+  await expect(
+    board.getByRole('list', { name: /^Takes of/ }).locator('.tile'),
+  ).toHaveCount(2)
 })
 
 test('dropping an item others wait on says what it does to them, and Restore puts it all back', async ({
@@ -474,8 +499,8 @@ test('dropping an item others wait on says what it does to them, and Restore put
   await page.goto(BOARD)
   const shot = boardRow(page, 'shot')
   const cut = boardRow(page, 'cut')
-  await expect(cut.locator('.row .chip')).toHaveText('waiting')
-  await expect(cut.locator('.row')).toContainText(
+  await expect(cut.getByTestId('item-chip')).toHaveText('waiting')
+  await expect(cut.getByTestId('item-row')).toContainText(
     'waits on Opening shot (failed)',
   )
   await choose(page, shot, 'Drop from plan')
@@ -488,8 +513,8 @@ test('dropping an item others wait on says what it does to them, and Restore put
   expect((await put).status()).toBe(200)
   expect(await order(page)).toEqual(['board', 'cut', 'title', 'score'])
   // the dependent no longer waits: with nothing else to wait on, it is ready
-  await expect(cut.locator('.row .chip')).toHaveText('ready')
-  await expect(cut.locator('.row')).not.toContainText('waits on')
+  await expect(cut.getByTestId('item-chip')).toHaveText('ready')
+  await expect(cut.getByTestId('item-row')).not.toContainText('waits on')
   let stored = await ledger(request)
   expect(stored.items.find((i: Stored) => i.key === 'cut').depends_on).toEqual(
     [],
@@ -497,7 +522,7 @@ test('dropping an item others wait on says what it does to them, and Restore put
   expect(stored.items.at(-1)).toMatchObject({ key: 'shot', dropped: true })
 
   // out of the plan, in the dropped group, with the way back
-  const group = page.locator('details.droppedgroup')
+  const group = page.getByTestId('dropped-group')
   await expect(group.locator(':scope > summary')).toHaveText('Dropped (1)')
   await group.locator(':scope > summary').click()
   put = written(page)
@@ -506,7 +531,7 @@ test('dropping an item others wait on says what it does to them, and Restore put
   await expect(group).toHaveCount(0)
   // its place and what waited on it, as they were
   expect(await order(page)).toEqual(['board', 'shot', 'cut', 'title', 'score'])
-  await expect(cut.locator('.row')).toContainText(
+  await expect(cut.getByTestId('item-row')).toContainText(
     'waits on Opening shot (failed)',
   )
   stored = await ledger(request)
@@ -557,7 +582,9 @@ test("an edit made over the agent's write goes on top of it, and the page says s
   request,
 }) => {
   await page.goto(BOARD)
-  await expect(boardRow(page, 'cut').locator('.name')).toHaveText('Final cut')
+  await expect(boardRow(page, 'cut').getByTestId('item-name')).toHaveText(
+    'Final cut',
+  )
   // the agent rewrites the plan under the open page
   const theirs = await asAgent(request, 'tightened the cut', (items) =>
     items.map((item) =>
@@ -577,7 +604,7 @@ test("an edit made over the agent's write goes on top of it, and the page says s
   // refused once as stale, then made over the plan as the agent left it
   expect(answers).toEqual([409, 200])
   expect(await order(page)).toEqual(['score', 'board', 'title', 'shot', 'cut'])
-  await expect(boardRow(page, 'cut').locator('.name')).toHaveText(
+  await expect(boardRow(page, 'cut').getByTestId('item-name')).toHaveText(
     'Final cut, tighter',
   )
   const stored = await ledger(request)
@@ -600,7 +627,7 @@ test('a drop of an item the agent changed is held back until the user answers', 
 }) => {
   await page.goto(BOARD)
   const score = boardRow(page, 'score')
-  await expect(score.locator('.name')).toHaveText('Score')
+  await expect(score.getByTestId('item-name')).toHaveText('Score')
   const theirs = await asAgent(request, 'strings only', (items) =>
     items.map((item) =>
       item.key === 'score' ? { ...item, title: 'Score, strings only' } : item,
@@ -614,7 +641,7 @@ test('a drop of an item the agent changed is held back until the user answers', 
     `While you were dropping this, the agent changed it (r${theirs}: 'strings only'): it is now called Score, strings only.`,
   )
   // not dropped, and nothing written
-  await expect(score.locator('.name')).toHaveText('Score, strings only')
+  await expect(score.getByTestId('item-name')).toHaveText('Score, strings only')
   expect(await order(page)).toContain('score')
   expect((await ledger(request)).revision).toBe(theirs)
 
@@ -651,7 +678,7 @@ test('the run dialog prices what is ready, says what will not run, and spends no
   // a dialog that spends starts on Cancel
   await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused()
   expect((await priced).status()).toBe(200)
-  const row = dialog.locator('.runrow[data-key="title"]')
+  const row = dialog.locator('[data-testid="run-row"][data-key="title"]')
   await expect(row).toContainText('Title card')
   await expect(row.locator('.flow')).toHaveText('e2e-title')
   // the server's own quote: a task-only workflow that has never run (the
@@ -704,7 +731,7 @@ test('a held item says so, counts down, runs only when asked, and a note turns i
   })
   await page.goto(BOARD)
   // the fixture holds `title` for an hour, and no session listens here
-  const banner = page.locator('.reqhead .hold p')
+  const banner = page.getByTestId('req-head').locator('.hold p')
   await expect(banner).toHaveText(
     /^1 item waiting for your OK\. The agent isn't connected, so nothing runs at .+ unless it reconnects\. Run it here, or leave a note\.$/,
   )
@@ -717,7 +744,7 @@ test('a held item says so, counts down, runs only when asked, and a note turns i
   await page.getByRole('button', { name: 'Run now…' }).click()
   const dialog = page.getByRole('dialog', { name: 'Run what can run now' })
   await expect(
-    dialog.locator('.runrow[data-key="title"] .held span'),
+    dialog.locator('[data-testid="run-row"][data-key="title"] .held span'),
   ).toHaveText(
     /^Waiting for your OK until .+\. Running it now is your go-ahead\.$/,
   )
@@ -750,15 +777,17 @@ test('running a ready item queues a job bound to its quote, and the job appears 
 }) => {
   await page.goto(BOARD)
   const title = boardRow(page, 'title')
-  await expect(title.locator('.chipcell .chip')).toHaveText('ready')
+  await expect(title.getByTestId('item-chip')).toHaveText('ready')
   // the header counts what the dialog offers: the ready title and every
   // failed item that can run again, however many earlier tests left
   const header = page.getByRole('button', { name: /^Run \d+…$/ })
   const offered = Number(/\d+/.exec((await header.textContent()) ?? '')?.[0])
   await header.click()
   const dialog = page.getByRole('dialog', { name: 'Run what can run now' })
-  await expect(dialog.locator('.runrow')).toHaveCount(offered)
-  await expect(dialog.locator('.runrow[data-key="title"]')).toHaveCount(1)
+  await expect(dialog.getByTestId('run-row')).toHaveCount(offered)
+  await expect(
+    dialog.locator('[data-testid="run-row"][data-key="title"]'),
+  ).toHaveCount(1)
   const submit = page.waitForResponse(
     (r) =>
       r.request().method() === 'POST' &&
@@ -786,9 +815,7 @@ test('running a ready item queues a job bound to its quote, and the job appears 
   await expect(dialog).toHaveCount(0)
   // read again at once: the item carries the job, in whatever state it
   // has reached, and is no longer something to run
-  await expect(title.locator('.chipcell .chip')).toHaveText(
-    /queued|running|done/,
-  )
+  await expect(title.getByTestId('item-chip')).toHaveText(/queued|running|done/)
   // the title is no longer offered: whatever else was, still is
   if (offered > 1)
     await expect(
@@ -799,10 +826,10 @@ test('running a ready item queues a job bound to its quote, and the job appears 
   const item = stored.items.find((i: Stored) => i.key === 'title')
   expect(item.attempts.map((a: { job: string }) => a.job)).toEqual([job.id])
   // a text task with no model: it finishes, and the page follows it there
-  await expect(title.locator('.chipcell .chip')).toHaveText('done', {
+  await expect(title.getByTestId('item-chip')).toHaveText('done', {
     timeout: 25_000,
   })
-  await expect(title.locator('.proofcell a')).toHaveAttribute(
+  await expect(title.getByTestId('item-proof').locator('a')).toHaveAttribute(
     'href',
     `#/ws/default/jobs/${job.id}`,
   )
@@ -844,11 +871,11 @@ test('the request can be marked done and reopened from its menu, and deleted onc
   request,
 }) => {
   await page.goto(BOARD)
-  const head = page.locator('.reqhead')
+  const head = page.getByTestId('req-head')
   const menu = head.getByRole('button', {
     name: 'More actions for this request',
   })
-  await expect(head.locator('.tag')).toHaveText('open')
+  await expect(head.getByTestId('state-tag')).toHaveText('open')
   let put = written(page)
   await menu.click()
   // an open request has no Delete
@@ -860,7 +887,7 @@ test('the request can be marked done and reopened from its menu, and deleted onc
     .getByRole('button', { name: 'Mark done' })
     .click()
   expect((await put).status()).toBe(200)
-  await expect(head.locator('.tag')).toHaveText('done')
+  await expect(head.getByTestId('state-tag')).toHaveText('done')
   let stored = await ledger(request)
   expect(stored.state).toBe('done')
   expect(stored.history.at(-1)).toMatchObject({
@@ -875,7 +902,7 @@ test('the request can be marked done and reopened from its menu, and deleted onc
   await menu.click()
   await page.getByRole('dialog').getByRole('button', { name: 'Reopen' }).click()
   expect((await put).status()).toBe(200)
-  await expect(head.locator('.tag')).toHaveText('open')
+  await expect(head.getByTestId('state-tag')).toHaveText('open')
   stored = await ledger(request)
   expect(stored.history.at(-1)).toMatchObject({
     why: 'reopened',
@@ -893,7 +920,7 @@ test('the request can be marked done and reopened from its menu, and deleted onc
     .getByRole('button', { name: 'Abandon' })
     .click()
   expect((await put).status()).toBe(200)
-  await expect(head.locator('.tag')).toHaveText('abandoned')
+  await expect(head.getByTestId('state-tag')).toHaveText('abandoned')
   await menu.click()
   await page
     .getByRole('dialog')
@@ -910,7 +937,9 @@ test('the request can be marked done and reopened from its menu, and deleted onc
   await expect(page).toHaveURL(/#\/ws\/default\/requests$/)
   await expect(page.getByText('Deleted E2E storyboard')).toBeVisible()
   await page.getByRole('combobox', { name: 'show' }).selectOption('all')
-  await expect(page.locator('a.row', { hasText: ID })).toBeVisible()
+  await expect(
+    page.getByTestId('request-row').filter({ hasText: ID }),
+  ).toBeVisible()
   await expect(page.locator('a.row', { hasText: BOARD_ID })).toHaveCount(0)
   expect((await request.get(BOARD_API)).status()).toBe(404)
 })

@@ -135,13 +135,19 @@
   data-key={item.key}
 >
   <!-- The row alone is the live one: opened, its region is not machine state -->
-  <div class="row" class:under class:row-live={row.display === 'running'}>
+  <div
+    data-testid="item-row"
+    class="row"
+    class:under
+    class:row-live={row.display === 'running'}
+  >
     <span class="handle">{@render handle?.(row)}</span>
     <div class="main">
       <div class="titleline">
         <button
           type="button"
           class="bare title"
+          data-testid="item-title"
           id={titleId(item.key)}
           aria-expanded={open}
           aria-controls={moreId(item.key)}
@@ -149,7 +155,7 @@
         >
           {#if open}<ChevronDown size={14} aria-hidden="true" />{:else}
             <ChevronRight size={14} aria-hidden="true" />{/if}
-          <span class="name">{item.title}</span>
+          <span class="name" data-testid="item-name">{item.title}</span>
         </button>
         <code class="muted key">{item.key}</code>
         {#if held}<span class="chip idle held">{held}</span>{/if}
@@ -200,7 +206,12 @@
         </p>
       {/if}
     </div>
-    <span class="proofcell" class:bare={!item.result?.output} class:under>
+    <span
+      data-testid="item-proof"
+      class="proofcell"
+      class:bare={!item.result?.output}
+      class:under
+    >
       <ItemProof
         output={item.result?.output ?? null}
         state={row.display}
@@ -210,7 +221,7 @@
       />
     </span>
     <span class="chipcell">
-      <span class="chip {chip.tone}">{chip.word}</span>
+      <span class="chip {chip.tone}" data-testid="item-chip">{chip.word}</span>
     </span>
     <span class="figure num muted">{figure}</span>
     <span class="tail">

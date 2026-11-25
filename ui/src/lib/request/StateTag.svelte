@@ -6,7 +6,7 @@
   let { value }: { value: LedgerRequest['state'] } = $props()
 </script>
 
-<span class="tag {value}">{value}</span>
+<span class="tag {value}" data-testid="state-tag">{value}</span>
 
 <style>
   .tag {

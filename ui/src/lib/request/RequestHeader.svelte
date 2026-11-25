@@ -98,7 +98,7 @@
   const runNow = $derived(hold ? runNowKeys(hold, channel.listening) : [])
 </script>
 
-<header class="reqhead">
+<header class="reqhead" data-testid="req-head">
   <PageHeader
     title={request.title}
     secondary={request.id}

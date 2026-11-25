@@ -378,7 +378,7 @@
       {/each}
     </ol>
     {#if plan.dropped.length}
-      <details class="droppedgroup">
+      <details class="droppedgroup" data-testid="dropped-group">
         <summary>Dropped ({plan.dropped.length})</summary>
         <ul class="items">
           {#each plan.dropped as row (row.item.key)}
