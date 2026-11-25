@@ -8,7 +8,7 @@
   const REPO_ID = new RegExp(`^(?:${PART}/)?${PART}$`)
 
   const REPO_ID_HINT =
-    'A repo id is org/name, like black-forest-labs/FLUX.1-dev.'
+    'A repo id is a name or org/name, like gpt2 or black-forest-labs/FLUX.1-dev.'
 
   /** Why a download field's value cannot be sent, or null when it is empty
    * or a repo id the server accepts */

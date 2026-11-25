@@ -663,6 +663,9 @@ it('leaves the viewer open when Escape answers a confirm dialog', async () => {
   await renderGallery()
   await openFile('a.png')
 
+  expect(screen.getByLabelText('Delete').classList.contains('danger')).toBe(
+    true,
+  )
   screen.getByLabelText('Delete').click()
   await waitFor(() => expect(screen.getByRole('alertdialog')).toBeTruthy())
 

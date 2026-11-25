@@ -3,7 +3,13 @@
   import { outputLibrary } from '../outputlib.svelte'
   import { api } from '../api'
   import DownloadLink from '../DownloadLink.svelte'
-  import { outputMedia, viewLabels, withoutRun, type MediaFile } from '../media'
+  import {
+    outputMedia,
+    viewLabels,
+    withoutRun,
+    type MediaFile,
+    durationsByName,
+  } from '../media'
   import { isStarKey, openInHash } from '../mediaViewer'
   import MediaViewer from '../ui/MediaViewer.svelte'
   import MissingFile from '../ui/MissingFile.svelte'
@@ -34,7 +40,7 @@
   import RequestFilter from '../gallery/RequestFilter.svelte'
   import RoleChips from '../gallery/RoleChips.svelte'
   import GalleryAside from '../gallery/GalleryAside.svelte'
-  import { saveAsAsset } from '../gallery/saveAsAsset'
+  import { SAVING_ASSET, saveAsAsset } from '../gallery/saveAsAsset'
   import UseAsInput from '../gallery/UseAsInput.svelte'
   import ReuseActions from '../gallery/ReuseActions.svelte'
   import {
@@ -126,7 +132,7 @@
         reqItem || undefined,
         { media: true },
       )
-      return new Map(result.files.map((f) => [f.name, f.duration_seconds]))
+      return durationsByName(result.files)
     },
     { watch: ['gallery'] },
   )
@@ -283,10 +289,7 @@
     },
     { doing: (file) => `delete ${file.name}`, confirm: fileConfirm },
   )
-  const saving = action(saveAsAsset, {
-    doing: 'save it as an asset',
-    success: (r) => `Saved as asset ${r.name}`,
-  })
+  const saving = action(saveAsAsset, SAVING_ASSET)
 
   // An open= that names no file in this view, once the listing is in: said
   // under the header (missingFile.svelte.ts), and cleared

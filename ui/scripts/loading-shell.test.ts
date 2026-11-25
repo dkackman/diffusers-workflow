@@ -4,6 +4,7 @@
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createContext, runInContext } from 'node:vm'
 import { beforeEach, describe, expect, it } from 'vitest'
 
 const UI = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -92,6 +93,17 @@ describe('the theme script', () => {
     expect(document.documentElement.dataset.theme).toBeUndefined()
   })
 
+  it('the theme script leaks no global', () => {
+    // a script's top-level `var` is a global of the context it runs in
+    const context = createContext({
+      localStorage: { getItem: () => 'dark' },
+      document: { documentElement: { dataset: {} } },
+    })
+    const before = Object.keys(context)
+    runInContext(script, context)
+    expect(Object.keys(context)).toEqual(before)
+  })
+
   it('reads the key theme.ts writes', () => {
     expect(script).toContain("'dw-theme'")
     expect(read('src/lib/theme.ts')).toContain(
@@ -111,6 +123,18 @@ describe('the shell text', () => {
     expect(html).toContain('>Loading dw…<')
     expect(style).toMatch(/#boot \.failed \{[^}]*animation:[^;}]*\b10s\b/)
     expect(style).toMatch(/#boot \.loading \{[^}]*animation:[^;}]*\b10s\b/)
+  })
+
+  it('with no script the shell says so', () => {
+    const page = new DOMParser().parseFromString(html, 'text/html')
+    const text = [...page.querySelectorAll('noscript')]
+      .map((n) => n.innerHTML.replace(/\s+/g, ' '))
+      .join(' ')
+    expect(text).toContain(
+      'dw needs JavaScript. Turn it on for this page and reload.',
+    )
+    expect(text).toMatch(/#boot \.loading, #boot \.failed \{ display: none; \}/)
+    expect(inline('style')).toMatch(/min-height: 100vh;\s*min-height: 100dvh;/)
   })
 
   it('main clears the shell before mounting', () => {

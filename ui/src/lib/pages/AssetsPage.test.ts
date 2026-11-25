@@ -610,6 +610,11 @@ it('collapses a library section, and remembers it', async () => {
 it('deletes an asset once the confirmation is answered', async () => {
   await renderAssets()
   const sheet = await openAsset('iris.png')
+  expect(
+    within(sheet)
+      .getByRole('button', { name: 'Delete' })
+      .classList.contains('danger'),
+  ).toBe(true)
   within(sheet).getByRole('button', { name: 'Delete' }).click()
 
   await answerConfirm(true)

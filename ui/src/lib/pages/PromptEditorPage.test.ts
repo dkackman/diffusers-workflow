@@ -515,3 +515,35 @@ it('PromptEditorPage says its own save at once, from no change feed', async () =
     list.mockImplementation(original)
   }
 })
+
+it('a draft and the focus survive the quiet read-back after Save', async () => {
+  await openHero()
+  const field = promptText()
+  field.focus()
+  await fireEvent.input(field, { target: { value: 'a hero at noon' } })
+  const list = vi.mocked(api.listPrompts)
+  const reads = list.mock.calls.length
+  await fireEvent.keyDown(window, { key: 's', metaKey: true })
+  await waitFor(() => expect(list.mock.calls.length).toBeGreaterThan(reads))
+  // typing goes on while the saved version is read back
+  await fireEvent.input(field, { target: { value: 'a hero at midnight' } })
+  vi.mocked(api.getPrompt).mockResolvedValueOnce({
+    prompt: { text: 'a hero at noon' },
+    writable: true,
+    etag: '"p2"',
+  } as never)
+  feed.move('default', 'prompts')
+  await new Promise((r) => setTimeout(r, 30))
+  expect(promptText()).toBe(field)
+  expect(field.value).toBe('a hero at midnight')
+  expect(document.activeElement).toBe(field)
+  expect(screen.queryByRole('button', { name: 'Load theirs' })).toBeNull()
+})
+
+it('the delete button is the danger one', async () => {
+  await openHero()
+  const trash = screen.getByRole('button', {
+    name: 'delete this prompt from the library',
+  })
+  expect(trash.classList.contains('danger')).toBe(true)
+})

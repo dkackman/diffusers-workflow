@@ -150,7 +150,8 @@ export function invalidateWorkspaces(): void {
   workspacesPromise = null
 }
 
-// A relist on its way, while it is: what relistOrJoin joins
+// The relist just started, held for the rest of that task: what
+// relistOrJoin joins
 let relisting: Promise<void> | null = null
 
 /** The listing read again, the cached one dropped first: what a view
@@ -159,15 +160,16 @@ let relisting: Promise<void> | null = null
 export function relistWorkspaces(): Promise<void> {
   invalidateWorkspaces()
   const read = (relisting = loadWorkspaces())
-  void read.finally(() => {
+  queueMicrotask(() => {
     if (relisting === read) relisting = null
   })
   return read
 }
 
-/** A relist, joining one already on its way: what a watcher the same feed
- * poll calls after the `workspaces` one reads, so one poll that moves both
- * lists the workspaces once (the Sidebar's content, as Overview joins) */
+/** A relist, joining one started in this same task: what a watcher the same
+ * feed poll calls after the `workspaces` one reads, so one poll that moves
+ * both lists the workspaces once (the Sidebar's content). A read from any
+ * earlier moment may have left before the change, so it is not joined */
 export function relistOrJoin(): Promise<void> {
   return relisting ?? relistWorkspaces()
 }

@@ -29,6 +29,7 @@
     workspace,
     children: aside,
     onread,
+    stamp,
   }: {
     /** The file's name: an output's path, or an asset's name unprefixed */
     name: string
@@ -40,7 +41,10 @@
     children?: Snippet<[GalleryMetadata, () => Promise<GalleryMetadata | null>]>
     /** Handed each read as it lands, for a control beside the panel whose
      * state the reply holds (the job viewer's star) */
-    onread?: (m: GalleryMetadata) => void
+    onread?: (m: GalleryMetadata, asked: number) => void
+    /** Asked as each read starts, and handed to `onread` with its reply, so
+     * a page can tell a reply older than a write of its own */
+    stamp?: () => number
   } = $props()
 
   // Read through the name and workspace alone: a page handing in a new
@@ -48,22 +52,34 @@
   const file = $derived(name)
   const ws = $derived(workspace)
   const own = () => ws
+  // What `stamp` said when each reply was asked for, read as the request
+  // starts (nothing can write between the call and this)
+  const asked = new WeakMap<GalleryMetadata, number>()
+  async function stamped(read: Promise<GalleryMetadata>) {
+    const at = untrack(() => stamp?.()) ?? 0
+    const m = await read
+    asked.set(m, at)
+    return m
+  }
   // An output moves with the gallery, an asset (read by its reference)
   // with the library; the source is fixed for the panel's life
   const meta =
     untrack(() => source) === 'output'
-      ? resource(() => api.galleryMetadata(file, ws), {
+      ? resource(() => stamped(api.galleryMetadata(file, ws)), {
           watch: ['gallery'],
           workspace: own,
         })
-      : resource(() => api.galleryMetadata(reference(ASSET, file), ws), {
-          watch: ['assets'],
-          workspace: own,
-        })
+      : resource(
+          () => stamped(api.galleryMetadata(reference(ASSET, file), ws)),
+          {
+            watch: ['assets'],
+            workspace: own,
+          },
+        )
 
   $effect(() => {
     const m = meta.status === 'ready' ? meta.data : null
-    if (m) untrack(() => onread?.(m))
+    if (m) untrack(() => onread?.(m, asked.get(m) ?? 0))
   })
 
   // Read the file again: the fresh read, or null when it failed or a

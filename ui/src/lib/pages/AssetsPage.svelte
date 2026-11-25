@@ -8,7 +8,12 @@
   // beside it.
   import { FolderOpen } from '@lucide/svelte'
   import { api } from '../api'
-  import { assetMedia, viewLabels, type MediaFile } from '../media'
+  import {
+    assetMedia,
+    viewLabels,
+    type MediaFile,
+    durationsByName,
+  } from '../media'
   import { openInHash } from '../mediaViewer'
   import { groupNames } from '../grouping'
   import MissingFile from '../ui/MissingFile.svelte'
@@ -93,7 +98,7 @@
   const durations = resource(
     async () => {
       const result = await api.listAssets({ media: true, limit: DURATIONS })
-      return new Map(result.assets.map((a) => [a.name, a.duration_seconds]))
+      return durationsByName(result.assets)
     },
     { watch: ['assets'] },
   )

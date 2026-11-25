@@ -64,9 +64,12 @@ class UiFiles(StaticFiles):
 
 
 def _compress(app_):
-    """Gzip everything but /mcp and /mcp/* (the MCP client asked for none);
-    Starlette itself leaves event streams, media, zips and a 206 alone."""
-    gzip = GZipMiddleware(app_, minimum_size=1000, compresslevel=6)
+    """Gzip all but /mcp and /mcp/* (that client asked for none) and `skip`'s types."""
+    # Starlette's default list, passed so an upgrade cannot change what is gzipped
+    skip = "application/grpc application/gzip application/x-gzip application/zip audio/* font/woff font/woff2 image/avif image/gif image/jpeg image/png image/webp text/event-stream video/*"
+    gzip = GZipMiddleware(
+        app_, minimum_size=1000, compresslevel=6, exclude_content_types=skip.split()
+    )
 
     async def route(scope, receive, send):
         path = scope.get("path", "")
@@ -106,8 +109,7 @@ def _store_directories(
     state.prompt_dir = prompt_dir
     # Where uploads land and 'asset:' resolves; None: uploads/keep/delete 409
     state.asset_dir = os.path.abspath(asset_dir) if asset_dir else None
-    # The root the directories above default to; None without one (a test
-    # building an app around three explicit directories)
+    # The directories above default under it; None for a test's explicit three
     state.workspace = os.path.abspath(workspace) if workspace else None
     # The LoRA catalog written (root's loras/), shared by all like the prompt library;
     # None without a root: the shipped catalog is still read, and a save 409s
@@ -136,8 +138,7 @@ def _store_directories(
         root=state.workspace,
     )
 
-    # The folder of a workspace's requests.json, for a rerun's ledger check
-    # (None, never raises, when the workspace is gone, which the rerun warns about)
+    # A workspace's requests.json folder, for a rerun; None (no raise) once gone
     def ledger_root_for(name):
         from .deps import workspace_for
 
@@ -147,9 +148,8 @@ def _store_directories(
             return None
 
     manager.ledger_root_for = ledger_root_for
-    # A StaticFiles per output/asset root, built lazily (a mount binds one
-    # directory at startup and a named workspace's root may not exist yet). Reused,
-    # so /outputs and /inputs answer 304 and 206 instead of resending the file
+    # A StaticFiles per output/asset root, built lazily (a named root may not exist
+    # at startup) and reused, so /outputs and /inputs answer 304 and 206
     state.static_files_by_root = {}
     # The two sets zip_download's policy reads, exposed for tests
     state.media_kinds = MEDIA_KINDS

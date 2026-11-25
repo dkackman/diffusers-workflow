@@ -185,18 +185,51 @@ export function serverHref(section: ServerSection): string {
   return join(['server', section])
 }
 
+// A comma is left as typed: it is legal in a fragment, and a list reads
+// `roles=final,intermediate` rather than `final%2Cintermediate`
+const encodeValue = (value: string) =>
+  encodeURIComponent(value).replace(/%2C/gi, ',')
+
+/** `values` as a hash's query, empty ones dropped; '' when none is left. */
+export function queryString(values: Record<string, string>): string {
+  const query = Object.entries(values)
+    .filter(([, value]) => value)
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeValue(value)}`)
+    .join('&')
+  return query ? '?' + query : ''
+}
+
+/** The query keys a section reads that mean the same in any workspace: its
+ * filters, never an item's id (`req`, `open`) or one workspace's (`ws`). */
+const KEPT_QUERY: Partial<Record<WsSection, string[]>> = {
+  workflows: ['q', 'shape', 'traits', 'sort'],
+  jobs: ['status', 'q'],
+  requests: ['show'],
+  gallery: ['q', 'sort', 'group', 'roles', 'starred'],
+  assets: ['q', 'sort'],
+}
+
 /** Where choosing workspace `name` goes from `view`: the same section of
  * the other workspace, without what follows it (a job id names one job of
  * this workspace). The editor and a comparison name this workspace's files,
  * so they become the other's Workflows and Gallery; a shared or server page
- * belongs to no workspace, so the switch lands on the overview. */
-export function switchHref(name: string, view: RouteView): string {
+ * belongs to no workspace, so the switch lands on the overview. The filters
+ * of `query` that the target section reads go along. */
+export function switchHref(
+  name: string,
+  view: RouteView,
+  query: Record<string, string> = {},
+): string {
   if (view.kind !== 'ws') return wsHref(name, 'overview')
   const moved: Partial<Record<WsSection, WsSection>> = {
     edit: 'workflows',
     compare: 'gallery',
   }
-  return wsHref(name, moved[view.section] ?? view.section)
+  const section = moved[view.section] ?? view.section
+  const kept = Object.entries(query).filter(([key]) =>
+    KEPT_QUERY[section]?.includes(key),
+  )
+  return wsHref(name, section) + queryString(Object.fromEntries(kept))
 }
 
 /** A comparison of `names`: the one builder, each name one path segment

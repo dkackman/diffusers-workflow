@@ -1,37 +1,24 @@
 <script lang="ts">
   import { untrack } from 'svelte'
   import {
-    BookCopy,
-    ClipboardList,
     ChevronDown,
     ChevronRight,
-    Database,
     Eye,
-    FolderOpen,
-    Images,
-    LayoutDashboard,
-    Layers,
-    ListTodo,
-    ListTree,
-    MessageSquareText,
     PanelLeftClose,
     PanelLeftOpen,
     Plus,
-    Server,
-    SquarePen,
   } from '@lucide/svelte'
   import { slide } from 'svelte/transition'
   import { prefersReducedMotion } from 'svelte/motion'
-  import { route } from './router.svelte'
+  import { liveQuery, route } from './router.svelte'
+  import { SERVER_ITEMS, SHARED_ITEMS, WS_ITEMS } from './navItems'
   import {
     SECTION_LABELS,
     serverHref,
     sharedHref,
     switchHref,
     wsHref,
-    type ServerSection,
     type SharedSection,
-    type WsSection,
   } from './routes'
   import { resource } from './resource.svelte'
   import { relistOrJoin, relistWorkspaces, workspace } from './workspace.svelte'
@@ -55,6 +42,12 @@
   // What the listing holds is module state (workspace.svelte.ts), drawn
   // from there; the resource is how it stays fresh
   resource(() => relistWorkspaces(), { watch: ['workspaces'] })
+  // The workspace whose sections are open: the route's when it names one,
+  // else the one the UI is scoped to (a shared or server page still sits
+  // inside a workspace's context)
+  const expanded = $derived(
+    route.view.kind === 'ws' ? route.view.workspace : workspace.current,
+  )
   // The open workspace's own content moving (a save, an upload, an output
   // landing) moves its time: the listing is read again quietly, at most once
   // per clock tick, a move in a tick that already read it owed to the next,
@@ -70,7 +63,11 @@
       readIn = tick
       await relistOrJoin()
     },
-    { watch: ['workflows', 'prompts', 'assets', 'gallery'], lazy: true },
+    {
+      watch: ['workflows', 'prompts', 'assets', 'gallery'],
+      lazy: true,
+      workspace: () => expanded,
+    },
   )
   $effect(() => {
     void now.value
@@ -80,12 +77,6 @@
     })
   })
 
-  // The workspace whose sections are open: the route's when it names one,
-  // else the one the UI is scoped to (a shared or server page still sits
-  // inside a workspace's context)
-  const expanded = $derived(
-    route.view.kind === 'ws' ? route.view.workspace : workspace.current,
-  )
   // A switch is shown, not just repainted: the new workspace's sections
   // slide open where the old ones slid shut, and its name row settles from
   // a stronger --select tint to the block's resting one. The first render
@@ -111,58 +102,6 @@
     route.view.kind === 'server' ? route.view.section : null,
   )
 
-  const WS_ITEMS: { section: WsSection; label: string; icon: typeof Layers }[] =
-    [
-      {
-        section: 'overview',
-        label: SECTION_LABELS.ws.overview,
-        icon: LayoutDashboard,
-      },
-      {
-        section: 'workflows',
-        label: SECTION_LABELS.ws.workflows,
-        icon: Layers,
-      },
-      { section: 'jobs', label: SECTION_LABELS.ws.jobs, icon: ListTodo },
-      {
-        section: 'requests',
-        label: SECTION_LABELS.ws.requests,
-        icon: ClipboardList,
-      },
-      { section: 'gallery', label: SECTION_LABELS.ws.gallery, icon: Images },
-      { section: 'assets', label: SECTION_LABELS.ws.assets, icon: FolderOpen },
-      { section: 'edit', label: SECTION_LABELS.ws.edit, icon: SquarePen },
-    ]
-  const SHARED_ITEMS: {
-    section: SharedSection
-    label: string
-    icon: typeof Layers
-  }[] = [
-    {
-      section: 'prompts',
-      label: SECTION_LABELS.shared.prompts,
-      icon: MessageSquareText,
-    },
-    {
-      section: 'assets',
-      label: SECTION_LABELS.shared.assets,
-      icon: FolderOpen,
-    },
-    {
-      section: 'examples',
-      label: SECTION_LABELS.shared.examples,
-      icon: BookCopy,
-    },
-  ]
-  const SERVER_ITEMS: {
-    section: ServerSection
-    label: string
-    icon: typeof Layers
-  }[] = [
-    { section: 'models', label: SECTION_LABELS.server.models, icon: Database },
-    { section: 'schema', label: SECTION_LABELS.server.schema, icon: ListTree },
-    { section: 'status', label: SECTION_LABELS.server.status, icon: Server },
-  ]
   // prompt-edit sits under Prompts in the nav
   const sharedActive = (s: SharedSection) =>
     sharedSection === s || (s === 'prompts' && sharedSection === 'prompt-edit')
@@ -238,7 +177,7 @@
   {:else if collapsed}
     <a
       class="plain dotlink"
-      href={switchHref(name, route.view)}
+      href={switchHref(name, route.view, liveQuery.now)}
       title={name}
       aria-label="{name} workspace"
       style:--ws-dot={wsColor(name)}
@@ -248,7 +187,7 @@
   {:else}
     <a
       class="plain ws shut"
-      href={switchHref(name, route.view)}
+      href={switchHref(name, route.view, liveQuery.now)}
       title={name}
       style:--ws-dot={wsColor(name)}
     >
@@ -270,7 +209,10 @@
     <a class="brand plain" href={wsHref(workspace.current, 'overview')}>dw</a>
     <button
       class="bare icon"
-      onclick={onToggle}
+      onclick={(e) => {
+        e.currentTarget.focus() // re-expanding leaves the keyboard here
+        onToggle()
+      }}
       title={collapsed ? 'expand sidebar' : 'collapse sidebar'}
       aria-label={collapsed ? 'expand sidebar' : 'collapse sidebar'}
     >

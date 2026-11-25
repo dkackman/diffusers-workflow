@@ -7,6 +7,7 @@ import {
 } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import Sidebar from './Sidebar.svelte'
+import { setHashQuery } from './router.svelte'
 import { invalidateWorkspaces, workspace } from './workspace.svelte'
 import { api } from './test/apiMock'
 import { feed } from './test/feedMock'
@@ -373,4 +374,74 @@ it('one feed poll that moves the workspaces and a content kind lists them once',
   await new Promise((r) => setTimeout(r, 10))
   // the content resource joins the relist on its way
   expect(api.listWorkspaces.mock.calls.length).toBe(calls + 1)
+})
+
+it('a content move does not join a listing read started before it', async () => {
+  render(Sidebar, { collapsed: false, onToggle: () => {} })
+  await waitFor(() => expect(screen.getByText('default')).toBeTruthy())
+  const calls = api.listWorkspaces.mock.calls.length
+  // the workspaces read leaves, and is still on its way when assets move
+  const original = api.listWorkspaces.getMockImplementation()!
+  let land = () => {}
+  api.listWorkspaces.mockImplementationOnce(
+    () => new Promise((resolve) => (land = () => resolve(original()))),
+  )
+  feed.move(workspace.current, 'workspaces')
+  await new Promise((r) => setTimeout(r, 10))
+  feed.move(workspace.current, 'assets')
+  await new Promise((r) => setTimeout(r, 10))
+  expect(api.listWorkspaces.mock.calls.length).toBe(calls + 2)
+  land()
+})
+
+it("the open workspace's time follows the route's feed", async () => {
+  render(Sidebar, { collapsed: false, onToggle: () => {} })
+  await waitFor(() => expect(screen.getByText('default')).toBeTruthy())
+  // `current` moved off the route's workspace (studio)
+  workspace.current = 'default'
+  await new Promise((r) => setTimeout(r, 10))
+  const calls = api.listWorkspaces.mock.calls.length
+  feed.move('studio', 'assets')
+  await waitFor(() =>
+    expect(api.listWorkspaces.mock.calls.length).toBe(calls + 1),
+  )
+})
+
+it('a folded group while collapsed shows each of its workspaces', async () => {
+  api.listWorkspaces.mockResolvedValueOnce({
+    workspace_root: '/ws',
+    default: 'main',
+    workspaces: ['regression-a', 'regression-b', 'regression-c', 'main'].map(
+      (name) => ({ name, default: name === 'main' }),
+    ),
+  })
+  location.hash = '#/ws/main/overview'
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
+  render(Sidebar, { collapsed: true, onToggle: () => {} })
+  for (const name of ['regression-a', 'regression-b', 'regression-c'])
+    expect(
+      await screen.findByRole('link', { name: `${name} workspace` }),
+    ).toBeTruthy()
+  expect(screen.queryByRole('button', { name: /regression/ })).toBeNull()
+})
+
+it('re-expand returns focus to the collapse button', async () => {
+  const onToggle = vi.fn()
+  const { rerender } = render(Sidebar, { collapsed: true, onToggle })
+  // jsdom, like Safari, does not focus a button on click
+  await fireEvent.click(screen.getByRole('button', { name: 'expand sidebar' }))
+  await rerender({ collapsed: false, onToggle })
+  expect(onToggle).toHaveBeenCalledOnce()
+  expect(document.activeElement).toBe(
+    screen.getByRole('button', { name: 'collapse sidebar' }),
+  )
+})
+
+it("a shut workspace's link follows a filter typed after it was drawn", async () => {
+  render(Sidebar, { collapsed: false, onToggle: () => {} })
+  const shut = await screen.findByRole('link', { name: /default/ })
+  setHashQuery({ q: 'cat', open: 'a.png' })
+  await waitFor(() =>
+    expect(shut.getAttribute('href')).toBe('#/ws/default/gallery?q=cat'),
+  )
 })

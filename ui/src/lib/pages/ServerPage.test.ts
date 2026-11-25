@@ -688,3 +688,19 @@ it('ServerPage recovers after the server comes back', async () => {
   await waitFor(() => expect(text()).toContain('http://192.168.1.50:8765'))
   expect(text()).not.toContain("Can't reach the server")
 })
+
+it('a server reached through a proxy is told to stay bound where it is', async () => {
+  page.origin = 'https://dw.example.com'
+  const text = await show({ bind_host: '127.0.0.1', wildcard_bind: false })
+  expect(text).toContain(
+    'You reach this server through a tunnel or proxy; keep it bound to 127.0.0.1.',
+  )
+  expect(text).not.toContain('restart it bound to the network')
+})
+
+it('the rebind advice names an ssh tunnel as the safer way', async () => {
+  const text = await show({ bind_host: '127.0.0.1', wildcard_bind: false })
+  expect(text).toContain(
+    'Reaching it through ssh -L is the safer way: see How to use dw from another machine',
+  )
+})
