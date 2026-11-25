@@ -13,6 +13,9 @@
     type NoteLine,
   } from './noteState'
   import type { LedgerNote, LedgerNoteRef } from '../types'
+  import Time from '../ui/Time.svelte'
+  // Between the note's two times; spelled here, as a block trims a space
+  const BETWEEN = ' · '
 
   // One of the user's notes for the agent, on a request or one of its
   // items - or, with `note` null, the box a new one is written in. The
@@ -286,7 +289,11 @@
             The agent answered in r{answer.revision}: {answer.why}
           </p>
         {/if}
-        {#if line}<p class="hint muted">{line.text}</p>{/if}
+        {#if line}
+          <!-- One sentence, kept on one line: a line break here is a space -->
+          <!-- prettier-ignore -->
+          <p class="hint muted noteline"><Time at={line.written} label="written" />{#if line.changed !== null}{BETWEEN}<Time at={line.changed} label="changed" />{/if}{`. ${line.standing}`}{#if line.agent}{` (${line.agent.lead}`}<Time at={line.agent.at} label="changed" by="agent" />).{/if}</p>
+        {/if}
       {/if}
       {#if draft.kept}<p class="hint">You have an unsaved draft.</p>{/if}
       {#if editable}

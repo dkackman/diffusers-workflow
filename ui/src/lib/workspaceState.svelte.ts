@@ -25,6 +25,9 @@ export const workspace = $state<{
   usage: Record<string, { files: number; bytes: number }>
   /** The note each workspace carries, by name; a workspace without one is absent */
   notes: Record<string, string>
+  /** When each workspace last changed (unix seconds), by name: its newest
+   * workflow, asset folder or run, as `times=true` measures it */
+  changed: Record<string, number>
 }>({
   current: DEFAULT_WORKSPACE,
   names: undefined,
@@ -32,4 +35,5 @@ export const workspace = $state<{
   listed: false,
   usage: {},
   notes: {},
+  changed: {},
 })

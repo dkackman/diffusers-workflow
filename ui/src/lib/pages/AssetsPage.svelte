@@ -14,6 +14,8 @@
   import MissingFile from '../ui/MissingFile.svelte'
   import { missingFile } from '../missingFile.svelte'
   import OutputTile from '../ui/OutputTile.svelte'
+  import ListSort, { listSort, newestFirst } from '../ui/ListSort.svelte'
+  import Time from '../ui/Time.svelte'
   import { untrack } from 'svelte'
   import { resource } from '../resource.svelte'
   import { applyEdits, noEdits, settleEdits, withPatch } from '../gallery/order'
@@ -108,6 +110,7 @@
   const shadowed = $derived<ShadowedAsset[]>(list.data?.shadowed ?? [])
   // In the hash, so Back from an asset - or a shared link - keeps it
   const filter = hashState('q', '')
+  const sort = listSort()
   // The asset open in the viewer, as `open=` in the hash: the viewer writes
   // it the way Back expects (mediaViewer.ts), and Back closes it
   let open = $state<string | null>(openInHash())
@@ -157,8 +160,17 @@
   const filterActive = $derived(filter.value !== '')
   const matches = (name: string) =>
     name.toLowerCase().includes(filter.value.toLowerCase())
-  const visible = $derived(assets.filter((a) => matches(a.name)))
-  const byName = $derived(new Map(visible.map((a) => [a.name, a])))
+  const matched = $derived(assets.filter((a) => matches(a.name)))
+  const byName = $derived(new Map(matched.map((a) => [a.name, a])))
+  // Newest first is one list across a library's folders
+  const newest = $derived(sort.value === 'newest')
+  const visible = $derived(
+    newest
+      ? newestFirst([...byName.keys()], (n) => byName.get(n)?.mtime).map((n) =>
+          byName.get(n)!,
+        )
+      : matched,
+  )
   // Same-leaf assets in different folders are told apart by their caption
   const labelled = $derived(viewLabels(assets.map((a) => a.name)))
   const folderByName = $derived(new Map(assets.map((a) => [a.name, a.folder])))
@@ -272,7 +284,7 @@
     const shut = shutFolders[viewed.origin]
     const grouped = groupNames(
       viewed.assets.map((a) => a.name),
-      (name) => folderByName.get(name) ?? '',
+      (name) => (newest ? '' : (folderByName.get(name) ?? '')),
     )
     return [...grouped.entries()]
       .flatMap(([g, names]) => (!filterActive && shut?.has(g) ? [] : names))
@@ -404,6 +416,7 @@
     filter={search}
   >
     {#snippet actions()}
+      <ListSort {sort} />
       {#if !shared && elsewhereCount}
         <a
           class="sidelink plain muted"
@@ -487,7 +500,7 @@
     {#if isOpen(section.origin)}
       <FolderGroups
         names={section.assets.map((a) => a.name)}
-        groupOf={(name) => folderByName.get(name) ?? ''}
+        groupOf={(name) => (newest ? '' : (folderByName.get(name) ?? ''))}
         collapseKey="collapsed-asset-folders-{section.origin}"
         collapsed={shutFolders[section.origin]}
         {filterActive}
@@ -520,7 +533,13 @@
               onclick={() => (open = name)}
               aria-label="Open {asset.name}"
               title="Open this asset, with what made it"
-            />
+            >
+              {#snippet meta()}
+                <span class="muted">
+                  <Time at={asset.mtime} label="changed" />
+                </span>
+              {/snippet}
+            </OutputTile>
           </div>
         {/snippet}
       </FolderGroups>

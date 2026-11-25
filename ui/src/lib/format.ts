@@ -50,6 +50,18 @@ export function formatExact(mtime: number): string {
   })
 }
 
+/** A time of day alone, hours and minutes in the viewer's locale ('14:05',
+ * '2:05 PM') - for a deadline the same day, where the date says nothing. */
+export function formatClock(at: number): string {
+  return new Date(at * 1000).toLocaleTimeString(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+/** A count with its thousands grouped, the same in every locale - '12,345' */
+export const formatCount = (n: number): string => n.toLocaleString('en-US')
+
 /** How long ago a unix-seconds timestamp was, for a list: 'just now'
  * under a minute, '5 min ago', '3 h ago', '2 days ago' within a month, and
  * past that the day itself (formatDay), since '40 days ago' is a sum the

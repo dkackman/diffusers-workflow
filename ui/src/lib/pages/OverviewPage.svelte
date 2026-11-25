@@ -225,7 +225,7 @@
         </span>
         <span class="when">
           {#if when !== null}<span class="at">
-              <Time at={when} mode="exact" />
+              <Time at={when} />
             </span><span class="sep" aria-hidden="true">
               &nbsp;·&nbsp;
             </span>{/if}<span class="jid" title={job.id}>{job.id}</span>
@@ -253,6 +253,9 @@
           <span class="muted num" title="items done, of those in the plan">
             {doneFigure(req)}
           </span>
+          {#if req.updated_at}<span class="muted reqwhen">
+              <Time at={Date.parse(req.updated_at) / 1000} label="changed" />
+            </span>{/if}
           <span class="muted reqline">{attention(req).text}</span>
         </li>
       {/each}
@@ -448,6 +451,9 @@
   .jobs .reqrow {
     flex-wrap: wrap;
     row-gap: 0;
+  }
+  .jobs .reqwhen {
+    font-size: var(--t-xs);
   }
   .jobs .reqline {
     flex: 1 0 100%;

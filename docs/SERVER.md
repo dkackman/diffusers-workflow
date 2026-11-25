@@ -1084,7 +1084,11 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
   otherwise. `inputs=true` adds to each full-view detail `inputs`: every
   variable that feeds a media argument (`image`, `mask_image`, `video`,
   `audio`, ...) or sits in a `location` object, and the kind it takes
-  (`image`, `video`, `audio` or `file`); without it the key is absent
+  (`image`, `video`, `audio` or `file`); without it the key is absent.
+  `times=true` adds to each detail `mtime` (epoch seconds, when its file last
+  changed) and `created` (when it was first written) where the filesystem
+  records a birth time (macOS, the BSDs; not Linux), never the mtime in its
+  place; without it neither key is sent, so MCP's listings are unchanged
 - `GET/PUT/DELETE /api/workflows/{name}` — read, save, delete workflow files
   (confined to `--workflow-dir`); `PATCH` applies a JSON merge patch (RFC 7396,
   `application/merge-patch+json` or JSON) to the stored version and saves the
@@ -1109,7 +1113,8 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
   reference can load); the listing carries `libraries`, `shadowed` and an
   `origin`/`writable` per entry in `details`; deleting a read-only entry is a
   403; saves are validated against the prompt schema,
-  served at `GET /api/prompt-schema`
+  served at `GET /api/prompt-schema`. `times=true` adds `mtime` and, where
+  the filesystem has one, `created` to each detail, as the workflow listing does
   `GET` and `PUT /api/prompts/{name}` send the same `ETag`, and `PUT` honours
   `If-None-Match: *` (409 `exists`) and `If-Match` (409 `stale_write`) as a workflow
   save does; without either header it overwrites
@@ -1364,7 +1369,11 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
   `default`, and refuses a workspace with jobs still queued or running. Each listed
   workspace carries `usage` (`{files, bytes}`), an approximate walk of its
   own folders at most once a minute; the shared prompt library counts
-  against `default` alone. `exports/` beside the workspace folders holds one
+  against `default` alone. `times=true` adds `mtime`, the newest mtime of
+  its own folders and the entries directly in them (a workflow saved, an
+  asset folder filled, a run landing in `outputs/<workflow>/`), and
+  `created`, its root's birth time where the filesystem records one.
+  `exports/` beside the workspace folders holds one
   directory per exported job and is never listed as a workspace
 - `POST /api/workspaces/{destination}/copy` (`{"source": ..., "runs": [...],
   "assets": [...]}`) — copy runs and assets from one workspace into another.

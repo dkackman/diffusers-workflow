@@ -489,3 +489,29 @@ it("a search shows each card's folder, and clearing restores the groups", async 
   for (const e of document.querySelectorAll('.cardname'))
     expect(e.textContent).toBe('text-to-image')
 })
+
+it('WorkflowsPage says when each workflow changed', async () => {
+  const now = Math.floor(Date.now() / 1000)
+  listing.details['templates/tti'].mtime = now - 5 * 60
+  await renderPage('tti')
+  const stamp = card('tti')!.querySelector('time')!
+  expect(stamp.textContent?.trim()).toBe('changed 5 min ago')
+  expect(stamp.getAttribute('title')).toBeTruthy()
+  // a listing entry with no time says nothing rather than a made-up one
+  expect(card('shot')!.querySelector('time')).toBeNull()
+})
+
+it('the newest-first sort', async () => {
+  const now = Math.floor(Date.now() / 1000)
+  listing.details['templates/tti'].mtime = now - 86_400
+  listing.details['templates/shot'].mtime = now - 3600
+  listing.details['models/flux-dev'].mtime = now - 60
+  await renderPage('tti')
+  const names = () =>
+    [...document.querySelectorAll('.cardname')].map((n) => n.textContent)
+  // by name, in folders, until asked
+  expect(names()).toEqual(['shot', 'tti', 'flux-dev'])
+  await fireEvent.click(screen.getByRole('button', { name: 'Newest' }))
+  await waitFor(() => expect(names()).toEqual(['flux-dev', 'shot', 'tti']))
+  expect(location.hash).toContain('sort=newest')
+})

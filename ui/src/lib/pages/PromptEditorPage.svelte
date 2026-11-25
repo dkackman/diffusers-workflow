@@ -341,6 +341,7 @@
       {folders}
       noun="prompt"
       described={false}
+      changed={listing.data?.details?.[current]?.mtime}
       reference={shell.savePath()
         ? reference(PROMPT, shell.savePath() ?? '')
         : ''}

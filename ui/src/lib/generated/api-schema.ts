@@ -1702,7 +1702,8 @@ export interface paths {
          *     narrow the listing; `view=compact` is the agent's view - summaries
          *     rather than descriptions, templates rather than model configs
          *     unless `include_models` asks for them; `inputs` adds each media
-         *     input's kind. `workflows` names exactly the entries `details` holds.
+         *     input's kind; `times` when each file changed. `workflows` names exactly
+         *     the entries `details` holds.
          */
         get: operations["list_workflows_api_workflows_get"];
         put?: never;
@@ -1817,11 +1818,9 @@ export interface paths {
         };
         /**
          * List Workspaces
-         * @description Every workspace on this server, the default first.
-         *
-         *     A workspace is a namespace, not a security boundary: the API token
-         *     is all-or-nothing, so anything that can list these can reach all of
-         *     them.
+         * @description Every workspace on this server, the default first; `times` adds when
+         *     each last changed. A namespace, not a security boundary: the API token
+         *     is all-or-nothing, so anything that can list these can reach all of them.
          */
         get: operations["list_workspaces_api_workspaces_get"];
         put?: never;
@@ -2236,7 +2235,7 @@ export interface components {
         BuiltinWorkflows: {
             /**
              * Workflows
-             * @description The packaged fragments a sub-workflow step names as `builtin:<name>.json`, each as what follows the prefix.
+             * @description Packaged fragments, each as a step names it after `builtin:`.
              */
             workflows: string[];
         };
@@ -4465,10 +4464,20 @@ export interface components {
         };
         /** PromptCard */
         PromptCard: {
+            /**
+             * Created
+             * @description When first written, where the filesystem records it.
+             */
+            created?: number;
             /** Description */
             description: string;
             /** Intended Model */
             intended_model: string;
+            /**
+             * Mtime
+             * @description When it last changed, epoch seconds.
+             */
+            mtime?: number;
             /**
              * Origin
              * @description Which library the prompt came from, and whether a save can reach it.
@@ -5130,7 +5139,7 @@ export interface components {
             name: string | null;
             /**
              * Oom Score Adj
-             * @description The worker's kernel oom_score_adj, read from /proc at call time (1000 for the latest dispatch's worker in a pool); absent where unreadable.
+             * @description The kernel oom_score_adj read from /proc at call time: 1000 for a pool's latest-dispatch worker, else its spawn value; absent where unreadable.
              */
             oom_score_adj?: number;
             /**
@@ -5151,8 +5160,7 @@ export interface components {
         };
         /**
          * WorkflowCard
-         * @description One workflow's entry in the full listing (the agent's `view=compact`
-         *     answer is a different, smaller shape outside this model).
+         * @description One workflow in the full listing; `view=compact` answers a smaller shape.
          */
         WorkflowCard: {
             /**
@@ -5171,18 +5179,23 @@ export interface components {
             };
             /**
              * Cost
-             * @description Measured runs, one per device the maintainer measured on. Null means unknown - never derived.
+             * @description One measured run per device; null means unknown, never derived.
              */
             cost: components["schemas"]["WorkflowCost"][] | null;
             /** Cost Drivers */
             cost_drivers: {
                 [key: string]: unknown;
             };
+            /**
+             * Created
+             * @description When first written, where the filesystem records it.
+             */
+            created?: number;
             /** Description */
             description: string;
             /**
              * Inputs
-             * @description Each variable that feeds a media argument, and the kind it takes. Only with inputs=true.
+             * @description Each variable feeding a media argument, and its kind; inputs=true only.
              */
             inputs?: {
                 [key: string]: "image" | "video" | "audio" | "file";
@@ -5193,6 +5206,11 @@ export interface components {
             lists: {
                 [key: string]: unknown;
             };
+            /**
+             * Mtime
+             * @description When it last changed, epoch seconds.
+             */
+            mtime?: number;
             /**
              * Observed
              * @description This box's own history for it.
@@ -5222,7 +5240,7 @@ export interface components {
             summary: string;
             /**
              * Traits
-             * @description Sorted, independent facts about how the output is made or what it needs.
+             * @description Sorted facts about how the output is made or what it needs.
              */
             traits: ("has-audio" | "chained" | "image-conditioned" | "identity-referenced" | "needs-input-media" | "composes-workflows")[];
             /** Variable Names */
@@ -5342,7 +5360,7 @@ export interface components {
             destination: string;
             /**
              * Renumbered
-             * @description Copied runs whose `vN` changed, keyed `<workflow>/<run id>`: `{from, to}`.
+             * @description Runs whose `vN` changed, `<workflow>/<run id>` to `{from, to}`.
              */
             renumbered: {
                 [key: string]: {
@@ -5353,7 +5371,7 @@ export interface components {
             source: string;
             /**
              * Warnings
-             * @description `unresolved_output_refs`, `absolute_paths` and `no_jobs`, each only when it applies.
+             * @description `unresolved_output_refs`, `absolute_paths`, `no_jobs`: where each applies.
              */
             warnings: {
                 [key: string]: unknown;
@@ -5397,8 +5415,18 @@ export interface components {
             assets: string | null;
             /** Common Assets */
             common_assets: string | null;
+            /**
+             * Created
+             * @description When first written, where the filesystem records it.
+             */
+            created?: number;
             /** Default */
             default: boolean;
+            /**
+             * Mtime
+             * @description When it last changed, epoch seconds.
+             */
+            mtime?: number;
             /** Name */
             name: string;
             /**
@@ -7209,6 +7237,7 @@ export interface operations {
                 tag?: string | null;
                 intended_model?: string | null;
                 include_text?: boolean;
+                times?: boolean;
             };
             header?: never;
             path?: never;
@@ -7667,6 +7696,7 @@ export interface operations {
                 include_models?: boolean;
                 view?: string | null;
                 inputs?: boolean;
+                times?: boolean;
                 workspace?: string | null;
             };
             header?: never;
@@ -7906,7 +7936,9 @@ export interface operations {
     };
     list_workspaces_api_workspaces_get: {
         parameters: {
-            query?: never;
+            query?: {
+                times?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -7920,6 +7952,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkspaceList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

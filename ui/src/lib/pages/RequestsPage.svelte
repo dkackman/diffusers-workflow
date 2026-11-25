@@ -132,7 +132,7 @@
             {#if req.updated_at}{@const at =
                 Date.parse(req.updated_at) / 1000}<Time
                 {at}
-                mode="exact"
+                label="changed"
                 title={writtenTitle(at)}
               />{/if}
           </span>

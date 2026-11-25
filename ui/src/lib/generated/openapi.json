@@ -295,7 +295,7 @@
         "additionalProperties": false,
         "properties": {
           "workflows": {
-            "description": "The packaged fragments a sub-workflow step names as `builtin:<name>.json`, each as what follows the prefix.",
+            "description": "Packaged fragments, each as a step names it after `builtin:`.",
             "items": {
               "type": "string"
             },
@@ -5476,6 +5476,11 @@
       "PromptCard": {
         "additionalProperties": false,
         "properties": {
+          "created": {
+            "description": "When first written, where the filesystem records it.",
+            "title": "Created",
+            "type": "number"
+          },
           "description": {
             "title": "Description",
             "type": "string"
@@ -5483,6 +5488,11 @@
           "intended_model": {
             "title": "Intended Model",
             "type": "string"
+          },
+          "mtime": {
+            "description": "When it last changed, epoch seconds.",
+            "title": "Mtime",
+            "type": "number"
           },
           "origin": {
             "description": "Which library the prompt came from, and whether a save can reach it.",
@@ -7003,7 +7013,7 @@
             "title": "Name"
           },
           "oom_score_adj": {
-            "description": "The worker's kernel oom_score_adj, read from /proc at call time (1000 for the latest dispatch's worker in a pool); absent where unreadable.",
+            "description": "The kernel oom_score_adj read from /proc at call time: 1000 for a pool's latest-dispatch worker, else its spawn value; absent where unreadable.",
             "title": "Oom Score Adj",
             "type": "integer"
           },
@@ -7042,7 +7052,7 @@
       },
       "WorkflowCard": {
         "additionalProperties": false,
-        "description": "One workflow's entry in the full listing (the agent's `view=compact`\nanswer is a different, smaller shape outside this model).",
+        "description": "One workflow in the full listing; `view=compact` answers a smaller shape.",
         "properties": {
           "configures": {
             "description": "For a model config: the template it is a tuned instance of; '' for a template. Absent when the file could not be read.",
@@ -7071,13 +7081,18 @@
                 "type": "null"
               }
             ],
-            "description": "Measured runs, one per device the maintainer measured on. Null means unknown - never derived.",
+            "description": "One measured run per device; null means unknown, never derived.",
             "title": "Cost"
           },
           "cost_drivers": {
             "additionalProperties": true,
             "title": "Cost Drivers",
             "type": "object"
+          },
+          "created": {
+            "description": "When first written, where the filesystem records it.",
+            "title": "Created",
+            "type": "number"
           },
           "description": {
             "title": "Description",
@@ -7093,7 +7108,7 @@
               ],
               "type": "string"
             },
-            "description": "Each variable that feeds a media argument, and the kind it takes. Only with inputs=true.",
+            "description": "Each variable feeding a media argument, and its kind; inputs=true only.",
             "title": "Inputs",
             "type": "object"
           },
@@ -7108,6 +7123,11 @@
             "additionalProperties": true,
             "title": "Lists",
             "type": "object"
+          },
+          "mtime": {
+            "description": "When it last changed, epoch seconds.",
+            "title": "Mtime",
+            "type": "number"
           },
           "observed": {
             "additionalProperties": true,
@@ -7157,7 +7177,7 @@
             "type": "string"
           },
           "traits": {
-            "description": "Sorted, independent facts about how the output is made or what it needs.",
+            "description": "Sorted facts about how the output is made or what it needs.",
             "items": {
               "enum": [
                 "has-audio",
@@ -7473,7 +7493,7 @@
               },
               "type": "object"
             },
-            "description": "Copied runs whose `vN` changed, keyed `<workflow>/<run id>`: `{from, to}`.",
+            "description": "Runs whose `vN` changed, `<workflow>/<run id>` to `{from, to}`.",
             "title": "Renumbered",
             "type": "object"
           },
@@ -7483,7 +7503,7 @@
           },
           "warnings": {
             "additionalProperties": true,
-            "description": "`unresolved_output_refs`, `absolute_paths` and `no_jobs`, each only when it applies.",
+            "description": "`unresolved_output_refs`, `absolute_paths`, `no_jobs`: where each applies.",
             "title": "Warnings",
             "type": "object"
           }
@@ -7588,9 +7608,19 @@
             ],
             "title": "Common Assets"
           },
+          "created": {
+            "description": "When first written, where the filesystem records it.",
+            "title": "Created",
+            "type": "number"
+          },
           "default": {
             "title": "Default",
             "type": "boolean"
+          },
+          "mtime": {
+            "description": "When it last changed, epoch seconds.",
+            "title": "Mtime",
+            "type": "number"
           },
           "name": {
             "title": "Name",
@@ -10856,6 +10886,16 @@
               "title": "Include Text",
               "type": "boolean"
             }
+          },
+          {
+            "in": "query",
+            "name": "times",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Times",
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -11502,7 +11542,7 @@
     },
     "/api/workflows": {
       "get": {
-        "description": "Every workflow the search path offers, each detail saying which\nlibrary it came from and whether it can be written to. 'libraries' is\nthe search path in order, the writable one being what a save targets;\n'shadowed' names the later copies an earlier library hides.\n\n`shape`, `traits` (comma-separated, all must match) and `configures`\nnarrow the listing; `view=compact` is the agent's view - summaries\nrather than descriptions, templates rather than model configs\nunless `include_models` asks for them; `inputs` adds each media\ninput's kind. `workflows` names exactly the entries `details` holds.",
+        "description": "Every workflow the search path offers, each detail saying which\nlibrary it came from and whether it can be written to. 'libraries' is\nthe search path in order, the writable one being what a save targets;\n'shadowed' names the later copies an earlier library hides.\n\n`shape`, `traits` (comma-separated, all must match) and `configures`\nnarrow the listing; `view=compact` is the agent's view - summaries\nrather than descriptions, templates rather than model configs\nunless `include_models` asks for them; `inputs` adds each media\ninput's kind; `times` when each file changed. `workflows` names exactly\nthe entries `details` holds.",
         "operationId": "list_workflows_api_workflows_get",
         "parameters": [
           {
@@ -11586,6 +11626,16 @@
             "schema": {
               "default": false,
               "title": "Inputs",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "times",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Times",
               "type": "boolean"
             }
           },
@@ -11988,8 +12038,20 @@
     },
     "/api/workspaces": {
       "get": {
-        "description": "Every workspace on this server, the default first.\n\nA workspace is a namespace, not a security boundary: the API token\nis all-or-nothing, so anything that can list these can reach all of\nthem.",
+        "description": "Every workspace on this server, the default first; `times` adds when\neach last changed. A namespace, not a security boundary: the API token\nis all-or-nothing, so anything that can list these can reach all of them.",
         "operationId": "list_workspaces_api_workspaces_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "times",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Times",
+              "type": "boolean"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -12000,6 +12062,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "List Workspaces"

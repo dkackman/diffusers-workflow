@@ -37,6 +37,7 @@
   import { relistWorkspaces, workspace } from './workspace.svelte'
   import NewWorkspace from './NewWorkspace.svelte'
   import { formatBytes } from './format'
+  import Time from './ui/Time.svelte'
   import { wsColor } from './wsColor'
   import { groupWorkspaces } from './wsGroups'
   import { hiddenWorkspaces } from './hiddenWorkspaces.svelte'
@@ -161,6 +162,15 @@
   let draft = $state('')
 </script>
 
+<!-- Which workspace was last worked in, and which has gone stale -->
+{#snippet changedAt(name: string)}
+  {#if workspace.changed[name]}
+    <span class="muted stamp">
+      <Time at={workspace.changed[name]} label="changed" />
+    </span>
+  {/if}
+{/snippet}
+
 {#snippet wsRow(name: string)}
   {#if name === expanded}
     <!-- The open workspace is one block: a --select rail and tint
@@ -182,6 +192,7 @@
               {formatBytes(workspace.usage[name].bytes)}
             </span>
           {/if}
+          {@render changedAt(name)}
         </span>
       {/if}
       <div class="sections" transition:slide={motion}>
@@ -224,6 +235,7 @@
           {formatBytes(workspace.usage[name].bytes)}
         </span>
       {/if}
+      {@render changedAt(name)}
     </a>
   {/if}
 {/snippet}
@@ -426,7 +438,8 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .size {
+  .size,
+  .stamp {
     flex: none;
     font-size: var(--t-xs);
   }

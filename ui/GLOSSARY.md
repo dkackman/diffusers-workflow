@@ -36,6 +36,8 @@ The words the web UI uses for each concept, and the ones it does not. The vocabu
 | Measured time | `formatDuration` (`src/lib/format.ts`) for a span of seconds, past a day in days and hours; `formatSpent` for minutes spent; no "about", since it is a fact | "12.3s", "4m 03s", "1h 02m", "1d 02h", "38 min" | "about 38 min" for a measured time; "26527h 00m" |
 | A time in a list | `<Time>` relative, `changed <relative>`, with the exact time (`formatExact`) as its `title` and the ISO time as its `datetime`; it ages on the shared clock; a time that does not parse reads `unknown time` | "changed 5 min ago", "changed 3 days ago", "Oct 2" past a month | "edited: 2026-11-24T12:00:00Z" |
 | A time in a detail | `<Time mode="exact">`: `Created <exact>`, `Changed <exact>` | "Created Oct 26, 2:03 PM" | a relative time on a thing being read closely |
+| A note's line | `written <relative>`, then `· changed <relative>` when it was edited, then where it stands; every note is the person's, so no `by` | "written 5 min ago · changed just now." | "Saved Oct 26, 2:03 PM", "by you" |
+| A list's order | `Name` (in folders) or `Newest` (most recently changed first, one list), the `sort=` in the hash | "Newest" | "Recent", "Last modified" |
 | A change the agent made | `changed <relative> by the agent`, only where the server records who (request revisions, and the note line about the agent's revision) | "changed 2 h ago by the agent" | "by AI", "by Claude" |
 | The version title | `<ordinal> job of this workflow in this folder` | "2nd job of this workflow in this folder" | "run 2", "version 2" |
 

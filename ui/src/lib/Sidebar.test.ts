@@ -301,3 +301,27 @@ it('a workspace made elsewhere appears', async () => {
   feed.move(workspace.current, 'workspaces')
   await waitFor(() => expect(screen.getByText('agent-made')).toBeTruthy())
 })
+
+it('Sidebar says when each workspace changed', async () => {
+  const now = Math.floor(Date.now() / 1000)
+  listWorkspaces.mockResolvedValueOnce({
+    workspace_root: '/ws',
+    default: 'default',
+    workspaces: [
+      { name: 'default', default: true, mtime: now - 3 * 86_400 } as never,
+      { name: 'studio', default: false, mtime: now - 5 * 60 } as never,
+    ],
+  })
+  render(Sidebar, { collapsed: false, onToggle: () => {} })
+  await waitFor(() => expect(screen.getByText('default')).toBeTruthy())
+  const stampOf = (name: string) =>
+    screen
+      .getByText(name, { selector: '.name' })
+      .parentElement!.querySelector('time')
+  // the open row and a shut one, each relative with the exact time on hover
+  await waitFor(() =>
+    expect(stampOf('studio')?.textContent?.trim()).toBe('changed 5 min ago'),
+  )
+  expect(stampOf('default')?.textContent?.trim()).toBe('changed 3 days ago')
+  expect(stampOf('default')?.getAttribute('title')).toBeTruthy()
+})

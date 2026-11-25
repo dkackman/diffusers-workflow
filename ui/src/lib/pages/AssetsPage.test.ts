@@ -1292,3 +1292,33 @@ it('a bulk delete adopts', async () => {
   await new Promise((r) => setTimeout(r, 10))
   expect(listAssets.mock.calls.length).toBe(reads)
 })
+
+const tileNames = () =>
+  [...document.querySelectorAll('.cellwrap .tile-caption')].map(
+    (c) => c.textContent,
+  )
+
+it('AssetsPage says when each asset changed', async () => {
+  const now = Math.floor(Date.now() / 1000)
+  listing.assets = [{ ...asset('iris.png'), mtime: now - 3 * 86_400 }]
+  await renderAssets()
+  const stamp = screen
+    .getByRole('button', { name: 'Open iris.png' })
+    .querySelector('.tile-meta time')!
+  expect(stamp.textContent?.trim()).toBe('changed 3 days ago')
+  expect(stamp.getAttribute('title')).toBe(formatExact(now - 3 * 86_400))
+})
+
+it('the newest-first sort', async () => {
+  const now = Math.floor(Date.now() / 1000)
+  listing.assets = [
+    { ...asset('a.png'), mtime: now - 86_400 },
+    { ...asset('b.png'), mtime: now - 60 },
+    { ...asset('c.png'), mtime: now - 3600 },
+  ]
+  await renderAssets('a.png')
+  expect(tileNames()).toEqual(['a.png', 'b.png', 'c.png'])
+  await fireEvent.click(screen.getByRole('button', { name: 'Newest' }))
+  await waitFor(() => expect(tileNames()).toEqual(['b.png', 'c.png', 'a.png']))
+  expect(location.hash).toContain('sort=newest')
+})

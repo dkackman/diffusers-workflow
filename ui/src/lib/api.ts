@@ -108,10 +108,9 @@ const ledgerRead = <T>(url: string) => request<T>(url, undefined, UNSCOPED)
 export const api = {
   // getWorkflow, saveWorkflow, getPrompt, savePrompt
   ...documentRoutes,
+  // The three library listings ask for each entry's times (`times=true`)
   listWorkflows: (o?: { inputs?: boolean }) =>
-    request<WorkflowList>(
-      appendQuery('/api/workflows', 'inputs', `${!!o?.inputs}`),
-    ),
+    request<WorkflowList>(`/api/workflows?inputs=${!!o?.inputs}&times=true`),
   // Unscoped on purpose: `workspace` is explicit so Status can span every
   // workspace and a workspace's Jobs page can name its own. `status` is one
   // state or a set ('succeeded,failed,cancelled'); `limit` keeps the newest N.
@@ -426,7 +425,7 @@ export const api = {
   /** What moved: the change counters the change feed reads (changes.svelte.ts) */
   workspaceChanges: (w: string) =>
     ledgerRead<WorkspaceChanges>(`/api/workspaces/${ws(w)}/changes`),
-  listWorkspaces: () => request<WorkspaceList>('/api/workspaces'),
+  listWorkspaces: () => request<WorkspaceList>('/api/workspaces?times=true'),
   /** The target's own note and the etag `setNote`'s `ifMatch` names: the
    * precondition a save reads, not a view (the page's resource is that).
    * Scoped like `setNote`. */
@@ -504,7 +503,7 @@ export const api = {
     }),
   workflowDownloadUrl: (name: string) =>
     withToken(`/api/workflows/${encodePath(name)}/download`),
-  listPrompts: () => request<PromptList>('/api/prompts'),
+  listPrompts: () => request<PromptList>('/api/prompts?times=true'),
   /** Catalog LoRA entries for one base: `model` a Hub repo id (or a saved
    * workflow's name), `workflow` an optional partition. Catalog-only - the
    * Hub is searched by /api/loras/recommend, which the UI never calls.

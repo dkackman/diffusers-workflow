@@ -10,9 +10,12 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import OverviewPage from './OverviewPage.svelte'
 import Sidebar from '../Sidebar.svelte'
 import { firstRunSession } from '../firstRun'
-import { formatMtime } from '../format'
+import { formatRelative } from '../format'
 import { feed } from '../test/feedMock'
 import { invalidateWorkspaces, workspace } from '../workspace.svelte'
+
+/** A list's time: relative, as `<Time>` shows it in a list */
+const listed = (at: number) => formatRelative(at, Date.now() / 1000)
 import '../router.svelte'
 
 const data = vi.hoisted(() => ({
@@ -342,6 +345,16 @@ it('lists open requests with their counts, and links to them all', async () => {
   ).toBe('#/ws/studio/requests')
 })
 
+it('OverviewPage says when each open request changed', async () => {
+  const at = new Date(Date.now() - 2 * 3600 * 1000).toISOString()
+  data.requests = [summary({ updated_at: at })]
+  render(OverviewPage)
+  const link = await screen.findByRole('link', { name: 'Launch posters' })
+  const time = link.closest('li')!.querySelector('.reqwhen time')!
+  expect(time.textContent?.trim()).toBe('changed 2 h ago')
+  expect(time.getAttribute('title')).toBeTruthy()
+})
+
 it('a request row keeps its title beside a long attention line', async () => {
   const needs = {
     held: 2,
@@ -556,7 +569,7 @@ it('a job with no proof draws the cover slot, and same-workflow rows differ', as
   // same workflow and status, told apart by when they finished
   expect(a.textContent).not.toBe(b.textContent)
   expect(a.querySelector('.when')?.textContent).toBe(
-    `${formatMtime(1_700_000_000)}\u00a0·\u00a0j1`,
+    `${listed(1_700_000_000)}\u00a0·\u00a0j1`,
   )
   const names = screen
     .getAllByRole('link')
@@ -584,11 +597,11 @@ it('same-workflow jobs finishing in one minute differ by their id', async () => 
   const a = screen.getByTitle('job abc123')
   const b = screen.getByTitle('job def456')
   expect(a.querySelector('.when')?.textContent).toBe(
-    `${formatMtime(1_700_000_000)}\u00a0·\u00a0abc123`,
+    `${listed(1_700_000_000)}\u00a0·\u00a0abc123`,
   )
   expect(a.textContent).not.toBe(b.textContent)
   const name = (l: HTMLElement) => l.textContent?.replace(/\s+/g, ' ').trim()
-  expect(name(a)).toContain(formatMtime(1_700_000_000))
+  expect(name(a)).toContain(listed(1_700_000_000))
   expect(name(a)).toContain('abc123')
   expect(name(a)).not.toBe(name(b))
 })
@@ -623,7 +636,7 @@ it('a job row puts its time and full id on a second line, id never truncated', a
   // the accessible name keeps workflow, time and id
   const name = row.textContent?.replace(/\s+/g, ' ')
   expect(name).toContain('text-to-image')
-  expect(name).toContain(formatMtime(1_700_000_000))
+  expect(name).toContain(listed(1_700_000_000))
   expect(name).toContain('e2ebrdtake01')
 })
 

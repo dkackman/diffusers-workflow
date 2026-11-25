@@ -217,7 +217,7 @@ test('a note for the agent says whether the agent is connected, and is in the le
   // and said again under the saved note: when the agent will see it
   await expect(
     alt.getByText(
-      /^Saved .+\. The agent isn't connected\. It reads this the next time it updates the plan\.$/,
+      /^written .+\. The agent isn't connected\. It reads this the next time it updates the plan\.$/,
     ),
   ).toBeVisible()
   await expect(page.locator('.reqhead .figures')).toContainText(

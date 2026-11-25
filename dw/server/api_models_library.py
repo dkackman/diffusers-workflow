@@ -35,7 +35,14 @@ class DiskUsage(ApiModel):
     bytes: int
 
 
-class WorkspaceInfo(ApiModel):
+class Dated(ApiModel):
+    """A listing entry's times, each only with `times=true`."""
+
+    mtime: float = sometimes("When it last changed, epoch seconds.")
+    created: float = sometimes("When first written, where the filesystem records it.")
+
+
+class WorkspaceInfo(Dated):
     name: str
     default: bool
     root: str | None
@@ -78,12 +85,10 @@ class WorkspaceCopied(ApiModel):
         "assets it held with identical bytes (library-relative path) - skipped."
     )
     renumbered: dict[str, dict[str, int]] = Field(
-        description="Copied runs whose `vN` changed, keyed `<workflow>/<run id>`: "
-        "`{from, to}`."
+        description="Runs whose `vN` changed, `<workflow>/<run id>` to `{from, to}`."
     )
     warnings: dict[str, Any] = Field(
-        description="`unresolved_output_refs`, `absolute_paths` and `no_jobs`, "
-        "each only when it applies."
+        description="`unresolved_output_refs`, `absolute_paths`, `no_jobs`: where each applies."
     )
     bytes_linked: int
     bytes_copied: int
@@ -100,9 +105,8 @@ class WorkflowCost(ApiModel):
     minutes: int | float
 
 
-class WorkflowCard(ApiModel):
-    """One workflow's entry in the full listing (the agent's `view=compact`
-    answer is a different, smaller shape outside this model)."""
+class WorkflowCard(Dated):
+    """One workflow in the full listing; `view=compact` answers a smaller shape."""
 
     kinds: list[str]
     steps: int
@@ -116,13 +120,11 @@ class WorkflowCard(ApiModel):
     configures_missing: str = sometimes("A `configures` that names no workflow.")
     prompt_refs: list[str]
     inputs: dict[str, InputKind] = sometimes(
-        "Each variable that feeds a media argument, and the kind it takes. "
-        "Only with inputs=true."
+        "Each variable feeding a media argument, and its kind; inputs=true only."
     )
     shape: Shape = Field(description="What the workflow makes, derived by the server.")
     traits: list[Trait] = Field(
-        description="Sorted, independent facts about how the output is made or what "
-        "it needs."
+        description="Sorted facts about how the output is made or what it needs."
     )
     summary: str = Field(
         description="The description's first sentence, clipped - what a card shows."
@@ -131,8 +133,7 @@ class WorkflowCard(ApiModel):
     constraints: dict[str, Any]
     cost_drivers: dict[str, Any]
     cost: list[WorkflowCost] | None = Field(
-        description="Measured runs, one per device the maintainer measured on. Null "
-        "means unknown - never derived."
+        description="One measured run per device; null means unknown, never derived."
     )
     observed: dict[str, Any] = sometimes("This box's own history for it.")
     origin: Origin
@@ -143,8 +144,7 @@ class WorkflowCard(ApiModel):
 
 class BuiltinWorkflows(ApiModel):
     workflows: list[str] = Field(
-        description="The packaged fragments a sub-workflow step names as "
-        "`builtin:<name>.json`, each as what follows the prefix."
+        description="Packaged fragments, each as a step names it after `builtin:`."
     )
 
 
@@ -177,7 +177,7 @@ class WorkflowDeleted(ApiModel):
     deleted: bool
 
 
-class PromptCard(ApiModel):
+class PromptCard(Dated):
     description: str
     intended_model: str
     tags: list[str]

@@ -4,6 +4,7 @@
   import FolderPicker from './FolderPicker.svelte'
   import RemoteChanged from '../ui/RemoteChanged.svelte'
   import CopyButton from '../CopyButton.svelte'
+  import Time from '../ui/Time.svelte'
   import type { DocumentEditor } from '../editorShell.svelte'
   import { workspace } from '../workspace.svelte'
 
@@ -20,6 +21,7 @@
     fileOpen = $bindable(undefined),
     noun = 'workflow',
     described = true,
+    changed = undefined,
   }: {
     ed: DocumentEditor
     /** The directory the document saves under, for the path shown */
@@ -33,6 +35,8 @@
     noun?: 'workflow' | 'prompt'
     /** Whether the bar holds the description field (a prompt's is in its form) */
     described?: boolean
+    /** When the saved file last changed (unix seconds), from the listing */
+    changed?: number
   } = $props()
 
   const open = $derived(fileOpen ?? true)
@@ -43,6 +47,14 @@
     return `${dir}/${directory ? directory + '/' : ''}${file}.json`
   })
 </script>
+
+{#snippet stamp()}
+  {#if changed}
+    <span class="muted stamp">
+      <Time at={changed} mode="exact" label="changed" />
+    </span>
+  {/if}
+{/snippet}
 
 {#snippet refcopy()}
   {#if reference}
@@ -112,6 +124,7 @@
     </div>
     <div class="filefoot">
       <span class="muted path">{savePreview}</span>
+      {@render stamp()}
       {@render refcopy()}
       {#if fileOpen !== undefined}
         <button
@@ -137,6 +150,7 @@
     {#if ed.doc.description}
       <span class="muted desc">{ed.doc.description}</span>
     {/if}
+    {@render stamp()}
     {@render refcopy()}
   </div>
 {/if}
@@ -175,6 +189,10 @@
   }
   .filebar {
     margin-bottom: 1rem;
+  }
+  .stamp {
+    font-size: var(--t-xs);
+    white-space: nowrap;
   }
   .filegrid {
     --label-w: auto;

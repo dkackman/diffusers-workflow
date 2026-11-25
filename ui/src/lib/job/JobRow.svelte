@@ -206,7 +206,6 @@
       <span class="muted started" title={times}>
         {#if job.started_at}<Time
             at={job.started_at}
-            mode="exact"
             title={times}
           />{:else}—{/if}
       </span>

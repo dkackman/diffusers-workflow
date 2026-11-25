@@ -64,6 +64,7 @@ from ...workspace import (
     named_workspace,
     workspace_contents,
     workspace_names,
+    workspace_times,
     workspace_usage,
 )
 from ..admission import JobRequest, admit_for
@@ -75,6 +76,7 @@ from ..catalog import (
     resolve_readable_workflow,
     resolve_writable_workflow,
     workflow_details,
+    with_times,
 )
 from ..catalog_shape import derive_catalog_metadata, project_listing
 from ..deps import (
@@ -109,18 +111,14 @@ class WorkspaceRequest(BaseModel):
 @router.get(
     "/api/workspaces", response_model=WorkspaceList, response_model_exclude_unset=True
 )
-def list_workspaces(request: Request):
-    """Every workspace on this server, the default first.
-
-    A workspace is a namespace, not a security boundary: the API token
-    is all-or-nothing, so anything that can list these can reach all of
-    them.
+def list_workspaces(request: Request, times: bool = False):
+    """Every workspace on this server, the default first; `times` adds when
+    each last changed. A namespace, not a security boundary: the API token
+    is all-or-nothing, so anything that can list these can reach all of them.
     """
     state = request.app.state
     root = state.workspace_root
-    # workspace_names lists the whole root once; everything after the
-    # first entry (always the default, see its docstring) is a named
-    # workspace to describe individually
+    # The first name is always the default (workspace_names' docstring)
     names = workspace_names(root)[1:] if root else []
     listed = [state.default_workspace]
     for name in names:
@@ -128,10 +126,10 @@ def list_workspaces(request: Request):
     described = []
     for space in listed:
         entry = space.describe()
-        # Roughly how much disk it holds, cached for a minute inside
-        # workspace_usage - a listing is a glance, and a job writing
-        # into outputs moves the number continuously anyway
+        # Cached for a minute: a listing is a glance, and a job moves it anyway
         entry["usage"] = workspace_usage(space)
+        if times:
+            entry.update(workspace_times(space))
         note = read_workspace_note(space.root) if space.root else None
         if note:
             entry["note"] = note
@@ -366,6 +364,7 @@ def list_workflows(
     include_models: bool = False,
     view: Optional[str] = None,
     inputs: bool = False,
+    times: bool = False,
 ):
     """Every workflow the search path offers, each detail saying which
     library it came from and whether it can be written to. 'libraries' is
@@ -376,7 +375,8 @@ def list_workflows(
     narrow the listing; `view=compact` is the agent's view - summaries
     rather than descriptions, templates rather than model configs
     unless `include_models` asks for them; `inputs` adds each media
-    input's kind. `workflows` names exactly the entries `details` holds.
+    input's kind; `times` when each file changed. `workflows` names exactly
+    the entries `details` holds.
     """
     state = request.app.state
     library = sources_for(state, ws)
@@ -397,6 +397,8 @@ def list_workflows(
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    if times:
+        details = with_times(details, found)
     answer = {
         "workspace": ws.name,
         "libraries": library.describe(),
@@ -405,11 +407,9 @@ def list_workflows(
         "shadowed": [
             entry for entry in shadowed_listing(hidden) if entry["name"] in details
         ],
-        # `cost` is curated: figures a maintainer measured once on the devices
-        # named and wrote into the workflow, never derived from this server's
-        # job history, so null means nobody wrote one down, not that the run is
-        # cheap or this box never ran it (#91). A detail's `observed` block is
-        # the other kind: this box's own runs, derived, never a `cost` (#93)
+        # `cost` is curated: measured once by a maintainer, never derived from
+        # this box's jobs; null means nobody wrote one down (#91). `observed`
+        # is the derived kind, this box's own runs (#93)
         "cost_basis": "curated",
     }
     # The agent's compact view is a different, smaller card than the one
@@ -756,6 +756,7 @@ def list_prompts(
     tag: str | None = None,
     intended_model: str | None = None,
     include_text: bool = True,
+    times: bool = False,
 ):
     state = request.app.state
     # A stray file too deep or oddly named can sit in the directory, but
@@ -768,18 +769,17 @@ def list_prompts(
         name: os.path.join(root.root, f"{name}.json") for name, root in winners.items()
     }
     details = prompt_details(paths)
-
+    if times:
+        details = with_times(details, winners)
     # Narrowing happens after the details are read (that is where a prompt
     # says what it is for) and narrows every parallel key at once: a
     # `prompts` list and `details` map that disagree is worse than no filter
     wanted = matching_prompts(details, tag, intended_model)
     if wanted is not None:
         details = {name: detail for name, detail in details.items() if name in wanted}
-    # `prompts` and `details` agree by construction, filter or no filter.
-    # `prompt_details` drops a path whose mtime it cannot read (the file
-    # went away since the walk): a name with no detail only sends a caller
-    # to a 404. Each detail says which library it came from and whether a
-    # save can reach it, as a workflow's does (a copy: the detail is cached)
+    # `prompts` and `details` agree: prompt_details drops a file gone since
+    # the walk. Each says its library and whether a save reaches it, as a
+    # workflow's does (a copy: the detail is cached)
     details = {
         name: {
             **detail,

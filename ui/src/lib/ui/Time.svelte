@@ -36,7 +36,7 @@
     mode?: 'relative' | 'exact' | 'day'
     /** Who made the change, where the server knows it was the agent */
     by?: 'agent' | null
-    label?: 'changed' | 'created' | null
+    label?: 'changed' | 'created' | 'written' | null
     title?: string
   } = $props()
 

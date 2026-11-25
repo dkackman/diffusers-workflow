@@ -3,8 +3,8 @@
 // glossary names every replacement. `banned_terms` in arch-metrics.mjs counts
 // the matches in the source; this file pins the patterns themselves, and
 // its last case is the phase gate: no copy in the source breaks them.
-import { readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { readdirSync, readFileSync } from 'node:fs'
+import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { BANNED } from '../src/lib/terms'
@@ -95,4 +95,48 @@ describe('the source', () => {
       `copy that breaks ui/GLOSSARY.md:\n${lines.join('\n')}`,
     ).toEqual([])
   }, 60_000)
+})
+
+// A date is formatted in one file, src/lib/format.ts, so every page says a
+// time the same way (and through `<Time>` in markup). What formats a date:
+// Date's toLocaleDateString/toLocaleTimeString, Intl.DateTimeFormat, and a
+// toLocaleString on a `new Date(...)` or given date or time options. A
+// number's toLocaleString (a count) is not a date and passes.
+const DATE_FORMATTING = [
+  /\.toLocale(Date|Time)String\s*\(/,
+  /\bIntl\s*\.\s*DateTimeFormat\b/,
+  /\bnew Date\([^)]*\)\s*\.toLocaleString\s*\(/,
+  /\.toLocaleString\s*\([^)]*\b(dateStyle|timeStyle|weekday|month|hour|minute)\b/,
+]
+const formatsDate = (text: string) => DATE_FORMATTING.some((p) => p.test(text))
+const DATE_HOME = 'src/lib/format.ts'
+
+describe('dates', () => {
+  it('a date formatted outside format.ts is caught, a number is not', () => {
+    for (const text of [
+      'new Date(until).toLocaleTimeString(undefined, { hour: "2-digit" })',
+      'date.toLocaleDateString()',
+      'new Intl.DateTimeFormat(undefined, { dateStyle: "short" })',
+      'new Date(at * 1000).toLocaleString()',
+      'when.toLocaleString(undefined, {\n  month: "short",\n})',
+    ])
+      expect(formatsDate(text), text).toBe(true)
+    for (const text of [
+      "rows.length.toLocaleString('en-US')",
+      'bytes.toLocaleString()',
+      'n.toLocaleString(undefined, { maximumFractionDigits: 1 })',
+    ])
+      expect(formatsDate(text), text).toBe(false)
+  })
+
+  it('no date is formatted outside format.ts', () => {
+    const src = join(UI, 'src')
+    const found = readdirSync(src, { recursive: true, encoding: 'utf8' })
+      .filter((file) => /\.(ts|svelte)$/.test(file))
+      .filter((file) => !/\.test\.ts$|(^|\/)generated\//.test(file))
+      .map((file) => relative(UI, join(src, file)))
+      .filter((file) => file !== DATE_HOME)
+      .filter((file) => formatsDate(readFileSync(join(UI, file), 'utf8')))
+    expect(found, `format the date through ${DATE_HOME}`).toEqual([])
+  })
 })

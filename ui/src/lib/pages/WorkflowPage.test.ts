@@ -11,6 +11,7 @@ import type { ValidationResult } from '../types'
 import { feed } from '../test/feedMock'
 import { workspace } from '../workspace.svelte'
 import { storageGet } from '../storage'
+import { formatExact, formatMtime } from '../format'
 
 // Monaco cannot boot in jsdom, and this page only mounts it on "show JSON"
 vi.mock('../editor/JsonEditor.svelte', async () => ({
@@ -884,4 +885,36 @@ describe('Enhance from the run form', () => {
       'A long, lit prompt',
     )
   })
+})
+
+it('WorkflowPage says when the workflow changed', async () => {
+  const changed = 1_790_000_000
+  const created = 1_780_000_000
+  vi.mocked(api.listWorkflows).mockResolvedValue({
+    workflows: ['templates/text-to-image'],
+    details: { 'templates/text-to-image': { mtime: changed, created } },
+    libraries: [],
+    shadowed: [],
+  } as never)
+  await openPage()
+  const times = [...document.querySelectorAll('.stamps time')]
+  expect(times.map((t) => t.textContent?.trim())).toEqual([
+    `Changed ${formatMtime(changed)}`,
+    `Created ${formatMtime(created)}`,
+  ])
+  expect(times[0].getAttribute('title')).toBe(formatExact(changed))
+})
+
+it('WorkflowPage says no created time the listing does not give', async () => {
+  vi.mocked(api.listWorkflows).mockResolvedValue({
+    workflows: ['templates/text-to-image'],
+    details: { 'templates/text-to-image': { mtime: 1_790_000_000 } },
+    libraries: [],
+    shadowed: [],
+  } as never)
+  await openPage()
+  const times = [...document.querySelectorAll('.stamps time')]
+  expect(times.map((t) => t.textContent?.trim())).toEqual([
+    `Changed ${formatMtime(1_790_000_000)}`,
+  ])
 })

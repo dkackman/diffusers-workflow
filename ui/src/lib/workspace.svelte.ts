@@ -116,6 +116,11 @@ export function loadWorkspaces(): Promise<void> {
             .filter((entry) => entry.usage)
             .map((entry) => [entry.name, entry.usage!]),
         )
+        workspace.changed = Object.fromEntries(
+          result.workspaces
+            .filter((entry) => entry.mtime)
+            .map((entry) => [entry.name, entry.mtime!]),
+        )
         workspace.notes = Object.fromEntries(
           result.workspaces
             .filter((entry) => entry.note)

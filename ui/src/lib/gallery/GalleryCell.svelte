@@ -5,6 +5,7 @@
   import type { Picks } from '../picks.svelte'
   import type { GalleryFile } from '../types'
   import OutputTile from '../ui/OutputTile.svelte'
+  import Time from '../ui/Time.svelte'
   import { versionTitle } from '../terms'
   import RoleTag from './RoleTag.svelte'
 
@@ -59,6 +60,9 @@
           v{file.version}
         </span>
       {/if}
+    {/snippet}
+    {#snippet meta()}
+      <span class="muted"><Time at={file.mtime} label="changed" /></span>
     {/snippet}
   </OutputTile>
 </div>

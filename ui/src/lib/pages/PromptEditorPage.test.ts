@@ -13,6 +13,7 @@ import { api } from '../api'
 import { ApiError } from '../apiErrors'
 import { chooseDialog, confirmDialog } from '../confirm.svelte'
 import { feed } from '../test/feedMock'
+import { formatMtime } from '../format'
 
 // Monaco cannot boot in jsdom; the JSON view is read through this stub,
 // which renders the value it was handed as plain text
@@ -469,4 +470,20 @@ it('an example prompt says so', async () => {
       "This is an example, so it can't be changed in place. Save makes your own copy in default.",
     ),
   ).toBeTruthy()
+})
+
+it('PromptEditorPage says when the prompt was last saved', async () => {
+  const changed = 1_790_000_000
+  vi.mocked(api.listPrompts).mockResolvedValueOnce({
+    prompts: ['portraits/hero'],
+    libraries: [{ origin: 'workspace', root: 'prompts', writable: true }],
+    shadowed: [],
+    details: { 'portraits/hero': { mtime: changed } },
+  } as never)
+  await openHero()
+  await waitFor(() =>
+    expect(document.querySelector('.stamp time')?.textContent?.trim()).toBe(
+      `Changed ${formatMtime(changed)}`,
+    ),
+  )
 })

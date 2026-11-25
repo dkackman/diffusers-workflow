@@ -11,7 +11,7 @@ import { summary } from '../request/fixtures'
 import { workspace } from '../workspaceState.svelte'
 import { feed } from '../test/feedMock'
 import { connection } from '../connection.svelte'
-import { formatExact, formatMtime } from '../format'
+import { formatExact, formatRelative } from '../format'
 
 const data = vi.hoisted(() => ({
   requests: [] as unknown[],
@@ -338,7 +338,9 @@ it('a row says when it was last written, and the hover says it is the last write
   render(RequestsPage)
   await screen.findByRole('link', { name: /Launch posters/ })
   const time = rows()[0].querySelector('.updated time') as HTMLElement
-  expect(time.textContent?.trim()).toBe(formatMtime(Date.parse(at) / 1000))
+  expect(time.textContent?.trim()).toBe(
+    `changed ${formatRelative(Date.parse(at) / 1000, Date.now() / 1000)}`,
+  )
   expect(time.getAttribute('title')).toBe(
     `last written ${formatExact(Date.parse(at) / 1000)}`,
   )

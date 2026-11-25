@@ -1946,3 +1946,14 @@ it('an empty gallery says where to go', async () => {
   const link = await screen.findByRole('link', { name: 'Run a workflow' })
   expect(link.getAttribute('href')).toMatch(/^#\/ws\/[^/]+\/workflows$/)
 })
+
+it('GalleryPage says when each output changed', async () => {
+  const now = Math.floor(Date.now() / 1000)
+  listing.files = [{ ...file('a.png'), mtime: now - 10 * 60 }]
+  await renderGallery()
+  const stamp = tile('a.png')!
+    .closest('.filetile')!
+    .querySelector('.tile-meta time')!
+  expect(stamp.textContent?.trim()).toBe('changed 10 min ago')
+  expect(stamp.getAttribute('title')).toBeTruthy()
+})

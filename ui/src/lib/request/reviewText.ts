@@ -2,6 +2,7 @@
 // header's banner, a held row's chip, and the live region's sentence. The
 // state is always the server's `review.state`; the seconds left come from
 // the page's countdown (review.svelte.ts), anchored to the read.
+import { formatClock } from '../format'
 import type { ItemState } from './itemState'
 import type { LedgerRequest, LedgerReview } from '../types'
 
@@ -39,10 +40,7 @@ export function holdGroup(held: readonly ItemState[]): HoldGroup | null {
 
 /** A deadline in the browser's locale time, hours and minutes */
 export const clockTime = (until: string) =>
-  new Date(until).toLocaleTimeString(undefined, {
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  formatClock(Date.parse(until) / 1000)
 
 const pad = (n: number) => String(n).padStart(2, '0')
 

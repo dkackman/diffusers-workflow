@@ -32,6 +32,7 @@
   import EnhanceDialog from '../workflow/EnhanceDialog.svelte'
   import * as form from '../workflow/runForm'
   import RemoteNotice from '../ui/RemoteNotice.svelte'
+  import Time from '../ui/Time.svelte'
 
   let { name }: { name: string } = $props()
 
@@ -247,6 +248,15 @@
       {origin || 'read-only'}, read-only
     </span>
   {/if}
+  <!-- The file's own times, exact: this is the detail you reuse from -->
+  {#if card?.mtime}
+    <span class="stamps muted">
+      <Time at={card.mtime} mode="exact" label="changed" />
+      {#if card.created}
+        · <Time at={card.created} mode="exact" label="created" />
+      {/if}
+    </span>
+  {/if}
   {#snippet actions()}<a
       class="plain editlink"
       href={wsHref(workspace.current, 'edit', ...name.split('/'))}
@@ -413,6 +423,10 @@
 </LoadState>
 
 <style>
+  .stamps {
+    font-size: var(--t-xs);
+    align-self: center;
+  }
   .readonly {
     font-family: var(--font-mono);
     font-size: var(--t-xs);

@@ -390,7 +390,13 @@
         : undefined}
     />
   {:else}
-    <DocumentFileBar {ed} dir={listed.dir} {folders} bind:fileOpen>
+    <DocumentFileBar
+      {ed}
+      dir={listed.dir}
+      {folders}
+      changed={catalog.data?.details?.[current]?.mtime}
+      bind:fileOpen
+    >
       {#snippet extra()}
         {#if !current}
           <WorkflowOrigin

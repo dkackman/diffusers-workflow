@@ -16,6 +16,7 @@ import { changeOnBlur } from '../test/changeOnBlur'
 import { feed } from '../test/feedMock'
 import { notify } from '../toast'
 import { emptyStep } from '../editor'
+import { formatMtime } from '../format'
 
 // EditorPage talks to the server on mount (pipeline/class/task catalogs,
 // the workflow listing, the prompt library) purely to feed forms the flow
@@ -150,6 +151,24 @@ describe('EditorPage header', () => {
     expect(screen.getByRole('link', { name: '← Workflows' })).toHaveAttribute(
       'href',
       '#/ws/default/workflows',
+    )
+  })
+})
+
+describe('EditorPage file bar', () => {
+  it('EditorPage says when the workflow was last saved', async () => {
+    const changed = 1_790_000_000
+    vi.mocked(api.listWorkflows).mockResolvedValueOnce({
+      workflows: ['e2e-card'],
+      details: { 'e2e-card': { mtime: changed } },
+      libraries: [{ origin: 'workspace', root: 'workflows', writable: true }],
+      shadowed: [],
+    } as never)
+    render(EditorPage, { name: 'e2e-card' })
+    await waitFor(() =>
+      expect(document.querySelector('.stamp time')?.textContent?.trim()).toBe(
+        `Changed ${formatMtime(changed)}`,
+      ),
     )
   })
 })
