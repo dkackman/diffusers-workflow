@@ -6,7 +6,8 @@ history (`jobs`, `history`, `definition`, `realized`) and queue through its
 `submit`. One job is rerun by `rerun_spec` then `rerun`, split so a route
 admits the run in between (#85); the seed rule is `job_record.rerun_arguments`.
 A dead server's whole batch of restart tombstones is rerun by
-`rerun_restart_batch` (#1266), one member at a time through the same two.
+`rerun_restart_batch` (#1266), one member at a time through the same two;
+`restart_batch_size` counts it for the Jobs banner (#1633).
 """
 
 import logging
@@ -187,6 +188,39 @@ class Reruns:
             return []
         return [f"rerun_ledger_link_{problem.code}: {problem}"]
 
+    def _already_rerun(self, ids):
+        """{member id: rerun id} for each of `ids` already rerun, in history
+        or by a live job."""
+        done = self.history.rerun_ids(ids)
+        with self._lock:
+            for job in self.jobs.values():
+                if job.rerun_of in ids and job.rerun_of not in done:
+                    done[job.rerun_of] = job.id
+        return done
+
+    def restart_batch_size(self, job_id):
+        """How big the restart batch `job_id` belongs to is, whatever page
+        a listing holds (#1633): `size`, every tombstone, and `pending`,
+        those a rerun of the batch would still consider - not rerun, nor in
+        a deleted workspace. Prices and admits nothing. None when `job_id`
+        is not a restart tombstone."""
+        batch = self.history.restart_batch(job_id)
+        if batch is None:
+            return None
+        instance, members = batch
+        done = self._already_rerun([member["id"] for member in members])
+        pending = [
+            member
+            for member in members
+            if member["id"] not in done
+            and not (member["workspace"] or "").endswith(DELETED_SUFFIX)
+        ]
+        return {
+            "server_instance": instance,
+            "size": len(members),
+            "pending": len(pending),
+        }
+
     def rerun_restart_batch(self, job_id, admit, *, queue):
         """Rerun every tombstone the dead server that left `job_id` left
         (#1266), oldest first - or None when `job_id` is not a restart
@@ -210,12 +244,7 @@ class Reruns:
             if batch is None:
                 return None
             instance, members = batch
-            ids = [member["id"] for member in members]
-            done = self.history.rerun_ids(ids)
-            with self._lock:
-                for job in self.jobs.values():
-                    if job.rerun_of in ids and job.rerun_of not in done:
-                        done[job.rerun_of] = job.id
+            done = self._already_rerun([member["id"] for member in members])
             answer = {
                 "server_instance": instance,
                 "queued": [],

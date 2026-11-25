@@ -27,6 +27,7 @@ from ..api_models import (
     JobMoved,
     JobWorkflow,
     RestartBatchRerun,
+    RestartBatchSize,
     RunDeleted,
     ValidationResult,
 )
@@ -563,6 +564,33 @@ def rerun_job(request: Request, job_id: str, body: RerunRequest = RerunRequest()
         raise internal_error("Job rerun failed after admission")
 
 
+def _not_a_tombstone(job_id):
+    return HTTPException(
+        status_code=400,
+        detail=f"Job {job_id} is not a restart tombstone: only a job a "
+        "server restart closed as cancelled (its error starts "
+        "'server restart:', recorded since #1245) names a batch",
+    )
+
+
+@router.get(
+    "/api/jobs/{job_id}/restart-batch",
+    response_model=RestartBatchSize,
+    response_model_exclude_unset=True,
+)
+def restart_batch_size(request: Request, job_id: str):
+    """How many jobs a server restart cancelled along with `job_id`, and how
+    many of them are still to be rerun - whatever a listing's `limit` left
+    out (#1633). Read-only: nothing is admitted, priced or queued."""
+    manager = request.app.state.job_manager
+    if manager.get(job_id) is None:
+        raise HTTPException(status_code=404, detail="Unknown job")
+    answer = manager.restart_batch_size(job_id)
+    if answer is None:
+        raise _not_a_tombstone(job_id)
+    return answer
+
+
 class RestartBatchRequest(BaseModel):
     acknowledged_cost: Optional[Union[bool, AcknowledgedCost]] = Field(
         default=None,
@@ -618,12 +646,7 @@ def rerun_restart_batch(
     except Exception:
         raise internal_error("Restart batch rerun failed")
     if answer is None:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Job {job_id} is not a restart tombstone: only a job a "
-            "server restart closed as cancelled (its error starts "
-            "'server restart:', recorded since #1245) names a batch",
-        )
+        raise _not_a_tombstone(job_id)
     if queue:
         answer.pop("would_queue")
     else:

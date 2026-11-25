@@ -979,6 +979,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/jobs/{job_id}/restart-batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Restart Batch Size
+         * @description How many jobs a server restart cancelled along with `job_id`, and how
+         *     many of them are still to be rerun - whatever a listing's `limit` left
+         *     out (#1633). Read-only: nothing is admitted, priced or queued.
+         */
+        get: operations["restart_batch_size_api_jobs__job_id__restart_batch_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/jobs/{job_id}/run": {
         parameters: {
             query?: never;
@@ -4715,6 +4737,24 @@ export interface components {
              */
             would_queue?: components["schemas"]["RestartBatchCandidate"][];
         };
+        /** RestartBatchSize */
+        RestartBatchSize: {
+            /**
+             * Pending
+             * @description Those not yet rerun and not in a deleted workspace.
+             */
+            pending: number;
+            /**
+             * Server Instance
+             * @description The dead server whose batch this is.
+             */
+            server_instance: string;
+            /**
+             * Size
+             * @description Every job that restart cancelled.
+             */
+            size: number;
+        };
         /** RestartBatchSkipped */
         RestartBatchSkipped: {
             /** Id */
@@ -6637,6 +6677,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RestartBatchRerun"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restart_batch_size_api_jobs__job_id__restart_batch_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RestartBatchSize"];
                 };
             };
             /** @description Validation Error */

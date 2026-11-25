@@ -164,6 +164,7 @@ UI_READ_ROUTES = [
     ("delete", "/api/jobs/{job_id}/run"),
     ("get", "/api/jobs/{job_id}/workflow"),
     ("post", "/api/jobs/{job_id}/rerun"),
+    ("get", "/api/jobs/{job_id}/restart-batch"),
     ("post", "/api/jobs/{job_id}/rerun-restart-batch"),
     ("post", "/api/jobs/{job_id}/export"),
     ("post", "/api/jobs/{job_id}/move"),

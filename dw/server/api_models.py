@@ -783,6 +783,14 @@ class RestartBatchSkipped(ApiModel):
     )
 
 
+class RestartBatchSize(ApiModel):
+    server_instance: str = Field(description="The dead server whose batch this is.")
+    size: int = Field(description="Every job that restart cancelled.")
+    pending: int = Field(
+        description="Those not yet rerun and not in a deleted workspace."
+    )
+
+
 class RestartBatchRerun(ApiModel):
     server_instance: str = Field(description="The dead server whose batch this is.")
     queued: list[RestartBatchQueued] = Field(

@@ -73,6 +73,20 @@ api.listJobs.mockImplementation(
 api.gallery.mockImplementation(() =>
   Promise.resolve({ workspace: 'default', files: data.files }),
 )
+// The batch route's count: every tombstone the server holds in `id`'s batch
+// that no job's rerun_of names, whatever page the listing answered
+const batchSize = (id: string) => {
+  const all = data.jobs as JobSummary[]
+  const batch = all.find((job) => job.id === id)?.restart_batch ?? ''
+  const members = all.filter((job) => job.restart_batch === batch)
+  const rerun = new Set(all.map((job) => job.rerun_of))
+  return Promise.resolve({
+    server_instance: batch,
+    size: members.length,
+    pending: members.filter((job) => !rerun.has(job.id)).length,
+  })
+}
+api.restartBatch.mockImplementation(batchSize)
 api.getJob.mockImplementation((id: string) =>
   Promise.resolve({ progress: data.progress[id] }),
 )
@@ -110,6 +124,8 @@ afterEach(() => {
   data.byWorkspace = false
   workspace.current = 'default'
   api.rerunRestartBatch.mockReset()
+  api.restartBatch.mockReset()
+  api.restartBatch.mockImplementation(batchSize)
   api.moveJob.mockReset()
   data.confirm.mockReset()
 })
@@ -358,6 +374,78 @@ it('hides the banner once every tombstone has a rerun row', async () => {
   const { container } = render(JobsPage)
   await waitFor(() => expect(screen.getByText('again-2')).toBeTruthy())
   expect(banners(container)).toHaveLength(0)
+})
+
+// 60 later jobs push these tombstones to the far side of the newest 50
+const later = (n: number) =>
+  Array.from({ length: n }, (_, i) =>
+    summary({ id: `l${i}`, workflow: `later-${i}`, created_at: 100 + i }),
+  )
+
+it('a batch partly beyond the page is counted whole', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  try {
+    data.jobs = [
+      tombstone('t1', 'dead-a', 1),
+      tombstone('t2', 'dead-a', 2),
+      ...later(49),
+      tombstone('t3', 'dead-a', 200),
+    ]
+    const { container } = render(JobsPage)
+    await waitFor(() => expect(banners(container)).toHaveLength(1))
+    expect(screen.queryByText('w-t1')).toBeNull()
+    expect(banners(container)[0].textContent).toContain('3 jobs were')
+    // the size is asked once, not on every poll
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(api.restartBatch).toHaveBeenCalledTimes(1)
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+it('a batch wholly beyond the page still gets its banner', async () => {
+  data.jobs = [
+    tombstone('t1', 'dead-a', 1),
+    tombstone('t2', 'dead-a', 2),
+    ...later(60),
+  ]
+  const { container } = render(JobsPage)
+  await waitFor(() => expect(banners(container)).toHaveLength(1))
+  expect(screen.queryByText('w-t1')).toBeNull()
+  expect(banners(container)[0].textContent).toContain('2 jobs were')
+})
+
+it('asks the size again once a rerun shows, and drops a spent batch', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  try {
+    data.jobs = [tombstone('t1', 'dead-a'), tombstone('t2', 'dead-a')]
+    const { container } = render(JobsPage)
+    await waitFor(() => expect(banners(container)).toHaveLength(1))
+    data.jobs = [
+      ...data.jobs,
+      summary({ id: 'n1', rerun_of: 't1', created_at: 5 }),
+    ]
+    await vi.advanceTimersByTimeAsync(4_000)
+    await waitFor(() =>
+      expect(banners(container)[0].textContent).toContain('1 job was'),
+    )
+    data.jobs = [
+      ...data.jobs,
+      summary({ id: 'n2', rerun_of: 't2', created_at: 6 }),
+    ]
+    await vi.advanceTimersByTimeAsync(4_000)
+    await waitFor(() => expect(banners(container)).toHaveLength(0))
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+it('counts the loaded tombstones when the size cannot be read', async () => {
+  api.restartBatch.mockRejectedValue(new Error('down'))
+  data.jobs = [tombstone('t1', 'dead-a'), tombstone('t2', 'dead-a')]
+  const { container } = render(JobsPage)
+  await waitFor(() => expect(banners(container)).toHaveLength(1))
+  expect(banners(container)[0].textContent).toContain('2 jobs were')
 })
 
 it('shows no banner with no tombstones', async () => {

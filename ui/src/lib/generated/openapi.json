@@ -6043,6 +6043,33 @@
         "title": "RestartBatchRerun",
         "type": "object"
       },
+      "RestartBatchSize": {
+        "additionalProperties": false,
+        "properties": {
+          "pending": {
+            "description": "Those not yet rerun and not in a deleted workspace.",
+            "title": "Pending",
+            "type": "integer"
+          },
+          "server_instance": {
+            "description": "The dead server whose batch this is.",
+            "title": "Server Instance",
+            "type": "string"
+          },
+          "size": {
+            "description": "Every job that restart cancelled.",
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "server_instance",
+          "size",
+          "pending"
+        ],
+        "title": "RestartBatchSize",
+        "type": "object"
+      },
       "RestartBatchSkipped": {
         "additionalProperties": false,
         "properties": {
@@ -10008,6 +10035,46 @@
           }
         },
         "summary": "Rerun Restart Batch"
+      }
+    },
+    "/api/jobs/{job_id}/restart-batch": {
+      "get": {
+        "description": "How many jobs a server restart cancelled along with `job_id`, and how\nmany of them are still to be rerun - whatever a listing's `limit` left\nout (#1633). Read-only: nothing is admitted, priced or queued.",
+        "operationId": "restart_batch_size_api_jobs__job_id__restart_batch_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestartBatchSize"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Restart Batch Size"
       }
     },
     "/api/jobs/{job_id}/run": {

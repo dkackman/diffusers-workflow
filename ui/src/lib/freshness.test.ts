@@ -536,6 +536,11 @@ const HELPER_CALL_EXCEPTIONS: Record<string, Record<string, string>> = {
       "the listing read after the page's own upload, held as read (adopt) " +
       'so nothing is marked; the feed echo of that write diffs against it',
   },
+  'pages/JobsPage.svelte': {
+    restartReader:
+      'a factory, called once at init: the reader it returns is what the ' +
+      'resource calls',
+  },
   'job/JobResults.svelte': {
     runMetadataReader:
       'a factory, called once at init: the reader it returns is what the ' +

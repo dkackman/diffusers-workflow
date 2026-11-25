@@ -399,6 +399,35 @@ def test_two_concurrent_calls_queue_each_member_once(tmp_path):
         manager.shutdown()
 
 
+def test_the_batch_size_counts_every_member_and_those_still_to_rerun(tmp_path):
+    ids = a_dead_server_with_three_jobs(tmp_path)
+    with restarted_client(tmp_path) as (client, manager):
+        url = f"/api/jobs/{ids[2]}/restart-batch"
+        answer = client.get(url).json()
+        instance = manager.history.restart_batch(ids[0])[0]
+        assert answer == {"server_instance": instance, "size": 3, "pending": 3}
+        assert reruns(manager) == []
+
+        assert client.post(f"/api/jobs/{ids[0]}/rerun").status_code == 201
+        assert client.get(url).json()["pending"] == 2
+        set_column(tmp_path, ids[1], "workspace", "gone" + DELETED_SUFFIX)
+        assert client.get(url).json() == {
+            "server_instance": instance,
+            "size": 3,
+            "pending": 1,
+        }
+
+
+def test_the_batch_size_of_a_non_tombstone_or_unknown_job_is_refused(tmp_path):
+    ids = a_dead_server_with_three_jobs(tmp_path)
+    with restarted_client(tmp_path) as (client, manager):
+        job = client.post(f"/api/jobs/{ids[0]}/rerun").json()
+        response = client.get(f"/api/jobs/{job['id']}/restart-batch")
+        assert response.status_code == 400
+        assert "not a restart tombstone" in response.json()["detail"]
+        assert client.get("/api/jobs/nope/restart-batch").status_code == 404
+
+
 def test_a_member_in_a_deleted_workspace_is_skipped_and_the_rest_queue(tmp_path):
     ids = a_dead_server_with_three_jobs(tmp_path)
     set_column(tmp_path, ids[1], "workspace", f"gone{DELETED_SUFFIX}")
