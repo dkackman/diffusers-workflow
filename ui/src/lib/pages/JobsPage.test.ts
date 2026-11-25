@@ -8,7 +8,7 @@ import {
 import { afterEach, expect, it, vi } from 'vitest'
 import JobsPage from './JobsPage.svelte'
 import { ApiError, NetworkError } from '../apiErrors'
-import { formatExact } from '../format'
+import { formatExact, formatMtime } from '../format'
 import { workspace } from '../workspaceState.svelte'
 import type { JobSummary } from '../types'
 
@@ -193,6 +193,10 @@ it('hovering a start time gives it to the second, with the finish', async () => 
   const title = container.querySelector('.started')!.getAttribute('title')!
   expect(title).toContain(`started ${formatExact(1700000000)}`)
   expect(title).toContain(`finished ${formatExact(1700000243)}`)
+  // the row shows the start itself, exact, and the time carries the hover
+  const time = container.querySelector('.started time')!
+  expect(time.textContent?.trim()).toBe(formatMtime(1700000000))
+  expect(time.getAttribute('title')).toBe(title)
 })
 
 it('rows and the name filter use the file name', async () => {

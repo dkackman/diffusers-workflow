@@ -3,6 +3,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import CachesPanel from './CachesPanel.svelte'
 import { feed } from './test/feedMock'
 import { workspace } from './workspaceState.svelte'
+import { formatExact, formatMtime } from './format'
 
 const cache = (name: string) => ({
   name,
@@ -107,4 +108,48 @@ it('a cache trash button is not drawn in danger', async () => {
   await screen.findByText('triton')
   const button = screen.getByRole('button', { name: 'clear the triton cache' })
   expect(button.classList.contains('danger')).toBe(false)
+})
+
+it("a cache's last use and each entry's created and last hit are exact, to the second on hover, and a dash when unknown", async () => {
+  const entry = {
+    id: 'a'.repeat(64),
+    component: 'transformer',
+    model: 'org/model',
+    subfolder: null,
+    bytes: 1024,
+    files: 1,
+    created: 1700000000,
+    last_hit: 1700000600,
+    unreadable: false,
+  }
+  listing.caches = [
+    { ...cache('quantized'), last_used: 1700001200, entries: [entry] },
+    {
+      ...cache('triton'),
+      entries: [
+        { ...entry, id: 'b'.repeat(64), created: null, last_hit: null },
+      ],
+    },
+  ]
+  const { container } = render(CachesPanel)
+  await screen.findByText('quantized')
+  const used = container.querySelector('tbody time') as HTMLElement
+  expect(used.textContent?.trim()).toBe(formatMtime(1700001200))
+  expect(used.getAttribute('title')).toBe(formatExact(1700001200))
+  await fireEvent.click(screen.getAllByRole('button', { name: '1 entry' })[0])
+  const cells = [
+    ...container.querySelectorAll('.entrytable tbody tr'),
+  ][0].querySelectorAll('td.muted')
+  expect([...cells].map((td) => td.textContent?.trim())).toEqual([
+    formatMtime(1700000000),
+    formatMtime(1700000600),
+  ])
+  expect(
+    [...cells].map((td) => td.querySelector('time')?.getAttribute('title')),
+  ).toEqual([formatExact(1700000000), formatExact(1700000600)])
+  await fireEvent.click(screen.getAllByRole('button', { name: '1 entry' })[1])
+  const unknown = [
+    ...container.querySelectorAll('.entrytable'),
+  ][1].querySelectorAll('tbody td.muted')
+  expect([...unknown].map((td) => td.textContent?.trim())).toEqual(['—', '—'])
 })

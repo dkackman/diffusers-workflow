@@ -7,6 +7,7 @@ import {
   formatSpent,
   formatDay,
   formatMtime,
+  formatRelative,
   gbFromBytes,
   gbFromMb,
 } from './format'
@@ -66,6 +67,40 @@ describe('formatDuration', () => {
     expect(formatDuration(26527 * 3600)).toBe('1105d 07h')
     expect(formatDuration(86_400 + 2 * 3600 + 59)).toBe('1d 02h')
     expect(formatDuration(86_399)).toBe('23h 59m')
+  })
+
+  it('a day exactly is the first that reads in days', () => {
+    expect(formatDuration(86_399)).toBe('23h 59m')
+    expect(formatDuration(86_400)).toBe('1d 00h')
+  })
+})
+
+describe('formatRelative', () => {
+  // 2026-11-24 12:00:00 UTC, in unix seconds
+  const NOW = 1_795_521_600
+
+  it('says just now under a minute, and for a time a little ahead (skew)', () => {
+    expect(formatRelative(NOW, NOW)).toBe('just now')
+    expect(formatRelative(NOW - 59, NOW)).toBe('just now')
+    expect(formatRelative(NOW + 120, NOW)).toBe('just now')
+  })
+
+  it('counts whole minutes, then whole hours', () => {
+    expect(formatRelative(NOW - 60, NOW)).toBe('1 min ago')
+    expect(formatRelative(NOW - 3599, NOW)).toBe('59 min ago')
+    expect(formatRelative(NOW - 3600, NOW)).toBe('1 h ago')
+    expect(formatRelative(NOW - 86_399, NOW)).toBe('23 h ago')
+  })
+
+  it('counts days up to 30, one day in the singular', () => {
+    expect(formatRelative(NOW - 86_400, NOW)).toBe('1 day ago')
+    expect(formatRelative(NOW - 2 * 86_400, NOW)).toBe('2 days ago')
+    expect(formatRelative(NOW - 30 * 86_400, NOW)).toBe('30 days ago')
+  })
+
+  it('past 30 days gives the day itself', () => {
+    const at = NOW - 31 * 86_400
+    expect(formatRelative(at, NOW)).toBe(formatDay(at, new Date(NOW * 1000)))
   })
 })
 

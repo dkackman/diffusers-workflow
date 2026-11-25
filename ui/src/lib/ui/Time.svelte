@@ -10,6 +10,10 @@
   `mode: 'day'` is the date alone, for a column where the time of day says
   nothing (a model's last use). `title` replaces the exact-time hover where
   the time needs explaining instead (what "last used" counts).
+
+  A time that does not parse (a ledger string `Date.parse` cannot read is
+  NaN) says `unknown time`, with no `datetime`, so one bad stored value
+  never takes the page down.
 -->
 <script lang="ts">
   import { now } from '../clock.svelte'
@@ -36,12 +40,15 @@
     title?: string
   } = $props()
 
+  const known = $derived(Number.isFinite(at))
   const when = $derived(
-    mode === 'relative'
-      ? formatRelative(at, now.value)
-      : mode === 'day'
-        ? formatDay(at)
-        : formatMtime(at),
+    !known
+      ? ''
+      : mode === 'relative'
+        ? formatRelative(at, now.value)
+        : mode === 'day'
+          ? formatDay(at)
+          : formatMtime(at),
   )
   // A list's label leads lower case ('changed 5 min ago'); a detail's is
   // the start of its line ('Created Oct 26, 2:03 PM')
@@ -57,9 +64,13 @@
   )
 </script>
 
-<time
-  datetime={new Date(at * 1000).toISOString()}
-  title={title ?? formatExact(at)}
->
-  {text}
-</time>
+{#if known}
+  <time
+    datetime={new Date(at * 1000).toISOString()}
+    title={title ?? formatExact(at)}
+  >
+    {text}
+  </time>
+{:else}
+  <span {title}>unknown time</span>
+{/if}

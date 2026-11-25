@@ -14,6 +14,7 @@ import ConfirmDialog from '../ui/ConfirmDialog.svelte'
 import type { AssetFile, AssetLibrary, ShadowedAsset } from '../types'
 import { DEFAULT_WORKSPACE, workspace } from '../workspace.svelte'
 import { feed } from '../test/feedMock'
+import { formatExact, formatMtime } from '../format'
 
 const asset = (
   name: string,
@@ -438,6 +439,17 @@ it('shows the asset note', async () => {
       'the hero face',
     ),
   ).toBeTruthy()
+})
+
+it("the viewer's aside says the kind, size and when the asset was written, exact, to the second on hover", async () => {
+  await renderAssets()
+  const sheet = await openAsset('iris.png')
+  const aside = sheet.querySelector('.asset-aside') as HTMLElement
+  const time = aside.querySelector('time') as HTMLElement
+  expect(time.closest('p')?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+    `image · 2 KB · ${formatMtime(1)}`,
+  )
+  expect(time.getAttribute('title')).toBe(formatExact(1))
 })
 
 it('the note and Used by show while the recipe read fails or never lands', async () => {

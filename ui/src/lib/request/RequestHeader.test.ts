@@ -11,6 +11,7 @@ import RequestHeader from './RequestHeader.svelte'
 import { planState } from './itemState'
 import { attempt, doneItem, entry, item, request } from './fixtures'
 import type { LedgerItem, LedgerRequest } from '../types'
+import { formatMtime } from '../format'
 
 const api = vi.hoisted(() => ({
   addNote: vi.fn(),
@@ -335,4 +336,26 @@ it("says the agent's latest word under what needs the user, and nothing of it on
     props([item('a')], { history, state: 'done' }),
   )
   expect(closed.container.querySelector('.said')).toBeNull()
+})
+
+it("the agent's latest word carries its time, and hovering it gives the whole word", () => {
+  const why = 'board-01 now blue; awaiting go-ahead to draw'
+  const history = [entry(1, 'agent', 'opened'), entry(3, 'agent', why)]
+  const view = render(RequestHeader, props([item('a')], { history }))
+  const time = view.container.querySelector('.said time') as HTMLElement
+  expect(view.container.querySelector('.said .who')?.textContent).toMatch(
+    new RegExp(
+      `^\\s*The agent, r3 ·\\s+${formatMtime(Date.parse(history[1].at) / 1000)}:\\s*$`,
+    ),
+  )
+  expect(time.getAttribute('title')).toBe(why)
+})
+
+it("the agent's latest word still shows when its stored time does not parse", () => {
+  const history = [entry(2, 'agent', 'all set', { at: 'not a time' })]
+  const view = render(RequestHeader, props([item('a')], { history }))
+  const said = view.container.querySelector('.said') as HTMLElement
+  expect(said.textContent).toMatch(/The agent, r2 ·\s+unknown time:/)
+  expect(said.textContent).toContain('all set')
+  expect(said.querySelector('[datetime]')).toBeNull()
 })

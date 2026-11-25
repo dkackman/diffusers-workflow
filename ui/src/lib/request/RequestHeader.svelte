@@ -131,7 +131,7 @@
     <p class="said" title={said.why}>
       <span class="who">
         The agent, r{said.revision} ·
-        <Time at={Date.parse(said.at) / 1000} mode="exact" />:
+        <Time at={Date.parse(said.at) / 1000} mode="exact" title={said.why} />:
       </span>
       {said.why}
     </p>

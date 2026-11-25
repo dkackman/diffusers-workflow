@@ -1,4 +1,5 @@
 import { cleanup, render } from '@testing-library/svelte'
+import { tick } from 'svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { formatDay, formatExact, formatMtime } from '../format'
 import Time from './Time.svelte'
@@ -69,4 +70,66 @@ it('an old relative time falls back to its day', () => {
   const at = NOW - 86_400 * 45
   const { container } = render(Time, { props: { at } })
   expect(time(container).textContent).toBe(formatDay(at))
+})
+
+it('an unreadable time says so, with no datetime, and does not throw', () => {
+  for (const at of [NaN, Infinity]) {
+    const { container, unmount } = render(Time, {
+      props: { at, label: 'changed', title: 'last written' },
+    })
+    expect(container.textContent?.trim()).toBe('unknown time')
+    expect(container.querySelector('[datetime]')).toBeNull()
+    expect(container.querySelector('[title]')?.getAttribute('title')).toBe(
+      'last written',
+    )
+    unmount()
+  }
+})
+
+// The clock is one timer for the page, not one per time (clock.svelte.ts)
+it('two relative times share one timer, and the last to go stops it', async () => {
+  expect(vi.getTimerCount()).toBe(0)
+  const first = render(Time, { props: { at: NOW } })
+  const second = render(Time, { props: { at: NOW - 600 } })
+  await tick()
+  expect(vi.getTimerCount()).toBe(1)
+  first.unmount()
+  await tick()
+  expect(vi.getTimerCount()).toBe(1)
+  second.unmount()
+  await tick()
+  expect(vi.getTimerCount()).toBe(0)
+})
+
+it('an exact or day time starts no timer', async () => {
+  render(Time, { props: { at: NOW, mode: 'exact' } })
+  render(Time, { props: { at: NOW, mode: 'day' } })
+  await tick()
+  expect(vi.getTimerCount()).toBe(0)
+})
+
+// The tab's visibility, as the browser would report it
+function setHidden(hidden: boolean) {
+  Object.defineProperty(document, 'visibilityState', {
+    configurable: true,
+    get: () => (hidden ? 'hidden' : 'visible'),
+  })
+  document.dispatchEvent(new Event('visibilitychange'))
+}
+
+it('the clock pauses while the tab is hidden and catches up on its return', async () => {
+  try {
+    const { container } = render(Time, { props: { at: NOW, label: 'changed' } })
+    await tick()
+    setHidden(true)
+    expect(vi.getTimerCount()).toBe(0)
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000)
+    expect(time(container).textContent).toBe('changed just now')
+    setHidden(false)
+    await tick()
+    expect(time(container).textContent).toBe('changed 5 min ago')
+    expect(vi.getTimerCount()).toBe(1)
+  } finally {
+    setHidden(false)
+  }
 })

@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
 import { afterEach, expect, it, vi } from 'vitest'
 import JobHeader from './JobHeader.svelte'
 import type { JobDetail, LedgerRequest } from '../types'
+import { formatExact, formatMtime } from '../format'
 
 const { rerunJob, cancelJob, exportJob, confirmDialog, failure } = vi.hoisted(
   () => ({
@@ -175,4 +176,15 @@ it('the Replace question is titled and in danger', async () => {
     confirmLabel: 'Replace',
     danger: true,
   })
+})
+
+it('shows the start, exact, and hovering it gives start and finish to the second', () => {
+  const { container } = header(
+    job({ started_at: 1700000000, finished_at: 1700000243 }),
+  )
+  const time = container.querySelector('code time') as HTMLElement
+  expect(time.textContent?.trim()).toBe(formatMtime(1700000000))
+  expect(time.getAttribute('title')).toBe(
+    `started ${formatExact(1700000000)}\nfinished ${formatExact(1700000243)}`,
+  )
 })
