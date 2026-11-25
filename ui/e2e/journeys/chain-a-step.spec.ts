@@ -25,10 +25,6 @@ test.beforeEach(async ({ request }) => {
   expect(kept.status()).toBe(201)
 })
 
-test.afterEach(async ({ request }) => {
-  await request.delete(`/api/assets/${ASSET}.png`)
-})
-
 /** The detail level each step is shown at, in order */
 async function detailLevels(page: Page) {
   const steps = page.locator('.panel.step')
@@ -45,102 +41,109 @@ async function detailLevels(page: Page) {
 
 test('chain a step, rename what it reads, and fill it from the assets', async ({
   page,
+  request,
 }) => {
-  // 1. A new workflow from the text-to-image example (the fixture's
-  // examples are its workflows, so Duplicate starts the copy), and a
-  // pipeline step after it whose image argument offers the first step's
-  // result first
-  await page.goto('/#/ws/default/workflows/templates/text-to-image')
-  await page.getByRole('button', { name: 'Duplicate' }).click()
-  await expect(page).toHaveURL(/\/edit$/)
-  const steps = page.locator('.panel.step')
-  await expect(steps).toHaveCount(1)
-  await expect(steps.first().locator('input.name')).toHaveValue('main')
-  await page.getByRole('button', { name: 'pipeline step' }).click()
-  await expect(steps).toHaveCount(2)
-  const second = steps.nth(1)
-  await second.getByLabel('pipeline', { exact: true }).fill(SECOND)
-  await second
-    .getByLabel('model', { exact: true })
-    .fill('stable-diffusion-v1-5/stable-diffusion-v1-5')
-  await second.getByRole('button', { name: /available arguments/ }).click({
-    timeout: 20_000,
-  })
-  await second.getByRole('button', { name: 'add image', exact: true }).click()
-  const image = second.getByLabel('image', { exact: true })
-  await expect(image).toHaveValue('')
-  await image.focus()
-  await page.keyboard.press('ArrowDown')
-  const rows = page.locator('.ui-suggest').getByRole('option')
-  await expect(rows.first()).toContainText('previous_result:main')
-  await page.keyboard.press('Enter')
-  await expect(image).toHaveValue('previous_result:main')
-  await expect(image).toHaveClass(/referencefield/)
-  const levels = await detailLevels(page)
+  try {
+    // 1. A new workflow from the text-to-image example (the fixture's
+    // examples are its workflows, so Duplicate starts the copy), and a
+    // pipeline step after it whose image argument offers the first step's
+    // result first
+    await page.goto('/#/ws/default/workflows/templates/text-to-image')
+    await page.getByRole('button', { name: 'Duplicate' }).click()
+    await expect(page).toHaveURL(/\/edit$/)
+    const steps = page.locator('.panel.step')
+    await expect(steps).toHaveCount(1)
+    await expect(steps.first().locator('input.name')).toHaveValue('main')
+    await page.getByRole('button', { name: 'pipeline step' }).click()
+    await expect(steps).toHaveCount(2)
+    const second = steps.nth(1)
+    await second.getByLabel('pipeline', { exact: true }).fill(SECOND)
+    await second
+      .getByLabel('model', { exact: true })
+      .fill('stable-diffusion-v1-5/stable-diffusion-v1-5')
+    await second.getByRole('button', { name: /available arguments/ }).click({
+      timeout: 20_000,
+    })
+    await second.getByRole('button', { name: 'add image', exact: true }).click()
+    const image = second.getByLabel('image', { exact: true })
+    await expect(image).toHaveValue('')
+    await image.focus()
+    await page.keyboard.press('ArrowDown')
+    const rows = page.locator('.ui-suggest').getByRole('option')
+    await expect(rows.first()).toContainText('previous_result:main')
+    await page.keyboard.press('Enter')
+    await expect(image).toHaveValue('previous_result:main')
+    await expect(image).toHaveClass(/referencefield/)
+    const levels = await detailLevels(page)
 
-  // 2. Renaming the step carries the reference to it, and each step keeps
-  // the detail level it had
-  const name = steps.first().locator('input.name')
-  await name.fill('still')
-  await name.press('Enter')
-  await expect(
-    page.getByText('Renamed step main to still, and 1 reference to it'),
-  ).toBeVisible()
-  await expect(image).toHaveValue('previous_result:still')
-  expect(await detailLevels(page)).toEqual(levels)
+    // 2. Renaming the step carries the reference to it, and each step keeps
+    // the detail level it had
+    const name = steps.first().locator('input.name')
+    await name.fill('still')
+    await name.press('Enter')
+    await expect(
+      page.getByText('Renamed step main to still, and 1 reference to it'),
+    ).toBeVisible()
+    await expect(image).toHaveValue('previous_result:still')
+    expect(await detailLevels(page)).toEqual(levels)
 
-  // 3. A name the engine would refuse is said, and the step keeps its own
-  await name.fill('bad name')
-  await name.press('Enter')
-  await expect(
-    page.getByText("A step name can't be empty or hold a space, . or @."),
-  ).toBeVisible()
-  await expect(name).toHaveValue('still')
+    // 3. A name the engine would refuse is said, and the step keeps its own
+    await name.fill('bad name')
+    await name.press('Enter')
+    await expect(
+      page.getByText("A step name can't be empty or hold a space, . or @."),
+    ).toBeVisible()
+    await expect(name).toHaveValue('still')
 
-  // 4. A reference to a variable that is gone is found while typing, and
-  // Go to takes the person to the place it names
-  const prompt = page.locator('.vars label', { hasText: /^prompt$/ })
-  await expect(prompt).toBeVisible()
-  await page
-    .locator('.vars')
-    .getByRole('button', { name: 'remove this variable' })
-    .first()
-    .click()
-  await expect(page.locator('#wfvar-prompt')).toHaveCount(0)
-  const finding = page
-    .locator('.error')
-    .filter({ hasText: "'variable:prompt' names no declared variable" })
-  const goTo = finding.getByRole('button', { name: 'Go to step still' })
-  await expect(goTo).toBeVisible({ timeout: 2_000 })
-  await goTo.click()
-  await expect(page.locator('#step-still input.name')).toBeFocused()
+    // 4. A reference to a variable that is gone is found while typing, and
+    // Go to takes the person to the place it names
+    const prompt = page.locator('.vars label', { hasText: /^prompt$/ })
+    await expect(prompt).toBeVisible()
+    await page
+      .locator('.vars')
+      .getByRole('button', { name: 'remove this variable' })
+      .first()
+      .click()
+    await expect(page.locator('#wfvar-prompt')).toHaveCount(0)
+    const finding = page
+      .locator('.error')
+      .filter({ hasText: "'variable:prompt' names no declared variable" })
+    const goTo = finding.getByRole('button', { name: 'Go to step still' })
+    await expect(goTo).toBeVisible({ timeout: 2_000 })
+    await goTo.click()
+    await expect(page.locator('#step-still input.name')).toBeFocused()
 
-  // 5. A variable added on Enter takes its type from what is typed
-  const fresh = page.getByPlaceholder('new variable name…')
-  await fresh.fill('steps')
-  await fresh.press('Enter')
-  const value = page.locator('#wfvar-steps')
-  await value.fill('30')
-  await value.blur()
-  await page.getByRole('button', { name: 'JSON', exact: true }).click()
-  await expect(page.locator('.monaco-editor').first()).toBeVisible({
-    timeout: 20_000,
-  })
-  await expect(page.locator('.view-lines').first()).toContainText('"steps": 30')
-  await page.getByRole('button', { name: 'form', exact: true }).click()
+    // 5. A variable added on Enter takes its type from what is typed
+    const fresh = page.getByPlaceholder('new variable name…')
+    await fresh.fill('steps')
+    await fresh.press('Enter')
+    const value = page.locator('#wfvar-steps')
+    await value.fill('30')
+    await value.blur()
+    await page.getByRole('button', { name: 'JSON', exact: true }).click()
+    await expect(page.locator('.monaco-editor').first()).toBeVisible({
+      timeout: 20_000,
+    })
+    await expect(page.locator('.view-lines').first()).toContainText(
+      '"steps": 30',
+    )
+    await page.getByRole('button', { name: 'form', exact: true }).click()
 
-  // 6. The second step's image, chosen from the assets: an asset: reference,
-  // shown as a tile
-  const field = page
-    .locator('.panel.step')
-    .nth(1)
-    .locator('.reference')
-    .filter({ has: page.getByLabel('image', { exact: true }) })
-  await field.getByRole('button', { name: 'Choose…' }).click()
-  const picker = page.getByRole('dialog', { name: 'choose a file' })
-  await picker.getByRole('button', { name: 'Assets', exact: true }).click()
-  await picker.getByRole('button', { name: `choose ${ASSET}.png` }).click()
-  await expect(picker).toBeHidden()
-  await expect(field.getByRole('combobox')).toHaveValue(`asset:${ASSET}.png`)
-  await expect(field.locator('.preview .filetile')).toBeVisible()
+    // 6. The second step's image, chosen from the assets: an asset: reference,
+    // shown as a tile
+    const field = page
+      .locator('.panel.step')
+      .nth(1)
+      .locator('.reference')
+      .filter({ has: page.getByLabel('image', { exact: true }) })
+    await field.getByRole('button', { name: 'Choose…' }).click()
+    const picker = page.getByRole('dialog', { name: 'choose a file' })
+    await picker.getByRole('button', { name: 'Assets', exact: true }).click()
+    await picker.getByRole('button', { name: `choose ${ASSET}.png` }).click()
+    await expect(picker).toBeHidden()
+    await expect(field.getByRole('combobox')).toHaveValue(`asset:${ASSET}.png`)
+    await expect(field.locator('.preview .filetile')).toBeVisible()
+  } finally {
+    await request.delete(`/api/assets/${ASSET}.png`)
+  }
 })

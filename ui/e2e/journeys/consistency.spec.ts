@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 
 // The journeys of the consistency phase, end to end against the real server:
 // every page names itself the way the sidebar does, an unknown route is a
@@ -48,7 +48,10 @@ async function narrowAndScroll(page: Page, by = 400): Promise<number> {
   await page.getByRole('button', { name: 'Starred', exact: true }).click()
   await expect(page).toHaveURL(/q=e2e/)
   await expect(page).toHaveURL(/starred=1/)
-  await expect(page.locator('button.filetile')).toHaveCount(10)
+  // at least the fixture's ten: other specs' runs add to what `e2e` finds
+  await expect
+    .poll(() => page.locator('button.filetile').count())
+    .toBeGreaterThanOrEqual(10)
   await page.mouse.move(600, 300)
   await page.mouse.wheel(0, by)
   await expect.poll(() => scrollY(page)).toBeGreaterThan(by - 50)
@@ -59,16 +62,36 @@ async function narrowAndScroll(page: Page, by = 400): Promise<number> {
  * because Playwright's own scrolls the sticky bar into view first and would
  * move the page the test means to leave where it is */
 async function compareStills(page: Page) {
+  // a dispatched click skips the actionability a real one waits for
+  const press = async (target: Locator) => {
+    await expect(target).toBeVisible()
+    await expect(target).toBeEnabled()
+    await target.dispatchEvent('click')
+  }
   for (const name of STILLS)
-    await page
-      .getByRole('checkbox', { name: `select ${name}` })
-      .dispatchEvent('click')
+    await press(page.getByRole('checkbox', { name: `select ${name}` }))
   const before = await scrollY(page)
-  await page
-    .getByRole('button', { name: 'compare the selected files side by side' })
-    .dispatchEvent('click')
+  await press(
+    page.getByRole('button', {
+      name: 'compare the selected files side by side',
+    }),
+  )
   await expect(page).toHaveURL(/\/compare\//)
   return before
+}
+
+/** Leave the tab and come back: what watches for changes asks at once then,
+ * so a write made over the API is seen without waiting out its timer */
+async function leaveAndReturn(page: Page) {
+  await page.evaluate(() => {
+    for (const state of ['hidden', 'visible']) {
+      Object.defineProperty(document, 'visibilityState', {
+        configurable: true,
+        get: () => state,
+      })
+      document.dispatchEvent(new Event('visibilitychange'))
+    }
+  })
 }
 
 /** Every listing read from now on answers `ms` late, as a slow server does */
@@ -161,16 +184,10 @@ test('Back to a narrowed, scrolled gallery that loads late keeps its filters and
   await narrowAndScroll(page)
   const left = await compareStills(page)
   expect(left).toBeGreaterThan(300)
-  // the list answers late, and a write on the server meanwhile makes the
-  // page read it again quietly once it is back
+  // the list answers late
   await slowListing(page, 2000)
-  const listings: string[] = []
-  page.on('request', (r) => {
-    if (new URL(r.url()).pathname === '/api/gallery') listings.push(r.url())
-  })
   await page.goBack()
   const lowest = await watchScroll(page)
-  await star(request, STILLS[0], true)
   await expect(page).toHaveURL(/q=e2e/)
   await expect(page).toHaveURL(/starred=1/)
   await expect(
@@ -180,14 +197,14 @@ test('Back to a narrowed, scrolled gallery that loads late keeps its filters and
     page.getByRole('button', { name: 'Starred', exact: true }),
   ).toHaveAttribute('aria-pressed', 'true')
   await expect.poll(() => scrollY(page), { timeout: 8_000 }).toBe(left)
-  // the quiet reload lands (the changes feed polls every 5 s) and the page
-  // stays where it was put
-  await expect
-    .poll(() => listings.length, { timeout: 15_000 })
-    .toBeGreaterThanOrEqual(2)
-  await page.waitForResponse(
+  // a write on the server makes the page read the list again, quietly, and
+  // it stays where it was put
+  const reload = page.waitForResponse(
     (r) => new URL(r.url()).pathname === '/api/gallery',
   )
+  await star(request, STILLS[0], true)
+  await leaveAndReturn(page)
+  await reload
   await page.waitForTimeout(300)
   expect(await scrollY(page)).toBe(left)
   // and it never went back to the top on the way
@@ -199,21 +216,34 @@ test('content shown above a list while it loads late does not end its restore', 
 }) => {
   await narrowAndScroll(page)
   const left = await compareStills(page)
-  await slowListing(page, 2000)
+  // the list is held until the banner is up
+  let release = () => {}
+  const held = new Promise<void>((resolve) => (release = resolve))
+  await page.route(
+    (url) => url.pathname === '/api/gallery',
+    async (route) => {
+      await held
+      await route.continue()
+    },
+  )
   await page.goBack()
   // the restore has gone as far as the loading page reaches
   await expect.poll(() => scrollY(page)).toBeGreaterThan(0)
   expect(await scrollY(page)).toBeLessThan(left)
-  // content grows at the top of the document: with scroll anchoring on,
-  // the browser shifts the page to keep its anchor in view (to 288 here, not
-  // 400), and the restore takes that for the user's scroll and lets go. A
-  // div stands in for the banner: one rendered just before <main> is not
-  // anchored against while the loading page fills the window
-  await page.evaluate(() => {
-    const banner = document.createElement('div')
-    banner.style.height = '100px'
-    document.body.prepend(banner)
-  })
+  // the server goes quiet and the shell's banner grows above the list
+  await page.route('**/api/**', (route) => route.abort())
+  await expect(
+    page.getByText("Can't reach the server. Retrying every few seconds."),
+  ).toBeVisible({ timeout: 7_000 })
+  // the banner neither ended the restore nor found scroll anchoring on (the
+  // browser does not always anchor against this banner, so that is read off)
+  expect(await scrollY(page)).toBeLessThan(left)
+  expect(
+    await page.evaluate(() => document.documentElement.style.overflowAnchor),
+  ).toBe('none')
+  // back again: the held list answers, and the restore, still going, ends
+  await page.unroute('**/api/**')
+  release()
   await expect.poll(() => scrollY(page), { timeout: 8_000 }).toBe(left)
   await expect
     .poll(() =>
