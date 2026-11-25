@@ -17,6 +17,7 @@
     planNotes,
     planSaid,
     quoteLine,
+    staleReason,
     type RunPlan,
   } from './runPlan'
   import { RunQueue, type RunRow } from './runQueue.svelte'
@@ -34,7 +35,8 @@
   }: {
     /** What would run and what would not (runPlan.ts) */
     run: RunPlan
-    /** The plan it is a run of, for what becomes ready afterwards */
+    /** The plan it is a run of, as it is now: what becomes ready
+     * afterwards, and which rows it has moved past */
     plan: PlanState
     workspace: string
     requestId: string
@@ -45,7 +47,12 @@
   } = $props()
 
   // svelte-ignore state_referenced_locally
-  const queue = new RunQueue(run.candidates, { workspace, requestId, api })
+  const queue = new RunQueue(run.candidates, {
+    workspace,
+    requestId,
+    api,
+    stale: (candidate) => staleReason(candidate, plan),
+  })
   void queue.price()
 
   let open = $state(true)
@@ -98,7 +105,9 @@
   ])
   /** The rows the total and the "afterwards" line speak of */
   const counted = $derived(
-    rows.filter((row) => row.ticked && row.state !== 'pricing'),
+    rows.filter(
+      (row) => row.ticked && row.state !== 'pricing' && !queue.staleOf(row),
+    ),
   )
   const total = $derived(
     describeEstimateTotal(counted.map((row) => row.plan?.estimate ?? null)),
@@ -133,14 +142,19 @@
 
 {#snippet runRow(row: RunRow)}
   {@const item = row.candidate}
-  {@const hold = held(item.key)}
+  {@const stale = queue.staleOf(row)}
+  {@const hold = stale ? null : held(item.key)}
   <li class="runrow" data-key={item.key}>
     <div class="who">
       {#if !run.single}
         <input
           type="checkbox"
-          bind:checked={row.ticked}
-          disabled={row.state !== 'priced' || queue.started || queue.busy}
+          checked={row.ticked && !stale}
+          onchange={(event) => (row.ticked = event.currentTarget.checked)}
+          disabled={!!stale ||
+            row.state !== 'priced' ||
+            queue.started ||
+            queue.busy}
           aria-label="Run {item.title}"
         />
       {/if}
@@ -148,6 +162,12 @@
       <code class="muted">{item.key}</code>
       <code class="flow">{item.workflow}</code>
     </div>
+    {#if stale}
+      <p class="stale warn" role="status">
+        <TriangleAlert size={13} aria-hidden="true" />
+        <span>{stale}</span>
+      </p>
+    {/if}
     {#if hold}
       <p class="held" class:warn={hold.tone === 'warn'}>
         {#if hold.tone === 'warn'}<TriangleAlert
@@ -209,7 +229,7 @@
         <button
           type="button"
           class="quiet"
-          disabled={queue.busy}
+          disabled={queue.busy || !!stale}
           onclick={() => queue.accept(item.key)}
         >
           Run at this price
@@ -370,10 +390,12 @@
     gap: var(--space-1) var(--space-2);
   }
   .quote :global(svg),
+  .stale :global(svg),
   .held :global(svg) {
     flex: none;
   }
-  .held {
+  .held,
+  .stale {
     display: flex;
     align-items: center;
     gap: var(--space-1) var(--space-2);

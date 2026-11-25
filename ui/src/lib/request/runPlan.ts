@@ -1,6 +1,7 @@
 // What the run dialog offers before anything is priced: which items a run
 // would queue, in plan order; which it would not and why; what becomes
-// ready once those finish; and what a plan's quote adds to a row.
+// ready once those finish; what a plan's quote adds to a row; and why a
+// row offered earlier no longer matches the plan as it is now.
 import { formatMinutes } from '../format'
 import { describeEstimate, describePlan, type PlanLine } from '../plan'
 import type { LedgerReview, Plan, PlanEstimate } from '../types'
@@ -13,6 +14,9 @@ export type Candidate = {
   title: string
   workflow: string
   arguments: Record<string, unknown>
+  /** The item's jobs when it was offered: one beyond these is a run of it
+   * made since */
+  jobs: string[]
   /** The agent's own estimate for the item, to hold the quote against */
   planMinutes: number | null
   /** A failed item offered again: listed apart and unticked to start */
@@ -36,6 +40,7 @@ const candidate = ({ item }: ItemState): Candidate => ({
   title: item.title,
   workflow: item.workflow as string,
   arguments: item.arguments ?? {},
+  jobs: item.attempts.map((attempt) => attempt.job),
   planMinutes: item.estimate_minutes,
 })
 
@@ -137,6 +142,37 @@ export function itemPlan(plan: PlanState, key: string): RunPlan {
     return { ...empty, candidates: [candidate(row)], retake: retakeLine(row) }
   const { title } = row.item
   return { ...empty, skipped: [{ key, title, reason: skipReason(row) }] }
+}
+
+/** A value as text whatever order its keys were written in */
+const canonical = (value: unknown): string =>
+  JSON.stringify(value, (_key, held: unknown) =>
+    held && typeof held === 'object' && !Array.isArray(held)
+      ? Object.fromEntries(Object.entries(held).sort())
+      : held,
+  )
+
+/** Why a candidate offered earlier must not be queued from the plan as it
+ * is now: gone or dropped, run since, rewritten, or no longer something
+ * this page can run. Null while it still can. */
+export function staleReason(
+  offered: Candidate,
+  plan: PlanState,
+): string | null {
+  const row = plan.items.find((state) => state.item.key === offered.key)
+  if (!row) return 'It is no longer in the plan.'
+  const { item } = row
+  if (item.dropped) return 'It was dropped from the plan.'
+  if (item.attempts.some((attempt) => !offered.jobs.includes(attempt.job)))
+    return 'A job was queued for it after this opened.'
+  const now = candidate(row)
+  if (
+    now.workflow !== offered.workflow ||
+    canonical(now.arguments) !== canonical(offered.arguments)
+  )
+    return 'Its workflow or arguments changed after this opened. Close and open again to run it as it is now.'
+  if (row.runnable || row.canRetake) return null
+  return `It can no longer be run: ${skipReason(row)}.`
 }
 
 /** The items that become ready once `keys` have finished: waiting ones
