@@ -57,12 +57,14 @@
       const id = jobId
       return { ...(await api.getJobWorkflow(id)), of: id }
     },
-    // What this job ran does not move with the feed: the run writes its
-    // realized copy as its status moves, which re-reads it (below). A
-    // re-read that only swaps the submitted copy for the run's realized one
-    // is the run's own doing, not news: it moves 'realized' too
+    // With no realized copy (queued, from before run tracking, or its run
+    // deleted) the server answers with the workflow file as it is now: an
+    // edit to it is a workflows move. A run deleted - the realized copy
+    // gone - is a gallery move. Each re-read is quiet, so another writer's
+    // edit is marked; one that only swaps the submitted copy for the run's
+    // realized one, or back, is not news: it moves 'realized' too
     {
-      watch: [],
+      watch: ['workflows', 'gallery'],
       rows: (d) => [
         ['realized', d.realized],
         [d.of, d.definition],
@@ -70,19 +72,20 @@
     },
   )
   // A jobs move of another job reads no workflow: only this job's own
-  // status moving can have changed what it ran. The first status seen for
-  // a job is the baseline, the read at mount already answers it
-  let statusSeen: string | undefined
+  // status moving can have changed what it ran (the run writes its
+  // realized copy as its status moves). The first status seen for a job is
+  // the baseline: the read for that job already answers it
+  let statusSeen: { id: string; status: string } | undefined
   $effect(() => {
-    const status = job?.status
+    const seen = job && { id: job.id, status: job.status }
     untrack(() => {
       if (
-        status !== undefined &&
-        statusSeen !== undefined &&
-        status !== statusSeen
+        seen &&
+        statusSeen?.id === seen.id &&
+        statusSeen.status !== seen.status
       )
-        void ranRead.reload()
-      statusSeen = status
+        void ranRead.refresh()
+      if (seen) statusSeen = seen
     })
   })
   const ran = $derived(ranRead.data?.of === jobId ? ranRead.data : null)

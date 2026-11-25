@@ -823,10 +823,12 @@ it("saves the run note in the job's own workspace", async () => {
 describe('data changed underneath the page', () => {
   const notice = () => screen.queryByText('Updated by an agent or another tab')
   /** The feed moves `kind`, and the page's quiet re-reads land */
-  async function moved(kind: 'jobs' | 'gallery') {
+  async function moved(kind: 'jobs' | 'gallery' | 'workflows') {
     feed.move('default', kind)
     for (let i = 0; i < 6; i++) await Promise.resolve()
   }
+  /** The workflow JSON the page shows, once opened */
+  const shownJson = () => screen.queryByTestId('json-editor')?.textContent
   const noted = (note: string) => {
     detail.job = { ...job([]), run_dir: 'wf/run-1', note }
   }
@@ -885,15 +887,47 @@ describe('data changed underneath the page', () => {
     expect(notice()).toBeNull()
   })
 
-  it('a definition changed elsewhere says so', async () => {
-    detail.job = job([])
+  it('an edit elsewhere to a job with no realized copy is shown and marked', async () => {
+    // Queued: what the page shows is the workflow file as it is now
+    detail.job = { ...job([]), status: 'queued', finished_at: null }
     ran.definition = { steps: [{ name: 'base', pipeline: {} }] }
+    ran.realized = false
+    render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(screen.getByText('as submitted')).toBeTruthy())
+    await fireEvent.click(screen.getByRole('button', { name: 'show JSON' }))
+    ran.definition = { steps: [{ name: 'edited', pipeline: {} }] }
+    await moved('workflows')
+    await waitFor(() => expect(shownJson()).toContain('"name": "edited"'))
+    expect(notice()).toBeTruthy()
+  })
+
+  it('a run deleted elsewhere flips "realized" off', async () => {
+    detail.job = { ...job([]), run_dir: 'wf/run-1' }
+    ran.definition = { steps: [{ name: 'base', pipeline: { seed: 7 } }] }
     render(JobPage, { jobId: 'j1' })
     await waitFor(() => expect(screen.getByText('realized')).toBeTruthy())
+    // Delete run writes the gallery and jobs; the job's record and status
+    // stay as they were, and the live file answers in the run's place
+    ran.definition = { steps: [{ name: 'base', pipeline: {} }] }
+    ran.realized = false
+    await moved('gallery')
+    await waitFor(() => expect(screen.getByText('as submitted')).toBeTruthy())
+    expect(screen.queryByText('realized')).toBeNull()
+  })
+
+  it('a status move that brings a changed definition marks it', async () => {
+    detail.job = { ...job([]), status: 'queued', finished_at: null }
+    ran.definition = { steps: [{ name: 'base', pipeline: {} }] }
+    ran.realized = false
+    render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(screen.getByText('as submitted')).toBeTruthy())
+    await fireEvent.click(screen.getByRole('button', { name: 'show JSON' }))
+    // The file was edited, and only the job's start moved the feed
     ran.definition = { steps: [{ name: 'edited', pipeline: {} }] }
-    // The feed no longer asks for it: a reconnect reads it again, quietly
-    connection.epoch++
-    await waitFor(() => expect(notice()).toBeTruthy())
+    detail.job = { ...job([]), status: 'running', finished_at: null }
+    await moved('jobs')
+    await waitFor(() => expect(shownJson()).toContain('"name": "edited"'))
+    expect(notice()).toBeTruthy()
   })
 
   it("the run's own realized copy replacing the submitted one says nothing", async () => {

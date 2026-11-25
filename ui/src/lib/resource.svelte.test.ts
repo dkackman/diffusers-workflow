@@ -338,6 +338,20 @@ it('a non-quiet load marks nothing', async () => {
   expect(r.changed.size).toBe(0)
 })
 
+it('refresh is quiet: never loading, and it marks what changed', async () => {
+  const load = vi
+    .fn<() => Promise<Row[]>>()
+    .mockResolvedValueOnce([{ id: 'a', v: 1 }])
+    .mockResolvedValueOnce([{ id: 'a', v: 2 }])
+  const r = mount(load, { watch: [], rows: byId })
+  await vi.waitFor(() => expect(r.status).toBe('ready'))
+  const again = r.refresh()
+  expect(r.status).toBe('ready')
+  await again
+  expect(r.data).toEqual([{ id: 'a', v: 2 }])
+  expect([...r.changed]).toEqual(['a'])
+})
+
 it("adopting the user's own saved read marks nothing on the next quiet reload", async () => {
   const load = vi
     .fn<() => Promise<Row[]>>()

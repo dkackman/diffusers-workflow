@@ -11,7 +11,7 @@
 //   - a watched kind moved, `connection.epoch` rose, a timer ticked: a
 //     quiet reload, never 'loading', and a failure keeps `data` and
 //     `status` and sets `stale`;
-//   - `reload()`: loud.
+//   - `reload()`: loud; `refresh()`: quiet, as a watched move's.
 // A `lazy` resource skips the first load: it reads only once a watched
 // kind moves or the epoch rises. With `rows`, a quiet reload sets
 // `changed` to the keys whose value is new or differs from the held read,
@@ -65,6 +65,9 @@ export interface Resource<T> {
   readonly changed: ReadonlySet<string>
   /** A loud reload: Retry */
   reload(): Promise<void>
+  /** A quiet reload, as a watched move's: for news the page heard another
+   * way (its job's own status moving), marking what changed */
+  refresh(): Promise<void>
   /** Hold `data`, what the page's own write read back, marking nothing:
    * the next quiet reload diffs against it (above). With `mark`, it is a
    * read the page made that the resource did not - a stale write's retry
@@ -298,6 +301,7 @@ export function resource<T>(
       return held.marks.changed
     },
     reload: () => untrack(() => run(false)),
+    refresh: () => untrack(() => run(true)),
     adopt: (data, options) =>
       options?.mark
         ? untrack(() => held.landed(data, true, asked))
