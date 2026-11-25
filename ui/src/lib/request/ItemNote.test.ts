@@ -522,3 +522,38 @@ it("Cancel's discard question is danger", async () => {
   })
   expect(box().value).toBe('half a thought')
 })
+
+it('a note the agent has answered by answerOf deletes without the unread question', async () => {
+  const given = props('warmer, please', {
+    answer: { revision: 8, why: 'warmed it' },
+  })
+  given.ondelete.mockResolvedValue(undefined)
+  render(ItemNote, given)
+  await fireEvent.click(screen.getByRole('button', { name: 'Delete note' }))
+  await waitFor(() => expect(given.ondelete).toHaveBeenCalledTimes(1))
+  expect(confirmDialog).not.toHaveBeenCalled()
+})
+
+it('blank words typed while a new note was out leave the box closed', async () => {
+  const given = props()
+  let finish: () => void = () => {}
+  given.onsave.mockReturnValue(new Promise<void>((r) => (finish = r)))
+  render(ItemNote, given)
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Add a note for the agent' }),
+  )
+  await fireEvent.input(box(), { target: { value: 'warmer' } })
+  await fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
+  await fireEvent.input(box(), { target: { value: 'warmer   ' } })
+  finish()
+  await noBox()
+})
+
+it('a draft restored from the tab opens its row', async () => {
+  const draftKey = 'dw-request-note:studio/r1/s3'
+  sessionStorage.setItem(draftKey, 'half a thought')
+  const onopen = vi.fn()
+  render(ItemNote, props(null, { draftKey, onopen }))
+  expect(onopen).toHaveBeenCalledTimes(1)
+  sessionStorage.removeItem(draftKey)
+})

@@ -164,3 +164,17 @@ it('naming an untitled item is said', () => {
   const named = request([item('shot', { title: 'Shot 3' })])
   expect(announce(untitled, named)).toBe('The agent named Shot 3.')
 })
+
+it('says a reorder that puts a dependency below its dependant', () => {
+  const was = request([
+    item('a', { title: 'Shot A' }),
+    item('b', { title: 'Shot B', depends_on: ['a'] }),
+  ])
+  const now = request([
+    item('b', { title: 'Shot B', depends_on: ['a'] }),
+    item('a', { title: 'Shot A' }),
+  ])
+  expect(announce(was, now)).toContain(
+    'Shot A now runs after Shot B that waits on it.',
+  )
+})

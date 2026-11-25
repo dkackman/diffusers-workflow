@@ -136,3 +136,37 @@ def test_a_closed_request_needs_nothing(planned):
     url = f"/api/workspaces/{WS}/requests"
     [row] = planned.get(url, params={"needs": "true"}).json()["requests"]
     assert set(row["needs"].values()) == {0}
+
+
+def test_a_real_ledger_counts_ready_revised_and_accepted_missing(tmp_path):
+    """The rest of the reasons, off a stored request rather than the shared
+    fixture: a runnable item, one whose only take ran another workflow than its plan names, and
+    one whose accepted run is gone."""
+    write(
+        tmp_path,
+        plan(
+            items=[
+                item("fresh", workflow="shot"),
+                item("stale", workflow="shot"),
+                item("kept", workflow="shot"),
+            ]
+        ),
+    )
+    request = ledger._load(str(tmp_path))["cats"]
+    for stored in request["items"]:
+        if stored["key"] == "kept":
+            stored["accepted"] = {"job": "job-gone"}
+    later = 4_000_000_000  # after any plan stamp
+    jobs = [
+        job("stale", 1, workflow="older-workflow"),
+        job("kept", 1, created_at=later, started_at=later, finished_at=later),
+    ]
+    assert ledger_views.needs_counts(ledger_views.request_view(request, jobs)) == {
+        "held": 0,
+        "ready": 1,
+        "failed": 0,
+        "revised": 1,
+        "choose": 0,
+        "accepted_missing": 1,
+        "notes_waiting": 0,
+    }

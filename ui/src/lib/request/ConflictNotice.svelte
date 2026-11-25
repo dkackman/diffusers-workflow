@@ -25,7 +25,8 @@
      * no longer holds it. Leave out for a conflict card */
     applied?: LedgerHistoryEntry | null
     conflict?: Conflict
-    /** Make the held-back edit anyway */
+    /** Make the held-back edit anyway; left out while the request is
+     * closed, where the write must not be offered */
     onagain?: () => void
     ondismiss: () => void
     /** Show that write among the plan's changes */
@@ -42,9 +43,11 @@
       <span>{changedText(conflict)}</span>
     </p>
     <div class="answers">
-      <button type="button" class="quiet danger" onclick={onagain}>
-        {answers?.[0] ?? 'Do it anyway'}
-      </button>
+      {#if onagain}
+        <button type="button" class="quiet danger" onclick={onagain}>
+          {answers?.[0] ?? 'Do it anyway'}
+        </button>
+      {/if}
       <button type="button" class="quiet" onclick={ondismiss}>
         {answers?.[1] ?? 'Leave it'}
       </button>

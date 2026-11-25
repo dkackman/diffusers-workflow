@@ -314,7 +314,7 @@
     <div class="onrow">
       <ConflictNotice
         {conflict}
-        onagain={() => answer(conflict.id)}
+        onagain={open ? () => answer(conflict.id) : undefined}
         ondismiss={() => store.dismiss(conflict.id)}
       />
     </div>

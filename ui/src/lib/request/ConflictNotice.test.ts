@@ -107,3 +107,9 @@ it('an edit that no longer applies says what was not done and why', () => {
   expect(screen.queryByRole('button', { name: /anyway/ })).toBeNull()
   expect(screen.getByRole('button', { name: 'Dismiss' })).toBeTruthy()
 })
+
+it('offers no again button while the request is closed', () => {
+  render(ConflictNotice, { conflict: conflict({}), ondismiss: vi.fn() })
+  expect(screen.queryByRole('button', { name: 'Drop anyway' })).toBeNull()
+  expect(screen.getByRole('button', { name: 'Keep it' })).toBeTruthy()
+})

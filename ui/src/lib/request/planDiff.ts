@@ -3,7 +3,7 @@
 // is open, and since the last visit from a per-browser snapshot. The
 // snapshot is a convenience that may be empty: storage that throws or holds
 // something else, or a revision above the current one, gives no diff.
-import { storageGet, storageSet } from '../storage'
+import { storageGet, storageRemove, storageSet } from '../storage'
 import type { LedgerRequest } from '../types'
 
 export type PlanChange = {
@@ -164,9 +164,27 @@ export function readSnapshot(workspace: string, id: string): Snapshot | null {
   }
 }
 
+/** How many requests' snapshots a browser keeps: the newest written */
+export const SEEN_KEPT = 50
+const SEEN_ORDER = 'request-seen-order'
+
+/** Note `key` as the newest snapshot and forget the ones past SEEN_KEPT */
+function keepNewest(key: string) {
+  const found = storageGet<unknown>(SEEN_ORDER, [])
+  const order = (Array.isArray(found) ? found : []).filter(
+    (k): k is string => typeof k === 'string' && k !== key,
+  )
+  order.push(key)
+  for (const old of order.splice(0, Math.max(0, order.length - SEEN_KEPT)))
+    storageRemove(old)
+  storageSet(SEEN_ORDER, order)
+}
+
 export function writeSnapshot(workspace: string, id: string, snap: Snapshot) {
   try {
-    storageSet(seenKey(workspace, id), snap)
+    const key = seenKey(workspace, id)
+    storageSet(key, snap)
+    keepNewest(key)
   } catch {
     /* the snapshot is a convenience */
   }
@@ -201,18 +219,21 @@ export function seenSince(
 
 /** The agent's newest write among those `next` brought over `previous`,
  * with what it changed; null for a first read, the user's own writes, or a
- * write that changed no item. A read that brings several writes lists all
- * their changes under the newest agent write among them */
+ * write that changed no item. A read that brings several agent writes lists
+ * all their changes under the newest of them. The history names no items, so a read that
+ * also brings the user's writes lists their changes too: the diff is of
+ * the plan, not of one writer */
 export function agentChanges(
   previous: LedgerRequest | null,
   next: LedgerRequest,
 ): { revision: number; changes: PlanChange[] } | null {
   if (!previous || previous.id !== next.id) return null
   const brought = next.history.filter(
-    (entry) => entry.revision > previous.revision && entry.by === 'agent',
+    (entry) => entry.revision > previous.revision,
   )
-  if (!brought.length) return null
-  const revision = Math.max(...brought.map((entry) => entry.revision))
+  const agent = brought.filter((entry) => entry.by === 'agent')
+  if (!agent.length) return null
+  const revision = Math.max(...agent.map((entry) => entry.revision))
   const changes = planDiff(previous, next)
   return changes.length ? { revision, changes } : null
 }

@@ -4,6 +4,7 @@
 import type { LedgerRequest } from '../types'
 import { planState, type ItemDisplay, type ItemState } from './itemState'
 import { planDiff, type PlanChange } from './planDiff'
+import { runsAfter } from './reorderMath'
 import { holdGroup, holdNews } from './reviewText'
 
 /** More changes than this in one refresh are counted, not listed */
@@ -75,6 +76,25 @@ function deleted(next: LedgerRequest, edits: PlanChange[]) {
     .map((edit) => `${edit.title} ${BECAME.dropped}.`)
 }
 
+/** Dependencies a reorder put below an item that waits on them: each is
+ * said once, when the plan first places it so */
+function reordered(
+  was: ReturnType<typeof planState>,
+  now: ReturnType<typeof planState>,
+) {
+  const before = runsAfter(was)
+  return now.live.flatMap((row) =>
+    (runsAfter(now)[row.item.key] ?? [])
+      .filter(
+        (dep) => !(before[row.item.key] ?? []).some((b) => b.key === dep.key),
+      )
+      .map(
+        (dep) =>
+          `${dep.title} now runs after ${row.item.title} that waits on it.`,
+      ),
+  )
+}
+
 const STATE: Record<LedgerRequest['state'], string> = {
   open: 'The request was reopened.',
   done: 'The request was marked done.',
@@ -99,7 +119,7 @@ export function announce(
       edits.filter((edit) => edit.key === state.item.key),
     ),
   )
-  said.push(...deleted(next, edits))
+  said.push(...deleted(next, edits), ...reordered(was, now))
   // The review banner's state, said once when it changes (ahead of the
   // item changes, so a busy refresh does not count it away); its
   // countdown ticks on the page, never here

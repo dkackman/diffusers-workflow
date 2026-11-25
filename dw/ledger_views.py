@@ -594,7 +594,7 @@ def _item_needs(item, statuses):
     return [reason for reason, holds in reasons if holds]
 
 
-def needs_counts(request_view):
+def needs_counts(view):
     """How many items of a read-shape request want the user, by reason
     (NEEDS_REASONS), and `notes_waiting`, every key present. An open
     request's live items only: `held` when a review hold stands in for
@@ -604,16 +604,16 @@ def needs_counts(request_view):
     (ui/src/lib/request/itemState.ts); tests/fixtures/request_needs_cases.json
     holds the two equal."""
     counts = dict.fromkeys((*NEEDS_REASONS, "notes_waiting"), 0)
-    items = request_view.get("items") or []
+    items = view.get("items") or []
     live = [item for item in items if not item.get("dropped")]
-    if request_view.get("state") == "open":
+    if view.get("state") == "open":
         statuses = {item.get("key"): item.get("status") for item in items}
         for item in live:
             for reason in _item_needs({"attempts": [], **item}, statuses):
                 counts[reason] += 1
-    notes = [*(request_view.get("notes") or [])]
+    notes = [*(view.get("notes") or [])]
     notes += [note for item in live for note in item.get("notes") or []]
-    counts["notes_waiting"] = sum(note_waiting(note, request_view) for note in notes)
+    counts["notes_waiting"] = sum(note_waiting(note, view) for note in notes)
     return counts
 
 
