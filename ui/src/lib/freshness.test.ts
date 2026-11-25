@@ -46,10 +46,7 @@ const PAGE_TABLE: Record<string, Freshness[]> = {
   '../App.svelte': [],
   // the listing, then the open workspace's content moving its time (lazy,
   // at most once per clock tick)
-  'Sidebar.svelte': [
-    { watch: ['workspaces'] },
-    { watch: ['workflows', 'prompts', 'assets', 'gallery'] },
-  ],
+  'Sidebar.svelte': [{ watch: ['workspaces'] }],
   'CachesPanel.svelte': [{ watch: ['models'] }],
   'editor/ArgumentsEditor.svelte': [{ watch: [] }],
   'editor/LorasEditor.svelte': [{ watch: ['loras'] }],

@@ -34,11 +34,9 @@
     type WsSection,
   } from './routes'
   import { resource } from './resource.svelte'
-  import { relistOrJoin, relistWorkspaces, workspace } from './workspace.svelte'
+  import { relistWorkspaces, workspace } from './workspace.svelte'
   import NewWorkspace from './NewWorkspace.svelte'
   import { formatBytes } from './format'
-  import Time from './ui/Time.svelte'
-  import { now } from './clock.svelte'
   import { wsColor } from './wsColor'
   import { groupWorkspaces } from './wsGroups'
   import { hiddenWorkspaces } from './hiddenWorkspaces.svelte'
@@ -55,31 +53,6 @@
   // What the listing holds is module state (workspace.svelte.ts), drawn
   // from there; the resource is how it stays fresh
   resource(() => relistWorkspaces(), { watch: ['workspaces'] })
-  // The open workspace's own content moving (a save, an upload, an output
-  // landing) moves its time: the listing is read again quietly, at most once
-  // per clock tick, a move in a tick that already read it owed to the next,
-  // joining a `workspaces` relist on its way. Jobs are not watched: a
-  // queued job changes no folder until it lands
-  let tick = 0
-  let readIn = -1
-  let owed = false
-  const content = resource(
-    async () => {
-      owed = readIn === tick
-      if (owed) return
-      readIn = tick
-      await relistOrJoin()
-    },
-    { watch: ['workflows', 'prompts', 'assets', 'gallery'], lazy: true },
-  )
-  $effect(() => {
-    void now.value
-    untrack(() => {
-      tick++
-      if (owed) void content.refresh()
-    })
-  })
-
   // The workspace whose sections are open: the route's when it names one,
   // else the one the UI is scoped to (a shared or server page still sits
   // inside a workspace's context)
@@ -187,15 +160,6 @@
   let draft = $state('')
 </script>
 
-<!-- Which workspace was last worked in, and which has gone stale -->
-{#snippet changedAt(name: string)}
-  {#if workspace.changed[name]}
-    <span class="muted stamp">
-      <Time at={workspace.changed[name]} label="changed" />
-    </span>
-  {/if}
-{/snippet}
-
 {#snippet wsRow(name: string)}
   {#if name === expanded}
     <!-- The open workspace is one block: a --select rail and tint
@@ -217,7 +181,6 @@
               {formatBytes(workspace.usage[name].bytes)}
             </span>
           {/if}
-          {@render changedAt(name)}
         </span>
       {/if}
       <div class="sections" transition:slide={motion}>
@@ -260,7 +223,6 @@
           {formatBytes(workspace.usage[name].bytes)}
         </span>
       {/if}
-      {@render changedAt(name)}
     </a>
   {/if}
 {/snippet}
@@ -463,8 +425,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .size,
-  .stamp {
+  .size {
     flex: none;
     font-size: var(--t-xs);
   }
