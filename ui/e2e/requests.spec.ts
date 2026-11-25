@@ -514,7 +514,9 @@ test('dropping an item others wait on says what it does to them, and Restore put
     'shot',
   ])
   await page.reload()
-  expect(await order(page)).toEqual(['board', 'shot', 'cut', 'title', 'score'])
+  await expect
+    .poll(() => order(page))
+    .toEqual(['board', 'shot', 'cut', 'title', 'score'])
 })
 
 test('the handle reorders with the keys, in one write that a reload still shows', async ({
@@ -545,7 +547,9 @@ test('the handle reorders with the keys, in one write that a reload still shows'
   expect((await put).status()).toBe(200)
   expect(puts).toBe(1)
   await page.reload()
-  expect(await order(page)).toEqual(['board', 'title', 'shot', 'cut', 'score'])
+  await expect
+    .poll(() => order(page))
+    .toEqual(['board', 'title', 'shot', 'cut', 'score'])
 })
 
 test("an edit made over the agent's write goes on top of it, and the page says so", async ({
@@ -830,7 +834,9 @@ test('dragging the handle moves an item, in one write', async ({ page }) => {
   const body = (await put).request().postDataJSON()
   expect(body.why).toBe('reorder board')
   await page.reload()
-  expect(await order(page)).toEqual(['title', 'board', 'shot', 'cut'])
+  await expect
+    .poll(() => order(page))
+    .toEqual(['title', 'board', 'shot', 'cut'])
 })
 
 test('the request can be marked done and reopened from its menu, and deleted once closed', async ({
