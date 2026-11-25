@@ -170,7 +170,7 @@ it('stars every pick once, and Undo puts each back as it was', async () => {
   ])
   expect(undo.mock.calls[0][0]).toBe('Starred 3 files')
   undo.mock.calls[0][1]()
-  await vi.waitFor(() => expect(set).toHaveBeenCalledTimes(6))
+  await vi.waitFor(() => expect(set).toHaveBeenCalledTimes(5))
   expect(held).toEqual({ a: true, b: false, c: false })
 })
 
@@ -225,4 +225,34 @@ it("a star Undo leaves another writer's star", async () => {
     ),
   )
   expect(set).toHaveBeenCalledTimes(5)
+})
+
+it('a star Undo writes only over files the star changed', async () => {
+  const picks = picksOver('a', 'b', 'c')
+  // b was already starred; another writer unstarred it, and the view is stale
+  const held: Record<string, boolean> = { a: false, b: true, c: false }
+  const seen = { ...held }
+  const set = vi.fn((name: string, next: boolean) => {
+    held[name] = next
+    seen[name] = next
+    return Promise.resolve()
+  })
+  const notifyMod = (await import('./toast')).notify
+  const success = vi.spyOn(notifyMod, 'success').mockImplementation(() => {})
+  const error = vi.spyOn(notifyMod, 'error').mockImplementation(() => {})
+  const undo = vi.spyOn(notifyMod, 'undo').mockImplementation(() => {})
+  picks.selectAll()
+  picks.star(set, 'file', { was: (n) => seen[n] }).run(true)
+  await vi.waitFor(() => expect(undo).toHaveBeenCalledTimes(1))
+  // The view still reads b as starred; c was unstarred elsewhere and seen so
+  held.b = false
+  seen.c = false
+  ;(undo.mock.calls[0][1] as () => void)()
+  await vi.waitFor(() => expect(success).toHaveBeenCalled())
+  // b is not this Undo's to write; c changed since and is left
+  expect(set.mock.calls.slice(3)).toEqual([['a', false]])
+  expect(success).toHaveBeenCalledWith(
+    'Undid 1 file; 1 file changed since and was left as it is.',
+  )
+  expect(error).not.toHaveBeenCalled()
 })

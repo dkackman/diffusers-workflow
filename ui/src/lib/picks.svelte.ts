@@ -101,10 +101,21 @@ export class Picks {
         undo: ({ done, next, before }) => ({
           message: `${next ? 'Starred' : 'Unstarred'} ${done.length} ${files(done.length)}`,
           revert: async () => {
-            const still = done.filter((name) => was(name) === next)
-            if (!still.length) return notify.error(STAR_CHANGED)
-            const back = (name: string) => before[name] ?? !next
-            await setEach(still, back, put, 'put back', files)
+            // Only the files this set changed, and only while they still read
+            // as it left them: a stale view then writes nothing it should not
+            const set = done.filter((name) => before[name] !== next)
+            const still = set.filter((name) => was(name) === next)
+            const left = set.length - still.length
+            if (left && !still.length) return notify.error(STAR_CHANGED)
+            if (!still.length) return
+            await setEach(still, (name) => before[name], put, 'put back', files)
+            if (left) {
+              const m = `${left} ${files(left)}`
+              const k = `${still.length} ${files(still.length)}`
+              const verb =
+                left === 1 ? 'was left as it is' : 'were left as they are'
+              notify.success(`Undid ${k}; ${m} changed since and ${verb}.`)
+            }
           },
           target: opts.target,
         }),

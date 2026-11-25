@@ -29,6 +29,8 @@ const metadata = vi.hoisted(() => ({
   byFile: {} as Record<string, Record<string, unknown>>,
   // The run inputs the route reports beside a file's metadata
   inputs: [] as Array<{ reference: string; kind: 'asset' | 'output' }>,
+  // Which files the route reports as starred
+  starred: {} as Record<string, boolean>,
 }))
 // The definition the job ran, for the flow view and the unsaved reasons,
 // and whether it is the realized copy or the definition as submitted
@@ -74,6 +76,7 @@ vi.mock('../api', () => ({
         name,
         metadata: metadata.byFile[name] ?? null,
         inputs: metadata.inputs,
+        starred: metadata.starred[name],
         job: null,
       }),
     ),
@@ -166,6 +169,7 @@ afterEach(() => {
   vi.mocked(api.getJob).mockClear()
   metadata.byFile = {}
   metadata.inputs = []
+  metadata.starred = {}
   ran.definition = null
   ran.realized = true
   ran.seedVariable = null
@@ -240,6 +244,34 @@ it('a bare S stars the open file, as its star says, and S again unstars it', asy
   await waitFor(() =>
     expect(api.setStarred).toHaveBeenLastCalledWith('a.png', false),
   )
+})
+
+it('a star Undo leaves a star another writer changed', async () => {
+  const { notify } = await import('../toast')
+  vi.mocked(notify.undo).mockClear()
+  vi.mocked(notify.error).mockClear()
+  detail.job = {
+    ...job([{ step: 'generate', files: ['a.png'] }]),
+    output_kinds: { 'a.png': 'image' },
+  }
+  render(JobPage, { jobId: 'j1' })
+  await fireEvent.click(await screen.findByLabelText('Open a.png'))
+  const sheet = await screen.findByRole('dialog', { name: 'a.png' })
+  const star = await within(sheet).findByRole('button', { name: 'Star' })
+  await waitFor(() => expect(star).not.toBeDisabled())
+  vi.mocked(api.setStarred).mockClear()
+  await fireEvent.keyDown(sheet, { key: 's' })
+  await waitFor(() => expect(notify.undo).toHaveBeenCalledTimes(1))
+  // Unstarred elsewhere since: the re-read says so
+  feed.move('default', 'gallery')
+  await waitFor(() => expect(star).toHaveAttribute('aria-pressed', 'false'))
+  vi.mocked(notify.undo).mock.calls[0][1]()
+  await waitFor(() =>
+    expect(notify.error).toHaveBeenCalledWith(
+      'Nothing undone: the star was changed since.',
+    ),
+  )
+  expect(api.setStarred).toHaveBeenCalledTimes(1)
 })
 
 it('sets the tab title to the workflow file the job ran', async () => {
