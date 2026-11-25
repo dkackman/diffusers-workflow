@@ -926,6 +926,16 @@ it('a filter over a partial page says what it searched', async () => {
   location.hash = ''
 })
 
+it('a live-only filter does not offer Search all', async () => {
+  location.hash = '#/ws/default/jobs?status=running'
+  data.jobs = [...finished(120), ...live(3)]
+  const { container } = render(JobsPage)
+  await waitFor(() => expect(screen.getByText('live2')).toBeTruthy())
+  expect(container.textContent).not.toContain('Searching the newest')
+  expect(screen.queryByRole('button', { name: /Search all/ })).toBeNull()
+  location.hash = ''
+})
+
 it('no filter, no search line; a whole page, no paging lines', async () => {
   data.jobs = finished(3)
   const { container } = render(JobsPage)

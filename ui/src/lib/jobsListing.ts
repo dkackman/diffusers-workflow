@@ -151,8 +151,9 @@ async function readFinished(
  * `held` (finished jobs by id, kept by the page) is for a page that has
  * read the whole history once: while it holds some, a read asks for the
  * newest page only and merges it in, so the rest stays held and a poll
- * costs a page. The live jobs are read first: a job that finishes between
- * the two reads is then in the finished answer, never in neither. */
+ * costs a page. The two reads go out together, the live one first: the
+ * server answers a job that finishes meanwhile in one of them, and a job in
+ * both is listed once (`mergeListings`). */
 export async function listWithPrompts(
   ws: string,
   scoped: RequestFilter,
@@ -160,10 +161,10 @@ export async function listWithPrompts(
   limit: number = JOBS_PAGE,
   held?: Map<string, JobSummary>,
 ) {
-  const live = await readWithPrompts(ws, scoped, known, {
-    status: 'queued,running',
-  })
-  const done = await readFinished(ws, scoped, known, limit, held)
+  const [live, done] = await Promise.all([
+    readWithPrompts(ws, scoped, known, { status: 'queued,running' }),
+    readFinished(ws, scoped, known, limit, held),
+  ])
   const list = mergeListings(live, done)
   for (const job of list.jobs)
     if (list.prompts || !known.has(job.id))

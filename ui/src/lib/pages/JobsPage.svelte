@@ -155,6 +155,11 @@
   const total = $derived(refused ? 0 : (list.data?.total ?? 0))
   const finished = $derived(refused ? 0 : (list.data?.finished ?? 0))
   const partial = $derived(!loadAll && shown < finished)
+  // Queued and running jobs are always read whole: a filter on only those
+  // searches nothing the page left out
+  const liveOnly = $derived(
+    statusFilter.value === 'queued' || statusFilter.value === 'running',
+  )
   const olderBy = $derived(Math.min(JOBS_PAGE, finished - shown))
   const visible = $derived(
     jobs.filter(
@@ -273,7 +278,7 @@
   </div>
 {/each}
 
-{#if partial && (statusFilter.value || nameFilter.value)}
+{#if partial && !liveOnly && (statusFilter.value || nameFilter.value)}
   <p class="hint">
     Searching the newest {jobs.length} of {total} jobs.
     <button
