@@ -3,8 +3,9 @@
 // the enhancement job that expands the idea. It lives on the page rather
 // than in the panel, so switching the editor's view - which unmounts the
 // panel - keeps a download or a job going.
-import { api, fetchOutputText, streamJobEvents } from './api'
-import { describeError } from './apiErrors'
+import { TERMINAL_STATUSES, api, fetchOutputText, streamJobEvents } from './api'
+import { ApiError, describeError } from './apiErrors'
+import { onReconnect } from './connection.svelte'
 import { sleep } from './poll'
 import { phaseLabel } from './progress'
 import {
@@ -12,7 +13,13 @@ import {
   manifestTextFile,
   presetForIntendedModel,
 } from './prompts'
-import type { EnhancerPreset, ModelRepo, PromptDetail } from './types'
+import type {
+  EnhancerPreset,
+  JobDetail,
+  JobEvent,
+  ModelRepo,
+  PromptDetail,
+} from './types'
 
 export class Enhancer {
   presets = $state<EnhancerPreset[]>([])
@@ -34,16 +41,20 @@ export class Enhancer {
   jobWorkspace = $state('')
   // The server reported no presets, or could not be asked
   down = $state(false)
-  #stopStream: (() => void) | null = null
+  // Ends the following of the job in flight
+  #unfollow: (() => void) | null = null
+  // Raised by stop(), so a queueing it overtook opens no stream
+  #stops = 0
 
   /** Say what went wrong: our words for it, the engine's kept beside */
   #say(words: string, detail = '') {
     this.error = words
     this.errorDetail = detail
   }
-  /** A caught failure while `doing`, through describeError */
-  #fail(doing: string, e: unknown) {
-    const described = describeError(e)
+  /** A caught failure while `doing`, through describeError; `what` names
+   * the thing a 404 is about */
+  #fail(doing: string, e: unknown, what?: string) {
+    const described = describeError(e, what)
     this.#say(`Couldn't ${doing}: ${described.title}`, described.detail)
   }
 
@@ -132,6 +143,7 @@ export class Enhancer {
     this.#say('')
     this.result = ''
     this.status = 'queueing…'
+    const stops = this.#stops
     try {
       const job = await api.enhance({
         idea: this.idea,
@@ -139,25 +151,18 @@ export class Enhancer {
         model_name: this.model || undefined,
         device: this.device || undefined,
       })
+      // The page went away while the job was being queued
+      if (stops !== this.#stops) {
+        this.busy = false
+        this.status = ''
+        return
+      }
       this.jobId = job.id
       this.jobWorkspace = job.workspace
       if (job.queue_position !== undefined) {
         this.status = `queued · #${job.queue_position + 1} in line`
       }
-      this.#stopStream = streamJobEvents(
-        job.id,
-        -1,
-        (event) => {
-          if (event.event === 'log') this.status = String(event.message)
-          // The enhancer is one task step - its phase is the whole story,
-          // and 'loading' is most of the wait on a cold model
-          else if (event.event === 'phase')
-            this.status = phaseLabel(event) + '…'
-          else if (event.event === 'job_status')
-            this.status = String(event.status)
-        },
-        () => this.#finish(job.id),
-      )
+      this.#follow(job.id)
     } catch (e) {
       this.#fail('start the enhancement', e)
       this.busy = false
@@ -165,8 +170,63 @@ export class Enhancer {
     }
   }
 
+  #progress(event: JobEvent) {
+    if (event.event === 'log') this.status = String(event.message)
+    // The enhancer is one task step - its phase is the whole story,
+    // and 'loading' is most of the wait on a cold model
+    else if (event.event === 'phase') this.status = phaseLabel(event) + '…'
+    else if (event.event === 'job_status') this.status = String(event.status)
+  }
+
+  /** Follow the job until it ends. EventSource repairs a dropped connection
+   * itself but gives up on an HTTP error (a restarted server no longer has
+   * the job), and then no event says so: each drop reads the job, and a
+   * reconnect reopens the stream from the last event it delivered. */
+  #follow(jobId: string) {
+    let lastSeq = -1
+    let close: (() => void) | null = null
+    const unfollow = () => {
+      close?.()
+      unwatch()
+      this.#unfollow = null
+    }
+    const end = () => {
+      // A drop's read and the stream can both see the end; one acts
+      if (this.#unfollow !== unfollow) return
+      unfollow()
+      void this.#finish(jobId)
+    }
+    const dropped = async () => {
+      let job: JobDetail
+      try {
+        job = await api.getJob(jobId)
+      } catch (e) {
+        // Gone ends it; any other failure waits for the next drop or the
+        // reconnect
+        if (e instanceof ApiError && e.status === 404) end()
+        return
+      }
+      if (job.historical || TERMINAL_STATUSES.includes(job.status)) end()
+    }
+    const open = () => {
+      close?.()
+      close = streamJobEvents(
+        jobId,
+        lastSeq,
+        (event) => {
+          lastSeq = Math.max(lastSeq, event.seq)
+          this.#progress(event)
+        },
+        end,
+        () => void dropped(),
+      )
+    }
+    const unwatch = onReconnect(open)
+    this.#unfollow = unfollow
+    open()
+  }
+
   async #finish(jobId: string) {
-    this.#stopStream = null
     try {
       const detail = await api.getJob(jobId)
       if (detail.status !== 'succeeded') {
@@ -180,7 +240,7 @@ export class Enhancer {
       }
       this.result = (await fetchOutputText(file, detail.workspace)).trim()
     } catch (e) {
-      this.#fail('read the enhancement', e)
+      this.#fail('read the enhancement', e, 'The job')
     } finally {
       this.busy = false
       this.status = ''
@@ -201,8 +261,8 @@ export class Enhancer {
   /** Stop following the job and end a download's polling - the page is
    * going away. */
   stop() {
-    this.#stopStream?.()
-    this.#stopStream = null
+    this.#stops++
+    this.#unfollow?.()
     this.downloading = false
   }
 
