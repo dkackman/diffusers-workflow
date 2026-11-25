@@ -31,14 +31,18 @@
   import Skeleton from '../ui/Skeleton.svelte'
 
   let { names }: { names: string[] } = $props()
+  // The router hands a new array on every hashchange, the viewer's `?open=`
+  // among them: what is compared changes only when the names themselves do
+  const key = $derived(names.join('\n'))
 
   // A file's note or a new run shows within one feed interval. A cell that
   // already had its file keeps the metadata and run time it has - only a
-  // cell that was missing its file, or is new, asks for them. `names` is read
+  // cell that was missing its file, or is new, asks for them. `key` is read
   // before the first await, so new names reload loudly
   const comparison: Resource<Cell[]> = resource(
     async () => {
-      const wanted = [...names]
+      void key
+      const wanted = untrack(() => [...names])
       // Under two there is nothing to compare, so nothing is read
       if (wanted.length < 2) return []
       const held = new Map(
@@ -59,12 +63,15 @@
     { watch: ['gallery'] },
   )
   const cells = $derived(comparison.data ?? [])
-  // New names start the transport over
+  // New names start the transport over, the clips with it
   $effect(() => {
-    void names.join('\n')
+    void key
     length = 0
-    time = 0
-    playing = false
+    untrack(() => {
+      for (const v of present()) v.pause()
+      seek(0)
+      playing = false
+    })
   })
 
   const differing = $derived(differingArguments(cells.map((c) => c.meta)))

@@ -337,4 +337,53 @@ describe('ComparePage', () => {
     expect(mine()).toBe(2)
     add.mockRestore()
   })
+
+  // The router hands the page a new array of the same names on each
+  // hashchange: the viewer opening (`?open=`) and Back closing it
+  const playingPair = async () => {
+    location.hash = '#/ws/default/compare/x'
+    const props = () => ({ names: ['wf/v1.mp4', 'wf/v2.mp4'] })
+    const view = render(ComparePage, { props: props() })
+    await screen.findByLabelText('position in every video')
+    const clips = [...view.container.querySelectorAll('video')]
+    for (const clip of clips) {
+      clip.play = vi.fn(() => Promise.resolve())
+      clip.pause = vi.fn()
+      Object.defineProperty(clip, 'duration', { value: 8 })
+      await fireEvent(clip, new Event('loadedmetadata'))
+    }
+    await fireEvent.click(screen.getByRole('button', { name: 'play all' }))
+    clips[0].currentTime = 3
+    await fireEvent(clips[0], new Event('timeupdate'))
+    const slider = screen.getByLabelText(
+      'position in every video',
+    ) as HTMLInputElement
+    return { ...view, props, clips, slider }
+  }
+
+  it('the same names in a new array leave the transport and the load alone', async () => {
+    const { rerender, props, clips, slider } = await playingPair()
+    const reads = api.gallery.mock.calls.length
+    await rerender(props())
+    await settle()
+    expect(screen.getByRole('button', { name: 'pause all' })).toBeTruthy()
+    expect(slider.max).toBe('8')
+    expect(slider.value).toBe('3')
+    for (const clip of clips) expect(clip.pause).not.toHaveBeenCalled()
+    expect(api.gallery.mock.calls.length).toBe(reads)
+  })
+
+  it('new names pause and rewind the clips with the transport', async () => {
+    const { rerender, clips } = await playingPair()
+    const reads = api.gallery.mock.calls.length
+    await rerender({ names: ['wf/v1.mp4', 'wf/v2.mp4', 'wf/r1/a.png'] })
+    await screen.findByAltText('a.png')
+    expect(screen.getByRole('button', { name: 'play all' })).toBeTruthy()
+    expect(screen.getByText('0.00 s')).toBeTruthy()
+    for (const clip of clips) {
+      expect(clip.pause).toHaveBeenCalled()
+      expect(clip.currentTime).toBe(0)
+    }
+    expect(api.gallery.mock.calls.length).toBe(reads + 1)
+  })
 })
