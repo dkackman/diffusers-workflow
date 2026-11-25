@@ -18,6 +18,7 @@ import type { GalleryFile } from '../types'
 import { DEFAULT_WORKSPACE, workspace } from '../workspace.svelte'
 import { api } from '../test/apiMock'
 import { feed } from '../test/feedMock'
+import { outputLibrary } from '../outputlib.svelte'
 
 const file = (
   name: string,
@@ -1131,6 +1132,36 @@ it('hides the picker when the workspace has no requests', async () => {
   await renderGallery()
   await Promise.resolve()
   expect(screen.queryByLabelText('filter by request')).toBeNull()
+})
+
+// A call, so a type narrowed by an earlier assignment does not stick
+const libraryNames = () => outputLibrary.items?.map((f) => f.name)
+
+it("leaves the editors' output library whole under a request filter", async () => {
+  outputLibrary.items = undefined
+  outputLibrary.workspace = undefined
+  location.hash = '#/ws/default/gallery?req=r1'
+  const everything = listing.files
+  listing.files = [file('only.png')]
+  await renderGallery('only.png')
+  await new Promise((r) => setTimeout(r, 10))
+  // Nothing held, so the library's own first use still fetches the lot
+  expect(outputLibrary.items).toBeUndefined()
+  expect(outputLibrary.workspace).toBeUndefined()
+
+  listing.files = everything
+  await fireEvent.click(screen.getByLabelText('remove the request filter'))
+  await waitFor(() =>
+    expect(libraryNames()).toEqual(everything.map((f) => f.name)),
+  )
+
+  // Narrowing again keeps the whole listing it was given
+  listing.files = [file('only.png')]
+  await fireEvent.change(await screen.findByLabelText('filter by request'), {
+    target: { value: 'r1' },
+  })
+  await waitFor(() => expect(screen.getByLabelText('select only.png')))
+  expect(libraryNames()).toEqual(everything.map((f) => f.name))
 })
 
 it('drops an unfiltered listing that lands after the filtered one', async () => {
