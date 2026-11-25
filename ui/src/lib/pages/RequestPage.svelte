@@ -27,7 +27,7 @@
   import { PlanStore, requestRoutes } from '../request/planStore.svelte'
   import { itemRows, newerOf, refreshInterval } from '../request/refresh'
   import { resource } from '../resource.svelte'
-  import { formatMtime } from '../format'
+  import Time from '../ui/Time.svelte'
   import { SECTION_LABELS, wsHref } from '../routes'
   import PageHeader from '../ui/PageHeader.svelte'
   import { notify } from '../toast'
@@ -269,7 +269,10 @@
     {#if stale}
       <div class="panel warn-edge stale" role="status">
         <span>
-          Showing the plan as of {formatMtime(readAt)}. Couldn't refresh: {stale.title}
+          Showing the plan as of <Time
+            at={readAt}
+            mode="exact"
+          />{`. Couldn't refresh: ${stale.title}`}
         </span>
         <Details summary="Engine detail" detail={stale.detail ?? ''} />
         <button type="button" class="quiet" onclick={load}>Retry</button>

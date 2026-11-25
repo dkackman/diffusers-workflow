@@ -61,6 +61,12 @@ describe('formatDuration', () => {
     expect(formatDuration(243)).toBe('4m 03s')
     expect(formatDuration(3725)).toBe('1h 02m')
   })
+
+  it('26527 h reads in days', () => {
+    expect(formatDuration(26527 * 3600)).toBe('1105d 07h')
+    expect(formatDuration(86_400 + 2 * 3600 + 59)).toBe('1d 02h')
+    expect(formatDuration(86_399)).toBe('23h 59m')
+  })
 })
 
 it('gives measured minutes with no tilde', () => {

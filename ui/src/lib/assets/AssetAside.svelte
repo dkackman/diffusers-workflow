@@ -5,7 +5,8 @@
   // fails. The note is the listing's, so a saved one rides the listing
   // (the page's `onnotesaved`) and the recipe is not read again
   import type { AssetFile } from '../types'
-  import { formatBytes, formatMtime } from '../format'
+  import { formatBytes } from '../format'
+  import Time from '../ui/Time.svelte'
   import { ASSET } from '../references'
   import { wsHref } from '../routes'
   import NoteEditor from '../ui/NoteEditor.svelte'
@@ -23,7 +24,8 @@
 
 <div class="asset-aside">
   <p class="num muted">
-    {asset.kind} · {formatBytes(asset.size)} · {formatMtime(asset.mtime)}
+    {asset.kind} · {formatBytes(asset.size)} ·
+    <Time at={asset.mtime} mode="exact" />
   </p>
   {#if asset.used_by?.length}
     <p class="muted">

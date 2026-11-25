@@ -13,7 +13,8 @@
   import RerunWithChanges from './RerunWithChanges.svelte'
   import { exportMessage } from './exportMessage'
   import { displayValue } from '../editor'
-  import { formatDuration, formatExact, formatMtime, gbFromMb } from '../format'
+  import { formatDuration, formatExact, gbFromMb } from '../format'
+  import Time from '../ui/Time.svelte'
   import { notify } from '../toast'
   import { holdKind, holdText } from '../progress'
   import { versionTitle, workflowName } from '../terms'
@@ -243,13 +244,14 @@
       </code>
     {/if}
     {#if job.started_at}
-      <code
-        class="muted seed"
-        title={`started ${formatExact(job.started_at)}${
-          job.finished_at ? `\nfinished ${formatExact(job.finished_at)}` : ''
-        }`}
-      >
-        {formatMtime(job.started_at)}
+      <code class="muted seed">
+        <Time
+          at={job.started_at}
+          mode="exact"
+          title={`started ${formatExact(job.started_at)}${
+            job.finished_at ? `\nfinished ${formatExact(job.finished_at)}` : ''
+          }`}
+        />
       </code>
     {/if}
     {#if took !== null}

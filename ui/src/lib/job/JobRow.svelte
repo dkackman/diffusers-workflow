@@ -4,7 +4,8 @@
   // truncates - it is what tells two runs of one workflow apart. The same
   // cover slot and "<time> · <id>" line as the Overview's job rows.
   import { ChevronDown, ChevronUp, ChevronsUp } from '@lucide/svelte'
-  import { formatDuration, formatExact, formatMtime } from '../format'
+  import { formatDuration, formatExact } from '../format'
+  import Time from '../ui/Time.svelte'
   import { holdKind, holdText } from '../progress'
   import { queueWait } from '../jobTimes'
   import { firstLine } from '../jobsListing'
@@ -43,7 +44,6 @@
     job.item ? `${job.request} › ${job.item}` : (job.request ?? ''),
   )
   const wait = $derived(queueWait(job, Date.now() / 1000))
-  const when = $derived(job.started_at ? formatMtime(job.started_at) : '—')
   const duration = $derived(
     job.started_at
       ? formatDuration((job.finished_at ?? Date.now() / 1000) - job.started_at)
@@ -203,7 +203,13 @@
         </span>
       {/if}
     {:else}
-      <span class="muted started" title={times}>{when}</span>
+      <span class="muted started" title={times}>
+        {#if job.started_at}<Time
+            at={job.started_at}
+            mode="exact"
+            title={times}
+          />{:else}—{/if}
+      </span>
     {/if}
     <span class="muted dur">{duration}</span>
   </span>

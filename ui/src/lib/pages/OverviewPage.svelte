@@ -21,7 +21,8 @@
   import PageHeader from '../ui/PageHeader.svelte'
   import Skeleton from '../ui/Skeleton.svelte'
   import { WORKSPACE } from '../references'
-  import { formatBytes, formatMtime } from '../format'
+  import { formatBytes } from '../format'
+  import Time from '../ui/Time.svelte'
   import { workflowName } from '../terms'
   import { hiddenWorkspaces, setHidden } from '../hiddenWorkspaces.svelte'
   import { latestProofs, proofByRun } from '../proofs'
@@ -223,10 +224,9 @@
           <span class="wf">{workflowName(job)}</span>
         </span>
         <span class="when">
-          {#if when !== null}<span class="at">{formatMtime(when)}</span><span
-              class="sep"
-              aria-hidden="true"
-            >
+          {#if when !== null}<span class="at">
+              <Time at={when} mode="exact" />
+            </span><span class="sep" aria-hidden="true">
               &nbsp;·&nbsp;
             </span>{/if}<span class="jid" title={job.id}>{job.id}</span>
         </span>

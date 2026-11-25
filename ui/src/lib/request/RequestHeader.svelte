@@ -9,10 +9,11 @@
   import type { ReviewCountdown } from './review.svelte'
   import { bannerText, holdGroup, runNowKeys } from './reviewText'
   import { agentSaid, needsParts, standing } from './standing'
-  import { formatMinutes, formatMtime, formatSpent } from '../format'
+  import { formatMinutes, formatSpent } from '../format'
   import { requestQuery } from '../requestFilter'
   import { SECTION_LABELS, wsHref } from '../routes'
   import PageHeader from '../ui/PageHeader.svelte'
+  import Time from '../ui/Time.svelte'
   import type { LedgerNoteRef, LedgerRequest } from '../types'
 
   // Where the ask stands, before anything else on the page: what is
@@ -129,7 +130,8 @@
   {#if said}
     <p class="said" title={said.why}>
       <span class="who">
-        The agent, r{said.revision} · {formatMtime(Date.parse(said.at) / 1000)}:
+        The agent, r{said.revision} ·
+        <Time at={Date.parse(said.at) / 1000} mode="exact" />:
       </span>
       {said.why}
     </p>
