@@ -418,3 +418,17 @@ it('does not send a row the plan moved past while the rows before it were sent',
   expect(queue.chosen).toHaveLength(0)
   expect(queue.finished).toBe(false)
 })
+
+it('a 409 whose plan is not an object is a failure, not a new price', async () => {
+  const { queue } = setup(['a'], {
+    submitJob: vi.fn(async () => {
+      throw new ApiError('moved', 409, undefined, {
+        plan: 'gone',
+        acknowledge: true,
+      })
+    }) as Mock,
+  })
+  await queue.price()
+  await queue.submit()
+  expect(states(queue)).toEqual(['failed'])
+})

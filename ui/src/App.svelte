@@ -44,7 +44,7 @@
   import JobsPage from './lib/pages/JobsPage.svelte'
   import JobPage from './lib/pages/JobPage.svelte'
   import RequestsPage from './lib/pages/RequestsPage.svelte'
-  import RequestPage from './lib/pages/RequestPage.svelte'
+  import RequestRoute from './lib/request/RequestRoute.svelte'
   import EditorPage from './lib/pages/EditorPage.svelte'
   import PromptsPage from './lib/pages/PromptsPage.svelte'
   import PromptEditorPage from './lib/pages/PromptEditorPage.svelte'
@@ -363,7 +363,7 @@
           jobId={view.rest[0]}
         />
       {:else if view.section === 'jobs'}<JobsPage />
-      {:else if view.section === 'requests' && view.rest[0]}<RequestPage
+      {:else if view.section === 'requests' && view.rest[0]}<RequestRoute
           requestId={view.rest[0]}
         />
       {:else if view.section === 'requests'}<RequestsPage />

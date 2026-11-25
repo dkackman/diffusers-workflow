@@ -4,16 +4,20 @@ import type { LedgerRequest } from '../types'
 import type { ItemState } from './itemState'
 import type { Direction } from './reorderMath'
 
-export type MenuEntry =
+export type MenuEntry<Id extends string = string> =
   | {
       kind: 'action'
-      id: string
+      id: Id
       label: string
       danger?: boolean
       disabled?: boolean
     }
   | { kind: 'link'; id: string; label: string; href: string }
   | { kind: 'rule' }
+
+/** What choosing a row's, or the request's, menu entry asks for */
+export type ItemAction = 'retake' | Direction | 'note' | 'drop'
+export type RequestAction = LedgerRequest['state'] | 'delete'
 
 export const MOVES: { id: Direction; label: string }[] = [
   { id: 'up', label: 'Move up' },
@@ -34,15 +38,15 @@ export type MenuContext = {
   open: boolean
 }
 
-const action = (
-  id: string,
+const action = <Id extends string>(
+  id: Id,
   label: string,
   more: { danger?: boolean; disabled?: boolean } = {},
-): MenuEntry => ({ kind: 'action', id, label, ...more })
+): MenuEntry<Id> => ({ kind: 'action', id, label, ...more })
 
-function links(row: ItemState, context: MenuContext): MenuEntry[] {
+function links(row: ItemState, context: MenuContext): MenuEntry<never>[] {
   const { attempts } = row.item
-  const entries: MenuEntry[] = []
+  const entries: MenuEntry<never>[] = []
   if (attempts.length)
     entries.push({
       kind: 'link',
@@ -60,7 +64,7 @@ function links(row: ItemState, context: MenuContext): MenuEntry[] {
   return entries
 }
 
-function moves(row: ItemState, total: number): MenuEntry[] {
+function moves(row: ItemState, total: number): MenuEntry<Direction>[] {
   const first = row.position <= 1
   const last = row.position >= total
   return MOVES.map(({ id, label }) =>
@@ -74,8 +78,11 @@ function moves(row: ItemState, total: number): MenuEntry[] {
  * its jobs and outputs are, the four moves, the note, the drop. A dropped
  * item, or any item of a closed request, keeps only the links -
  * Restore is the row's own button. */
-export function itemMenu(row: ItemState, context: MenuContext): MenuEntry[] {
-  const groups: MenuEntry[][] = []
+export function itemMenu(
+  row: ItemState,
+  context: MenuContext,
+): MenuEntry<ItemAction>[] {
+  const groups: MenuEntry<ItemAction>[][] = []
   const live = !row.item.dropped
   const editing = live && context.open
   if (editing && context.canRun && row.canRetake)
@@ -88,14 +95,14 @@ export function itemMenu(row: ItemState, context: MenuContext): MenuEntry[] {
   }
   return groups
     .filter((group) => group.length)
-    .flatMap((group, i) =>
-      i ? [{ kind: 'rule' } as MenuEntry, ...group] : group,
-    )
+    .flatMap((group, i) => (i ? [{ kind: 'rule' } as const, ...group] : group))
 }
 
 /** The request's own menu, in its header: an open request can be closed
  * either way; a closed one reopened, or deleted from the ledger. */
-export function requestMenu(state: LedgerRequest['state']): MenuEntry[] {
+export function requestMenu(
+  state: LedgerRequest['state'],
+): MenuEntry<RequestAction>[] {
   if (state === 'open')
     return [action('done', 'Mark done'), action('abandoned', 'Abandon')]
   return [

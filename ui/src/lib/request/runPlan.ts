@@ -38,7 +38,8 @@ export type RunPlan = {
 const candidate = ({ item }: ItemState): Candidate => ({
   key: item.key,
   title: item.title,
-  workflow: item.workflow as string,
+  // "" only in `staleReason`, for a row that has lost its workflow
+  workflow: item.workflow ?? '',
   arguments: item.arguments ?? {},
   jobs: item.attempts.map((attempt) => attempt.job),
   planMinutes: item.estimate_minutes,

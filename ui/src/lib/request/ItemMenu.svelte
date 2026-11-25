@@ -1,4 +1,4 @@
-<script lang="ts">
+<script lang="ts" generics="Id extends string">
   import { Ellipsis } from '@lucide/svelte'
   import Popover from '../ui/Popover.svelte'
   import type { MenuEntry } from './menuEntries'
@@ -12,15 +12,15 @@
   }: {
     /** Names the button and the list: "More actions for {title}" */
     label: string
-    entries: MenuEntry[]
+    entries: MenuEntry<Id>[]
     /** An action entry was chosen, by its id */
-    onselect: (id: string) => void
+    onselect: (id: Id) => void
   } = $props()
 
   let open = $state(false)
   let trigger = $state<HTMLButtonElement | null>(null)
 
-  function choose(id: string) {
+  function choose(id: Id) {
     open = false
     onselect(id)
   }

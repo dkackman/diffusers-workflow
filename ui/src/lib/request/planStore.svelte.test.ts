@@ -444,3 +444,103 @@ it('tells the page of each read it takes, with the one it replaced', async () =>
   await store.push({ kind: 'accept', key: 'a', job: 'j1' })
   expect(reads).toEqual([3, 4])
 })
+
+it("retries past the user's own note write without calling it a change", async () => {
+  const { ledger, store } = setup()
+  ledger.elsewhere('note added')
+  const outcome = await store.push({ kind: 'accept', key: 'a', job: 'j1' })
+  expect(outcome.status).toBe('saved')
+  expect(ledger.puts).toHaveLength(2)
+  expect(store.notice).toBeNull()
+})
+
+it("names the agent's write, or any other, past a note of the user's", async () => {
+  const { ledger, store } = setup()
+  ledger.elsewhere('retitled elsewhere')
+  ledger.elsewhere('note added')
+  await store.push({ kind: 'accept', key: 'a', job: 'j1' })
+  expect(store.notice?.entry?.why).toBe('retitled elsewhere')
+})
+
+/** The server takes the write and the reply never arrives */
+const loseReply = (ledger: ReturnType<typeof fakeLedger>) => {
+  const put = ledger.put.bind(ledger)
+  vi.spyOn(ledger, 'put').mockImplementationOnce(async (body) => {
+    await put(body)
+    throw new TypeError('Failed to fetch')
+  })
+}
+
+it('can restore a drop that was written though its reply was lost', async () => {
+  const { ledger, store } = setup()
+  loseReply(ledger)
+  await expect(store.drop('d')).rejects.toThrow('Failed to fetch')
+  store.take(ledger.current)
+  expect(ledger.current.items.map((i) => i.key)).not.toContain('d')
+  expect(store.memory.d).toBeDefined()
+  expect((await store.restore('d')).status).toBe('saved')
+  expect(live(store)).toContain('d')
+})
+
+it('forgets a failed drop once a read shows the item live', async () => {
+  const { ledger, store } = setup()
+  vi.spyOn(ledger, 'put').mockRejectedValueOnce(new TypeError('offline'))
+  await expect(store.drop('d')).rejects.toThrow('offline')
+  expect(store.memory.d).toBeDefined()
+  store.take(structuredClone(ledger.current))
+  expect(store.memory.d).toBeUndefined()
+})
+
+it('forgets a drop the server refused', async () => {
+  const { ledger, store } = setup()
+  vi.spyOn(ledger, 'put').mockRejectedValueOnce(
+    new ApiError('no', 422, 'invalid'),
+  )
+  await expect(store.drop('d')).rejects.toThrow('no')
+  expect(store.memory.d).toBeUndefined()
+})
+
+it('forgets a drop once the agent has put the item back, keeping its edges as the agent has them', async () => {
+  const { ledger, store } = setup()
+  await store.drop('a')
+  expect(store.memory.a).toBeDefined()
+  // back, with b no longer depending on it
+  ledger.agent('a is back', (items) => [
+    doneItem('a'),
+    ...items
+      .filter((i) => i.key !== 'a')
+      .map((i) => (i.key === 'b' ? { ...i, depends_on: [] } : i)),
+  ])
+  store.take(ledger.current)
+  expect(store.memory.a).toBeUndefined()
+})
+
+it('writes what is queued and staged after the page has left, telling the page nothing', async () => {
+  const { ledger, store, reads } = setup()
+  const release = ledger.hold()
+  const first = store.push({ kind: 'accept', key: 'a', job: 'j1' })
+  const staged = store.stage({ kind: 'move', key: 'd', before: 'a' })
+  store.leave()
+  release()
+  expect((await first).status).toBe('saved')
+  expect((await staged).status).toBe('saved')
+  expect(ledger.puts.length).toBeGreaterThanOrEqual(2)
+  expect(ledger.current.items.map((i) => i.key)).toEqual(['d', 'a', 'b', 'c'])
+  expect(reads).toEqual([3])
+})
+
+it('says a conflict met after the page left, which no card will show', async () => {
+  const ledger = fakeLedger(plan())
+  const onunshown = vi.fn()
+  const store = new PlanStore({
+    get: () => ledger.get(),
+    put: (body) => ledger.put(body),
+    onunshown,
+  })
+  store.take(ledger.current)
+  ledger.agent('cut d', (items) => items.filter((i) => i.key !== 'd'))
+  const saving = store.push({ kind: 'drop', key: 'd' })
+  store.leave()
+  await saving
+  expect(onunshown).toHaveBeenCalledTimes(1)
+})
