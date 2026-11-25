@@ -239,3 +239,114 @@ it('a first listing that fails falls back to the default alone, until one lands'
   await loadWorkspaces()
   expect(workspace.names).toEqual(['default', 'studio'])
 })
+
+/** The next listing, held until the test answers it with these names */
+function holdListing() {
+  let answer!: (names: string[]) => void
+  let fail!: () => void
+  api.listWorkspaces.mockImplementationOnce(
+    () =>
+      new Promise((resolve, reject) => {
+        answer = (names) =>
+          resolve({
+            workspace_root: '/ws',
+            default: 'default',
+            workspaces: names.map((name) => ({
+              name,
+              default: name === 'default',
+              workflows: `/ws/${name}/workflows`,
+              assets: null,
+              outputs: `/ws/${name}/outputs`,
+              prompts: null,
+            })),
+          })
+        fail = () => reject(new Error('down'))
+      }),
+  )
+  return { answer: (names: string[]) => answer(names), fail: () => fail() }
+}
+
+it('an older listing landing last neither replaces the newer one nor redirects', async () => {
+  const {
+    applyRouteWorkspace,
+    loadWorkspaces,
+    relistWorkspaces,
+    setRouteReplacer,
+    workspace,
+  } = await import('./workspace.svelte')
+  const replace = vi.fn()
+  setRouteReplacer(replace)
+  await loadWorkspaces()
+  // A feed relist leaves before a create, the create's own read after it
+  const older = holdListing()
+  const before = relistWorkspaces()
+  const newer = holdListing()
+  const after = relistWorkspaces()
+  newer.answer(['default', 'studio', 'made'])
+  await after
+  applyRouteWorkspace({
+    kind: 'ws',
+    workspace: 'made',
+    section: 'overview',
+    rest: [],
+  })
+  older.answer(['default', 'studio'])
+  await before
+  expect(workspace.names).toEqual(['default', 'studio', 'made'])
+  expect(workspace.current).toBe('made')
+  expect(replace).not.toHaveBeenCalled()
+  expect(errorToast).not.toHaveBeenCalled()
+  expect(api.listWorkspaces).toHaveBeenCalledTimes(3)
+})
+
+it('an overtaken listing is not written, and settles when the newer one lands', async () => {
+  const {
+    applyRouteWorkspace,
+    loadWorkspaces,
+    relistWorkspaces,
+    setRouteReplacer,
+    workspace,
+  } = await import('./workspace.svelte')
+  const replace = vi.fn()
+  setRouteReplacer(replace)
+  applyRouteWorkspace({
+    kind: 'ws',
+    workspace: 'made',
+    section: 'overview',
+    rest: [],
+  })
+  // The first read leaves before the create and lands first
+  const older = holdListing()
+  const first = loadWorkspaces()
+  const newer = holdListing()
+  void relistWorkspaces()
+  let settled = false
+  void first.then(() => (settled = true))
+  older.answer(['default', 'studio'])
+  await new Promise((resolve) => setTimeout(resolve))
+  expect(workspace.names).toBeUndefined()
+  expect(settled).toBe(false)
+  expect(replace).not.toHaveBeenCalled()
+  newer.answer(['default', 'studio', 'made'])
+  await first
+  expect(workspace.names).toEqual(['default', 'studio', 'made'])
+  expect(workspace.current).toBe('made')
+  // Not errorToast: the routers earlier tests imported hear this one's
+  // timers. A redirect of this instance's goes through its own spy
+  expect(replace).not.toHaveBeenCalled()
+})
+
+it('an overtaken listing that fails writes no fallback', async () => {
+  const { loadWorkspaces, relistWorkspaces, workspace } =
+    await import('./workspace.svelte')
+  const older = holdListing()
+  const first = loadWorkspaces()
+  const newer = holdListing()
+  void relistWorkspaces()
+  older.fail()
+  await new Promise((resolve) => setTimeout(resolve))
+  expect(workspace.names).toBeUndefined()
+  newer.answer(['default', 'studio'])
+  await first
+  expect(workspace.names).toEqual(['default', 'studio'])
+})

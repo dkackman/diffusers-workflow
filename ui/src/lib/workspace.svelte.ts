@@ -3,6 +3,7 @@ import { notify } from './toast'
 import { wsHref, type RouteView } from './routes'
 import { DEFAULT_WORKSPACE, workspace } from './workspaceState.svelte'
 import { onReconnect } from './connection.svelte'
+import { latestOnly } from './latest'
 
 // The state lives in its own module so api.ts can scope requests by it
 // without importing this one, which imports api.ts to load the listing
@@ -107,44 +108,54 @@ function checkAgainstFreshListing(): void {
 let workspacesPromise: Promise<void> | null = null
 
 export function loadWorkspaces(): Promise<void> {
-  if (!workspacesPromise) {
-    workspacesPromise = (async () => {
-      try {
-        const result = await api.listWorkspaces()
-        workspace.names = result.workspaces.map((entry) => entry.name)
-        workspace.listed = true
-        workspace.root = result.workspace_root
-        workspace.usage = Object.fromEntries(
-          result.workspaces
-            .filter((entry) => entry.usage)
-            .map((entry) => [entry.name, entry.usage!]),
-        )
-        workspace.changed = Object.fromEntries(
-          result.workspaces
-            .filter((entry) => entry.mtime)
-            .map((entry) => [entry.name, entry.mtime!]),
-        )
-        workspace.notes = Object.fromEntries(
-          result.workspaces
-            .filter((entry) => entry.note)
-            .map((entry) => [entry.name, entry.note!]),
-        )
-        // A route naming a workspace that has gone away (deleted elsewhere,
-        // or a stale bookmark) is caught here for the route the app opened
-        // on; `applyRouteWorkspace` catches every one after
-        checkAgainstFreshListing()
-      } catch {
-        // The first listing failing leaves the fallback. A refetch failing
-        // (the one `checkWorkspaceExists` runs for a name the cache lacks)
-        // keeps the listing that landed: a server hiccup does not empty the
-        // sidebar, and the name that listing lacks is still called missing,
-        // since that listing is the only answer there is.
-        if (workspace.listed) checkAgainstFreshListing()
-        else workspace.names = [DEFAULT_WORKSPACE]
-      }
-    })()
-  }
+  if (!workspacesPromise) workspacesPromise = newest = readListing()
   return workspacesPromise
+}
+
+// Reads can overlap (an invalidate while one is out) and land in either
+// order: only the one started last writes the listing and checks the route
+// against it. An overtaken one settles with `newest`, so whoever awaits it
+// still finds a listing at least as new as the one they asked for
+const begin = latestOnly()
+let newest: Promise<void>
+
+async function readListing(): Promise<void> {
+  const current = begin()
+  try {
+    const result = await api.listWorkspaces()
+    if (!current()) return newest
+    workspace.names = result.workspaces.map((entry) => entry.name)
+    workspace.listed = true
+    workspace.root = result.workspace_root
+    workspace.usage = Object.fromEntries(
+      result.workspaces
+        .filter((entry) => entry.usage)
+        .map((entry) => [entry.name, entry.usage!]),
+    )
+    workspace.changed = Object.fromEntries(
+      result.workspaces
+        .filter((entry) => entry.mtime)
+        .map((entry) => [entry.name, entry.mtime!]),
+    )
+    workspace.notes = Object.fromEntries(
+      result.workspaces
+        .filter((entry) => entry.note)
+        .map((entry) => [entry.name, entry.note!]),
+    )
+    // A route naming a workspace that has gone away (deleted elsewhere,
+    // or a stale bookmark) is caught here for the route the app opened
+    // on; `applyRouteWorkspace` catches every one after
+    checkAgainstFreshListing()
+  } catch {
+    if (!current()) return newest
+    // The first listing failing leaves the fallback. A refetch failing
+    // (the one `checkWorkspaceExists` runs for a name the cache lacks)
+    // keeps the listing that landed: a server hiccup does not empty the
+    // sidebar, and the name that listing lacks is still called missing,
+    // since that listing is the only answer there is.
+    if (workspace.listed) checkAgainstFreshListing()
+    else workspace.names = [DEFAULT_WORKSPACE]
+  }
 }
 
 /** Drop the cached listing so the next `loadWorkspaces()` refetches - call
