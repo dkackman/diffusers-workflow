@@ -22,7 +22,11 @@
 // the page's star on it) as the held data, marking nothing and keeping any
 // marks still fading, so the next quiet reload diffs against it and marks
 // only what another writer did - an agent, another tab, `dw.run`. It goes
-// round `merge`, and it neither cancels nor waits for a run in flight.
+// round `merge`, and it does not wait for a run in flight. A run that began
+// before an adopt may carry the data as it was before the write, so its
+// reply is not held: it is read again, loud or quiet as it was (once,
+// however many adopts it spanned), and its `current` is false from the
+// adopt on. A page's own write needs no stamp of its own against that.
 // A reply overtaken by a later run is dropped (latestOnly). Timers
 // go through `poll`, the feed through `changes(workspace).watch`. LoadState
 // (ui/LoadState.svelte) renders one.
@@ -69,7 +73,8 @@ export interface Resource<T> {
    * way (its job's own status moving), marking what changed */
   refresh(): Promise<void>
   /** Hold `data`, what the page's own write read back, marking nothing:
-   * the next quiet reload diffs against it (above). With `mark`, it is a
+   * the next quiet reload diffs against it, and a read already out is
+   * made again rather than held over it (above). With `mark`, it is a
    * read the page made that the resource did not - a stale write's retry
    * found another writer's change - held as a quiet reload's would be, and
    * marking what it changed */
@@ -259,18 +264,25 @@ export function resource<T>(
   const workspaceOf = options.workspace ?? (() => workspaceState.current)
   // Which question is asked: a count of dependency changes
   let asked = 0
+  // The page's own writes held: a count of adopts
+  let adopted = 0
 
   // `load` is called before any await, so inside the dependency effect what
   // it reads first is tracked
   async function run(quiet: boolean): Promise<void> {
-    const current = begin()
+    const latest = begin()
     const question = asked
+    // A reply to a read begun before an adopt may predate that write
+    const wrote = adopted
+    const current = () => latest() && wrote === adopted
     if (!quiet) held.status = 'loading'
     try {
       const value = await load(current)
       if (current()) held.landed(value, quiet, question)
+      else if (latest()) return run(quiet)
     } catch (e) {
-      if (current()) held.failed(e, quiet, question)
+      // A failure says the same whenever its read began
+      if (latest()) held.failed(e, quiet, question)
     }
   }
 
@@ -302,9 +314,10 @@ export function resource<T>(
     },
     reload: () => untrack(() => run(false)),
     refresh: () => untrack(() => run(true)),
-    adopt: (data, options) =>
-      options?.mark
-        ? untrack(() => held.landed(data, true, asked))
-        : void (held.data = data),
+    adopt: (data, options) => {
+      adopted++
+      if (options?.mark) untrack(() => held.landed(data, true, asked))
+      else held.data = data
+    },
   }
 }

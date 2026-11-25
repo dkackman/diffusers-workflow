@@ -18,7 +18,7 @@ let teardown: (() => void) | null = null
 
 /** Make a resource inside an effect root, as a component's init would */
 function mount<T>(
-  load: () => Promise<T>,
+  load: (current: () => boolean) => Promise<T>,
   options: ResourceOptions<T>,
 ): Resource<T> {
   let made!: Resource<T>
@@ -591,4 +591,52 @@ it('adopt with mark marks what another writer changed against what is held', asy
     { id: 'a', v: 2 },
     { id: 'b', v: 1 },
   ])
+})
+
+it('a quiet reload begun before an adopt is read again, not held', async () => {
+  const gates: ReturnType<typeof deferred<Row[]>>[] = []
+  const currents: (() => boolean)[] = []
+  const load = vi.fn((current: () => boolean) => {
+    currents.push(current)
+    gates.push(deferred<Row[]>())
+    return gates.at(-1)!.promise
+  })
+  const r = mount(load, { watch: ['jobs'], rows: byId })
+  gates[0].resolve([{ id: 'a', v: 1 }])
+  await vi.waitFor(() => expect(r.status).toBe('ready'))
+  const reload = r.refresh()
+  // the page's own write lands while that read is out, twice over
+  r.adopt([{ id: 'a', v: 2 }])
+  r.adopt([{ id: 'a', v: 3 }])
+  expect(currents[1]()).toBe(false)
+  gates[1].resolve([{ id: 'a', v: 1 }])
+  await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(3))
+  expect(r.data).toEqual([{ id: 'a', v: 3 }])
+  expect(r.changed.size).toBe(0)
+  gates[2].resolve([{ id: 'a', v: 3 }])
+  await reload
+  expect(r.data).toEqual([{ id: 'a', v: 3 }])
+  expect(r.changed.size).toBe(0)
+  expect(load).toHaveBeenCalledTimes(3)
+})
+
+it('a loud load begun before an adopt is read again and ends ready', async () => {
+  const gates: ReturnType<typeof deferred<string>>[] = []
+  const load = vi.fn(() => {
+    gates.push(deferred<string>())
+    return gates.at(-1)!.promise
+  })
+  const r = mount(load, { watch: [] })
+  gates[0].resolve('old')
+  await vi.waitFor(() => expect(r.status).toBe('ready'))
+  const reload = r.reload()
+  r.adopt('saved')
+  gates[1].resolve('old')
+  await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(3))
+  expect(r.status).toBe('loading')
+  expect(r.data).toBe('saved')
+  gates[2].resolve('saved')
+  await reload
+  expect(r.status).toBe('ready')
+  expect(r.data).toBe('saved')
 })
