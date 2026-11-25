@@ -112,9 +112,12 @@
   // never undoes an edit; a note's draft lives in its row, which the keyed
   // list keeps, and a refresh never moves focus. An item a quiet read
   // changed is marked (`changed`)
-  const reads = resource(() => store.refresh(), {
+  // The interval is derived, so a read that keeps it does not re-arm the
+  // timer: the resource's effect reads `interval`, not `store.read`
+  const interval = $derived(refreshInterval(store.read))
+  const reads = resource((current) => store.refresh(current), {
     watch: ['requests'],
-    alsoLive: () => refreshInterval(store.read),
+    alsoLive: () => interval,
     merge: newerOf,
     rows: itemRows,
   })

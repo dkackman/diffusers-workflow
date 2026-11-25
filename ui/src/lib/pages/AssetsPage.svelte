@@ -29,7 +29,12 @@
   import { overlayOpen } from '../ui/layers.svelte'
   import { notify } from '../toast'
   import { collapsedState, type Collapsed } from '../collapsed.svelte'
-  import type { AssetFile, AssetLibrary, ShadowedAsset } from '../types'
+  import type {
+    AssetFile,
+    AssetLibrary,
+    AssetList,
+    ShadowedAsset,
+  } from '../types'
   import { workspace } from '../workspace.svelte'
   import { sharedHref, wsHref } from '../routes'
   import { hashState } from '../router.svelte'
@@ -37,6 +42,7 @@
   import {
     UPLOAD_EXTENSIONS,
     reportUploads,
+    readListingAfterWrite,
     uploadAll,
   } from '../assets/uploads'
   import AssetViewer from '../assets/AssetViewer.svelte'
@@ -61,23 +67,22 @@
   // An asset an agent adds or removes shows within one feed interval. The
   // search path itself, in order, and the entries a nearer library on it
   // hides, come from the server: the page never builds a path
-  const list = resource(
-    async () => {
-      // The note saves this read can have seen: those made before it began
-      const began = untrack(() => noteEdits.made)
-      return { ...(await api.listAssets()), began }
-    },
-    {
-      watch: ['assets'],
-      rows: (data) => data.assets.map((asset) => [asset.name, asset]),
-      // What is held carries the notes saved here still open, so a quiet
-      // reload never marks the page's own note (the gallery's merge)
-      merge: (_held, incoming) => {
-        noteEdits = settleEdits(incoming.assets, incoming.began, noteEdits)
-        return { ...incoming, assets: applyEdits(incoming.assets, noteEdits) }
-      },
-    },
-  )
+  async function readList(listing: () => Promise<AssetList>) {
+    // The note saves this read can have seen: those made before it began
+    const began = untrack(() => noteEdits.made)
+    return { ...(await listing()), began }
+  }
+  // What is held carries the notes saved here still open, so a quiet
+  // reload never marks the page's own note (the gallery's merge)
+  function withNotes(incoming: Awaited<ReturnType<typeof readList>>) {
+    noteEdits = settleEdits(incoming.assets, incoming.began, noteEdits)
+    return { ...incoming, assets: applyEdits(incoming.assets, noteEdits) }
+  }
+  const list = resource(() => readList(() => api.listAssets()), {
+    watch: ['assets'],
+    rows: (data) => data.assets.map((asset) => [asset.name, asset]),
+    merge: (_held, incoming) => withNotes(incoming),
+  })
   // Each clip's and sound's length: the listing again with `media`, read in
   // the background so the grid never waits on the probe (the gallery's
   // durations); a tile takes its duration from here by name
@@ -129,6 +134,21 @@
     const held = list.data
     if (held)
       list.adopt({ ...held, assets: applyEdits(held.assets, noteEdits) })
+  }
+
+  // The page's own writes are held, never marked as another writer's and
+  // never a loud reload (resource's `adopt`): a delete leaves the held list
+  // without what went, an upload holds the listing read after it
+  function dropHeld(names: string[]) {
+    const held = list.data
+    if (held)
+      list.adopt({
+        ...held,
+        assets: held.assets.filter((a) => !names.includes(a.name)),
+      })
+  }
+  async function adoptListing() {
+    list.adopt(withNotes(await readList(() => readListingAfterWrite())))
   }
 
   const filterActive = $derived(filter.value !== '')
@@ -292,7 +312,7 @@
         failed.map((f) => f.name),
       )
       reportFailures('delete', failed, names.length, 'assets')
-      await list.reload()
+      dropHeld(names.filter((n) => !failed.some((f) => f.name === n)))
     },
     {
       doing: 'delete the picked assets',
@@ -326,7 +346,7 @@
           .map((a) => a.name),
       )
       reportUploads(await uploadAll(files, { shared: isShared, taken }))
-      await list.reload()
+      await adoptListing()
     },
     { doing: 'upload the files' },
   )
@@ -338,7 +358,7 @@
     async (asset: AssetFile) => {
       await api.deleteAsset(asset.name)
       notify.success(`Deleted ${asset.reference}`)
-      await list.reload()
+      dropHeld([asset.name])
     },
     { doing: (asset) => `delete ${asset.name}`, confirm: assetConfirm },
   )

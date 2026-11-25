@@ -240,10 +240,12 @@ class Held<T> {
   }
 }
 
-/** Load `load` now and whenever it should be read again (above). Call it
- * during component init: it registers its effects there */
+/** Load `load` now and whenever it should be read again (above). `load`
+ * is handed `current`, true until a later run overtakes this one: a read
+ * with a side effect before it returns checks it first. Call it during
+ * component init: it registers its effects there */
 export function resource<T>(
-  load: () => Promise<T>,
+  load: (current: () => boolean) => Promise<T>,
   options: ResourceOptions<T>,
 ): Resource<T> {
   const held = new Held<T>(
@@ -262,7 +264,7 @@ export function resource<T>(
     const question = asked
     if (!quiet) held.status = 'loading'
     try {
-      const value = await load()
+      const value = await load(current)
       if (current()) held.landed(value, quiet, question)
     } catch (e) {
       if (current()) held.failed(e, quiet, question)

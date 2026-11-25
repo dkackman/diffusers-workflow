@@ -891,18 +891,21 @@ describe('data changed underneath the page', () => {
     render(JobPage, { jobId: 'j1' })
     await waitFor(() => expect(screen.getByText('realized')).toBeTruthy())
     ran.definition = { steps: [{ name: 'edited', pipeline: {} }] }
-    await moved('jobs')
+    // The feed no longer asks for it: a reconnect reads it again, quietly
+    connection.epoch++
     await waitFor(() => expect(notice()).toBeTruthy())
   })
 
   it("the run's own realized copy replacing the submitted one says nothing", async () => {
-    detail.job = job([])
+    detail.job = { ...job([]), status: 'running', finished_at: null }
     ran.definition = { steps: [{ name: 'base', pipeline: {} }] }
     ran.realized = false
     render(JobPage, { jobId: 'j1' })
     await waitFor(() => expect(screen.getByText('as submitted')).toBeTruthy())
+    // The run ends: it wrote its realized copy as its status moved
     ran.definition = { steps: [{ name: 'base', pipeline: { seed: 7 } }] }
     ran.realized = true
+    detail.job = job([])
     await moved('jobs')
     await waitFor(() => expect(screen.getByText('realized')).toBeTruthy())
     expect(notice()).toBeNull()
@@ -913,15 +916,26 @@ describe('data changed underneath the page', () => {
     ran.definition = { steps: [{ name: 'base', pipeline: {} }] }
     render(JobPage, { jobId: 'j1' })
     await waitFor(() => expect(screen.getByText('realized')).toBeTruthy())
-    const reads = vi.mocked(api.getJobWorkflow).mock.calls.length
     await moved('jobs')
-    await waitFor(() =>
-      expect(vi.mocked(api.getJobWorkflow).mock.calls.length).toBeGreaterThan(
-        reads,
-      ),
-    )
     await moved('gallery')
     expect(notice()).toBeNull()
+  })
+
+  it('a jobs move of another job reads no workflow', async () => {
+    noted('second pass')
+    ran.definition = { steps: [{ name: 'base', pipeline: {} }] }
+    render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(screen.getByText('realized')).toBeTruthy())
+    const reads = vi.mocked(api.getJobWorkflow).mock.calls.length
+    const jobReads = vi.mocked(api.getJob).mock.calls.length
+    await moved('jobs')
+    // This job's record is read again, its status unchanged: the workflow
+    // it ran is not
+    await waitFor(() =>
+      expect(vi.mocked(api.getJob).mock.calls.length).toBeGreaterThan(jobReads),
+    )
+    await moved('jobs')
+    expect(vi.mocked(api.getJobWorkflow).mock.calls.length).toBe(reads)
   })
 })
 

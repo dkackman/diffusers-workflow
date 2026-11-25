@@ -64,7 +64,7 @@ const PAGE_TABLE: Record<string, Freshness[]> = {
   'pages/ComparePage.svelte': [{ watch: ['gallery'] }],
   'pages/EditorPage.svelte': [{ watch: ['workflows'] }],
   'pages/GalleryPage.svelte': [{ watch: ['gallery'] }, { watch: ['gallery'] }],
-  'pages/JobPage.svelte': [{ watch: ['jobs'] }],
+  'pages/JobPage.svelte': [{ watch: [] }],
   'pages/JobsPage.svelte': [
     { live: { everyMs: 3000 } },
     { watch: ['gallery'] },
@@ -126,20 +126,20 @@ const OPENERS: Record<string, string> = {
  * in a helper the page calls (one level, as for reads below) */
 const WATCH = 'watchRemote'
 
-/** Files that import a reading helper and have no resource, each with why
- * that is not a view to keep fresh */
+/** Reading helpers a file with no resource imports, keyed `file:helper`,
+ * each with why that is not a view to keep fresh */
 const HELPER_EXCEPTIONS: Record<string, string> = {
-  '../App.svelte':
-    "startStatusPoll is the shell's own 5 s status poll (statusPoll.ts), " +
-    'and followJobs reads one job when that poll reports it ended',
-  'job/EventLog.svelte':
-    'fetchEventLog runs on a click (open, Refresh) and once more when the ' +
-    'job ends, to read the events after the last one shown',
-  'job/JobViewer.svelte':
-    'saveAsAsset lists the asset library on a Save as asset click, and ' +
-    "only when the name is taken, for Keep both's suggestion",
-  'ui/ConnectionBanner.svelte':
-    "checkNow is the Retry now button's one status check",
+  '../App.svelte:startStatusPoll':
+    "the shell's own 5 s status poll (statusPoll.ts)",
+  '../App.svelte:followJobs': 'reads one job when that poll reports it ended',
+  'job/EventLog.svelte:fetchEventLog':
+    'runs on a click (open, Refresh) and once more when the job ends, to ' +
+    'read the events after the last one shown',
+  'job/JobViewer.svelte:saveAsAsset':
+    'lists the asset library on a Save as asset click, and only when the ' +
+    "name is taken, for Keep both's suggestion",
+  'ui/ConnectionBanner.svelte:checkNow':
+    "the Retry now button's one status check",
 }
 
 type Node = { type: string; [key: string]: unknown }
@@ -338,9 +338,9 @@ function resolved(fromKey: string, specifier: string, known: Set<string>) {
   return [base, `${base}.ts`, `${base}/index.ts`].find((k) => known.has(k))
 }
 
-/** The .svelte files that import, from a .ts helper, a name whose code
- * calls an `api` read, and have no `resource(` - outside the document pages
- * and `exceptions` */
+/** `file:helper` for each name a .svelte file with no `resource(` imports
+ * from a .ts helper whose code calls an `api` read ('*' for a namespace
+ * import) - outside the document pages and `exceptions` */
 export function bareHelperReaders(
   svelte: Record<string, string>,
   helpers: Record<string, string>,
@@ -351,19 +351,15 @@ export function bareHelperReaders(
   )
   const known = new Set(Object.keys(helpers))
   const readsThrough = (k: string, r: Read) =>
-    r.valueImports.some(({ from, names }) => {
+    r.valueImports.flatMap(({ from, names }) => {
       const found = reading.get(resolved(k, from, known) ?? '')
-      return (
-        !!found &&
-        found.size > 0 &&
-        names.some((n) => n === '*' || found.has(n))
-      )
+      return found ? names.filter((n) => n === '*' || found.has(n)) : []
     })
   return Object.entries(svelte)
     .map(([k, source]) => [k, read(source)] as const)
-    .filter(([k, r]) => readsThrough(k, r) && r.resources.length === 0)
-    .filter(([k]) => !DOCUMENT_PAGES.includes(k) && !(k in exceptions))
-    .map(([k]) => k)
+    .filter(([k, r]) => r.resources.length === 0 && !DOCUMENT_PAGES.includes(k))
+    .flatMap(([k, r]) => readsThrough(k, r).map((n) => `${k}:${n}`))
+    .filter((entry) => !(entry in exceptions))
 }
 
 type Helpers = { reading: Map<string, Set<string>>; known: Set<string> }
@@ -533,6 +529,11 @@ it('a page that reads the server does so through a resource', () => {
 /** Reading-helper calls outside every resource's load in a file that has
  * one, by file and helper name, each with why it is not a second read */
 const HELPER_CALL_EXCEPTIONS: Record<string, Record<string, string>> = {
+  'pages/AssetsPage.svelte': {
+    readListingAfterWrite:
+      "the listing read after the page's own upload, held as read (adopt) " +
+      'so nothing is marked; the feed echo of that write diffs against it',
+  },
   'job/JobResults.svelte': {
     runMetadataReader:
       'a factory, called once at init: the reader it returns is what the ' +
@@ -589,10 +590,30 @@ it('a view that reads through a helper does so through a resource', () => {
 })
 
 it('each helper exception still reads through a helper with no resource', () => {
-  const stale = Object.keys(HELPER_EXCEPTIONS).filter(
-    (k) => !bareHelperReaders(svelteSources, helperSources).includes(k),
-  )
+  const found = bareHelperReaders(svelteSources, helperSources)
+  const stale = Object.keys(HELPER_EXCEPTIONS).filter((k) => !found.includes(k))
   expect(stale).toEqual([])
+})
+
+it('an exception names its helper', () => {
+  const helpers = {
+    'job/probe.ts': `import { api } from '../api'
+export const jobsFor = (w: string) => api.listJobs(w)
+export const jobFor = (id: string) => api.getJob(id)`,
+  }
+  const svelte = {
+    'job/Two.svelte': `<script lang="ts">
+  import { jobsFor, jobFor } from './probe'
+</script>`,
+  }
+  // Excusing one helper never excuses the file's other
+  expect(
+    bareHelperReaders(svelte, helpers, { 'job/Two.svelte:jobsFor': 'a click' }),
+  ).toEqual(['job/Two.svelte:jobFor'])
+  // A key that names only the file excuses nothing
+  expect(
+    bareHelperReaders(svelte, helpers, { 'job/Two.svelte': 'a click' }),
+  ).toEqual(['job/Two.svelte:jobsFor', 'job/Two.svelte:jobFor'])
 })
 
 it('names a component that calls a reading helper with no resource', () => {
@@ -635,13 +656,15 @@ export { viaLocal as latestJob }`,
 </script>`,
   }
   expect(bareHelperReaders(svelte, helpers)).toEqual([
-    'job/Bare.svelte',
-    'job/Latest.svelte',
-    'pages/Clicks.svelte',
+    'job/Bare.svelte:jobsFor',
+    'job/Latest.svelte:latestJob',
+    'pages/Clicks.svelte:jobsFor',
   ])
   expect(
-    bareHelperReaders(svelte, helpers, { 'pages/Clicks.svelte': 'a click' }),
-  ).toEqual(['job/Bare.svelte', 'job/Latest.svelte'])
+    bareHelperReaders(svelte, helpers, {
+      'pages/Clicks.svelte:jobsFor': 'a click',
+    }),
+  ).toEqual(['job/Bare.svelte:jobsFor', 'job/Latest.svelte:latestJob'])
   expect(bareHelperReaders(svelte, {})).toEqual([])
 })
 

@@ -149,12 +149,13 @@ export class PlanStore {
 
   /** Read the request again and keep it unless what is held is newer
    * (`take`). Resolves with what is then held; a reply for a request the
-   * store has since been reset from is not taken. `get` is called before
-   * any await, so a resource loading through this tracks what it reads */
-  async refresh(): Promise<LedgerRequest> {
+   * store has since been reset from, or that `isCurrent` says a later read
+   * overtook, is not taken. `get` is called before any await, so a resource
+   * loading through this tracks what it reads */
+  async refresh(isCurrent?: () => boolean): Promise<LedgerRequest> {
     const epoch = this.#epoch
     const found = await this.#io.get()
-    if (epoch !== this.#epoch) return found
+    if (epoch !== this.#epoch || isCurrent?.() === false) return found
     this.take(found)
     return this.read ?? found
   }

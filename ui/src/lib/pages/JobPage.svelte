@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Braces } from '@lucide/svelte'
   import { TERMINAL_STATUSES, api } from '../api'
+  import { untrack } from 'svelte'
   import { resource } from '../resource.svelte'
   import { followJob, jobRecord } from '../job/followJob.svelte'
   import LoadState from '../ui/LoadState.svelte'
@@ -56,16 +57,34 @@
       const id = jobId
       return { ...(await api.getJobWorkflow(id)), of: id }
     },
-    // A re-read that only swaps the submitted copy for the run's realized
-    // one is the run's own doing, not news: it moves 'realized' too
+    // What this job ran does not move with the feed: the run writes its
+    // realized copy as its status moves, which re-reads it (below). A
+    // re-read that only swaps the submitted copy for the run's realized one
+    // is the run's own doing, not news: it moves 'realized' too
     {
-      watch: ['jobs'],
+      watch: [],
       rows: (d) => [
         ['realized', d.realized],
         [d.of, d.definition],
       ],
     },
   )
+  // A jobs move of another job reads no workflow: only this job's own
+  // status moving can have changed what it ran. The first status seen for
+  // a job is the baseline, the read at mount already answers it
+  let statusSeen: string | undefined
+  $effect(() => {
+    const status = job?.status
+    untrack(() => {
+      if (
+        status !== undefined &&
+        statusSeen !== undefined &&
+        status !== statusSeen
+      )
+        void ranRead.reload()
+      statusSeen = status
+    })
+  })
   const ran = $derived(ranRead.data?.of === jobId ? ranRead.data : null)
   // Another writer changed what this page shows: the inline notice
   const definitionMoved = $derived(

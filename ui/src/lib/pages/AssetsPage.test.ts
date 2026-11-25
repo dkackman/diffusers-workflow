@@ -1207,3 +1207,51 @@ it('an empty asset library says where to go', async () => {
   const link = await screen.findByRole('link', { name: 'Gallery' })
   expect(link.getAttribute('href')).toMatch(/^#\/ws\/[^/]+\/gallery$/)
 })
+
+const tileOf = (name: string) =>
+  screen.getByLabelText(`Open ${name}`).closest('.cellwrap') as HTMLElement
+
+it("an upload marks nothing and keeps an agent's fresh mark", async () => {
+  await renderAssets()
+  // An agent changed priya's tile: it is marked
+  listing.assets = [
+    asset('iris.png'),
+    { ...asset('cast/priya.jpg'), size: 4096 },
+  ]
+  feed.move('default', 'assets')
+  await waitFor(() =>
+    expect(tileOf('cast/priya.jpg').classList).toContain('row-changed'),
+  )
+  // The page's own upload: the server now lists it
+  uploadMedia.mockResolvedValueOnce({ reference: 'asset:uploads/kept.png' })
+  listing.assets = [...listing.assets, asset('uploads/kept.png')]
+  screen.getByRole('button', { name: /^Upload$/ }).click()
+  chooseFile()
+  await waitFor(() => expect(screen.getByText('kept.png')).toBeTruthy())
+  // Held as read: the page never went loud, and nothing else was marked
+  expect(screen.queryByLabelText(/loading/i)).toBeNull()
+  expect(tileOf('uploads/kept.png').classList).not.toContain('row-changed')
+  expect(tileOf('cast/priya.jpg').classList).toContain('row-changed')
+  // The feed's echo of that write reads the same listing: still unmarked
+  feed.move('default', 'assets')
+  await waitFor(() => expect(listAssets).toHaveBeenCalledTimes(4))
+  await new Promise((r) => setTimeout(r, 10))
+  expect(tileOf('uploads/kept.png').classList).not.toContain('row-changed')
+})
+
+it('a bulk delete adopts', async () => {
+  await renderAssets()
+  const reads = listAssets.mock.calls.length
+  screen.getByLabelText('select iris.png').click()
+  screen.getByLabelText('select cast/priya.jpg').click()
+  await waitFor(() =>
+    screen.getByRole('button', { name: /^delete the selected/i }),
+  )
+  screen.getByRole('button', { name: /^delete the selected/i }).click()
+  await answerConfirm(true)
+  await waitFor(() => expect(screen.queryByText('iris.png')).toBeNull())
+  expect(screen.queryByText('priya.jpg')).toBeNull()
+  // The held list lost what went; no listing was read for it
+  await new Promise((r) => setTimeout(r, 10))
+  expect(listAssets.mock.calls.length).toBe(reads)
+})

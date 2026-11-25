@@ -8,6 +8,7 @@ import {
 } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import OverviewPage from './OverviewPage.svelte'
+import Sidebar from '../Sidebar.svelte'
 import { firstRunSession } from '../firstRun'
 import { formatMtime } from '../format'
 import { feed } from '../test/feedMock'
@@ -81,7 +82,8 @@ vi.mock('../api', () => ({
         workspace: 'default',
       })
     ),
-    listWorkspaces: () =>
+    listWorkspaces: () => (
+      hit('workspaces'),
       Promise.resolve({
         workspace_root: '/ws',
         default: 'default',
@@ -94,7 +96,8 @@ vi.mock('../api', () => ({
             note: 'client moodboards',
           },
         ],
-      }),
+      })
+    ),
     deleteWorkspace: (n: string, a?: boolean) => deleteWorkspace(n, a),
   },
 }))
@@ -144,7 +147,13 @@ it('an empty workspace shows empty states, not empty frames', async () => {
   expect(screen.getByText(/no workflows yet/i)).toBeTruthy()
 })
 
+// The shell's Sidebar, always mounted, reads the workspace listing the
+// Overview shows its note and usage from
+const withShell = () =>
+  render(Sidebar, { collapsed: false, onToggle: () => {} })
+
 it('shows the workspace note', async () => {
+  withShell()
   render(OverviewPage)
   await waitFor(() =>
     expect(screen.getByText('client moodboards')).toBeTruthy(),
@@ -218,6 +227,7 @@ it('shows recent outputs, jobs and workflows, each linking to its page', async (
       origin: 'common',
     },
   ]
+  withShell()
   render(OverviewPage)
   // the recent output's tile, and the workflow card's proof (also a tile)
   await waitFor(() =>
@@ -233,7 +243,9 @@ it('shows recent outputs, jobs and workflows, each linking to its page', async (
   const cards = screen.getAllByRole('link', { name: /^(shot|still)$/ })
   expect(cards[0].textContent).toContain('shot')
   expect(screen.getByText('1 asset')).toBeTruthy() // the workspace's own only
-  await waitFor(() => expect(screen.getByText('4 KB')).toBeTruthy())
+  await waitFor(() =>
+    expect(screen.getAllByText('4 KB').length).toBeGreaterThan(0),
+  )
 })
 
 it('a deep queue does not hide the running job, and queued jobs are not "recent"', async () => {
@@ -676,4 +688,21 @@ it('an empty overview says where to go', async () => {
     expect(href).toMatch(/^#\/ws\/[^/]+\/workflows$/)
   expect(hrefs('Create one in the editor')[0]).toMatch(/^#\/ws\/[^/]+\/edit$/)
   expect(hrefs('start from an example')).toEqual(['#/shared/examples'])
+})
+
+it('a workspaces move lists the workspaces once', async () => {
+  withShell()
+  render(OverviewPage)
+  await waitFor(() =>
+    expect(screen.getByText('client moodboards')).toBeTruthy(),
+  )
+  await settle()
+  // Both watch the kind; the Overview joins the Sidebar's read
+  expect(feed.watched('studio').filter((k) => k === 'workspaces')).toHaveLength(
+    2,
+  )
+  const before = calls.workspaces ?? 0
+  feed.move('studio', 'workspaces')
+  await settle()
+  expect(calls.workspaces).toBe(before + 1)
 })
