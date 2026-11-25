@@ -102,12 +102,14 @@ export function changedKeys<T>(
 const NONE: ReadonlySet<string> = new Set()
 
 /** `changed`, and the timer that clears it. A row that changes again while
- * marked is cleared and set again a microtask later, so its mark's
- * animation starts over. The timer waits while the tab is hidden */
+ * marked is cleared and set again two frames later, so its mark's animation
+ * starts over: the browser must style the row without the class once, and
+ * Svelte's own clear flushes in a microtask, in the same task as a set
+ * made now. The timer waits while the tab is hidden */
 function changeMarks() {
   let changed = $state.raw(NONE)
   let stop: (() => void) | undefined
-  // Which `mark` or `clear` is the latest: a re-mark waiting its microtask
+  // Which `mark` or `clear` is the latest: a re-mark waiting its frames
   // gives way to a clear or another mark
   let latest = 0
   const set = (keys: ReadonlySet<string>) => {
@@ -138,9 +140,11 @@ function changeMarks() {
       const mine = latest
       if (!marking) set(keys)
       else
-        queueMicrotask(() => {
-          if (mine === latest) set(keys)
-        })
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => {
+            if (mine === latest) set(keys)
+          }),
+        )
     },
     clear,
   }

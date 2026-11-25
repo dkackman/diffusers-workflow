@@ -478,12 +478,14 @@ it('a second change re-marks the row', async () => {
   await vi.advanceTimersByTimeAsync(CHANGED_MARK_MS - 100)
   feed.move('default', 'jobs')
   await vi.advanceTimersByTimeAsync(0)
-  // cleared, then set again: the row's class goes off and on
+  // cleared at once, and set again two frames later
+  expect(seen.slice(-2)).toEqual([['a'], []])
+  await vi.advanceTimersByTimeAsync(40)
   expect(seen.slice(-3)).toEqual([['a'], [], ['a']])
   // and the timer started over
-  await vi.advanceTimersByTimeAsync(CHANGED_MARK_MS - 1)
+  await vi.advanceTimersByTimeAsync(CHANGED_MARK_MS - 100)
   expect(made.changed.size).toBe(1)
-  await vi.advanceTimersByTimeAsync(1)
+  await vi.advanceTimersByTimeAsync(100)
   expect(made.changed.size).toBe(0)
 })
 
@@ -571,4 +573,8 @@ it('adopt with mark marks what another writer changed against what is held', asy
     { mark: true },
   )
   expect([...r.changed].sort()).toEqual(['a', 'b'])
+  expect(r.data).toEqual([
+    { id: 'a', v: 2 },
+    { id: 'b', v: 1 },
+  ])
 })
