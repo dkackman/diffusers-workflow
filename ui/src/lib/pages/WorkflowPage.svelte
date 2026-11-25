@@ -9,7 +9,7 @@
     requiredVariables,
   } from '../editor'
   import { api } from '../api'
-  import { goWs, route } from '../router.svelte'
+  import { goCarrying, goWs, route } from '../router.svelte'
   import { leafOf } from '../grouping'
   import { SECTION_LABELS, fileHref, sharedHref, wsHref } from '../routes'
   import { outputMedia } from '../media'
@@ -204,11 +204,12 @@
 
   function newFrom() {
     if (!workflow) return
-    sessionStorage.setItem('dw-editor-import', JSON.stringify(workflow))
-    // what the draft started from, and a file name to start with
-    sessionStorage.setItem('dw-editor-import-from', name)
-    sessionStorage.setItem('dw-editor-import-name', leafOf(name))
-    goWs('edit')
+    goCarrying(['ws', workspace.current, 'edit'], {
+      'dw-editor-import': JSON.stringify(workflow),
+      // what the draft started from, and a file name to start with
+      'dw-editor-import-from': name,
+      'dw-editor-import-name': leafOf(name),
+    })
   }
 
   const removing = action(
