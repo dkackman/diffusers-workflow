@@ -8,12 +8,13 @@
   import { hasPicture, type MediaFile } from '../media'
   import { COMPARE_MAX } from '../compare'
   import { goHref } from '../router.svelte'
-  import { compareHref } from '../routes'
+  import { compareHref, jobHref } from '../routes'
 
   let {
     files,
     items,
     workspace,
+    jobId,
   }: {
     /** Every file, in the panel's order */
     files: string[]
@@ -21,6 +22,8 @@
     items: MediaFile[]
     /** The job's own workspace */
     workspace: string
+    /** The job, which Compare's back link returns to */
+    jobId: string
   } = $props()
 
   const comparable = $derived(
@@ -32,7 +35,12 @@
       : 'Compare these side by side',
   )
   function compare() {
-    goHref(compareHref(workspace, comparable.slice(0, COMPARE_MAX)))
+    goHref(
+      compareHref(workspace, comparable.slice(0, COMPARE_MAX), {
+        href: jobHref(jobId, workspace),
+        label: 'Job',
+      }),
+    )
   }
   const downloading = action((names: string[]) => api.archiveOutputs(names), {
     doing: "download this job's files",

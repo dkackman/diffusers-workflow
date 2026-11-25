@@ -8,7 +8,7 @@
   import { untrack } from 'svelte'
   import { hasPicture, outputMedia, viewLabels, withoutRun } from '../media'
   import { openInHash } from '../mediaViewer'
-  import { replaceRoute } from '../router.svelte'
+  import { hashQuery, replaceRoute } from '../router.svelte'
   import { resource, type Resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
   import PageHeader from '../ui/PageHeader.svelte'
@@ -21,7 +21,7 @@
   } from '../compare'
   import { formatDuration } from '../format'
   import { versionTitle } from '../terms'
-  import { SECTION_LABELS, compareHref, wsHref } from '../routes'
+  import { SECTION_LABELS, backFrom, compareHref, wsHref } from '../routes'
   import { workspace } from '../workspace.svelte'
   import Markdown from '../ui/Markdown.svelte'
   import MediaBody from '../ui/MediaBody.svelte'
@@ -103,6 +103,14 @@
     }
   }
   const galleryHref = $derived(wsHref(workspace.current, 'gallery'))
+  // Where the comparison was opened from (`back=` in the hash), else the Gallery
+  const from = $derived.by(() => {
+    void names.join('\n')
+    return backFrom(hashQuery().back)
+  })
+  const back = $derived(
+    from ?? { href: galleryHref, label: SECTION_LABELS.ws.gallery },
+  )
   function seek(to: number) {
     time = to
     for (const v of present()) v.currentTime = to
@@ -123,10 +131,16 @@
   const items = $derived(
     cells.flatMap((c) => {
       const tile = shown(c)
-      return tile && hasPicture(tile.kind) ? [tile] : []
+      return tile ? [tile] : []
     }),
   )
   let open = $state<string | null>(openInHash())
+  // The viewer plays its own file: the synced clips stop under it
+  $effect(() => {
+    if (open === null || !playing) return
+    playing = false
+    for (const v of untrack(present)) v.pause()
+  })
   // An open= naming no file compared is said and cleared (missingFile.svelte.ts)
   const stray = missingFile({
     open: () => open,
@@ -140,15 +154,12 @@
       compareHref(
         workspace.current,
         names.filter((n) => n !== name),
+        from ?? undefined,
       ),
     )
 </script>
 
-<PageHeader
-  title="Compare"
-  baseline
-  back={{ href: galleryHref, label: SECTION_LABELS.ws.gallery }}
-/>
+<PageHeader title="Compare" baseline {back} />
 
 <MissingFile leaf={stray.missing} ondismiss={stray.dismiss} />
 
@@ -206,7 +217,18 @@
             />
           </button>
         {:else}
-          <p class="muted">{tile.label}</p>
+          <div class="sound">
+            <MediaBody file={tile} fit={false} />
+            <button
+              type="button"
+              class="quiet"
+              aria-label="Open {tile.label}"
+              title="open this file large"
+              onclick={() => (open = cell.name)}
+            >
+              Open
+            </button>
+          </div>
         {/if}
         <button
           type="button"
@@ -291,6 +313,12 @@
     position: absolute;
     top: var(--space-1);
     right: var(--space-1);
+  }
+  .sound {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    align-items: flex-start;
   }
   .thumb {
     display: block;
