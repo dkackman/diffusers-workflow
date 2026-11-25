@@ -24,7 +24,7 @@
   import { formatBytes } from '../format'
   import Time from '../ui/Time.svelte'
   import { workflowName } from '../terms'
-  import { compareNames } from '../names'
+  import { compareNames, leafName } from '../names'
   import { hiddenWorkspaces, setHidden } from '../hiddenWorkspaces.svelte'
   import { latestProofs, proofByRun } from '../proofs'
   import { fileHref, jobHref, sharedHref, wsHref } from '../routes'
@@ -149,7 +149,6 @@
     invalidateWorkspaces()
     void loadWorkspaces()
   }
-  const leaf = (n: string) => n.split('/').pop() ?? n
 </script>
 
 <PageHeader title={name} secondary={directory ?? undefined} baseline />
@@ -329,7 +328,7 @@
                 alt=""
               />
             {/if}
-            <span class="cardname">{leaf(wf)}</span>
+            <span class="cardname">{leafName(wf)}</span>
           </a>
         {/each}
       </div>

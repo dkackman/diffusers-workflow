@@ -16,6 +16,7 @@
   import { missingFile } from '../missingFile.svelte'
   import RecipePanel from '../ui/RecipePanel.svelte'
   import { untrack } from 'svelte'
+  import { SvelteMap } from 'svelte/reactivity'
   import { resource, type Resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
   import FolderGroups from '../FolderGroups.svelte'
@@ -219,18 +220,27 @@
     now: () => workspace.current,
     away: 'Nothing undone: another workspace is open now.',
   }
-  const starring = action(setStar, {
-    doing: 'star that file',
-    undo: ({ name, next }) => ({
-      message: `${next ? 'Starred' : 'Unstarred'} ${name.split('/').pop()}`,
-      revert: async () => {
-        if (!!byName.get(name)?.starred !== next)
-          return notify.error(STAR_CHANGED)
-        return setStar(name, !next)
-      },
-      target: STAR_TARGET,
-    }),
-  })
+  // One action per file: a second press on a file in flight is dropped,
+  // while the next file's goes through (S down a run, faster than writes)
+  const starActions = new SvelteMap<string, ReturnType<typeof newStarring>>()
+  const newStarring = () =>
+    action(setStar, {
+      doing: 'star that file',
+      undo: ({ name, next }) => ({
+        message: `${next ? 'Starred' : 'Unstarred'} ${name.split('/').pop()}`,
+        revert: async () => {
+          if (!!byName.get(name)?.starred !== next)
+            return notify.error(STAR_CHANGED)
+          return setStar(name, !next)
+        },
+        target: STAR_TARGET,
+      }),
+    })
+  function star(name: string, next: boolean) {
+    const starring = starActions.get(name) ?? newStarring()
+    starActions.set(name, starring)
+    return starring.run(name, next)
+  }
   // Every file's star as the grid holds it, a filter's hidden ones
   // included: Undo restores each as it was, and leaves one changed since
   const byName = $derived(new Map(files.map((f) => [f.name, f])))
@@ -274,7 +284,7 @@
     kind: 'run' | 'file',
     note: string | null,
   ) {
-    if (kind === 'run') await list.reload()
+    if (kind === 'run') await list.refresh()
     patch(name, { note: note ?? undefined })
   }
 
@@ -332,7 +342,7 @@
   function viewerKey(e: KeyboardEvent, file: MediaFile): boolean {
     const listedFile = byName.get(file.name)
     if (!listedFile) return false
-    if (isStarKey(e)) void starring.run(file.name, !listedFile.starred)
+    if (isStarKey(e)) void star(file.name, !listedFile.starred)
     else if (isDeleteKey(e)) void removing.run(listedFile)
     else return false
     return true
@@ -416,7 +426,7 @@
       {file}
       starred={!!listedFile.starred}
       saving={saving.busy}
-      onstar={() => starring.run(file.name, !listedFile.starred)}
+      onstar={() => star(file.name, !listedFile.starred)}
       onsave={() => saving.run(listedFile)}
       onuse={() => {
         useInput = file

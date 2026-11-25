@@ -1981,3 +1981,22 @@ it('GalleryPage says when each output changed', async () => {
   expect(stamp.textContent?.trim()).toBe('changed 10 min ago')
   expect(stamp.getAttribute('title')).toBeTruthy()
 })
+
+it('S on the next file writes while the last write is in flight', async () => {
+  let land = () => {}
+  api.setStarred.mockImplementationOnce(
+    () => new Promise((resolve) => (land = () => resolve(undefined as never))),
+  )
+  await renderGallery()
+  await openFile('a.png')
+  await press({ key: 's' })
+  // a second press on the same file is still dropped
+  await press({ key: 's' })
+  expect(api.setStarred).toHaveBeenCalledTimes(1)
+  await press({ key: 'ArrowRight' })
+  await viewer('b.png')
+  await press({ key: 's' })
+  expect(api.setStarred).toHaveBeenLastCalledWith('b.png', true)
+  expect(api.setStarred).toHaveBeenCalledTimes(2)
+  land()
+})

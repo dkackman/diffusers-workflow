@@ -21,7 +21,7 @@
   import { cardTitle } from '../workflowCard'
   import { catalogMatches, queryWords } from '../workflow/catalogSearch'
   import { workspace } from '../workspace.svelte'
-  import { codec, hashState, type HashCodec } from '../router.svelte'
+  import { codec, hashState } from '../router.svelte'
   import {
     WORKFLOW_SHAPES,
     WORKFLOW_TRAITS,
@@ -38,11 +38,15 @@
   // The filters live in the hash, so opening a workflow and pressing Back -
   // or sharing the link - keeps the narrowed view
   const filter = hashState('q', '')
-  const shape = hashState('shape', '')
+  const shape = hashState(
+    'shape',
+    '',
+    codec.oneOf<string>(['', ...WORKFLOW_SHAPES]),
+  )
   const traits = hashState<WorkflowTrait[]>(
     'traits',
     [],
-    codec.list as HashCodec<WorkflowTrait[]>,
+    codec.someOf<WorkflowTrait>(WORKFLOW_TRAITS, []),
   )
   const sort = listSort()
 

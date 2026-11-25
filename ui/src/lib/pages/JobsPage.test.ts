@@ -9,7 +9,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import JobsPage from './JobsPage.svelte'
 import { ApiError, NetworkError } from '../apiErrors'
 import { formatExact, formatRelative } from '../format'
-import { workspace } from '../workspaceState.svelte'
+import { DEFAULT_WORKSPACE, workspace } from '../workspaceState.svelte'
 import type { JobSummary } from '../types'
 import { api } from '../test/apiMock'
 
@@ -1122,4 +1122,34 @@ it('an empty jobs page says where to go', async () => {
   render(JobsPage)
   const link = await screen.findByRole('link', { name: 'Pick a workflow' })
   expect(link.getAttribute('href')).toBe('#/ws/default/workflows')
+})
+
+// A new question starts at the first page, and asks once: the load resetting
+// the page it had just read ran it a second time
+it('another workspace after Show older reads its first page once', async () => {
+  data.jobs = finished(120)
+  render(JobsPage)
+  await fireEvent.click(
+    await screen.findByRole('button', { name: 'Show 50 older' }),
+  )
+  await screen.findByRole('button', { name: 'Show 20 older' })
+  const before = data.listed.length
+  workspace.current = 'other'
+  await screen.findByRole('button', { name: 'Show 50 older' })
+  await new Promise((r) => setTimeout(r, 30))
+  const asked = data.listed
+    .slice(before)
+    .filter((l) => l[0] === 'other' && l[2] === 'succeeded,failed,cancelled')
+  expect(asked.map((l) => l[1])).toEqual([50])
+  workspace.current = DEFAULT_WORKSPACE
+})
+
+it('a status in the link the picker does not offer reads as all', async () => {
+  location.hash = '#/ws/default/jobs?status=exploded'
+  data.jobs = [summary({ id: 'ok', workflow: 'fine' })]
+  render(JobsPage)
+  await waitFor(() => expect(screen.getByText('fine')).toBeTruthy())
+  const status = screen.getByTitle('filter by status') as HTMLSelectElement
+  expect(status.value).toBe('')
+  location.hash = ''
 })
