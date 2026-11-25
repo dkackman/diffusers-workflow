@@ -1,4 +1,6 @@
-import { existsSync } from 'node:fs'
+import { existsSync, mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from '@playwright/test'
 
@@ -14,6 +16,10 @@ function e2ePython(): string {
   }
   return 'python3'
 }
+
+/** The fixture's scratch directory, made here once (workers re-read this
+ * file, and inherit the variable) so a spec can reach what the fixture seeds. */
+process.env.DW_E2E_SCRATCH ??= mkdtempSync(join(tmpdir(), 'dw-e2e-'))
 
 /** E2E smoke: real server, real browser, no GPU jobs. The server runs
  * against a scratch copy of the example workflows and prompts (see

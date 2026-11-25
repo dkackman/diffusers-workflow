@@ -1,5 +1,6 @@
 import { mount } from 'svelte'
 import './app.css'
+import './rows.css'
 import './frames.css'
 import './patterns.css'
 

@@ -1,0 +1,42 @@
+/* The rows of a list page, split from app.css: the row it opens with, the
+   machine state a row shows, and the two text classes every page shares (a
+   screen reader's words, a reader's measure). Imported after app.css. */
+/* The row a list page opens with: title, count and controls */
+.pagehead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.8rem;
+  margin-bottom: var(--space-4);
+}
+.pagehead.baseline {
+  align-items: baseline;
+}
+/* Machine state on a list row, here so a page's own file needs no --live:
+   the row the machine is on now (a running job, an item being rendered),
+   the one you came to find; and a row a quiet reload changed (`.row-changed`,
+   frames.css). The tripled class outranks a page's
+   scoped `.row:hover`, which sits at (0,3,0) */
+.row-live {
+  background: color-mix(in srgb, var(--live) 10%, transparent);
+  box-shadow: inset 2px 0 0 var(--live);
+}
+a.row-live.row-live.row-live:hover {
+  background: color-mix(in srgb, var(--live) 16%, transparent);
+}
+
+/* Words for a screen reader only: a live region's announcement, the name
+   of a column of icons */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Prose stays inside a comfortable measure wherever it runs long. */
+.prose {
+  max-width: 68ch;
+}

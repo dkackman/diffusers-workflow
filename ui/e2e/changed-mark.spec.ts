@@ -62,6 +62,22 @@ test('a changed workflow card shows the bar over its picture', async ({
   })
 })
 
+test("an asset tile's change mark shows", async ({ page }) => {
+  await page.goto('/#/ws/default/assets')
+  const tile = page.locator('.cellwrap', { hasText: 'e2e-proof-asset' })
+  await expect(tile).toBeVisible()
+  await expect(tile.locator('img')).toBeVisible()
+  expectVisible(await bar(tile))
+})
+
+test("a workflow card's change mark shows", async ({ page }) => {
+  await page.goto('/#/ws/default/workflows')
+  const card = page.locator('a.card', { hasText: 'card-proof' })
+  await expect(card).toBeVisible()
+  await expect(card.locator('img')).toBeVisible()
+  expectVisible(await bar(card))
+})
+
 test('a changed request item shows the mark over its row, uncovered', async ({
   page,
 }) => {

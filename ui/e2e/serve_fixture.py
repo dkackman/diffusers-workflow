@@ -31,7 +31,9 @@ import zlib
 from datetime import datetime, timedelta, timezone
 
 root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-scratch = tempfile.mkdtemp(prefix="dw-e2e-")
+# playwright.config.ts makes the directory and passes it on, so a spec can
+# reach what the fixture seeds (the hub cache, to put back what a case deletes)
+scratch = os.environ.get("DW_E2E_SCRATCH") or tempfile.mkdtemp(prefix="dw-e2e-")
 for name in ("workflows", "prompts"):
     shutil.copytree(os.path.join(root, name), os.path.join(scratch, name))
 outputs = os.path.join(scratch, "outputs")
@@ -108,6 +110,36 @@ with wave.open(os.path.join(find_dir, "hum.wav"), "wb") as hum:
     hum.writeframes(b"\x00\x00" * 8000 * 2)
 with open(os.path.join(find_dir, "notes.txt"), "w") as handle:
     handle.write("Keeper's log, first night\nthe lamp is lit\nnothing on the water\n")
+
+# One asset and one workflow with a proof picture, each a real image, so the
+# specs that look at a tile's or a card's change mark have a picture to cover
+with open(os.path.join(scratch, "assets", "e2e-proof-asset.png"), "wb") as handle:
+    handle.write(solid_png(96, 96, (60, 140, 90)))
+proof_dir = os.path.join(outputs, "card-proof", "20260910-130000-0f1d0f1d")
+os.makedirs(proof_dir)
+with open(os.path.join(proof_dir, "proof.png"), "wb") as handle:
+    handle.write(solid_png(128, 96, (150, 70, 70)))
+# Old, so it is not one of the Overview's recent files ahead of lighthouse.png
+os.utime(os.path.join(proof_dir, "proof.png"), (1767312000.0, 1767312000.0))
+with open(os.path.join(scratch, "workflows", "card-proof.json"), "w") as handle:
+    json.dump(
+        {
+            "id": "CardProof",
+            "description": "A workflow that has run once, for its card's picture.",
+            "variables": {"line": "Proof"},
+            "steps": [
+                {
+                    "name": "card",
+                    "task": {
+                        "command": "compose_text",
+                        "arguments": {"parts": ["variable:line"]},
+                    },
+                    "result": {"content_type": "text/plain"},
+                }
+            ],
+        },
+        handle,
+    )
 
 helper = os.path.join(scratch, "helper")
 os.environ["DIFFUSERS_HELPER_ROOT"] = helper

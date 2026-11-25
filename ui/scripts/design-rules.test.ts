@@ -10,8 +10,8 @@ import { sourceFiles } from './arch-metrics.mjs'
 const UI = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 // The places --live may appear: the header's running link and VRAM
-// pressure, a running row and status chip (app.css: `.row-live`,
-// `.chip.running`), the bar a changed tile or card shows (frames.css), the
+// pressure, a running row and status chip (rows.css: `.row-live`;
+// app.css: `.chip.running`), the bar a changed tile or card shows (frames.css), the
 // job page's progress bar and current step, the flow view's active step and
 // segment and its legend's key to them, a model download in flight, and a
 // request's progress bar
@@ -25,6 +25,7 @@ const LIVE_FILES = [
   'src/lib/job/JobProgress.svelte',
   'src/lib/pages/ModelsPage.svelte',
   'src/lib/request/RequestProgress.svelte',
+  'src/rows.css',
 ]
 
 it('uses --live only where machine state is shown', () => {

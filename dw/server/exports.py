@@ -172,9 +172,9 @@ class ExportSummary:
         client on another machine has no other way to read them."""
         found = {}
         for key, name in (
-            ("workflow", "workflow.json"),
-            ("manifest", "manifest.json"),
-            ("job", "job.json"),
+            ("workflow", WORKFLOW_FILE_NAME),
+            ("manifest", MANIFEST_FILE_NAME),
+            ("job", JOB_FILE_NAME),
         ):
             try:
                 with open(os.path.join(self.directory, name), "r") as file:

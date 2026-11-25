@@ -405,14 +405,11 @@ def list_workflows(
         "shadowed": [
             entry for entry in shadowed_listing(hidden) if entry["name"] in details
         ],
-        # What a `cost` is, and so what a null one means. Curated:
-        # figures a maintainer measured once on the devices named and
-        # wrote into the workflow - nothing derives them from this
-        # server's own job history, so null means nobody wrote one
-        # down, not that the run is cheap or that this box has never run
-        # it (#91). A detail's `observed` block, when present, is the other
-        # kind of number: this box's own finished runs of that workflow,
-        # derived rather than claimed, never a substitute for `cost` (#93)
+        # `cost` is curated: figures a maintainer measured once and wrote
+        # into the workflow, never derived from this server's job history,
+        # so null means nobody wrote one down, not that the run is cheap
+        # (#91). A detail's `observed` block is the other kind of number:
+        # this box's own finished runs, never a substitute for `cost` (#93)
         "cost_basis": "curated",
     }
     # The agent's compact view is a different, smaller card than the one
@@ -451,8 +448,7 @@ def _write_validated(http_request, ws, name, definition):
         ws.workflows,
     )
     # A definition that fails validation is a refusal (400); validation
-    # itself failing is the server's (500), and its message may carry
-    # internals the log keeps
+    # itself failing is the server's (500), its message left to the log
     try:
         # With the LoRA catalog, as the validate route checks it - a save
         # the server would refuse to run is refused here too (#870)
@@ -469,10 +465,9 @@ def _write_validated(http_request, ws, name, definition):
         json.dump(definition, file, indent=2)
         file.write("\n")
     logger.info(f"Saved workflow {name} to {path}")
-    # What the catalog will say about it, so the author sees the match
-    # it just created. An empty summary is a warning, never a refusal:
-    # a workflow with no description still runs, it is just invisible
-    # to shape-first discovery
+    # What the catalog will say about it, so the author sees the match it
+    # just created. An empty summary warns, never refuses: a workflow with
+    # no description still runs, it is just invisible to shape-first discovery
     metadata = derive_catalog_metadata(definition)
     warnings = list(workflow_argument_warnings(definition))
     warnings += validation.run_warning_check(
@@ -591,10 +586,9 @@ def delete_workflow(
     os.remove(path)
     logger.info(f"Deleted workflow {name} ({path})")
     forget_workspace_usage()
-    # This identity's job history goes with it (#274) - otherwise a name
-    # reused in this workspace, including by a regression cycle that
-    # deletes and recreates the same workflow, would inherit the deleted
-    # copy's observed figures and host-memory history
+    # This identity's job history goes with it (#274), or a name reused in
+    # this workspace would inherit the deleted copy's observed figures and
+    # host-memory history
     manager.history.orphan_workflow_history(ws.name, name)
     return {
         "name": name,
@@ -672,16 +666,14 @@ def get_workflow_variables(
         "origin": source.origin,
     }
     # The rule beside the default it constrains: a consumer reading
-    # `num_frames: 124` with no range picked 61 and paid 138 s of
-    # loading to be told the rule was 17n + 5 from 124 (#96)
+    # `num_frames: 124` alone picked 61 and paid 138 s to be told 17n + 5 (#96)
     constraints = definition.get("variable_constraints")
     if isinstance(constraints, dict) and constraints:
         answer["constraints"] = constraints
     # What an entry of each list-driven variable carries, with any rule
-    # that reaches one of its fields stated beside that field: a caller
-    # reading what a `shots` entry takes reads the bound for
-    # `num_frames` there, rather than having to match it to a key of
-    # `constraints` that names no top-level variable (#145)
+    # that reaches one of its fields stated beside it: a `shots` entry's
+    # `num_frames` bound is read there, not matched to a `constraints` key
+    # that names no top-level variable (#145)
     lists = derive_catalog_metadata(definition).get("lists")
     if lists:
         answer["lists"] = lists
@@ -777,19 +769,17 @@ def list_prompts(
     }
     details = prompt_details(paths)
 
-    # Narrowing happens after the details are read, since that is where a
-    # prompt says what it is for, and it narrows every parallel key at
-    # once: a `prompts` list and a `details` map that disagree is worse
-    # than no filter at all
+    # Narrowing happens after the details are read (that is where a prompt
+    # says what it is for) and narrows every parallel key at once: a
+    # `prompts` list and `details` map that disagree is worse than no filter
     wanted = matching_prompts(details, tag, intended_model)
     if wanted is not None:
         details = {name: detail for name, detail in details.items() if name in wanted}
     # `prompts` and `details` agree by construction, filter or no filter.
-    # `prompt_details` drops a path whose mtime it cannot read - the file
-    # went away between the walk and the read - and listing a name that
-    # carries no detail only tells a caller to go and get a 404. Each detail
-    # says which library it came from and whether a save can reach it, as a
-    # workflow's does (a copy: the detail itself is cached)
+    # `prompt_details` drops a path whose mtime it cannot read (the file
+    # went away since the walk): a name with no detail only sends a caller
+    # to a 404. Each detail says which library it came from and whether a
+    # save can reach it, as a workflow's does (a copy: the detail is cached)
     details = {
         name: {
             **detail,

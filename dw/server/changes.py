@@ -16,8 +16,9 @@ job manager), so the counters see every write but a hand edit on disk.
 - `workspaces` is one server-wide counter (create, delete, a workspace's
   note), carried in every snapshot so the sidebar needs no second read.
 - A library every workspace shares (the prompt library, the shared asset
-  library, and the server's models and LoRAs) is bumped with `bump_all`: a server-wide count added to each
-  workspace's own, so every workspace's page of that kind reloads.
+  library, and the server's models and LoRAs) is bumped with `bump_all`: a
+  server-wide count added to each workspace's own, so every workspace's page
+  of that kind reloads.
 
 A route never bumps by hand. Every write route declares what it changes,
 `@writes(kinds...)` under its `@router.<method>(...)`, or `@NO_CHANGE(reason)`
