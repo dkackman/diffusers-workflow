@@ -7,6 +7,7 @@ import {
 } from '@testing-library/svelte'
 import { afterEach, expect, it, vi } from 'vitest'
 import AttemptStrip from './AttemptStrip.svelte'
+import { workspace } from '../workspaceState.svelte'
 import { attempt, doneItem, item } from './fixtures'
 
 afterEach(cleanup)
@@ -82,6 +83,7 @@ it('the Accepted state shows the check', async () => {
 })
 
 it('a job linked to two items keeps a viewer per strip', async () => {
+  workspace.current = 'studio'
   history.replaceState(history.state, '', '#/ws/studio/requests/r1')
   render(AttemptStrip, { item: filed('a'), workspace: 'studio' })
   render(AttemptStrip, { item: filed('b'), workspace: 'studio' })

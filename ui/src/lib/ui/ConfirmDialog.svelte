@@ -1,9 +1,11 @@
 <script lang="ts">
   import { AlertDialog } from 'bits-ui'
-  import { confirmState, resolveChoice } from '../confirm.svelte'
+  import { confirmState, overlayHost, resolveChoice } from '../confirm.svelte'
   import { holdLayer } from './layers.svelte'
 
   const uid = $props.id()
+  // Read as the dialog opens: full screen shows nothing outside its element
+  const host = $derived(confirmState.open ? overlayHost() : document.body)
 
   $effect(() => {
     if (confirmState.open) return holdLayer()
@@ -42,7 +44,7 @@
     if (!open) resolveChoice(null)
   }}
 >
-  <AlertDialog.Portal>
+  <AlertDialog.Portal to={host}>
     <AlertDialog.Overlay class="ui-overlay ui-ask" />
     <AlertDialog.Content
       class="ui-sheet panel ui-ask"

@@ -4,6 +4,7 @@ import {
   clampPan,
   nextZoom,
   openInHash,
+  pinchZoom,
   swipeStep,
   viewerKey,
   writeOpen,
@@ -177,4 +178,20 @@ it('opening and closing never move the page', async () => {
   // Back lands where the page was left: the same place
   for (const [, y] of scrollTo.mock.calls) expect(y).toBe(1200)
   expect(window.scrollY).toBe(1200)
+})
+
+it('pinchZoom scales the zoom by how far the fingers spread, held to 1..8', () => {
+  const at = (
+    a: number,
+    b: number,
+  ): [{ x: number; y: number }, { x: number; y: number }] => [
+    { x: a, y: 0 },
+    { x: b, y: 0 },
+  ]
+  expect(pinchZoom(at(0, 100), at(0, 200), 1)).toBe(2)
+  expect(pinchZoom(at(0, 100), at(0, 200), 3)).toBe(6)
+  expect(pinchZoom(at(0, 100), at(0, 50), 1)).toBe(1)
+  expect(pinchZoom(at(0, 100), at(0, 5000), 2)).toBe(ZOOM_MAX)
+  // both fingers on one point: nothing to measure
+  expect(pinchZoom(at(5, 5), at(0, 200), 2)).toBe(2)
 })

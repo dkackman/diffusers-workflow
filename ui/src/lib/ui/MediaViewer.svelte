@@ -1,15 +1,14 @@
 <script lang="ts">
-  // One file, large: the whole window, the file fitted to it (nothing
-  // scrolls at fit), zoom to 8x with a drag to pan, previous and next
-  // through the page's own list, a swipe at fit, full screen and keys. Every
-  // key has a button. A page keeps the open file in the hash as open= and
+  // One file, large, fitted to the window: zoom to 8x (buttons, keys, a
+  // pinch) with a drag to pan, previous and next through the page's own
+  // list, a swipe at fit, full screen. Every key has a button. A page keeps the open file in the hash as open= and
   // binds `open`; what opening, stepping, closing and Back do to the
   // history is mediaViewer.ts's (its head says why). An `open` no item
   // names renders nothing - the page says the file is gone - but a file
   // that leaves `items` while it is shown (deleted, filtered, unstarred
   // under Starred) steps on to whatever now fills its place, or the one
   // before it; with nothing left the viewer closes. The look is `.ui-sheet-fill` and `.viewer-*` in patterns.css.
-  import { untrack, type Snippet } from 'svelte'
+  import { tick, untrack, type Snippet } from 'svelte'
   import {
     ChevronLeft,
     ChevronRight,
@@ -26,6 +25,7 @@
     SEEK_SECONDS,
     clampPan,
     nextZoom,
+    pinchTracker,
     openInHash,
     swipeStep,
     viewerKey,
@@ -34,6 +34,7 @@
   } from '../mediaViewer'
   import { leafName } from '../names'
   import { neighbor } from '../neighbor'
+  import { workspace } from '../workspaceState.svelte'
   import { overlayOpen } from './layers.svelte'
   import MediaBody from './MediaBody.svelte'
   import Modal from './Modal.svelte'
@@ -45,6 +46,7 @@
     actions,
     aside,
     onkey,
+    ongone,
   }: {
     items: MediaFile[]
     open: string | null
@@ -55,6 +57,9 @@
     aside?: Snippet<[MediaFile]>
     /** A key the viewer does not take; true when the page handled it */
     onkey?: (e: KeyboardEvent, file: MediaFile) => boolean
+    /** The file's own read came back 404 (deleted while listed): the page
+     * says it is missing (missingFile's `gone`) */
+    ongone?: (name: string) => void
   } = $props()
 
   // The file last shown under `open`, and where it last stood in `items`:
@@ -108,6 +113,23 @@
 
   function close() {
     open = null
+  }
+  // Another workspace's files are not these: a switch closes it
+  let shownIn = untrack(() => workspace.current)
+  $effect(() => {
+    const ws = workspace.current
+    untrack(() => {
+      if (ws !== shownIn) [shownIn, open] = [ws, null]
+    })
+  })
+
+  // A file that fails to draw is asked for again: a 404 is one the listing
+  // still names and the server no longer holds
+  async function onerrorcapture() {
+    if (!ongone || !file) return
+    const name = file.name
+    const res = await fetch(file.url, { method: 'HEAD' }).catch(() => null)
+    if (res?.status === 404 && open === name) ongone(name)
   }
   // Previous and Next at an end are aria-disabled, not disabled: a
   // disabled button drops its focus to <body>, outside the sheet's keys
@@ -183,9 +205,8 @@
   const sizeLabel = $derived(fitted ? 'Actual size' : 'Fit to window')
 
   // At a phone's width the bar keeps one row: zoom and full screen go (a
-  // double-tap still zooms; a portal on <body> would not show over a full
-  // screen sheet) and the page's actions go into More. Read off the
-  // window, as the stylesheet's own break is
+  // pinch or double-tap zooms) and the page's actions go into More. Read
+  // off the window, as the stylesheet's own break is
   const NARROW_PX = 600
   const isNarrow = () =>
     typeof window !== 'undefined' && window.innerWidth <= NARROW_PX
@@ -214,6 +235,25 @@
   $effect(() => {
     if (!narrow || !file) moreOpen = false
   })
+  // When More shuts, or a dialog from it ends, focus left on <body> or in
+  // the menu goes to More, or to Close once the trigger has unmounted
+  let closeButton = $state<HTMLButtonElement | null>(null)
+  let [wasMore, wasOverlay] = [false, false]
+  $effect(() => {
+    const more = moreOpen
+    const above = file ? overlayOpen(1) : false
+    untrack(() => {
+      const ended = (wasMore && !more) || wasOverlay
+      ;[wasMore, wasOverlay] = [more, above]
+      if (ended && !above) void settleFocus()
+    })
+  })
+  async function settleFocus() {
+    await tick()
+    const at = document.activeElement
+    if (at && at !== document.body && !moreList?.contains(at)) return
+    ;(moreButton?.isConnected ? moreButton : closeButton)?.focus()
+  }
 
   const ACTS: Record<ViewerKey, () => void> = {
     prev: () => step(prevName),
@@ -245,33 +285,44 @@
     if (handled) e.preventDefault()
   }
 
-  // A drag pans when zoomed; a quick flat stroke at fit steps. Only a
-  // press on the stage, its frame or a picture: a drag on a clip's seek bar
-  // scrubs and a drag over text selects, so a video, audio, text or control
-  // never starts one
+  // A drag pans when zoomed; two fingers pinch; a quick flat stroke at fit
+  // steps. Only a press on the stage, its frame or a picture: a clip's seek
+  // bar, text or a control never starts one
   let press: { x: number; y: number; t: number; pan: typeof pan } | null = null
+  const fingers = pinchTracker()
   function gestureTarget(target: EventTarget | null): boolean {
     if (!(target instanceof Element)) return false
     if (target === stage || target instanceof HTMLImageElement) return true
     return target.classList.contains('viewer-frame')
   }
   function onpointerdown(e: PointerEvent) {
-    press = gestureTarget(e.target)
-      ? { x: e.clientX, y: e.clientY, t: e.timeStamp, pan }
-      : null
+    if (!gestureTarget(e.target)) return void (press = null)
+    // The stage's until it lifts, wherever it travels
+    stage?.setPointerCapture?.(e.pointerId)
+    window.addEventListener('pointerup', onpointerup)
+    window.addEventListener('pointercancel', onpointerup)
+    const at = { x: e.clientX, y: e.clientY }
+    const pinching = zoomable && fingers.press(e.pointerId, at, zoom)
+    press = pinching ? null : { ...at, t: e.timeStamp, pan }
   }
   function onpointermove(e: PointerEvent) {
+    const pinched = fingers.move(e.pointerId, { x: e.clientX, y: e.clientY })
+    if (pinched !== null) return setZoom(pinched)
     if (!press || fitted) return
-    const want = {
+    pan = heldPan({
       x: press.pan.x + e.clientX - press.x,
       y: press.pan.y + e.clientY - press.y,
-    }
-    pan = heldPan(want)
+    })
   }
   function onpointerup(e: PointerEvent) {
+    const pinched = fingers.lift(e.pointerId)
+    if (fingers.size === 0) {
+      window.removeEventListener('pointerup', onpointerup)
+      window.removeEventListener('pointercancel', onpointerup)
+    }
     const was = press
     press = null
-    if (!was || !fitted) return
+    if (!was || pinched || e.type === 'pointercancel' || !fitted) return
     const by = swipeStep(
       e.clientX - was.x,
       e.clientY - was.y,
@@ -380,6 +431,7 @@
         class="quiet icon"
         aria-label="Close"
         title="Close"
+        bind:this={closeButton}
         onclick={close}
       >
         <X size={16} />
@@ -408,8 +460,7 @@
         role="presentation"
         {onpointerdown}
         {onpointermove}
-        {onpointerup}
-        onpointercancel={() => (press = null)}
+        {onerrorcapture}
         {ondblclick}
       >
         <div

@@ -159,3 +159,28 @@ export function resolveChoice(value: string | null): void {
   if (next) show(next)
   else confirmState.open = false
 }
+
+/** Where an overlay portals: the full-screen element when one is showing
+ * (the browser draws nothing outside it, so a dialog on <body> would be
+ * open and unseen), else <body>. Read when the overlay opens. */
+export function overlayHost(): HTMLElement {
+  return (document.fullscreenElement as HTMLElement | null) ?? document.body
+}
+
+/** An action for a host element that must stay visible (the toaster):
+ * it moves into the full-screen element while one shows, and back where it
+ * was when full screen ends. */
+export function followFullscreen(node: HTMLElement) {
+  const home = node.parentElement
+  const sync = () => {
+    const target = document.fullscreenElement ?? home
+    if (target && node.parentElement !== target) target.appendChild(node)
+  }
+  document.addEventListener('fullscreenchange', sync)
+  sync()
+  return {
+    destroy() {
+      document.removeEventListener('fullscreenchange', sync)
+    },
+  }
+}

@@ -10,6 +10,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import JobResults from './JobResults.svelte'
 import { api } from '../test/apiMock'
 import type { JobDetail } from '../types'
+import { workspace } from '../workspaceState.svelte'
 
 const timeline = {
   kind: 'timeline',
@@ -91,6 +92,7 @@ vi.mock('../toast', () => ({
 }))
 
 beforeEach(() => {
+  workspace.current = 'w'
   api.galleryMetadata.mockClear()
   api.archiveOutputs.mockClear()
   api.setStarred.mockClear()

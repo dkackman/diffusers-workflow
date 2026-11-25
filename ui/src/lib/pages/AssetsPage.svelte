@@ -563,6 +563,7 @@
   busy={working}
   onremove={remove}
   onnotesaved={saveNote}
+  ongone={stray.gone}
 />
 
 <style>

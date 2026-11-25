@@ -471,4 +471,5 @@
   actions={viewerActions}
   aside={viewerAside}
   onkey={viewerKey}
+  ongone={stray.gone}
 />

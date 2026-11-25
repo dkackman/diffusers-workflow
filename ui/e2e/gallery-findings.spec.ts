@@ -90,8 +90,13 @@ async function mockGallery(page: Page) {
     assessCalls.push(route.request().method())
     return route.fulfill({ json: assessReply })
   })
-  // No media is served: the aside is what is being looked at
-  await page.route('**/outputs/**', (route) => route.fulfill({ status: 404 }))
+  // No media is served (the aside is what is being looked at), but the file
+  // is not gone: a HEAD finds it, so a failed draw is not called missing
+  await page.route('**/outputs/**', (route) =>
+    route.fulfill({
+      status: route.request().method() === 'HEAD' ? 200 : 404,
+    }),
+  )
   return assessCalls
 }
 

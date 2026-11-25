@@ -22,6 +22,7 @@
     busy,
     onremove,
     onnotesaved,
+    ongone,
   }: {
     items: MediaFile[]
     open: string | null
@@ -31,6 +32,8 @@
     onremove: (asset: AssetFile) => void
     /** The note the server stored on an asset */
     onnotesaved: (name: string, note: string | null) => void
+    /** A file's read came back 404 (MediaViewer's `ongone`) */
+    ongone?: (name: string) => void
   } = $props()
 </script>
 
@@ -75,7 +78,7 @@
   {/key}
 {/snippet}
 
-<MediaViewer {items} bind:open {actions} {aside} />
+<MediaViewer {items} bind:open {actions} {aside} {ongone} />
 
 <style>
   .origin {

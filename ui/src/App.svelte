@@ -15,6 +15,7 @@
     Sun,
   } from '@lucide/svelte'
   import { Toaster } from 'svelte-sonner'
+  import { followFullscreen } from './lib/confirm.svelte'
   import { tick, untrack } from 'svelte'
   import { placeScroll, route, stopRestore } from './lib/router.svelte'
   import { isEditable } from './lib/editable'
@@ -374,7 +375,9 @@
   </div>
 </div>
 
-<Toaster position="bottom-right" closeButton {theme} duration={4000} />
+<div class="toast-host" use:followFullscreen>
+  <Toaster position="bottom-right" closeButton {theme} duration={4000} />
+</div>
 <ConfirmDialog />
 
 <KeyboardHelp bind:open={helpOpen} />

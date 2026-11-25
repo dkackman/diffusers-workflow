@@ -264,7 +264,7 @@
   {/if}
 </LoadState>
 
-<MediaViewer {items} bind:open />
+<MediaViewer {items} bind:open ongone={stray.gone} />
 
 <style>
   .grid {

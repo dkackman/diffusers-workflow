@@ -43,6 +43,57 @@ export function swipeStep(dx: number, dy: number, ms: number): 1 | -1 | 0 {
   return dx < 0 ? 1 : -1
 }
 
+type Point = { x: number; y: number }
+
+/** The zoom after a two-finger pinch: `zoom` at the start times how much
+ * the fingers' spread has grown, held between fit (1) and ZOOM_MAX. A
+ * start with both fingers on one point changes nothing. */
+export function pinchZoom(
+  start: [Point, Point],
+  now: [Point, Point],
+  zoom: number,
+): number {
+  const spread = (p: [Point, Point]) =>
+    Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y)
+  const was = spread(start)
+  if (was < 1) return zoom
+  return Math.max(1, Math.min(ZOOM_MAX, (zoom * spread(now)) / was))
+}
+
+/** The fingers down on the stage: the second starts a pinch, and `move`
+ * answers the zoom its spread now asks for (null when none is pinching). */
+export function pinchTracker() {
+  const down = new Map<number, Point>()
+  let from: { at: [Point, Point]; zoom: number } | null = null
+  const pair = (): [Point, Point] => {
+    const [a, b] = [...down.values()]
+    return [{ ...a }, { ...b }]
+  }
+  return {
+    get size() {
+      return down.size
+    },
+    press(id: number, at: Point, zoom: number): boolean {
+      down.set(id, at)
+      if (down.size === 2) from = { at: pair(), zoom }
+      return from !== null
+    },
+    move(id: number, at: Point): number | null {
+      if (down.has(id)) down.set(id, at)
+      return from && down.size === 2
+        ? pinchZoom(from.at, pair(), from.zoom)
+        : null
+    },
+    /** Lift one finger: whether it ended a pinch */
+    lift(id: number): boolean {
+      const was = from !== null
+      down.delete(id)
+      if (down.size < 2) from = null
+      return was
+    },
+  }
+}
+
 export type ViewerKey =
   | 'prev'
   | 'next'

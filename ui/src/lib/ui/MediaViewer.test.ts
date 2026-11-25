@@ -12,6 +12,7 @@ import MediaViewer from './MediaViewer.svelte'
 import { holdLayer } from './layers.svelte'
 import type { MediaFile } from '../media'
 import { api } from '../test/apiMock'
+import { workspace } from '../workspaceState.svelte'
 
 api.listWorkspaces.mockImplementation(() => new Promise(() => {}))
 api.fileText.mockImplementation(() => Promise.resolve('a text file'))
@@ -58,6 +59,8 @@ const press = (target: Element, init: KeyboardEventInit) =>
   fireEvent.keyDown(target, init)
 
 beforeEach(() => {
+  // the hash names studio; the router would set it on the first hashchange
+  workspace.current = 'studio'
   // the page was loaded on the link, so nothing is pushed on mount
   history.replaceState(
     history.state,
@@ -68,6 +71,8 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+  // the viewer marks an entry it pushed; the next test starts unmarked
+  history.replaceState(null, '', location.href)
 })
 
 it('opens on the named file and says where it is', async () => {
@@ -473,5 +478,120 @@ it("f enters full screen, but not at a phone's width, where the bar hides it", a
     delete (document as { fullscreenEnabled?: boolean }).fullscreenEnabled
     delete (HTMLElement.prototype as { requestFullscreen?: unknown })
       .requestFullscreen
+  }
+})
+
+it('a pan ends on a pointerup outside the viewer', async () => {
+  history.replaceState({}, '', '#/ws/studio/gallery?open=run%2Fa.png')
+  viewer({ open: 'run/a.png' })
+  const sheet = await screen.findByRole('dialog', { name: 'a.png' })
+  const stage = sheet.querySelector('.viewer-stage') as HTMLElement
+  const capture = vi.fn()
+  stage.setPointerCapture = capture
+  await fireEvent.pointerDown(stage, {
+    clientX: 300,
+    clientY: 100,
+    pointerId: 1,
+  })
+  expect(capture).toHaveBeenCalledWith(1)
+  // released over the page behind: the gesture still ends, and steps
+  await fireEvent.pointerUp(document.body, { clientX: 100, clientY: 100 })
+  expect(await screen.findByRole('dialog', { name: 'b.mp4' })).toBeTruthy()
+})
+
+it('two pointers zoom by their spread', async () => {
+  const sheet = await (viewer(), dialog())
+  const stage = sheet.querySelector('.viewer-stage') as HTMLElement
+  expect(stage).not.toHaveClass('zoomed')
+  await fireEvent.pointerDown(stage, {
+    clientX: 100,
+    clientY: 100,
+    pointerId: 1,
+  })
+  await fireEvent.pointerDown(stage, {
+    clientX: 200,
+    clientY: 100,
+    pointerId: 2,
+  })
+  await fireEvent.pointerMove(stage, {
+    clientX: 300,
+    clientY: 100,
+    pointerId: 2,
+  })
+  await waitFor(() => expect(stage).toHaveClass('zoomed'))
+  // lifting both fingers is not a swipe
+  await fireEvent.pointerUp(stage, { clientX: 300, clientY: 100, pointerId: 2 })
+  await fireEvent.pointerUp(stage, { clientX: 100, clientY: 100, pointerId: 1 })
+  expect(screen.getByRole('dialog', { name: 'b.mp4' })).toBeTruthy()
+})
+
+it('a workspace change closes the viewer', async () => {
+  const was = workspace.current
+  viewer()
+  await dialog()
+  workspace.current = 'elsewhere'
+  try {
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  } finally {
+    workspace.current = was
+  }
+})
+
+it('stepping to a deleted neighbour says it is missing', async () => {
+  const ongone = vi.fn()
+  const fetched = vi
+    .spyOn(globalThis, 'fetch')
+    .mockResolvedValue(new Response(null, { status: 404 }))
+  viewer({ ongone, open: 'run/a.png' })
+  const sheet = await screen.findByRole('dialog', { name: 'a.png' })
+  await fireEvent.error(sheet.querySelector('img')!)
+  await waitFor(() => expect(ongone).toHaveBeenCalledWith('run/a.png'))
+  expect(fetched).toHaveBeenCalled()
+  // a file that merely fails to draw (not a 404) is not said gone
+  ongone.mockClear()
+  fetched.mockResolvedValue(new Response(null, { status: 200 }))
+  await fireEvent.error(sheet.querySelector('img')!)
+  await flush()
+  expect(ongone).not.toHaveBeenCalled()
+})
+
+it('More closes on Escape and returns focus', async () => {
+  widthOf(390)
+  try {
+    viewer({ actions: pageActions })
+    await dialog()
+    const more = screen.getByRole('button', { name: 'More' })
+    await fireEvent.click(more)
+    const menu = await screen.findByRole('dialog', { name: 'More' })
+    await press(menu, { key: 'Escape' })
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'More' })).toBeNull(),
+    )
+    // the viewer stays, and focus is back on More
+    expect(screen.getByRole('dialog', { name: 'b.mp4' })).toBeTruthy()
+    await waitFor(() => expect(document.activeElement).toBe(more))
+  } finally {
+    widthOf(1024)
+  }
+})
+
+it('closing Use as input on a phone focuses the viewer', async () => {
+  widthOf(390)
+  try {
+    viewer({ actions: pageActions })
+    const sheet = await dialog()
+    await fireEvent.click(screen.getByRole('button', { name: 'More' }))
+    const menu = await screen.findByRole('dialog', { name: 'More' })
+    // the action opens a dialog over the viewer; its trigger is gone
+    const release = holdLayer()
+    await fireEvent.click(within(menu).getByRole('button', { name: 'Star' }))
+    ;(document.activeElement as HTMLElement | null)?.blur()
+    release()
+    await waitFor(() =>
+      expect(sheet.contains(document.activeElement)).toBe(true),
+    )
+    expect(document.activeElement).not.toBe(document.body)
+  } finally {
+    widthOf(1024)
   }
 })
