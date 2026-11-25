@@ -368,3 +368,16 @@ it('a change in the open workspace moves its Sidebar time without a page reload'
     vi.useRealTimers()
   }
 })
+
+it('one feed poll that moves the workspaces and a content kind lists them once', async () => {
+  render(Sidebar, { collapsed: false, onToggle: () => {} })
+  await waitFor(() => expect(screen.getByText('default')).toBeTruthy())
+  const calls = listWorkspaces.mock.calls.length
+  // a copy into the open workspace: one poll, both counters moved, each
+  // watcher called in turn (changes.svelte.ts)
+  feed.move(workspace.current, 'workspaces')
+  feed.move(workspace.current, 'assets')
+  await new Promise((r) => setTimeout(r, 10))
+  // the content resource joins the relist on its way
+  expect(listWorkspaces.mock.calls.length).toBe(calls + 1)
+})

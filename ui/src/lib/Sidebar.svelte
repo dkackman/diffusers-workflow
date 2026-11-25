@@ -34,7 +34,7 @@
     type WsSection,
   } from './routes'
   import { resource } from './resource.svelte'
-  import { relistWorkspaces, workspace } from './workspace.svelte'
+  import { relistOrJoin, relistWorkspaces, workspace } from './workspace.svelte'
   import NewWorkspace from './NewWorkspace.svelte'
   import { formatBytes } from './format'
   import Time from './ui/Time.svelte'
@@ -57,8 +57,9 @@
   resource(() => relistWorkspaces(), { watch: ['workspaces'] })
   // The open workspace's own content moving (a save, an upload, an output
   // landing) moves its time: the listing is read again quietly, at most once
-  // per clock tick, a move in a tick that already read it owed to the next.
-  // Jobs are not watched: a queued job changes no folder until it lands
+  // per clock tick, a move in a tick that already read it owed to the next,
+  // joining a `workspaces` relist on its way. Jobs are not watched: a
+  // queued job changes no folder until it lands
   let tick = 0
   let readIn = -1
   let owed = false
@@ -67,7 +68,7 @@
       owed = readIn === tick
       if (owed) return
       readIn = tick
-      await relistWorkspaces()
+      await relistOrJoin()
     },
     { watch: ['workflows', 'prompts', 'assets', 'gallery'], lazy: true },
   )

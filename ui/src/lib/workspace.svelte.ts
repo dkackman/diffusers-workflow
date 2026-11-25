@@ -150,12 +150,26 @@ export function invalidateWorkspaces(): void {
   workspacesPromise = null
 }
 
+// A relist on its way, while it is: what relistOrJoin joins
+let relisting: Promise<void> | null = null
+
 /** The listing read again, the cached one dropped first: what a view
  * watching the `workspaces` kind loads. Never a read already on its way,
  * which may have left before the change it was asked for */
 export function relistWorkspaces(): Promise<void> {
   invalidateWorkspaces()
-  return loadWorkspaces()
+  const read = (relisting = loadWorkspaces())
+  void read.finally(() => {
+    if (relisting === read) relisting = null
+  })
+  return read
+}
+
+/** A relist, joining one already on its way: what a watcher the same feed
+ * poll calls after the `workspaces` one reads, so one poll that moves both
+ * lists the workspaces once (the Sidebar's content, as Overview joins) */
+export function relistOrJoin(): Promise<void> {
+  return relisting ?? relistWorkspaces()
 }
 
 // A listing read while the server was down or locked is the default-only
