@@ -184,7 +184,7 @@ it('notes for the author alone are a warning, not a green light', () => {
   const authored = answer({ warnings: ['a step has no output'] })
   expect(verdictFor(authored, ['seed'])).toMatchObject({
     tone: 'warn',
-    text: 'Ready to run. Read the warnings.',
+    text: 'Ready to run.',
   })
 })
 

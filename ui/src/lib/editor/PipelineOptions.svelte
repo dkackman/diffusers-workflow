@@ -178,10 +178,15 @@
       />
     {/each}
     <div class="addrow">
-      <select bind:value={addSlot} aria-label="component to add" aria-busy={slotsLoading}>
-        <option value="">
-          {slotsLoading ? 'reading the pipeline…' : 'add component…'}
-        </option>
+      <!-- The loading label is a block of its own: an attribute or a text
+           bound to the lookup would share the effect that sets each fold's
+           `open`, and its answer would shut a fold the person just opened -->
+      <select bind:value={addSlot} aria-label="component to add">
+        {#if slotsLoading}
+          <option value="">reading the pipeline…</option>
+        {:else}
+          <option value="">add component…</option>
+        {/if}
         {#each offeredSlots as slot (slot)}
           <option value={slot}>{slot}</option>
         {/each}

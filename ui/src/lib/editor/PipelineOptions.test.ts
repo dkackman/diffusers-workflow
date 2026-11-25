@@ -133,3 +133,27 @@ it('shows a component key outside the known slots', () => {
   })
   expect(screen.getByText('safety_checker')).toBeInTheDocument()
 })
+
+it('keeps a fold the person opened when the class lookup answers', async () => {
+  let answer: (d: PipelineDescription) => void = () => {}
+  const describe = vi
+    .spyOn(api, 'describeClass')
+    .mockReturnValue(
+      new Promise<PipelineDescription>((resolve) => (answer = resolve)),
+    )
+  render(PipelineOptions, {
+    pipeline: { configuration: { component_type: 'SlowProbePipeline' } },
+    index: 0,
+    openSection: '',
+    references: [],
+  })
+  await vi.waitFor(() => expect(describe).toHaveBeenCalled())
+  expect(screen.getByText('reading the pipeline…')).toBeInTheDocument()
+  const fold = screen
+    .getByText('LoRAs')
+    .closest('details') as HTMLDetailsElement
+  fold.open = true
+  answer(sdDescription)
+  expect(await screen.findByText('add component…')).toBeInTheDocument()
+  expect(fold.open).toBe(true)
+})

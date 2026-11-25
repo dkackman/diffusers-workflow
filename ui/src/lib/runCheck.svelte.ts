@@ -80,21 +80,11 @@ export function verdictOf(
   const noted = Object.values(placed.byVariable).filter((list) =>
     list.some((f) => f.tone === 'warn'),
   ).length
-  if (placed.author.length) {
-    return {
-      tone: 'warn',
-      text: 'Ready to run. Read the warnings.',
-      issues: 0,
-    }
-  }
-  if (noted) {
-    return {
-      tone: 'warn',
-      text: `Ready to run. Read the notes under ${plural(noted, 'field', 'fields')}.`,
-      issues: 0,
-    }
-  }
-  return { tone: 'good', text: 'Ready to run.', issues: 0 }
+  const text = noted
+    ? `Ready to run. Read the notes under ${plural(noted, 'field', 'fields')}.`
+    : 'Ready to run.'
+  const tone = noted || placed.author.length ? 'warn' : 'good'
+  return { tone, text, issues: 0 }
 }
 
 export class RunCheck {
