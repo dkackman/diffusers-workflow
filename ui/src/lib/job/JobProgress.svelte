@@ -35,9 +35,9 @@
   <h2>Progress</h2>
   {@render list()}
 {:else}
+  <h2>Progress</h2>
   <details class="progress">
     <summary>
-      <h2>Progress</h2>
       <span class="muted">
         {done} of {steps.length} steps{took === null
           ? ''
@@ -97,13 +97,9 @@
 {/snippet}
 
 <style>
-  /* One line: the heading inline beside the count, the marker kept */
+  /* The heading sits above; the summary holds the count, the marker kept */
   .progress summary {
     cursor: pointer;
-  }
-  .progress summary h2 {
-    display: inline;
-    margin: 0 var(--space-3) 0 0;
   }
   .progress[open] summary {
     margin-bottom: var(--space-2);

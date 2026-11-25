@@ -6,7 +6,7 @@
   // (RecipePanel, its one read, which also says whether the file is
   // starred: the star waits for it). The open file is open= in the job route's
   // hash, written the way Back expects (mediaViewer.ts)
-  import { tick } from 'svelte'
+  import { tick, untrack } from 'svelte'
   import { FilePen } from '@lucide/svelte'
   import { action } from '../action.svelte'
   import { api } from '../api'
@@ -38,8 +38,23 @@
   // guess would offer an Undo that unstars a file starred elsewhere
   let starRead = $state<Record<string, boolean>>({})
   let starSet = $state<Record<string, boolean>>({})
+  // The listing's own word (an item's `starred`) stands in while the read
+  // has not answered or has failed
   const starredNow = (name: string): boolean | null =>
-    starSet[name] ?? starRead[name] ?? null
+    starSet[name] ??
+    starRead[name] ??
+    items.find((item) => item.name === name)?.starred ??
+    null
+  // The record moved under the open viewer (a quiet reload brings a new
+  // listing): what it says outranks what this viewer wrote earlier
+  $effect(() => {
+    for (const item of items)
+      if (typeof item.starred === 'boolean')
+        untrack(() => {
+          starRead[item.name] = item.starred as boolean
+          delete starSet[item.name]
+        })
+  })
   function toggleStar(name: string) {
     const now = starredNow(name)
     if (now !== null) starring.run(name, !now)

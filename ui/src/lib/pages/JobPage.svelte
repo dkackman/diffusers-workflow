@@ -7,6 +7,7 @@
   import LoadState from '../ui/LoadState.svelte'
   import { replaceRoute, route } from '../router.svelte'
   import { wsHref } from '../routes'
+  import { openInHash } from '../mediaViewer'
   import { groupResultFiles, unsavedSteps } from '../results'
   import {
     activeMember,
@@ -93,8 +94,7 @@
   const definitionMoved = $derived(
     ranRead.changed.has(jobId) && !ranRead.changed.has('realized'),
   )
-  // The run note's box is open: its own notice says a newer note, so the
-  // page's line would be a second, and a wrong one (the box did not move)
+  // The run note's box is open: its own notice says it, not the page's
   let noteEditing = $state(false)
   // Keep mine or Use theirs answered the change in the box: the line stays
   // down for the rest of the change's mark, after the box closes too
@@ -114,8 +114,7 @@
   )
   const seedVariable = $derived(ran?.seed_variable ?? null)
   const realized = $derived(ran?.realized ?? false)
-  // The JSON view of that definition - off until asked, since the flow graph
-  // already answers "what did this run do" for most readers
+  // The JSON view of that definition - off until asked
   let showJson = $state(false)
   let events = $state<JobEvent[]>([])
   // arrival clocks for pipeline_step events, for the ETA estimate
@@ -206,8 +205,7 @@
   const progress = $derived(stepProgress(events as JobEvent[]))
   const denoise = $derived(progress.denoise)
   const stall = $derived(activeStall(events as JobEvent[]))
-  // each line led by its clock - seconds since the job started, which every
-  // event carries - so the log says where the time went
+  // each line led by its clock (seconds since the job started)
   const logs = $derived(
     events
       .filter((e) => e.event === 'log')
@@ -225,15 +223,13 @@
     const queued = seedVariable ? job?.arguments?.[seedVariable] : undefined
     return typeof queued === 'number' ? queued : undefined
   })
-  // The record's number once the job has one; while it runs, the run_start
-  // event says it first - so the page names the run the moment it opens
+  // The record's number, or run_start's while it runs
   const runVersion = $derived(
     job?.run_version ??
       (events.find((e) => e.event === 'run_start')?.version as
         number | undefined),
   )
   const etaSeconds = $derived(estimateEta(stepTimes, denoise))
-  // Files grouped by producing step, streamed first, then confirmed by manifest
   const fileGroups = $derived(
     groupResultFiles(job?.manifest, events as JobEvent[]),
   )
@@ -273,16 +269,14 @@
       : undefined,
   )
   let rerunOpen = $state(false)
-  // The same condition RerunWithChanges shows its own button on: a run with
-  // no variables and no arguments has nothing for the dialog to change
+  // RerunWithChanges' own condition: something to change
   const canRerun = $derived(
     Object.keys({
       ...(definition?.variables ?? {}),
       ...(job?.arguments ?? {}),
     }).length > 0,
   )
-  // A job seen unfinished on this page and then failed is news to announce;
-  // one that loads already failed is not
+  // Seen unfinished here, then failed: news to announce
   let seenRunning = $state<string | null>(null)
   $effect(() => {
     if (running) seenRunning = jobId
@@ -323,8 +317,7 @@
     running && events.some((e) => e.event === 'cancel_pending'),
   )
 
-  // The detail classifies the manifest; a running job's step_end events
-  // classify each output before there is a manifest
+  // The manifest's kinds; a running job's step_end events say them first
   const kinds = $derived.by(() => {
     const found: Record<string, string | null> = {}
     for (const event of events)
@@ -387,7 +380,7 @@
       />
     {/if}
 
-    {#if fileGroups.length || unsaved.length}
+    {#if fileGroups.length || unsaved.length || (!running && openInHash())}
       <div class="panel">
         {#key job.id}
           <JobResults

@@ -13,9 +13,19 @@ export interface JobErrorExplained {
 
 const CASES: Array<[RegExp, JobErrorExplained]> = [
   [
-    /out of memory|OutOfMemoryError|CUDA out of memory|MPS backend out of memory/i,
+    /CUDA.*out of memory|MPS.*out of memory|OutOfMemoryError/is,
     {
       title: 'The card ran out of memory.',
+      remedy: 'Run it again with a smaller size or fewer frames.',
+      action: 'rerun',
+    },
+  ],
+  [
+    // The host's RAM (a failed allocation, a killed process, ffmpeg's
+    // own) is not the card's: after the card's, since OutOfMemoryError contains MemoryError
+    /Cannot allocate memory|MemoryError|\bKilled\b/,
+    {
+      title: 'The machine ran out of memory.',
       remedy: 'Run it again with a smaller size or fewer frames.',
       action: 'rerun',
     },
@@ -29,11 +39,20 @@ const CASES: Array<[RegExp, JobErrorExplained]> = [
     },
   ],
   [
-    /GatedRepoError|gated repo|403 Client Error.*huggingface/i,
+    /GatedRepoError|gated repo/i,
     {
       title: 'This model needs Hugging Face access.',
       remedy:
         'Accept its terms on Hugging Face, then sign in on the server with hf auth login.',
+      action: 'models',
+    },
+  ],
+  [
+    // A 403 alone is also a private or removed repo: gating is not claimed
+    /403 Client Error.*huggingface/i,
+    {
+      title: 'The model repo refused access.',
+      remedy: 'Check that the repo exists and that this server may read it.',
       action: 'models',
     },
   ],

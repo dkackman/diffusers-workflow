@@ -15,6 +15,8 @@ export interface RunMetadata {
   meta: Record<string, Fields>
   media: Record<string, Fields>
   inputs: GalleryInput[]
+  /** Whether each file read is starred, as that read says */
+  starred: Record<string, boolean>
 }
 
 export const isBundle = (file: string) => file.toLowerCase().endsWith('.otioz')
@@ -53,8 +55,10 @@ export function runMetadataReader() {
     const replies = await Promise.all(
       [...wanted, ...probe].map((file) => ask(file, workspace)),
     )
-    const found: RunMetadata = { meta: {}, media: {}, inputs: [] }
+    const found: RunMetadata = { meta: {}, media: {}, inputs: [], starred: {} }
     wanted.forEach((file, i) => {
+      if (typeof replies[i]?.starred === 'boolean')
+        found.starred[file] = replies[i]!.starred as boolean
       found.meta[file] = (replies[i]?.metadata as Fields) ?? null
       if (isBundle(file))
         found.media[file] = (replies[i]?.media as Fields) ?? null

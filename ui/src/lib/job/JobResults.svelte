@@ -94,7 +94,7 @@
     referenceName(input.reference, input.kind === 'asset' ? ASSET : OUTPUT) ??
     input.reference
   const sectioned = $derived(
-    sections.length > 1 || sections[0].subfolder !== '',
+    sections.length > 1 || (sections[0]?.subfolder ?? '') !== '',
   )
   // Every file in the order the panel shows them, finals first: what the
   // viewer steps through, Compare picks from and Download all takes
@@ -109,7 +109,13 @@
   const labelled = $derived(viewLabels(ordered))
   const tileOf = (file: string): MediaFile | null => {
     const kind = kindOf(file) as OutputKind | null
-    return kind ? labelled(jobMedia(file, kind, job.id, job.workspace)) : null
+    const starred = run.data?.starred[file]
+    return kind
+      ? labelled({
+          ...jobMedia(file, kind, job.id, job.workspace),
+          ...(starred !== undefined && { starred }),
+        })
+      : null
   }
   const items = $derived(
     ordered.map(tileOf).filter((t): t is MediaFile => t !== null),
@@ -144,7 +150,9 @@
   }
 </script>
 
-<ResultsHead files={ordered} {items} workspace={job.workspace} />
+{#if fileGroups.length || unsaved.length}
+  <ResultsHead files={ordered} {items} workspace={job.workspace} />
+{/if}
 <MissingFile leaf={stray.missing} ondismiss={stray.dismiss} />
 {#if allReused}
   <p class="muted reusednote">

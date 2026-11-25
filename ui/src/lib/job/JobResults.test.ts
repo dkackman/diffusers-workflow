@@ -55,7 +55,7 @@ const embedded = vi.hoisted(() => ({}) as Record<string, unknown>)
 const starredOn = vi.hoisted(() => new Set<string>())
 const notifyUndo = vi.hoisted(() => vi.fn())
 // Reads that never land, while set
-const held = vi.hoisted(() => ({ reads: false }))
+const held = vi.hoisted(() => ({ reads: false, fail: false }))
 vi.mock('../api', async () =>
   (await import('../test/apiMock')).apiModule({
     outputUrl: (path: string) => `/outputs/${path}`,
@@ -64,16 +64,18 @@ vi.mock('../api', async () =>
 api.galleryMetadata.mockImplementation((name: string) =>
   held.reads
     ? new Promise(() => {})
-    : Promise.resolve({
-        name,
-        metadata: embedded[name] ?? null,
-        media: name.endsWith('.otioz') ? timeline : null,
-        inputs: [],
-        job: null,
-        findings: [],
-        linked_jobs: [],
-        ...(starredOn.has(name) && { starred: true }),
-      }),
+    : held.fail
+      ? Promise.reject(new Error('read failed'))
+      : Promise.resolve({
+          name,
+          metadata: embedded[name] ?? null,
+          media: name.endsWith('.otioz') ? timeline : null,
+          inputs: [],
+          job: null,
+          findings: [],
+          linked_jobs: [],
+          ...(starredOn.has(name) && { starred: true }),
+        }),
 )
 api.getJob.mockImplementation(() => new Promise(() => {}))
 api.archiveOutputs.mockImplementation(() => Promise.resolve())
@@ -102,6 +104,7 @@ afterEach(() => {
   for (const key of Object.keys(embedded)) delete embedded[key]
   starredOn.clear()
   held.reads = false
+  held.fail = false
 })
 
 const hashEvent = (change: () => void) =>
@@ -355,6 +358,25 @@ it('the star waits for the read that says whether the file is starred', async ()
   expect(api.setStarred).not.toHaveBeenCalled()
 })
 
+it('the star is enabled from the listing when the recipe read fails', async () => {
+  starredOn.add('run1/a.png')
+  render(JobResults, {
+    ...clips,
+    fileGroups: [group('gen', ['run1/a.png'])],
+    kinds: { 'run1/a.png': 'image' },
+  })
+  // let the listing's own read land, then fail the viewer's
+  await waitFor(() => expect(api.galleryMetadata).toHaveBeenCalled())
+  await new Promise((r) => setTimeout(r, 50))
+  held.fail = true
+  const sheet = await openOutput('run1/a.png')
+  const star = await within(sheet).findByRole('button', {
+    name: 'Star',
+    pressed: true,
+  })
+  expect((star as HTMLButtonElement).disabled).toBe(false)
+})
+
 it("the star's Undo puts back a star the user did not just add", async () => {
   starredOn.add('run1/s3.mp4')
   render(JobResults, clips)
@@ -390,6 +412,20 @@ it('an open= naming no output is said once the job has finished, and cleared', a
   )
   await waitFor(() => expect(location.hash).not.toContain('open='))
   expect(screen.queryByRole('dialog')).toBeNull()
+})
+
+it('an open= on a job with no files at all is said, not silent', async () => {
+  history.replaceState(
+    null,
+    '',
+    `${location.pathname}#/ws/w/jobs/j1?open=run1/gone.png`,
+  )
+  render(JobResults, { ...clips, fileGroups: [], running: false })
+  await waitFor(() =>
+    expect(
+      screen.getByText(/gone\.png is not in this view any more\./),
+    ).toBeTruthy(),
+  )
 })
 
 it('a running job opens the file open= names once it arrives', async () => {
