@@ -16,7 +16,9 @@ describe('Segmented', () => {
       props: { options, value: 'compact', onselect, label: 'detail' },
     })
     expect(
-      screen.getByRole('button', { name: 'compact' }).getAttribute('aria-pressed'),
+      screen
+        .getByRole('button', { name: 'compact' })
+        .getAttribute('aria-pressed'),
     ).toBe('true')
     const full = screen.getByRole('button', { name: 'full' })
     expect(full.getAttribute('aria-pressed')).toBe('false')

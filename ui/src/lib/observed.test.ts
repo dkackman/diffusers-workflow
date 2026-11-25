@@ -8,7 +8,9 @@ describe('observedText', () => {
     ).toBe('about 12.9 min here')
   })
   it('falls back to the cold figure', () => {
-    expect(observedText({ cold_minutes: 0.4, runs: 1 })).toBe('under 1 min here')
+    expect(observedText({ cold_minutes: 0.4, runs: 1 })).toBe(
+      'under 1 min here',
+    )
   })
   it('is null without a figure', () => {
     expect(observedText(null)).toBeNull()
