@@ -165,14 +165,21 @@
     loadPromptLibrary()
     // the route catching up with a save: this is the document already
     if (name && opened === `${workspace.current}:${name}`) return
-    if (name) {
-      ed.saveName = leafOf(name)
-      ed.folder = groupOf(name)
-      fileOpen = false
-      open(name)
-    } else {
-      startDraft()
-    }
+    const path = name
+    // Only the workspace and the route start a load. Untracked, because
+    // what a load reads on the way - the step modes' key follows the
+    // editor's own path - would otherwise re-run this when a first save
+    // names the document, and start the draft over the one just saved
+    untrack(() => {
+      if (path) {
+        ed.saveName = leafOf(path)
+        ed.folder = groupOf(path)
+        fileOpen = false
+        open(path)
+      } else {
+        startDraft()
+      }
+    })
   })
 
   /** A new workflow: a hand-off's definition, else the blank starter. */

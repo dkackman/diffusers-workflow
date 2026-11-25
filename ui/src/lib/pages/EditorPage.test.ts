@@ -790,6 +790,32 @@ describe('EditorPage saving', () => {
     )
   })
 
+  it('a handed-over draft keeps its document after its first save', async () => {
+    location.hash = '#/ws/default/edit'
+    await new Promise((r) => setTimeout(r, 0))
+    sessionStorage.setItem(
+      'dw-editor-import',
+      JSON.stringify({
+        id: 'Tti',
+        steps: [{ name: 'generate', pipeline: {} }],
+      }),
+    )
+    sessionStorage.setItem('dw-editor-import-from', 'templates/tti')
+    sessionStorage.setItem('dw-editor-import-name', 'tti')
+    render(EditorPage, { name: '' })
+    const id = () => screen.getByLabelText('workflow id') as HTMLInputElement
+    await waitFor(() => expect(id().value).toBe('Tti'))
+    await fireEvent.click(saveButton())
+
+    await waitFor(() => expect(location.hash).toBe('#/ws/default/edit/tti'))
+    // the save named the document; it did not start the draft again
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('tti'),
+    )
+    expect(id().value).toBe('Tti')
+    sessionStorage.clear()
+  })
+
   it('a failure after a save is reported, not thrown', async () => {
     const failure = vi.spyOn(notify, 'failure')
     const broken = new Error('no history')
