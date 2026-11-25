@@ -1,7 +1,8 @@
 <script lang="ts">
   import Suggest from '../ui/Suggest.svelte'
   import { Plus, Trash2 } from '@lucide/svelte'
-  import { coerce, displayValue, isReference, widgetFor } from '../editor'
+  import { displayValue, isReference } from '../editor'
+  import { commitArgument } from './commit'
   import { promptLibrary } from '../promptlib.svelte'
   import { promptTooltip } from '../prompts'
   import { referenceCompletions } from '../refcomplete.svelte'
@@ -28,7 +29,7 @@
     suggestions.find((s) => s.name === key)?.hint ?? ''
 
   function update(key: string, raw: string) {
-    if (args) args[key] = coerce(widgetFor(undefined, args[key]), raw)
+    if (args) args[key] = commitArgument(undefined, raw, args[key])
   }
 
   function add(key: string) {

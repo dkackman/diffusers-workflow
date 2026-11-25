@@ -11,6 +11,7 @@
     presetPlaceholder,
     presetView,
   } from '../editor'
+  import { keepsNull } from './commit'
   import { VARIABLE_TYPES, asType, inferValue, typeOf } from './variableTypes'
   import { isFreeText } from '../workflow/runForm'
   import { promptLibrary } from '../promptlib.svelte'
@@ -206,6 +207,7 @@
       overrides[key] = raw
       return
     }
+    if (keepsNull(raw, variables![key])) return
     // Coerce to the row's type - schema validation runs on the definition
     // itself, so "9" where 9 belongs breaks the workflow
     const type = typeOf(variables![key])
