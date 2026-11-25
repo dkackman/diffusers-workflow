@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte'
   import { api, outputUrl } from '../api'
-  import { jobMedia, type MediaFile } from '../media'
+  import { jobMedia, viewLabels, type MediaFile } from '../media'
   import { openInHash } from '../mediaViewer'
   import { leafName } from '../names'
   import { resource } from '../resource.svelte'
@@ -15,6 +15,7 @@
   } from '../results'
   import type { GalleryInput, JobDetail, OutputKind } from '../types'
   import MissingFile from '../ui/MissingFile.svelte'
+  import { missingFile } from '../missingFile.svelte'
   import OutputTile from '../ui/OutputTile.svelte'
   import RoleTag from '../gallery/RoleTag.svelte'
   import { ASSET, OUTPUT, referenceName } from '../references'
@@ -104,9 +105,11 @@
     ).flatMap((group) => group.files),
   )
   // A kind the gallery does not show (null) has no tile: its name links it
+  // Same-leaf files of two steps or subfolders are told apart by caption
+  const labelled = $derived(viewLabels(ordered))
   const tileOf = (file: string): MediaFile | null => {
     const kind = kindOf(file) as OutputKind | null
-    return kind ? jobMedia(file, kind, job.id, job.workspace) : null
+    return kind ? labelled(jobMedia(file, kind, job.id, job.workspace)) : null
   }
   const items = $derived(
     ordered.map(tileOf).filter((t): t is MediaFile => t !== null),
@@ -114,16 +117,13 @@
   let open = $state<string | null>(openInHash())
   // An open= that names no output: while the job runs the file may still
   // arrive, and the viewer opens on it then; once it has finished, said
-  // under the head and cleared, as the Gallery does
-  let missing = $state('')
-  $effect(() => {
-    const name = open
-    if (!name || running || items.some((item) => item.name === name)) return
-    untrack(() => {
-      missing = leafName(name)
-      open = null
-    })
+  // under the head and cleared (missingFile.svelte.ts)
+  const stray = missingFile({
+    open: () => open,
+    known: () => !running,
+    names: () => items.map((item) => item.name),
   })
+  $effect(() => void (stray.missing && untrack(() => (open = null))))
 
   // Two runs of a workflow write the same file names, so the job id rides
   // along - without it the browser shows this job the image it cached from
@@ -145,7 +145,7 @@
 </script>
 
 <ResultsHead files={ordered} {items} workspace={job.workspace} />
-<MissingFile bind:leaf={missing} />
+<MissingFile leaf={stray.missing} ondismiss={stray.dismiss} />
 {#if allReused}
   <p class="muted reusednote">
     Served from the step cache: every step matched an earlier job with the same

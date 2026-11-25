@@ -185,3 +185,15 @@ it('leaves out the files of a shut group, heading by heading', () => {
     'z/1',
   ])
 })
+
+it('take2 sorts before take10, whatever the case', () => {
+  const files = ['take10.png', 'Take3.png', 'take2.png', 'TAKE1.png'].map(
+    (name) => file(name),
+  )
+  expect(names(gridFiles(files, q({ roles: BOTH, sort: 'name' })))).toEqual([
+    'TAKE1.png',
+    'take2.png',
+    'Take3.png',
+    'take10.png',
+  ])
+})

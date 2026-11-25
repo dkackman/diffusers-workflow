@@ -2,6 +2,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/svelte'
 import { afterEach, expect, it, vi } from 'vitest'
 import { createRawSnippet } from 'svelte'
 import RecipePanel from './RecipePanel.svelte'
+import { ApiError } from '../apiErrors'
 import { ASSET } from '../references'
 import type { GalleryMetadata } from '../types'
 
@@ -89,6 +90,38 @@ it('shows the recipe open, with copy buttons on the prompt and seed', async () =
   expect(screen.getByRole('button', { name: /Open as workflow/ })).toBeTruthy()
   expect(screen.getByText('demo/r1/')).toBeTruthy()
   expect(galleryMetadata).toHaveBeenCalledWith('demo/r1/a.png', 'studio')
+})
+
+it('a job that left history is not linked', async () => {
+  getJob.mockImplementationOnce(() =>
+    Promise.reject(new ApiError('Job not found', 404)),
+  )
+  reply.meta = meta({
+    name: 'demo/r1/clip.mp4',
+    job: { id: 'j9', status: 'succeeded' },
+    media: { kind: 'video', duration_seconds: 75 },
+  })
+  panel({ name: 'demo/r1/clip.mp4' })
+  await waitFor(() => expect(getJob).toHaveBeenCalledWith('j9'))
+  await waitFor(() =>
+    expect(screen.queryByRole('link', { name: 'j9' })).toBeNull(),
+  )
+  expect(screen.getByText('j9')).toBeTruthy()
+})
+
+it('an embedded image shows no job error', async () => {
+  getJob.mockImplementationOnce(() => Promise.reject(new Error('boom')))
+  reply.meta = meta({
+    metadata: { arguments: { prompt: 'a cat' } },
+    job: { id: 'j1', status: 'succeeded' },
+  })
+  panel()
+  await screen.findByText('a cat')
+  await waitFor(() => expect(getJob).toHaveBeenCalledWith('j1'))
+  // the read has settled: a clip's would say so, an image's needs no job
+  await new Promise((r) => setTimeout(r, 0))
+  expect(screen.queryByText(/load the job/)).toBeNull()
+  expect(screen.getByRole('link', { name: 'j1' })).toBeTruthy()
 })
 
 it('with no recipe and no job says so once', async () => {

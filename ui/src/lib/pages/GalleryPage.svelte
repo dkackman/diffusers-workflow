@@ -3,11 +3,11 @@
   import { outputLibrary } from '../outputlib.svelte'
   import { api } from '../api'
   import DownloadLink from '../DownloadLink.svelte'
-  import { outputMedia, type MediaFile } from '../media'
+  import { outputMedia, viewLabels, type MediaFile } from '../media'
   import { isStarKey, openInHash } from '../mediaViewer'
-  import { leafName } from '../names'
   import MediaViewer from '../ui/MediaViewer.svelte'
   import MissingFile from '../ui/MissingFile.svelte'
+  import { missingFile } from '../missingFile.svelte'
   import RecipePanel from '../ui/RecipePanel.svelte'
   import { untrack } from 'svelte'
   import { resource, type Resource } from '../resource.svelte'
@@ -130,11 +130,24 @@
     },
     { watch: ['gallery'] },
   )
+  const files = $derived(applyEdits(list.data?.files ?? [], edits))
+  // Same-leaf files in different folders are told apart by their caption;
+  // two runs' files by the version badge, so a run id is never compared
+  const runless = (name: string) => {
+    const run = byName.get(name)?.run_id
+    return run ? name.replace(`/${run}/`, '/') : name
+  }
+  const labelled = $derived(
+    viewLabels(
+      files.map((f) => f.name),
+      runless,
+    ),
+  )
   const tileOf = (file: GalleryFile) => {
     const media = outputMedia(file, list.data?.workspace ?? workspace.current)
-    return { ...media, duration: durations.data?.get(file.name) ?? null }
+    const duration = durations.data?.get(file.name) ?? null
+    return labelled({ ...media, duration })
   }
-  const files = $derived(applyEdits(list.data?.files ?? [], edits))
   // A star or a note saved here is held as read (resource's `adopt`), so it
   // is never marked as another writer's change
   function patch(name: string, fields: Partial<GalleryFile>) {
@@ -281,26 +294,24 @@
   })
 
   // An open= that names no file in this view, once the listing is in: said
-  // under the header, and cleared. One that was listed and left is the
-  // viewer's to step on from
-  let missing = $state('')
-  let listed: string | null = null
+  // under the header (missingFile.svelte.ts), and cleared
+  const stray = missingFile({
+    open: () => open,
+    known: () => list.status === 'ready',
+    names: () => files.map((f) => f.name),
+  })
+  $effect(() => void (stray.missing && untrack(() => (open = null))))
+  // A link to a file in a shut folder or day opens the group too, so the
+  // viewer's count and the grid agree; once, so the person can shut it
+  let revealed: string | null = null
   $effect(() => {
     const name = open
-    if (!name || list.status !== 'ready') return
-    const here = byName.has(name)
+    if (!name || !byName.has(name)) return
     untrack(() => {
-      if (here) {
-        // A link to a file in a shut folder or day opens the group too, so
-        // the viewer's count and the grid agree
-        const g = groups.groupOf(name)
-        if (name !== listed && !filterActive && collapsed.has(g))
-          collapsed.toggle(g)
-        listed = name
-      } else if (name !== listed) {
-        missing = leafName(name)
-        open = null
-      }
+      const g = groups.groupOf(name)
+      if (name !== revealed && !filterActive && collapsed.has(g))
+        collapsed.toggle(g)
+      revealed = name
     })
   })
   // Another workspace's files are another view: the viewer closes
@@ -343,7 +354,7 @@
   <RequestFilter bind:request={reqId} bind:item={reqItem} />
 </GalleryFind>
 
-<MissingFile bind:leaf={missing} />
+<MissingFile leaf={stray.missing} ondismiss={stray.dismiss} />
 
 <BulkBar
   {picks}

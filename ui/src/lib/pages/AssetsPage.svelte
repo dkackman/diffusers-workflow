@@ -8,11 +8,11 @@
   // beside it.
   import { FolderOpen } from '@lucide/svelte'
   import { api } from '../api'
-  import { assetMedia, type MediaFile } from '../media'
+  import { assetMedia, viewLabels, type MediaFile } from '../media'
   import { openInHash } from '../mediaViewer'
-  import { leafName } from '../names'
   import { groupNames } from '../grouping'
   import MissingFile from '../ui/MissingFile.svelte'
+  import { missingFile } from '../missingFile.svelte'
   import OutputTile from '../ui/OutputTile.svelte'
   import { untrack } from 'svelte'
   import { resource } from '../resource.svelte'
@@ -54,6 +54,7 @@
   let { shared = false }: { shared?: boolean } = $props()
 
   const COLLAPSE_KEY = 'collapsed-asset-libraries'
+  const DURATIONS = 200
   // What each library is called in the page's own voice. `common` is the
   // shared library and `examples` a read-only tree an --examples-dir
   // brought; neither name means anything to someone who has not read the
@@ -85,18 +86,20 @@
   })
   // Each clip's and sound's length: the listing again with `media`, read in
   // the background so the grid never waits on the probe (the gallery's
-  // durations); a tile takes its duration from here by name
+  // durations), for the newest DURATIONS assets - an older one's tile
+  // shows no length; a tile takes its duration from here by name
   const durations = resource(
     async () => {
-      const result = await api.listAssets({ media: true })
+      const result = await api.listAssets({ media: true, limit: DURATIONS })
       return new Map(result.assets.map((a) => [a.name, a.duration_seconds]))
     },
     { watch: ['assets'] },
   )
-  const tileOf = (asset: AssetFile) => ({
-    ...assetMedia(asset, list.data?.workspace ?? workspace.current),
-    duration: durations.data?.get(asset.name) ?? null,
-  })
+  const tileOf = (asset: AssetFile) =>
+    labelled({
+      ...assetMedia(asset, list.data?.workspace ?? workspace.current),
+      duration: durations.data?.get(asset.name) ?? null,
+    })
   // A note saved here, until a listing begun after the save lands (the
   // gallery's edits, gallery/order.ts)
   let noteEdits = $state(noEdits<AssetFile>())
@@ -156,6 +159,8 @@
     name.toLowerCase().includes(filter.value.toLowerCase())
   const visible = $derived(assets.filter((a) => matches(a.name)))
   const byName = $derived(new Map(visible.map((a) => [a.name, a])))
+  // Same-leaf assets in different folders are told apart by their caption
+  const labelled = $derived(viewLabels(assets.map((a) => a.name)))
   const folderByName = $derived(new Map(assets.map((a) => [a.name, a.folder])))
   const originOf = $derived(new Map(assets.map((a) => [a.name, a.origin])))
   // A workspace's page shows the shared and examples libraries only as far
@@ -249,12 +254,17 @@
 
   // The library the open asset is in, remembered so a deleted one steps on
   // through the same library (MediaViewer)
-  let viewedOrigin = ''
-  const viewed = $derived.by(() => {
-    const at = sections.find((s) => s.assets.some((a) => a.name === open))
-    if (at) viewedOrigin = at.origin
-    return at ?? sections.find((s) => s.origin === viewedOrigin)
+  let viewedOrigin = $state('')
+  const viewing = $derived(
+    sections.find((s) => s.assets.some((a) => a.name === open)),
+  )
+  $effect(() => {
+    const origin = viewing?.origin
+    if (origin) untrack(() => (viewedOrigin = origin))
   })
+  const viewed = $derived(
+    viewing ?? sections.find((s) => s.origin === viewedOrigin),
+  )
   // What the viewer steps through: that library, in the grid's order,
   // minus a shut folder's assets
   const items = $derived.by((): MediaFile[] => {
@@ -269,24 +279,25 @@
       .map((name) => tileOf(byName.get(name)!))
   })
 
-  // An open= naming no asset on the page, once the listing is in: said
-  // under the header, and cleared. A link to one in a shut library or
-  // folder opens it; one that was listed and left is the viewer's
-  let missing = $state('')
-  let listed: string | null = null
+  // An open= naming no asset on the page (a filter can hide one), once
+  // the listing is in: said under the header (missingFile.svelte.ts), and
+  // cleared
+  const stray = missingFile({
+    open: () => open,
+    known: () => list.status === 'ready',
+    names: () => sections.flatMap((s) => s.assets.map((a) => a.name)),
+  })
+  $effect(() => void (stray.missing && untrack(() => (open = null))))
+  // A link to one in a shut library or folder opens it, once
+  let revealed: string | null = null
   $effect(() => {
     const name = open
-    if (!name || list.status !== 'ready') return
-    const at = sections.find((s) => s.assets.some((a) => a.name === name))
+    const origin = viewing?.origin
+    if (!name || !origin) return
     untrack(() => {
-      if (name === listed) return
-      if (!at) {
-        missing = leafName(name)
-        open = null
-        return
-      }
-      listed = name
-      reveal(at.origin, folderByName.get(name) ?? '')
+      if (name === revealed) return
+      revealed = name
+      reveal(origin, folderByName.get(name) ?? '')
     })
   })
   function reveal(origin: string, folder: string) {
@@ -415,7 +426,7 @@
     {/snippet}
   </PageHeader>
 
-  <MissingFile bind:leaf={missing} />
+  <MissingFile leaf={stray.missing} ondismiss={stray.dismiss} />
 
   <HintBar storageKey="assets-hint-dismissed">
     An asset is input a workflow names by reference: an argument set to

@@ -155,10 +155,11 @@ table.datatable.dense td {
 }
 
 /* A file as a tile (OutputTile.svelte): the picture on --panel-2, letterboxed
-   and never cropped, a caption under a rule, the marks in a corner row. One
-   hover and one selection look: the ink border for the open file
-   (`.active`), the ink edge for a ticked one (`.picked`, an outer ring so the
-   picture cannot cover it). `tile-<size>` sets the frame. */
+   and never cropped, a caption under a rule, the marks in a corner row.
+   Three looks that never pass for each other: hover tints the panel, the
+   open file (`.active`) is an accent outline clear of the edge, a ticked
+   one (`.picked`) keeps its ink edge (an outer ring so the picture cannot
+   cover it). `tile-<size>` sets the frame. */
 .filetile {
   position: relative;
   display: flex;
@@ -181,10 +182,13 @@ button.filetile {
   cursor: pointer;
 }
 a.filetile:hover,
-button.filetile:hover,
-.filetile.active {
-  border-color: var(--ink);
+button.filetile:hover {
+  background: color-mix(in srgb, var(--ink) 6%, var(--panel));
   filter: none;
+}
+.filetile.active {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 .filetile.picked {
   border-color: var(--ink);
@@ -207,6 +211,10 @@ button.filetile:hover,
 }
 .tile-mini {
   width: 48px;
+}
+/* A sound's glyph, name and length need more than a picture's 48 px */
+.tile-mini.kind-audio {
+  width: 72px;
 }
 /* A suggestion row's picture: a small square, no caption or marks, and the
    name of a sound or text left to the row beside it */

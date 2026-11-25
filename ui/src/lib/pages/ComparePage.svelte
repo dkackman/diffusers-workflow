@@ -8,7 +8,6 @@
   import { untrack } from 'svelte'
   import { hasPicture, outputMedia } from '../media'
   import { openInHash } from '../mediaViewer'
-  import { leafName } from '../names'
   import { replaceRoute } from '../router.svelte'
   import { resource, type Resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
@@ -28,6 +27,7 @@
   import MediaBody from '../ui/MediaBody.svelte'
   import MediaViewer from '../ui/MediaViewer.svelte'
   import MissingFile from '../ui/MissingFile.svelte'
+  import { missingFile } from '../missingFile.svelte'
   import Skeleton from '../ui/Skeleton.svelte'
 
   let { names }: { names: string[] } = $props()
@@ -118,16 +118,13 @@
     ),
   )
   let open = $state<string | null>(openInHash())
-  let missing = $state('')
-  $effect(() => {
-    const name = open
-    if (!name || comparison.status !== 'ready') return
-    if (items.some((item) => item.name === name)) return
-    untrack(() => {
-      missing = leafName(name)
-      open = null
-    })
+  // An open= naming no file compared is said and cleared (missingFile.svelte.ts)
+  const stray = missingFile({
+    open: () => open,
+    known: () => comparison.status === 'ready',
+    names: () => items.map((item) => item.name),
   })
+  $effect(() => void (stray.missing && untrack(() => (open = null))))
 
   const without = (name: string) =>
     replaceRoute(
@@ -144,7 +141,7 @@
   back={{ href: galleryHref, label: SECTION_LABELS.ws.gallery }}
 />
 
-<MissingFile bind:leaf={missing} />
+<MissingFile leaf={stray.missing} ondismiss={stray.dismiss} />
 
 <LoadState of={comparison} label="the comparison" empty={names.length < 2}>
   {#snippet emptyIcon()}<Columns2 size={36} strokeWidth={1.5} />{/snippet}

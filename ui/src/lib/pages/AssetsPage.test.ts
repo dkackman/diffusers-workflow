@@ -81,7 +81,10 @@ const listAssets = vi.hoisted(() =>
 // The background `media` read, kept apart so the listing's call counts
 // stay the listing's
 const assetDurations = vi.hoisted(() =>
-  vi.fn(() => Promise.resolve({ assets: [] as AssetFile[] })),
+  vi.fn((opts?: { limit?: number }) => {
+    void opts
+    return Promise.resolve({ assets: [] as AssetFile[] })
+  }),
 )
 const deleteAsset = vi.hoisted(() =>
   vi.fn<(name: string) => Promise<void>>(() => Promise.resolve()),
@@ -113,8 +116,8 @@ const galleryMetadata = vi.hoisted(() =>
 vi.mock('../api', () => ({
   setNote: (t: string, n: string | null) => setNote(t, n),
   api: {
-    listAssets: (opts?: { media?: boolean }) =>
-      opts?.media ? assetDurations() : listAssets(),
+    listAssets: (opts?: { media?: boolean; limit?: number }) =>
+      opts?.media ? assetDurations(opts) : listAssets(),
     noteForSave: (target: string) =>
       Promise.resolve({ target, note: noteHeld.note, etag: '"e"' }),
     galleryMetadata: (reference: string) => galleryMetadata(reference),
@@ -367,6 +370,28 @@ it('an open= naming a missing asset says so', async () => {
   await waitFor(() => expect(hashOpen()).toBeNull())
   await fireEvent.click(within(notice).getByRole('button', { name: 'Dismiss' }))
   expect(screen.queryByText(/is not in this view any more/)).toBeNull()
+})
+
+it('open= under a q= that filters it out is said, and unsaid when the filter goes', async () => {
+  location.hash = '#/ws/default/assets?q=iris&open=cast%2Fpriya.jpg'
+  await renderAssets()
+  await screen.findByText('priya.jpg is not in this view any more.')
+  expect(screen.queryByRole('dialog')).toBeNull()
+  await waitFor(() => expect(hashOpen()).toBeNull())
+  // the filter is the person's: kept
+  expect(new URLSearchParams(location.hash.split('?')[1]).get('q')).toBe('iris')
+  await fireEvent.input(screen.getByPlaceholderText('filter…'), {
+    target: { value: '' },
+  })
+  await waitFor(() =>
+    expect(screen.queryByText(/is not in this view any more/)).toBeNull(),
+  )
+})
+
+it('the durations read asks for only the newest 200 assets', async () => {
+  await renderAssets()
+  await waitFor(() => expect(assetDurations).toHaveBeenCalled())
+  expect(assetDurations).toHaveBeenCalledWith({ media: true, limit: 200 })
 })
 
 it('an open= naming an asset in a shut folder opens it and the folder', async () => {

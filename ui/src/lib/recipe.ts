@@ -35,8 +35,19 @@ type Fields = Record<string, unknown>
 const text = (v: unknown) => (typeof v === 'string' && v ? v : null)
 const num = (v: unknown) => (typeof v === 'number' ? v : null)
 
+/** The workflow the file's run folder is named for: the segment before its
+ * run id (`ltx2/Gyre/<run>/final/a.png` is Gyre), or '' for a file in no
+ * run (an asset, the flat layout) */
+function runWorkflow(meta: GalleryMetadata): string {
+  if (!meta.run_id) return ''
+  const parts = meta.name.split('/')
+  const at = parts.indexOf(meta.run_id)
+  return at > 0 ? parts[at - 1] : ''
+}
+
 /** The workflow's name: the job's file name when one is on record, else
- * the id inside the embedded definition - the only name an image carries */
+ * the workflow the file's run is named for - never the id inside the
+ * embedded definition, which need not be the file's name */
 function workflowOf(meta: GalleryMetadata, job: JobDetail | null) {
   const ref = meta.job as Fields | null
   const named = job ?? {
@@ -44,8 +55,7 @@ function workflowOf(meta: GalleryMetadata, job: JobDetail | null) {
     workflow: text(ref?.workflow),
   }
   if (named.workflow_name || named.workflow) return workflowName(named)
-  const embedded = meta.metadata?.workflow as Fields | undefined
-  return text(embedded?.id) ?? ''
+  return runWorkflow(meta)
 }
 
 /** The rows a file's media gives: its pixel size, its length */
@@ -75,11 +85,13 @@ function ranRows(
   meta: GalleryMetadata,
   job: JobDetail | null,
   workspace: string,
+  linked: boolean,
 ): RecipeRow[] {
   const jobId = meta.job?.id ?? job?.id ?? ''
+  const href = linked ? jobHref(jobId, workspace) : undefined
   return [
     { key: 'workflow', label: 'Workflow', value: workflowOf(meta, job) },
-    { key: 'job', label: 'Job', value: jobId, href: jobHref(jobId, workspace) },
+    { key: 'job', label: 'Job', value: jobId, href },
     {
       key: 'step',
       label: 'Step',
@@ -93,7 +105,7 @@ function ranRows(
 function copyRows(meta: GalleryMetadata, job: JobDetail | null): RecipeRow[] {
   const described = describe(meta, job)
   const seed = described.seed
-  return [
+  const rows: RecipeRow[] = [
     {
       key: 'seed',
       label: 'Seed',
@@ -105,7 +117,8 @@ function copyRows(meta: GalleryMetadata, job: JobDetail | null): RecipeRow[] {
       label: 'Negative prompt',
       value: described.negativePrompt,
     },
-  ].map((row): RecipeRow => ({ ...(row as RecipeRow), copy: true }))
+  ]
+  return rows.map((row) => ({ ...row, copy: true }))
 }
 
 /** Every argument not already a row, in the order the file lists them */
@@ -124,13 +137,19 @@ function argumentRows(meta: GalleryMetadata, job: JobDetail | null) {
 
 /** What made the file, in the plan's order. `job` is the file's job when
  * history still holds it; embedded rows still win. Its link names
- * `workspace`, the file's own (#1600) */
+ * `workspace`, the file's own (#1600); a job that left history - forgotten,
+ * or `jobGone`, its own read found nothing - is named but not linked */
 export function recipeRows(
   meta: GalleryMetadata,
   job: JobDetail | null,
   workspace: string,
+  { jobGone = false }: { jobGone?: boolean } = {},
 ): RecipeRow[] {
-  const head = [...ranRows(meta, job, workspace), ...copyRows(meta, job)]
+  const linked = !jobGone && meta.job?.status !== 'forgotten'
+  const head = [
+    ...ranRows(meta, job, workspace, linked),
+    ...copyRows(meta, job),
+  ]
   return [
     ...head.filter((row) => row.value !== ''),
     ...mediaRows(meta.media),

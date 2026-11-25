@@ -47,7 +47,7 @@ it("an image's rows come from its embedded recipe, in order", () => {
     'studio',
   )
   expect(rows.map((r) => [r.label, r.value])).toEqual([
-    ['Workflow', 'portrait'],
+    ['Workflow', 'portraits'],
     ['Job', 'j1'],
     ['Step', 'draw'],
     ['Model', 'org/model'],
@@ -83,7 +83,7 @@ it("a clip's rows come from its job's arguments", () => {
   ])
 })
 
-it('the Workflow row is the job file name, not the embedded id', () => {
+it('the Workflow row is the job file name, else the run, never the embedded id', () => {
   const rows = recipeRows(
     meta({
       metadata: { workflow: { id: 'portrait-json-id' } },
@@ -101,9 +101,48 @@ it('the Workflow row is the job file name, not the embedded id', () => {
     null,
     'studio',
   )
-  expect(forgotten.find((r) => r.key === 'workflow')?.value).toBe(
-    'portrait-json-id',
+  expect(forgotten.find((r) => r.key === 'workflow')?.value).toBe('portraits')
+  // a run below a subfolder-free identity of several segments: its last
+  const nested = recipeRows(
+    meta({
+      name: 'ltx2/Gyre/r1/final/a.png',
+      metadata: { workflow: { id: 'portrait-json-id' } },
+    }),
+    null,
+    'studio',
   )
+  expect(nested.find((r) => r.key === 'workflow')?.value).toBe('Gyre')
+  // an asset sits in no run: no Workflow row rather than the embedded id
+  const asset = recipeRows(
+    meta({
+      name: 'cast/priya.png',
+      source: 'asset',
+      run_id: '',
+      metadata: { workflow: { id: 'portrait-json-id' } },
+    }),
+    null,
+    'studio',
+  )
+  expect(asset.find((r) => r.key === 'workflow')).toBeUndefined()
+})
+
+it('a job that left history is not linked', () => {
+  const forgotten = recipeRows(
+    meta({ job: { id: 'j1', status: 'forgotten' } }),
+    null,
+    'studio',
+  )
+  const job = forgotten.find((r) => r.key === 'job')
+  expect(job?.value).toBe('j1')
+  expect(job?.href).toBeUndefined()
+  // history said succeeded, but the job's own read found nothing
+  const gone = recipeRows(
+    meta({ job: { id: 'j1', status: 'succeeded' } }),
+    null,
+    'studio',
+    { jobGone: true },
+  )
+  expect(gone.find((r) => r.key === 'job')?.href).toBeUndefined()
 })
 
 it('every argument is listed once', () => {
