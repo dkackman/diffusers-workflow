@@ -1,4 +1,10 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import type {
+  EventLogReply,
+  JobDetail,
+  JobEvent,
+  JobWorkflow,
+} from '../src/lib/types'
 
 // The job page's Event log (#1478), on a mocked finished job whose history
 // kept only the tail of its log: the section opens on a click, reads the
@@ -10,7 +16,7 @@ const ID = 'j-eventlog'
 const NOTE =
   'Only the last 200 events of this job were retained; everything before seq 37 was dropped when the job was recorded.'
 
-const job = {
+const job: JobDetail = {
   id: ID,
   status: 'succeeded',
   workflow: 'text-to-image',
@@ -33,7 +39,7 @@ const job = {
   historical: true,
 }
 
-const events = [
+const events: JobEvent[] = [
   { seq: 37, event: 'step_start', at: 1.2, step: 'generate' },
   {
     seq: 38,
@@ -66,7 +72,7 @@ async function mockJob(page: Page) {
           definition: { id: 'text-to-image', steps: [] },
           realized: true,
           seed_variable: null,
-        },
+        } satisfies JobWorkflow,
       }),
   )
   await page.route(
@@ -81,7 +87,7 @@ async function mockJob(page: Page) {
           last_seq: 40,
           truncated: false,
           note: NOTE,
-        },
+        } satisfies EventLogReply,
       })
     },
   )
@@ -159,7 +165,7 @@ const step = (i: number) => ({
   step: i,
   total_steps: 26,
 })
-const liveEvents: { seq: number }[] = [
+const liveEvents: JobEvent[] = [
   { seq: 0, at: 0, event: 'job_status', status: 'queued' },
   { seq: 1, at: 0, event: 'job_status', status: 'running' },
   memory(2),
@@ -244,7 +250,7 @@ test("a running job's log shows every row and grows on Refresh", async ({
           finished_at: null,
           event_count: served.length,
           historical: false,
-        },
+        } satisfies JobDetail,
       }),
   )
   await page.route(
@@ -256,7 +262,7 @@ test("a running job's log shows every row and grows on Refresh", async ({
           definition: { id: 'text-to-image', steps: [] },
           realized: true,
           seed_variable: null,
-        },
+        } satisfies JobWorkflow,
       }),
   )
   // The live stream is held open with nothing on it: the log reads its own route
@@ -282,7 +288,7 @@ test("a running job's log shows every row and grows on Refresh", async ({
           last_seq: rows.length ? rows[rows.length - 1].seq : Number(after),
           truncated: false,
           note: null,
-        },
+        } satisfies EventLogReply,
       })
     },
   )

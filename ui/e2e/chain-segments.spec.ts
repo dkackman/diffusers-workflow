@@ -1,4 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
+import type { JobDetail, JobWorkflow, ManifestEntry } from '../src/lib/types'
+
+type Shots = NonNullable<ManifestEntry['shots']>
 
 // The job page's chain segment table (#1475), on a mocked finished job:
 // a checked chain stopped short of its plan (`stop_after`), with a resumed
@@ -14,17 +17,17 @@ const ID = 'j-chain-segments'
 const m = (
   value: number,
   ceiling: number | null,
-  extra: Record<string, unknown> = {},
+  extra: { bound?: 'max' | 'min'; warn_only?: boolean; failed?: boolean } = {},
 ) => ({
   value,
   ceiling,
-  bound: 'max',
+  bound: 'max' as const,
   warn_only: false,
   failed: false,
   ...extra,
 })
 
-const shots = [
+const shots: Shots = [
   {
     name: 'segment 1',
     start_frame: 0,
@@ -85,7 +88,7 @@ const oldShots = [0, 1].map((i) => ({
   attempts: 1,
 }))
 
-const job = {
+const job: JobDetail = {
   id: ID,
   status: 'succeeded',
   workflow: 'chained-shot',
@@ -141,7 +144,12 @@ async function mockJob(page: Page) {
     (url) => url.pathname === `/api/jobs/${ID}/workflow`,
     (route) =>
       route.fulfill({
-        json: { id: ID, definition, realized: true, seed_variable: null },
+        json: {
+          id: ID,
+          definition,
+          realized: true,
+          seed_variable: null,
+        } satisfies JobWorkflow,
       }),
   )
   await page.route('**/outputs/**', (route) => route.fulfill({ status: 404 }))

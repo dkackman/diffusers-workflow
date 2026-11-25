@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import type { JobDetail, JobWorkflow, ValidationResult } from '../src/lib/types'
 
 // The chain segment table's actions (#1476), on a mocked finished H3 job
 // that stopped after 2 of its 4 planned segments and kept both segment
@@ -19,7 +20,7 @@ const shots = [1, 2].map((i) => ({
   segment_file: `take.segment-00${i}.mp4`,
 }))
 
-const job = (id: string) => ({
+const job = (id: string): JobDetail => ({
   id,
   status: 'succeeded',
   workflow: 'narrated-take',
@@ -96,7 +97,12 @@ async function mockJob(page: Page) {
       (url) => url.pathname === `/api/jobs/${id}/workflow`,
       (route) =>
         route.fulfill({
-          json: { id, definition, realized: true, seed_variable: null },
+          json: {
+            id,
+            definition,
+            realized: true,
+            seed_variable: null,
+          } satisfies JobWorkflow,
         }),
     )
   }
@@ -166,6 +172,7 @@ test('Continue the chain posts the rerun that resumes from the last segment', as
     return route.fulfill({
       json: {
         valid: true,
+        error: null,
         errors: [],
         warnings: [],
         plan: {
@@ -187,7 +194,7 @@ test('Continue the chain posts the rerun that resumes from the last segment', as
           },
           workspace: 'default',
         },
-      },
+      } satisfies ValidationResult,
     })
   })
   await page.goto(`/#/ws/default/jobs/${ID}`)
