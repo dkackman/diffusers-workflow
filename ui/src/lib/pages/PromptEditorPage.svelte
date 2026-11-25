@@ -31,13 +31,14 @@
   import PageHeader from '../ui/PageHeader.svelte'
   import { writableRoot } from '../libraries'
   import DownloadLink from '../DownloadLink.svelte'
-  import { go, renameRoute } from '../router.svelte'
+  import { go } from '../router.svelte'
   import { SECTION_LABELS, sharedHref } from '../routes'
   import { notify } from '../toast'
   import { action } from '../action.svelte'
   import { destroyConfirm } from '../destructive'
   import { loadPromptLibrary } from '../promptlib.svelte'
-  import { groupOf, leafOf } from '../grouping'
+  import { groupOf } from '../grouping'
+  import { DocumentRoute } from '../documentRoute.svelte'
   import { emptyPrompt, parseTags } from '../prompts'
   import type { PromptDetail } from '../types'
 
@@ -65,17 +66,6 @@
   // (the save lands in this workspace's library, shadowing it) but not
   // deleted, the way a read-only workflow behaves
   const readOnly = $derived(!shell.writable)
-  // The prompt being edited: the route's, until a save names another (or
-  // its first) - the URL follows a beat later
-  const current = $derived(
-    shell.loadState === 'loading' || shell.loadState === 'failed'
-      ? name
-      : (shell.loadedPath ?? name),
-  )
-  // The file on screen, so the route catching up with a save does not
-  // read it again
-  let opened = ''
-
   // Existing folders, from the listing - one level is the designed depth
   const folders = $derived(
     [...new Set(promptFiles.map(groupOf).filter(Boolean))].sort(),
@@ -110,24 +100,23 @@
 
   // ---------------------------------------------------------------- lifecycle
 
-  $effect(() => {
-    if (name && opened === name) {
-      // the route catching up with a save: this is the prompt already
-    } else if (name) {
-      shell.saveName = leafOf(name)
-      shell.folder = groupOf(name)
-      open(name)
-    } else {
-      opened = ''
-      const imported = shell.takeImport(
-        'dw-prompt-editor-import',
-        'dw-prompt-editor-folder',
-      )
-      if (imported) notify.success('Duplicated - save under a new name')
-      shell.startNew(imported ?? emptyPrompt())
-      shell.saveName = ''
-    }
+  const place = new DocumentRoute(shell, {
+    name: () => name,
+    href: (path) => sharedHref('prompt-edit', ...path.split('/')),
+    open,
+    startDraft,
   })
+
+  /** A new prompt: a duplicate's hand-off, else the blank starter. */
+  function startDraft() {
+    const imported = shell.takeImport(
+      'dw-prompt-editor-import',
+      'dw-prompt-editor-folder',
+    )
+    if (imported) notify.success('Duplicated - save under a new name')
+    shell.startNew(imported ?? emptyPrompt())
+    shell.saveName = ''
+  }
 
   // Apart from the route: the URL following a save must not stop an
   // enhancement in flight
@@ -141,14 +130,12 @@
    * definition comes back beside where it was found: a prompt from a
    * read-only examples library can be edited and saved (the copy lands
    * here) but not deleted. */
-  async function open(path: string) {
-    // a new read has begun: until it lands nothing is opened
-    opened = ''
-    const prompt = await openPrompt(shell, path, () => path !== name)
-    if (!prompt) return
-    opened = path
+  async function open(path: string, stale: () => boolean) {
+    const prompt = await openPrompt(shell, path, stale)
+    if (!prompt) return false
     readIdea = enhancer.idea = prompt.enhanced?.idea ?? ''
     enhancer.preselect(shell.doc.intended_model)
+    return true
   }
 
   // ---------------------------------------------------------------- editing
@@ -213,9 +200,7 @@
       void listing.refresh()
       loadPromptLibrary()
       // The URL names the prompt now on screen: a first save, or a save as
-      opened = path
-      if (path !== name)
-        renameRoute(sharedHref('prompt-edit', ...path.split('/')))
+      place.saved(path)
       return path
     },
     {
@@ -245,7 +230,7 @@
   // pressed while the delete runs is the action's busy guard
   let warning = false
   async function remove() {
-    const name = current
+    const name = place.current
     if (!name || removing.busy || warning) return
     warning = true
     try {
@@ -272,7 +257,7 @@
 <!-- The editing surface: a flush commits the field focused in it -->
 <div class="editing" bind:this={shell.root}>
   <PageHeader
-    title={current || 'New prompt'}
+    title={place.current || 'New prompt'}
     back={{ href: sharedHref('prompts'), label: SECTION_LABELS.shared.prompts }}
   >
     {#if shell.dirty}
@@ -290,7 +275,7 @@
         options={views}
         onselect={(view) => shell.setView(view as EditorView)}
       />
-      {#if current}
+      {#if place.current}
         <button
           class="quiet withicon"
           onclick={duplicate}
@@ -298,7 +283,7 @@
         >
           <Copy size={14} />Duplicate
         </button>
-        <DownloadLink href={api.promptDownloadUrl(current)} />
+        <DownloadLink href={api.promptDownloadUrl(place.current)} />
         {#if !readOnly}
           <button
             class="quiet icon danger"
@@ -326,7 +311,7 @@
     <LoadFailed
       label={name}
       error={shell.loadError}
-      onretry={() => open(name)}
+      onretry={() => place.retry()}
       oncreate={shell.loadError instanceof ApiError &&
       shell.loadError.status === 404
         ? () => shell.startNew(emptyPrompt())
@@ -343,7 +328,7 @@
       {folders}
       noun="prompt"
       described={false}
-      changed={listing.data?.details?.[current]?.mtime}
+      changed={listing.data?.details?.[place.current]?.mtime}
       reference={shell.savePath()
         ? reference(PROMPT, shell.savePath() ?? '')
         : ''}

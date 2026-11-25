@@ -35,7 +35,7 @@
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
   import { action } from '../action.svelte'
-  import { go, goWs, renameRoute } from '../router.svelte'
+  import { go, goWs } from '../router.svelte'
   import { SECTION_LABELS, wsHref } from '../routes'
   import { loadWorkspaces, workspace } from '../workspace.svelte'
   import {
@@ -46,6 +46,7 @@
   import { referenceSuggestions } from '../referenceSuggestions'
   import { danglingReferenceDetails, flowGraph } from '../flow'
   import { groupOf, leafOf } from '../grouping'
+  import { DocumentRoute } from '../documentRoute.svelte'
   import { loadPromptLibrary, promptLibrary } from '../promptlib.svelte'
   import VariablesForm from '../editor/VariablesForm.svelte'
   import FlowView from '../editor/FlowView.svelte'
@@ -63,21 +64,25 @@
   })
   watchWorkflow(ed)
   ed.doc = emptyWorkflow()
+  // Where the document sits in the route. A new draft moved to another
+  // workspace stays on this page: the workspace is the route's scope, so
+  // the move reloads the listing and takes the draft back up from the
+  // hand-off
+  const place = new DocumentRoute(ed, {
+    name: () => name,
+    scope: () => workspace.current,
+    href: (path) => wsHref(workspace.current, 'edit', ...path.split('/')),
+    open,
+    startDraft,
+    refresh: () => {
+      loadEditorLists()
+      loadPromptLibrary()
+    },
+  })
   // The file fields collapse behind the path chip once the workflow has a
   // name - they are settings, not something you retouch on every edit
   let fileOpen = $state(false)
-  // The path being edited: the route's, until a save gives the document
-  // another (or its first) - the URL follows a beat later
-  const current = $derived(
-    ed.loadState === 'loading' || ed.loadState === 'failed'
-      ? name
-      : (ed.loadedPath ?? name),
-  )
-  // Which workspace and file the document on screen came from or went to,
-  // so the route catching up with a save does not read it again
-  let opened = ''
-
-  const modesKey = $derived(`step-modes:${current || '(unsaved)'}`)
+  const modesKey = $derived(`step-modes:${place.current || '(unsaved)'}`)
   // Keyed by step name; existing steps open compact, new ones full
   const modes = new StepModes(() => modesKey)
   const jumps = new EditorJumps(ed, modes)
@@ -121,9 +126,9 @@
     href: wsHref(
       workspace.current,
       'workflows',
-      ...current.split('/').filter(Boolean),
+      ...place.current.split('/').filter(Boolean),
     ),
-    label: current || SECTION_LABELS.ws.workflows,
+    label: place.current || SECTION_LABELS.ws.workflows,
   })
 
   // The data-flow graph and per-step reference problems drive the rail's
@@ -156,35 +161,8 @@
     )
   })
 
-  $effect(() => {
-    // A new draft moved to another workspace stays on this page; the
-    // workspace is read here so the move reloads the listing and takes the
-    // draft back up from the hand-off
-    void workspace.current
-    loadEditorLists()
-    loadPromptLibrary()
-    // the route catching up with a save: this is the document already
-    if (name && opened === `${workspace.current}:${name}`) return
-    const path = name
-    // Only the workspace and the route start a load. Untracked, because
-    // what a load reads on the way - the step modes' key follows the
-    // editor's own path - would otherwise re-run this when a first save
-    // names the document, and start the draft over the one just saved
-    untrack(() => {
-      if (path) {
-        ed.saveName = leafOf(path)
-        ed.folder = groupOf(path)
-        fileOpen = false
-        open(path)
-      } else {
-        startDraft()
-      }
-    })
-  })
-
   /** A new workflow: a hand-off's definition, else the blank starter. */
   function startDraft() {
-    opened = ''
     // A gallery "open as workflow" hands the definition over in
     // sessionStorage - one-shot, so a plain "New" stays a blank slate
     const imported = ed.takeImport('dw-editor-import', 'dw-editor-folder')
@@ -207,14 +185,11 @@
   }
 
   /** Read `path` into the editor; a failure leaves nothing to save. */
-  async function open(path: string) {
-    const where = `${workspace.current}:${path}`
-    // a new read has begun: until it lands nothing is opened, so a return
-    // to the previous file reads it again instead of trusting the key
-    opened = ''
-    if (!(await openWorkflow(ed, path, () => path !== name))) return
-    opened = where
+  async function open(path: string, stale: () => boolean) {
+    fileOpen = false
+    if (!(await openWorkflow(ed, path, stale))) return false
     modes.restore()
+    return true
   }
 
   /** The missing file `name`, begun as a blank workflow. */
@@ -300,9 +275,7 @@
     try {
       // The URL names the file now on screen: a first save, or a save as.
       // It goes first so a failure after it leaves page and URL agreeing
-      opened = `${workspace.current}:${path}`
-      if (path !== name)
-        renameRoute(wsHref(workspace.current, 'edit', ...path.split('/')))
+      place.saved(path)
       // A folder this save created must be in the picker at once, or the
       // select falls back to "(root)" while the state still names it
       if (catalog.data) catalog.adopt(withSaved(catalog.data, path))
@@ -335,7 +308,7 @@
 <!-- The editing surface: a flush commits the field focused in it -->
 <div class="editing" bind:this={ed.root}>
   <div class="head">
-    <PageHeader title={current || 'New workflow'} {back}>
+    <PageHeader title={place.current || 'New workflow'} {back}>
       <label class="wfidwrap">
         <span class="wfidlabel">id</span>
         <input
@@ -394,7 +367,7 @@
     <LoadFailed
       label={name}
       error={ed.loadError}
-      onretry={() => open(name)}
+      onretry={() => place.retry()}
       oncreate={ed.loadError instanceof ApiError && ed.loadError.status === 404
         ? startMissing
         : undefined}
@@ -404,11 +377,11 @@
       {ed}
       dir={listed.dir}
       {folders}
-      changed={catalog.data?.details?.[current]?.mtime}
+      changed={catalog.data?.details?.[place.current]?.mtime}
       bind:fileOpen
     >
       {#snippet extra()}
-        {#if !current}
+        {#if !place.current}
           <WorkflowOrigin
             workspace={workspace.current}
             workspaces={workspace.names ?? [workspace.current]}
