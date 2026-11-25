@@ -533,6 +533,11 @@ class LedgerRequest(ApiModel):
     remaining_minutes: int | float = Field(
         description="Estimates of the items not done and not dropped."
     )
+    warnings: list[str] | None = Field(
+        default=None,
+        description="On a write only: what it did not do, e.g. an `accepted` "
+        "sent with a plan edit, which is not recorded.",
+    )
 
 
 class LedgerSummary(ApiModel):
