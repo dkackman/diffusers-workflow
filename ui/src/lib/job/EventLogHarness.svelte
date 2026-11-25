@@ -10,4 +10,7 @@
   }
 </script>
 
-<EventLog {...current} />
+<!-- Keyed by job, as JobPage keys it -->
+{#key current.jobId}
+  <EventLog {...current} />
+{/key}

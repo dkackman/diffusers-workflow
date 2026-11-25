@@ -8,7 +8,6 @@
     EDITOR_VIEWS,
     NEW_FOLDER,
     editorKeys,
-    type EditorView,
   } from '../editorShell.svelte'
   import Segmented from '../ui/Segmented.svelte'
   import DocumentFileBar from '../editor/DocumentFileBar.svelte'
@@ -32,7 +31,7 @@
   import PageHeader from '../ui/PageHeader.svelte'
   import { writableRoot } from '../libraries'
   import DownloadLink from '../DownloadLink.svelte'
-  import { go } from '../router.svelte'
+  import { go, goCarrying } from '../router.svelte'
   import { SECTION_LABELS, sharedHref } from '../routes'
   import { notify } from '../toast'
   import { action } from '../action.svelte'
@@ -246,13 +245,12 @@
   }
 
   function duplicate() {
-    sessionStorage.setItem(
-      'dw-prompt-editor-import',
-      JSON.stringify($state.snapshot(shell.doc)),
-    )
+    const handOff: Record<string, string> = {
+      'dw-prompt-editor-import': JSON.stringify($state.snapshot(shell.doc)),
+    }
     if (shell.folder && shell.folder !== NEW_FOLDER)
-      sessionStorage.setItem('dw-prompt-editor-folder', shell.folder)
-    go('shared', 'prompt-edit')
+      handOff['dw-prompt-editor-folder'] = shell.folder
+    goCarrying(['shared', 'prompt-edit'], handOff)
   }
 </script>
 
@@ -277,7 +275,7 @@
         label="editor view"
         value={shell.view}
         options={views}
-        onselect={(view) => shell.setView(view as EditorView)}
+        onselect={(view) => shell.setView(view)}
       />
       {#if place.current}
         <button
@@ -313,6 +311,7 @@
 
   {#if shell.loadState === 'failed'}
     <LoadFailed
+      detail
       label={name}
       error={shell.loadError}
       onretry={() => place.retry()}

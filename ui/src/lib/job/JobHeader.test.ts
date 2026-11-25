@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/svelte'
 import { afterEach, expect, it, vi } from 'vitest'
 import JobHeader from './JobHeader.svelte'
 import type { JobDetail, LedgerRequest } from '../types'
@@ -109,6 +115,16 @@ it('a double click on Run again queues one job', async () => {
   expect(api.rerunJob).toHaveBeenCalledTimes(1)
   expect(button.getAttribute('aria-busy')).toBe('true')
   release({ id: 'j2' })
+})
+
+it('a rerun that outlasts the job prop still opens in its workspace', async () => {
+  let release!: (v: { id: string }) => void
+  api.rerunJob.mockReturnValue(new Promise((r) => (release = r)))
+  const view = header(job({ workspace: 'studio' }))
+  await fireEvent.click(screen.getByRole('button', { name: /Run again$/ }))
+  await view.rerender({ job: null })
+  release({ id: 'j2' })
+  await waitFor(() => expect(location.hash).toBe('#/ws/studio/jobs/j2'))
 })
 
 const running = (startedAgo: number) =>

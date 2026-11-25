@@ -16,6 +16,7 @@
   import { missingFile } from '../missingFile.svelte'
   import RecipePanel from '../ui/RecipePanel.svelte'
   import { untrack } from 'svelte'
+  import { SvelteMap } from 'svelte/reactivity'
   import { resource, type Resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
   import FolderGroups from '../FolderGroups.svelte'
@@ -35,6 +36,7 @@
   import { codec, goHref, hashState } from '../router.svelte'
   import { compareHref, wsHref } from '../routes'
   import { collapsedState } from '../collapsed.svelte'
+  import { now } from '../clock.svelte'
   import GalleryFind, { findState } from '../gallery/GalleryFind.svelte'
   import GalleryCell from '../gallery/GalleryCell.svelte'
   import RequestFilter from '../gallery/RequestFilter.svelte'
@@ -89,11 +91,15 @@
   let reqId = $state('')
   let reqItem = $state('')
 
+  /** Which narrowing a listing was read under. */
+  const listingKey = (request: string, item: string) =>
+    `${request}\u0000${item}`
+
   // An output landing from outside shows within one feed interval. Only the
   // listing is read again: the open file and its note box are left as they are
   const list: Resource<Listing> = resource(
     async (): Promise<Listing> => {
-      const key = `${reqId}\u0000${reqItem}`
+      const key = listingKey(reqId, reqItem)
       // The edits this read can have seen: those made before it began
       const began = untrack(() => edits.made)
       const result = await api.gallery(
@@ -157,11 +163,14 @@
     if (held) list.adopt({ ...held, files: applyEdits(held.files, edits) })
   }
   const drop = (names: Iterable<string>) => (edits = withGone(edits, names))
-  // The editors' output: completions read the same listing
+  // The editors' output: completions read the same listing, but only when it
+  // is the whole of it - a request's files alone would be all they knew, as
+  // the library does not refetch a workspace it holds. Judged by the key the
+  // listing was read under, not the filter now, which can be ahead of it
   $effect(() => {
     const data = list.data
     untrack(() => {
-      if (!data) return
+      if (!data || data.key !== listingKey('', '')) return
       outputLibrary.items = data.files
       outputLibrary.workspace = workspace.current
     })
@@ -195,8 +204,11 @@
   // The headings, and the files in the order they show under them. Folders
   // and days are shut apart (a day is not a folder), and held here so a
   // shut one's files are out of the picks' and the viewer's order too
+  // The day the date headings are counted from, off the shared clock: it
+  // changes (and regroups) only when the day does
+  const today = $derived(new Date(now.value * 1000).toDateString())
   const groups = $derived(
-    gridGroups(visible, groupBy.value, sort.value, new Date()),
+    gridGroups(visible, groupBy.value, sort.value, new Date(today)),
   )
   const shutBy = {
     folder: collapsedState('collapsed-gallery-folders'),
@@ -219,18 +231,27 @@
     now: () => workspace.current,
     away: 'Nothing undone: another workspace is open now.',
   }
-  const starring = action(setStar, {
-    doing: 'star that file',
-    undo: ({ name, next }) => ({
-      message: `${next ? 'Starred' : 'Unstarred'} ${name.split('/').pop()}`,
-      revert: async () => {
-        if (!!byName.get(name)?.starred !== next)
-          return notify.error(STAR_CHANGED)
-        return setStar(name, !next)
-      },
-      target: STAR_TARGET,
-    }),
-  })
+  // One action per file: a second press on a file in flight is dropped,
+  // while the next file's goes through (S down a run, faster than writes)
+  const starActions = new SvelteMap<string, ReturnType<typeof newStarring>>()
+  const newStarring = () =>
+    action(setStar, {
+      doing: 'star that file',
+      undo: ({ name, next }) => ({
+        message: `${next ? 'Starred' : 'Unstarred'} ${name.split('/').pop()}`,
+        revert: async () => {
+          if (!!byName.get(name)?.starred !== next)
+            return notify.error(STAR_CHANGED)
+          return setStar(name, !next)
+        },
+        target: STAR_TARGET,
+      }),
+    })
+  function star(name: string, next: boolean) {
+    const starring = starActions.get(name) ?? newStarring()
+    starActions.set(name, starring)
+    return starring.run(name, next)
+  }
   // Every file's star as the grid holds it, a filter's hidden ones
   // included: Undo restores each as it was, and leaves one changed since
   const byName = $derived(new Map(files.map((f) => [f.name, f])))
@@ -274,7 +295,7 @@
     kind: 'run' | 'file',
     note: string | null,
   ) {
-    if (kind === 'run') await list.reload()
+    if (kind === 'run') await list.refresh()
     patch(name, { note: note ?? undefined })
   }
 
@@ -332,7 +353,7 @@
   function viewerKey(e: KeyboardEvent, file: MediaFile): boolean {
     const listedFile = byName.get(file.name)
     if (!listedFile) return false
-    if (isStarKey(e)) void starring.run(file.name, !listedFile.starred)
+    if (isStarKey(e)) void star(file.name, !listedFile.starred)
     else if (isDeleteKey(e)) void removing.run(listedFile)
     else return false
     return true
@@ -416,7 +437,7 @@
       {file}
       starred={!!listedFile.starred}
       saving={saving.busy}
-      onstar={() => starring.run(file.name, !listedFile.starred)}
+      onstar={() => star(file.name, !listedFile.starred)}
       onsave={() => saving.run(listedFile)}
       onuse={() => {
         useInput = file

@@ -1168,7 +1168,7 @@ describe('step timing bar and peak host RAM (#1453)', () => {
     detail.job = { ...job([]), host_memory_job_peak_committed_mb: 20480 }
     const first = render(JobPage, { jobId: 'j1' })
     await waitFor(() =>
-      expect(screen.getByText('peak host RAM 20.0 GB')).toBeTruthy(),
+      expect(screen.getByText('peak host RAM 20.00 GB')).toBeTruthy(),
     )
     first.unmount()
     detail.job = { ...job([]), host_memory_job_peak_committed_mb: null }
@@ -1184,6 +1184,19 @@ describe('event log (#1478)', () => {
     [...c.querySelectorAll('.eventlog tbody tr')].map((tr) =>
       [...tr.querySelectorAll('td')].map((td) => td.textContent?.trim()),
     )
+
+  it('another job gets a closed log of its own', async () => {
+    detail.job = { ...job([]), historical: true } as JobDetail
+    const { rerender } = render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(logToggle()).toBeTruthy())
+    await fireEvent.click(logToggle())
+    expect(logToggle().getAttribute('aria-expanded')).toBe('true')
+    detail.job = { ...detail.job, id: 'j2' }
+    await rerender({ jobId: 'j2' })
+    await waitFor(() =>
+      expect(logToggle().getAttribute('aria-expanded')).toBe('false'),
+    )
+  })
 
   it('is collapsed on a historical job and asks for nothing until opened', async () => {
     detail.job = { ...job([]), historical: true } as JobDetail

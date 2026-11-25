@@ -426,3 +426,16 @@ def test_the_first_run_workflow_exists():
     """The workflow the first-run card names is a template in the repo."""
     name = ts_constants(UI_LIB / "firstRun.ts")["FIRST_RUN_WORKFLOW"]
     assert (REPO / "workflows" / f"{name}.json").is_file(), name
+
+
+def test_the_ui_braces_under_the_keys_the_engine_loads_as_types():
+    """The form editor adds a string default under these keys in {}, so it
+    stays a string (#1656); arguments.py reads them by name."""
+    engine = (REPO / "dw" / "arguments.py").read_text()
+    assert 'k.endswith("_type") or k.endswith("_dtype") or k == "dtype"' in engine
+    ui = (UI_LIB / "editor" / "commit.ts").read_text()
+    pattern = re.search(r"^const TYPE_KEY = /(.*)/$", ui, re.M).group(1)
+    for key in ("solver_type", "torch_dtype", "dtype"):
+        assert re.search(pattern, key), key
+    for key in ("prompt", "my_dtypes", "type"):
+        assert not re.search(pattern, key), key

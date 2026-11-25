@@ -129,7 +129,7 @@
   }
 
   function moveStep(index: number, delta: number) {
-    const list = steps!
+    const list = steps ?? []
     const target = index + delta
     if (target < 0 || target >= list.length) return
     ;[list[index], list[target]] = [list[target], list[index]]
@@ -163,15 +163,23 @@
       class:flowlit={hovered !== null && step.name === hovered}
     >
       <div class="railcell">
-        <span class="ordinal" title={`step ${index + 1} of ${steps!.length}`}>
+        <span
+          class="ordinal"
+          title={`step ${index + 1} of ${(steps ?? []).length}`}
+        >
           {index + 1}
         </span>
       </div>
       <StepEditor
-        bind:step={steps![index]}
+        bind:step={
+          () => step,
+          (next) => {
+            if (steps) steps[index] = next
+          }
+        }
         {index}
         {workflow}
-        count={steps!.length}
+        count={(steps ?? []).length}
         references={stepReferences[index] ?? []}
         baseFolder={folder}
         mode={modes.of(step)}

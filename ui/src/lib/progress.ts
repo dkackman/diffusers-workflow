@@ -67,6 +67,27 @@ export function stepProgress(events: JobEvent[]): StepProgress {
   }
 }
 
+// Which events a newer one of a kind supersedes, in what stepProgress reads
+const SUPERSEDES: Record<string, string[]> = {
+  phase: ['phase', 'download_progress'],
+  download_progress: ['download_progress'],
+  pipeline_step: ['pipeline_step'],
+}
+
+/** `window` with `event` taken in: the few events stepProgress reads, so a
+ * live run is read without holding or rescanning its whole stream. Its
+ * stepProgress equals that of every event fed through it; an event that
+ * changes nothing returns the same array. */
+export function progressWindow(
+  window: JobEvent[],
+  event: JobEvent,
+): JobEvent[] {
+  if (event.event === 'step_start') return [event]
+  const dropped = SUPERSEDES[event.event]
+  if (!dropped) return window
+  return [...window.filter((e) => !dropped.includes(e.event)), event]
+}
+
 /** "loading acme/model" - the detail is what makes a phase worth showing. */
 export function phaseLabel(event: JobEvent): string {
   const phase = event.phase as string

@@ -7,11 +7,11 @@
   import type { FieldKind } from '../referenceField'
   import {
     classDescription,
-    coerce,
     displayValue,
     isReference,
     widgetFor,
   } from '../editor'
+  import { addedArgument, commitArgument, keepsNull } from './commit'
   import {
     mediaKindFor,
     mediaLocation,
@@ -89,7 +89,16 @@
   }
 
   function update(key: string, raw: string) {
-    write(key, coerce(widgetFor(parameters.get(key), args?.[key]), raw))
+    write(key, commitArgument(parameters.get(key), raw, args?.[key]))
+  }
+
+  /** A ReferenceField's commit: a media argument holds a location, anything
+   * else showing there is a reference being replaced */
+  function updateReference(key: string, raw: string, media: boolean) {
+    const previous = args?.[key]
+    if (media && !keepsNull(raw, previous)) {
+      write(key, withMediaLocation(previous, raw))
+    } else update(key, raw)
   }
 
   // Free-form additions belong wherever the schema is open-ended: the
@@ -100,7 +109,7 @@
   function addCustom() {
     const name = customName.trim()
     if (!name || name in (args ?? {})) return
-    write(name, parameters.get(name)?.default ?? '')
+    write(name, addedArgument(name, parameters.get(name)))
     customName = ''
   }
 
@@ -130,7 +139,7 @@
             {suggestions}
             title={promptTooltip(args?.[key], promptLibrary.texts)}
             onchange={(location) => {
-              write(key, withMediaLocation(args?.[key], location))
+              updateReference(key, location, !!mediaKind)
             }}
           />
         {:else if widget === 'boolean'}
@@ -204,7 +213,7 @@
             <button
               class="quiet icon"
               onclick={() => {
-                write(parameter.name, parameter.default ?? '')
+                write(parameter.name, addedArgument(parameter.name, parameter))
               }}
               title={`add ${parameter.name}`}
               aria-label={`add ${parameter.name}`}

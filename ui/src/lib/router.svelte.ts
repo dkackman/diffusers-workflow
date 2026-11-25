@@ -406,8 +406,22 @@ async function allowed(): Promise<boolean> {
   return true
 }
 
+// A hand-off on its way: the session-storage keys `goCarrying` wrote, and
+// the path whose page takes them
+let carried: { path: string; keys: string[]; unguarded: boolean } | null = null
+
+/** The navigation the hand-off rode on is not happening: take it back, so a
+ * later visit does not open it. */
+function dropCarried() {
+  for (const key of carried?.keys ?? []) sessionStorage.removeItem(key)
+  carried = null
+}
+
 /** Take the entry the browser is on as the route. */
 function settle() {
+  // arrived: the keys are the destination page's to take now
+  if (carried?.path === pathOf(location.hash)) carried = null
+  else dropCarried()
   stopRestore()
   replacing = false
   replacedState = null
@@ -459,7 +473,10 @@ function ask() {
       // allowed but back on the committed entry is no navigation: the
       // route keeps its arrays, as a decline there would
       if (ok && !home()) settle()
-      else undo()
+      else {
+        dropCarried()
+        undo()
+      }
     })
 }
 
@@ -477,7 +494,9 @@ window.addEventListener('hashchange', () => {
   // asking, it only records where the browser is; on the committed entry
   // (our own walk back, already restored) there is nothing to do
   if (asking || home()) return
-  if (!guards.size || pathOf(location.hash) === pathOf(committed)) settle()
+  const path = pathOf(location.hash)
+  const exempt = carried?.unguarded && carried.path === path
+  if (!guards.size || exempt || path === pathOf(committed)) settle()
   else ask()
 })
 
@@ -511,8 +530,33 @@ export function renameRoute(hash: string) {
   route.view = next.view
 }
 
+function hrefOf(parts: string[]): string {
+  return '/' + parts.map(encodeURIComponent).join('/')
+}
+
 export function go(...parts: string[]) {
-  goHref('/' + parts.map(encodeURIComponent).join('/'))
+  goHref(hrefOf(parts))
+}
+
+/** `go`, with a hand-off the destination page reads from session storage.
+ * The entries last only if the route arrives there: a leave guard's decline,
+ * or landing anywhere else, removes them. `unguarded` skips the leave guards,
+ * for a navigation that takes the unsaved edits with it. */
+export function goCarrying(
+  parts: string[],
+  entries: Record<string, string>,
+  { unguarded = false } = {},
+) {
+  dropCarried()
+  for (const [key, value] of Object.entries(entries))
+    sessionStorage.setItem(key, value)
+  const href = hrefOf(parts)
+  carried = {
+    path: pathOf('#' + href),
+    keys: Object.keys(entries),
+    unguarded,
+  }
+  goHref(href)
 }
 
 /** Navigate, as `go` does (a new history entry), to a hash a builder in

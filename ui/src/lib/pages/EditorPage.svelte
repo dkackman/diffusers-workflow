@@ -6,7 +6,6 @@
     EDITOR_VIEWS,
     NEW_FOLDER,
     editorKeys,
-    type EditorView,
   } from '../editorShell.svelte'
   import Segmented from '../ui/Segmented.svelte'
   import EditorBody from '../editor/EditorBody.svelte'
@@ -36,7 +35,7 @@
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
   import { action } from '../action.svelte'
-  import { go, goWs } from '../router.svelte'
+  import { goCarrying, goWs } from '../router.svelte'
   import { SECTION_LABELS, wsHref } from '../routes'
   import { loadWorkspaces, workspace } from '../workspace.svelte'
   import {
@@ -114,6 +113,8 @@
   // what it started from, so moving it to another workspace keeps both
   const NAME_KEY = 'dw-editor-import-name'
   const FROM_KEY = 'dw-editor-import-from'
+  // and, for a move, what its unsaved edits are measured against
+  const BASELINE_KEY = 'dw-editor-import-baseline'
   // the workspace picker's names - outside the load effect, so the listing
   // landing cannot re-run it and reset the draft
   loadWorkspaces()
@@ -177,7 +178,11 @@
     if (imported && from === null)
       notify.success('Imported from image metadata')
     ed.startNew(fresh)
+    // a moved draft is as unsaved as it was before the move
+    const baseline = sessionStorage.getItem(BASELINE_KEY)
+    if (imported && baseline) ed.markSaved(baseline)
     ed.saveName = sessionStorage.getItem(NAME_KEY) ?? ''
+    sessionStorage.removeItem(BASELINE_KEY)
     sessionStorage.removeItem(FROM_KEY)
     sessionStorage.removeItem(NAME_KEY)
     // A new workflow has nowhere to save to yet - show the fields
@@ -205,13 +210,19 @@
   /** Hand the draft to another workspace's editor - nothing is saved yet,
    * so where it saves is only which workspace the route names. */
   function moveToWorkspace(target: string) {
-    sessionStorage.setItem(
-      'dw-editor-import',
-      JSON.stringify($state.snapshot(ed.doc)),
+    ed.flush()
+    goCarrying(
+      ['ws', target, 'edit'],
+      {
+        'dw-editor-import': JSON.stringify($state.snapshot(ed.doc)),
+        [NAME_KEY]: ed.saveName,
+        [FROM_KEY]: startFrom,
+        [BASELINE_KEY]: ed.baseline,
+      },
+      // the draft goes along, so there is nothing to ask about - unless the
+      // JSON text does not parse, which stays behind
+      { unguarded: !ed.jsonParseFailed },
     )
-    sessionStorage.setItem(NAME_KEY, ed.saveName)
-    sessionStorage.setItem(FROM_KEY, startFrom)
-    go('ws', target, 'edit')
   }
 
   /** A name the user typed stays; one the last example supplied follows
@@ -332,7 +343,7 @@
           label="editor view"
           value={ed.view}
           options={EDITOR_VIEWS}
-          onselect={(view) => ed.setView(view as EditorView)}
+          onselect={(view) => ed.setView(view)}
         />
         <button
           class="quiet withicon"
@@ -365,6 +376,7 @@
 
   {#if ed.loadState === 'failed'}
     <LoadFailed
+      detail
       label={name}
       error={ed.loadError}
       onretry={() => place.retry()}

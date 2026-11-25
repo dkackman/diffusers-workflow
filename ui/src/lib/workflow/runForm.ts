@@ -127,21 +127,22 @@ export class DraftSaver {
 }
 
 /** Values another page asked this one to open with (Repair this segment,
- * #1476): read once, and only when they name this workflow. Filled in, never
- * submitted - Run is still the user's */
+ * #1476): read once, by the workflow they name; another workflow's stay for
+ * it. Filled in, never submitted - Run is still the user's */
 export function takePrefill(name: string): Record<string, string> {
   const raw = sessionStorage.getItem(WORKFLOW_PREFILL_KEY)
   if (raw === null) return {}
-  sessionStorage.removeItem(WORKFLOW_PREFILL_KEY)
   try {
     const parsed = JSON.parse(raw)
     if (parsed?.workflow !== name) return {}
+    sessionStorage.removeItem(WORKFLOW_PREFILL_KEY)
     const args = parsed.arguments
     if (!args || typeof args !== 'object') return {}
     return Object.fromEntries(
       Object.entries(args).map(([key, value]) => [key, String(value)]),
     )
   } catch {
+    sessionStorage.removeItem(WORKFLOW_PREFILL_KEY)
     return {}
   }
 }

@@ -49,6 +49,6 @@
   }
 </script>
 
-<Modal bind:open label="Enhance the prompt" wide>
+<Modal bind:open label="Enhance the prompt" size="wide">
   <EnhancePanel {enhancer} onuse={use} />
 </Modal>

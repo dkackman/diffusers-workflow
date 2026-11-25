@@ -18,8 +18,10 @@
     classDescription,
     isReference,
     emptyComponent,
-    setNumber,
+    optionsWith,
+    finiteNumber,
   } from '../editor'
+  import { setNumber } from './commit'
   import type {
     PipelineBlock,
     PipelineComponent,
@@ -141,9 +143,8 @@
     const scheduler = pipeline[key]
     if (!scheduler) return
     const value = raw.trim()
-    const parsed = Number(value)
     if (!value) delete scheduler.shift
-    else scheduler.shift = Number.isNaN(parsed) ? value : parsed
+    else scheduler.shift = finiteNumber(value) ?? value
   }
 
   function toggleCache(enabled: boolean) {
@@ -328,8 +329,16 @@
         />
       {:else if configuration.cache}
         {@const cache = configuration.cache}
-        <select bind:value={cache.type}>
-          {#each CACHE_TYPES as cacheType (cacheType)}<option>
+        <!-- Not bound: a bound select writes its first option into an
+             absent type on mount, marking the document unsaved -->
+        <select
+          aria-label="cache type"
+          value={cache.type ?? ''}
+          onchange={(e) => (cache.type = e.currentTarget.value)}
+        >
+          {#if !cache.type}<option value="" disabled>choose a type</option>{/if}
+          {#each optionsWith(CACHE_TYPES, cache.type) as cacheType (cacheType)}<option
+            >
               {cacheType}
             </option>{/each}
         </select>
@@ -337,7 +346,10 @@
           class="num"
           placeholder="threshold"
           value={cache.threshold ?? ''}
-          onchange={(e) => setNumber(cache, 'threshold', e.currentTarget.value)}
+          onchange={(e) => {
+            const input = e.currentTarget
+            input.value = setNumber(cache, 'threshold', input.value)
+          }}
         />
       {/if}
     </div>

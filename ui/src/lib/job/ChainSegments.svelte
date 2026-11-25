@@ -25,7 +25,7 @@
   } from '../chainActions'
   import { confirmDialog } from '../confirm.svelte'
   import { describeEstimate } from '../plan'
-  import { go } from '../router.svelte'
+  import { go, goCarrying } from '../router.svelte'
   import { action } from '../action.svelte'
   import { resource } from '../resource.svelte'
   import {
@@ -76,14 +76,15 @@
   function repair(table: ChainTable, row: ChainRow) {
     const action = repairFor(table, row)
     if (!action.enabled) return
-    sessionStorage.setItem(
-      WORKFLOW_PREFILL_KEY,
-      JSON.stringify({
-        workflow: action.workflow,
-        arguments: action.arguments,
-      }),
+    goCarrying(
+      ['ws', job.workspace, 'workflows', ...action.workflow.split('/')],
+      {
+        [WORKFLOW_PREFILL_KEY]: JSON.stringify({
+          workflow: action.workflow,
+          arguments: action.arguments,
+        }),
+      },
     )
-    go('ws', job.workspace, 'workflows', ...action.workflow.split('/'))
   }
 
   let pricing = $state(false)

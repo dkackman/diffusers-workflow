@@ -18,6 +18,8 @@ import type { GalleryFile } from '../types'
 import { DEFAULT_WORKSPACE, workspace } from '../workspace.svelte'
 import { api } from '../test/apiMock'
 import { feed } from '../test/feedMock'
+import { CLOCK_TICK_MS } from '../clock.svelte'
+import { outputLibrary } from '../outputlib.svelte'
 
 const file = (
   name: string,
@@ -1133,6 +1135,36 @@ it('hides the picker when the workspace has no requests', async () => {
   expect(screen.queryByLabelText('filter by request')).toBeNull()
 })
 
+// A call, so a type narrowed by an earlier assignment does not stick
+const libraryNames = () => outputLibrary.items?.map((f) => f.name)
+
+it("leaves the editors' output library whole under a request filter", async () => {
+  outputLibrary.items = undefined
+  outputLibrary.workspace = undefined
+  location.hash = '#/ws/default/gallery?req=r1'
+  const everything = listing.files
+  listing.files = [file('only.png')]
+  await renderGallery('only.png')
+  await new Promise((r) => setTimeout(r, 10))
+  // Nothing held, so the library's own first use still fetches the lot
+  expect(outputLibrary.items).toBeUndefined()
+  expect(outputLibrary.workspace).toBeUndefined()
+
+  listing.files = everything
+  await fireEvent.click(screen.getByLabelText('remove the request filter'))
+  await waitFor(() =>
+    expect(libraryNames()).toEqual(everything.map((f) => f.name)),
+  )
+
+  // Narrowing again keeps the whole listing it was given
+  listing.files = [file('only.png')]
+  await fireEvent.change(await screen.findByLabelText('filter by request'), {
+    target: { value: 'r1' },
+  })
+  await waitFor(() => expect(screen.getByLabelText('select only.png')))
+  expect(libraryNames()).toEqual(everything.map((f) => f.name))
+})
+
 it('drops an unfiltered listing that lands after the filtered one', async () => {
   let land: (reply: { files: GalleryFile[] }) => void = () => {}
   gallery.mockImplementationOnce(
@@ -1770,6 +1802,25 @@ it('the count says n of m while filtered', async () => {
   await waitFor(() => expect(count()).toBe('1 of 3 files'))
 })
 
+it('the date headings move on once midnight passes', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  try {
+    vi.setSystemTime(new Date(2026, 4, 3, 23, 59, 50))
+    listing.files = [{ ...file('b.png'), mtime: Date.now() / 1000 }]
+    await hashEvent(() => (location.hash = '#/ws/default/gallery?group=date'))
+    await renderGallery('b.png')
+    const headings = () =>
+      [...document.querySelectorAll('button.group')].map((b) =>
+        b.textContent?.trim(),
+      )
+    expect(headings()).toEqual(['Today (1)'])
+    await vi.advanceTimersByTimeAsync(CLOCK_TICK_MS)
+    await waitFor(() => expect(headings()).toEqual(['Yesterday (1)']))
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
 it('sort and group survive Back', async () => {
   listing.files = [
     { ...file('b.png'), run_id: 'r2', mtime: Date.now() / 1000 },
@@ -1980,4 +2031,23 @@ it('GalleryPage says when each output changed', async () => {
     .querySelector('.tile-meta time')!
   expect(stamp.textContent?.trim()).toBe('changed 10 min ago')
   expect(stamp.getAttribute('title')).toBeTruthy()
+})
+
+it('S on the next file writes while the last write is in flight', async () => {
+  let land = () => {}
+  api.setStarred.mockImplementationOnce(
+    () => new Promise((resolve) => (land = () => resolve(undefined as never))),
+  )
+  await renderGallery()
+  await openFile('a.png')
+  await press({ key: 's' })
+  // a second press on the same file is still dropped
+  await press({ key: 's' })
+  expect(api.setStarred).toHaveBeenCalledTimes(1)
+  await press({ key: 'ArrowRight' })
+  await viewer('b.png')
+  await press({ key: 's' })
+  expect(api.setStarred).toHaveBeenLastCalledWith('b.png', true)
+  expect(api.setStarred).toHaveBeenCalledTimes(2)
+  land()
 })

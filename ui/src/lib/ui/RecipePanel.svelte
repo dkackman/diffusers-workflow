@@ -16,9 +16,9 @@
   import { recipeRows } from '../recipe'
   import { ASSET, OUTPUT, reference, referenceName } from '../references'
   import { resource } from '../resource.svelte'
-  import { go } from '../router.svelte'
+  import { goCarrying } from '../router.svelte'
   import { wsHref } from '../routes'
-  import type { GalleryInput, GalleryMetadata, JobDetail } from '../types'
+  import type { GalleryInput, GalleryMetadata } from '../types'
   import ErrorLine from './ErrorLine.svelte'
   import LoadState from './LoadState.svelte'
   import ReferenceChip from './ReferenceChip.svelte'
@@ -48,7 +48,9 @@
   } = $props()
 
   // Read through the name and workspace alone: a page handing in a new
-  // file object for the same file (a note saved beside it) reads nothing
+  // file object for the same file (a note saved beside it) reads nothing.
+  // The name is the read's subject: another file's recipe is never shown
+  // while this one's loads
   const file = $derived(name)
   const ws = $derived(workspace)
   const own = () => ws
@@ -68,12 +70,14 @@
       ? resource(() => stamped(api.galleryMetadata(file, ws)), {
           watch: ['gallery'],
           workspace: own,
+          subject: () => file,
         })
       : resource(
           () => stamped(api.galleryMetadata(reference(ASSET, file), ws)),
           {
             watch: ['assets'],
             workspace: own,
+            subject: () => file,
           },
         )
 
@@ -105,9 +109,7 @@
     },
     { watch: [], workspace: own },
   )
-  const jobRead = $derived(
-    jobId && job.data?.id === jobId ? (job.data as JobDetail) : null,
-  )
+  const jobRead = $derived(jobId && job.data?.id === jobId ? job.data : null)
   // The job's read found nothing: it left history since the file was listed
   const jobGone = $derived(
     job.status === 'error' &&
@@ -149,8 +151,9 @@
     // exact image; delete the seed field in the editor to re-randomize
     const definition = { ...embedded }
     if (typeof m.metadata?.seed === 'number') definition.seed = m.metadata.seed
-    sessionStorage.setItem('dw-editor-import', JSON.stringify(definition))
-    go('ws', workspace, 'edit')
+    goCarrying(['ws', workspace, 'edit'], {
+      'dw-editor-import': JSON.stringify(definition),
+    })
   }
 </script>
 

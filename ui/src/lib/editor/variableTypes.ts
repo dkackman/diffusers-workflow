@@ -1,4 +1,4 @@
-import { booleanOf } from '../editor'
+import { booleanOf, finiteNumber } from '../editor'
 import {
   VARIABLE_NAME_CHARACTERS,
   VARIABLE_NAME_FIRST,
@@ -45,11 +45,6 @@ function parsed(raw: string): unknown {
   } catch {
     return raw
   }
-}
-
-function finiteNumber(raw: string): number | null {
-  const n = Number(raw)
-  return raw.trim() !== '' && Number.isFinite(n) ? n : null
 }
 
 /** What a new variable's first typed value means: true/false, a finite

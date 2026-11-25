@@ -554,3 +554,16 @@ it('the Name order is natural: take2 before take10', async () => {
   await renderPage('take2')
   expect(cardNames()).toEqual(['take2', 'take10'])
 })
+
+it('drops a shape or trait in the link that is not one', async () => {
+  location.hash =
+    '#/ws/default/workflows?shape=sculpture&traits=has-audio,wibble'
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
+  await renderPage('shot')
+  // the unknown shape filters nothing; the known trait still does
+  expect(card('tti')).toBeNull()
+  location.hash = '#/ws/default/workflows?shape=sculpture&traits=wibble'
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
+  await waitFor(() => expect(card('tti')).toBeTruthy())
+  expect(card('shot')).toBeTruthy()
+})

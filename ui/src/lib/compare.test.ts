@@ -31,6 +31,13 @@ describe('differingArguments', () => {
       differingArguments([meta({ q: { a: 1 } }), meta({ q: { a: 1 } })]),
     ).toEqual([])
   })
+  it('a variable named model has its own row, beside the model', () => {
+    const a = meta({ model: 'x' }, { model_name: 'h3' })
+    const b = meta({ model: 'y' }, { model_name: 'ltx' })
+    expect(differingArguments([a, b])).toEqual(['model', 'model (argument)'])
+    expect(argumentOf(a, 'model')).toBe('h3')
+    expect(argumentOf(a, 'model (argument)')).toBe('x')
+  })
   it('missing metadata counts as unknown, not as different', () => {
     expect(differingArguments([meta({ steps: 1 }), null])).toEqual([])
   })

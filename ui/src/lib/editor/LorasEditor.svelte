@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { setNumber } from '../editor'
+  import { setNumber } from './commit'
   import { catalogFor } from './loraCatalog'
   import { latestOnly } from '../latest'
   import { sleep } from '../poll'
@@ -169,7 +169,10 @@
           class="scale"
           value={lora.scale ?? ''}
           placeholder="scale"
-          onchange={(e) => setNumber(lora, 'scale', e.currentTarget.value)}
+          onchange={(e) => {
+            const input = e.currentTarget
+            input.value = setNumber(lora, 'scale', input.value)
+          }}
         />
       </div>
       <button
