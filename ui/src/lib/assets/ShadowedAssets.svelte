@@ -34,7 +34,7 @@
   // hand rather than off the labels: "the examples's" is not English
   const SHADOWED_BY: Record<AssetFile['origin'], string> = {
     workspace: "this workspace's",
-    common: "the shared library's",
+    common: "the shared asset library's",
     examples: "the examples library's",
   }
 </script>

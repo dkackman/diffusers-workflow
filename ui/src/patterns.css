@@ -85,10 +85,14 @@ table.datatable th {
   font-weight: 600;
   color: var(--muted);
   padding: 0.2rem var(--space-2) 0.2rem 0;
+  border-bottom: 1px solid var(--line);
 }
 table.datatable td {
   padding: var(--space-1) var(--space-2) var(--space-1) 0;
-  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+table.datatable > tbody > tr:last-child > td {
+  border-bottom: none;
 }
 table.datatable.dense {
   font-family: var(--font-mono);
@@ -99,8 +103,9 @@ table.datatable.dense td {
   padding: 0.15rem 0.6rem 0.15rem 0;
   vertical-align: top;
 }
+table.datatable.dense th,
 table.datatable.dense td {
-  border-top: none;
+  border-bottom: none;
 }
 
 /* Colour and nothing else: say what a line means; layout stays with the

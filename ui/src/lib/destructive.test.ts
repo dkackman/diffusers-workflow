@@ -66,7 +66,7 @@ it('the workspace confirm counts what it removes, starred included', () => {
   expect(spec).toEqual({
     title: 'Delete workspace "studio"?',
     message:
-      'This permanently removes 12 outputs (2 starred), 4 assets and 3 ' +
+      'This permanently removes 12 files in outputs/ (2 starred in the gallery), 4 assets and 3 ' +
       'workflows (10.0 MB). The prompt library and the shared asset ' +
       'library are kept.',
     confirmLabel: 'Delete workspace',
@@ -75,7 +75,7 @@ it('the workspace confirm counts what it removes, starred included', () => {
   expect(
     workspaceConfirm('studio', { outputs: { files: 1, bytes: MB } }, 0).message,
   ).toBe(
-    'This permanently removes 1 output (1.0 MB). The prompt library and ' +
+    'This permanently removes 1 file in outputs/ (1.0 MB). The prompt library and ' +
       'the shared asset library are kept.',
   )
 })
@@ -215,7 +215,26 @@ it('an unknown starred count is said', () => {
     workspaceConfirm('studio', { outputs: { files: 2, bytes: MB } }, null)
       .message,
   ).toBe(
-    'This permanently removes 2 outputs (1.0 MB). The prompt library and ' +
+    'This permanently removes 2 files in outputs/ (1.0 MB). The prompt library and ' +
       "the shared asset library are kept. The starred count couldn't be read.",
   )
+})
+
+it('a ledger delete says the ledger', () => {
+  expect(
+    destroyConfirm({ name: 'this note', noun: 'note', place: 'ledger' })
+      .message,
+  ).toBe('This removes it from the ledger.')
+  expect(destroyConfirm({ name: 'a.png', noun: 'file' }).message).toBe(
+    'This removes it on disk.',
+  )
+})
+
+it('the workspace delete says which count is which', () => {
+  const { message } = workspaceConfirm(
+    'studio',
+    { outputs: { files: 5, bytes: 1024 * 1024 } },
+    1,
+  )
+  expect(message).toContain('5 files in outputs/ (1 starred in the gallery)')
 })

@@ -121,7 +121,8 @@
           name: `"${title}"`,
           noun: 'request',
           consequence:
-            'Its plan, notes and history go from the ledger for good. Its jobs and their outputs are kept.',
+            'Its plan, notes and history are deleted from the ledger. Its jobs and their outputs are kept.',
+          place: 'ledger',
         }),
     },
   )

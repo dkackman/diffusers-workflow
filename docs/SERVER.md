@@ -1441,7 +1441,7 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
   body (no multipart). 200MB ceiling, checked from `Content-Length` before a
   byte is read and again on the body; the extension is held to the allowed
   image, video, audio and `.cube` list. Saved under the asset library's
-  `uploads/` - the shared library at `<root>/common/assets` when
+  `uploads/` - the shared asset library at `<root>/common/assets` when
   `shared=true`, else this workspace's own - with a generated name, or as
   `uploads/<asset_name>` (folders allowed, the file's extension assumed,
   confined the way `keep_output`'s name is). Answers 201 with `reference`

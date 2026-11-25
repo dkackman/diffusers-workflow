@@ -7,6 +7,7 @@ import { api } from '../test/apiMock'
 import { fakeLedger } from './fakeLedger'
 import { entry, item, request } from './fixtures'
 import { goneText } from './conflict'
+import { confirmDialog } from '../confirm.svelte'
 import { PlanStore } from './planStore.svelte'
 
 const notify = vi.hoisted(() => ({
@@ -267,4 +268,25 @@ it('Undo over a request the agent reopened says it is already open', async () =>
   )
   expect(ledger.puts).toHaveLength(puts)
   expect(notify.failure).not.toHaveBeenCalled()
+})
+
+it('deleting a request says the ledger', async () => {
+  render(RequestMenu, {
+    props: {
+      request: { id: 'r1', title: 'T', state: 'done' } as LedgerRequest,
+      store: { push: vi.fn(), read: { revision: 2 } } as never,
+      workspace: 'default',
+      onreload: vi.fn(),
+      ondeleted: vi.fn(),
+    },
+  })
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'More actions for this request' }),
+  )
+  await fireEvent.click(await screen.findByRole('button', { name: 'Delete…' }))
+  await vi.waitFor(() => expect(confirmDialog).toHaveBeenCalled())
+  expect(vi.mocked(confirmDialog).mock.calls[0][0]).toBe(
+    'This removes it from the ledger. Its plan, notes and history are ' +
+      'deleted from the ledger. Its jobs and their outputs are kept.',
+  )
 })

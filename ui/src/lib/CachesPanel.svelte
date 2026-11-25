@@ -262,13 +262,14 @@
   }
 
   tr.reason td {
-    border-top: none;
     padding-top: 0;
     font-size: 0.8rem;
   }
 
-  tr.entries > td {
-    border-top: none;
+  /* A row and the rows under it are one group: no rule between them */
+  tbody > tr:has(+ tr.reason) > td,
+  tbody > tr:has(+ tr.entries) > td {
+    border-bottom: none;
   }
 
   .entrytable {

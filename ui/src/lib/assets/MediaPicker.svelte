@@ -178,7 +178,7 @@
     />
   </div>
   {#if tab === 'outputs'}
-    <label class="latest muted">
+    <label class="latest">
       <input type="checkbox" bind:checked={followLatest} />
       <span>
         Follow the newest run that has the file (<code>latest</code>), not the

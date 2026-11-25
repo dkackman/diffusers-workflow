@@ -139,7 +139,7 @@
                     filter.value === detail.intended_model
                       ? ''
                       : detail.intended_model)}
-                title="written for {detail.intended_model} - click to filter"
+                title="written for {detail.intended_model} - click to filter, click again to show all"
               >
                 {detail.intended_model}
               </button>
@@ -150,7 +150,7 @@
                 class:on={filter.value === tag}
                 aria-pressed={filter.value === tag}
                 onclick={() => (filter.value = filter.value === tag ? '' : tag)}
-                title="click to filter by this tag"
+                title="click to filter by this tag, click again to show all"
               >
                 {tag}
               </button>

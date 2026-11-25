@@ -50,6 +50,12 @@ export const BANNED: Banned[] = [
     why: 'The person sees an agent, not a session.',
   },
   {
+    id: 'shared-library',
+    pattern: /\bthe shared library\b|\bshared library's\b/i,
+    use: 'the shared asset library',
+    why: 'The prompt library is shared too, so say which one.',
+  },
+  {
     id: 'held-review',
     pattern: /held for your review/i,
     use: 'waiting for your OK',
