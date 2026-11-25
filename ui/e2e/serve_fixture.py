@@ -483,13 +483,22 @@ ledger.put_request(
     linked_jobs=lambda _request, key: review_linked.get(key, []),
 )
 
+# The first import of a pipeline module, done on the main thread before the
+# server reports ready, so no spec waits out or races it (#1603, #1640)
+SERVE = (
+    "from dw.introspection import load_allowed_class;"
+    "load_allowed_class('FluxPipeline');"
+    "from dw.serve import main;"
+    "main()"
+)
+
 os.chdir(root)
 os.execv(
     sys.executable,
     [
         sys.executable,
-        "-m",
-        "dw.serve",
+        "-c",
+        SERVE,
         "--workspace",
         scratch,
         "--workflow-dir",

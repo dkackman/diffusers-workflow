@@ -18,6 +18,7 @@ import math
 import logging
 from pathlib import Path
 from . import references
+from .type_helpers import one_import_at_a_time
 
 logger = logging.getLogger("dw")
 
@@ -150,6 +151,7 @@ def list_classes(kind):
     raise ValueError(f"Unknown class kind: {kind!r}")
 
 
+@one_import_at_a_time
 def load_allowed_class(name):
     """Resolve a class name: bare against diffusers, or module.Class where
     the module is on the explicit allowlist or is one of dw's community
@@ -410,6 +412,7 @@ def _modular_block_parameters(cls):
     return parameters
 
 
+@one_import_at_a_time
 def describe_class(name, target="call"):
     """The argument schema of a class, for form generation.
 
@@ -553,6 +556,7 @@ def _first_paragraph(docstring):
     return cleaned.split("\n\n")[0].replace("\n", " ").strip()
 
 
+@one_import_at_a_time
 def describe_task(command):
     """A task command's argument schema, in describe_class's shape, so the
     editor's one arguments form consumes both.
