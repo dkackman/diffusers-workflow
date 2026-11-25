@@ -3,11 +3,12 @@
   import { editorLists } from '../editorLists.svelte'
   import ArgumentsEditor from './ArgumentsEditor.svelte'
   import { QUANT_PRESETS } from '../editor'
+  import type { PipelineComponent } from '../types'
 
   let {
     component = $bindable(),
     suggestions = [],
-  }: { component: Record<string, any>; suggestions?: readonly string[] } =
+  }: { component: PipelineComponent; suggestions?: readonly string[] } =
     $props()
 
   const current = $derived(component.quantization_config ?? null)
@@ -50,15 +51,22 @@
   </select>
 
   {#if current}
+    {@const quant = current}
     <Suggest
       class="ctype"
       suggestions={editorLists.quantizationClasses}
-      bind:value={current.configuration.config_type}
+      bind:value={
+        () => quant.configuration?.config_type ?? '',
+        (v) => {
+          quant.configuration ??= {}
+          quant.configuration.config_type = v
+        }
+      }
       title="config_type - any importable quantization config class"
     />
     <ArgumentsEditor
-      bind:args={current.arguments}
-      componentType={current.configuration.config_type ?? ''}
+      bind:args={quant.arguments}
+      componentType={quant.configuration?.config_type ?? ''}
       target="init"
       {suggestions}
     />

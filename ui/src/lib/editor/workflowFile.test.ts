@@ -1,6 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest'
 import { openWorkflow, saveWorkflowAt } from './workflowFile'
 import type { DocumentEditor } from '../editorShell.svelte'
+import type { WorkflowDefinition } from '../types'
 import { api } from '../test/apiMock'
 import { saveDocument } from '../documentSave'
 
@@ -14,7 +15,7 @@ function fakeEditor() {
     load: vi.fn(),
     failLoad: vi.fn(),
     serialized: vi.fn(() => '{"id":"on-screen","steps":[]}'),
-  } as unknown as DocumentEditor
+  } as unknown as DocumentEditor<WorkflowDefinition>
 }
 
 beforeEach(() => vi.clearAllMocks())

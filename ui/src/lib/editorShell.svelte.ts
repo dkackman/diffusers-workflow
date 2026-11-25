@@ -108,21 +108,25 @@ export type LoadOptions = {
 }
 
 /** The document as the server holds it now, read again on a feed move */
-type Found = {
-  doc: Record<string, any>
+type Found<T> = {
+  doc: T
   etag: string | null
   writable: boolean
 }
 
 /** A re-read: the server's copy, or `gone` when the file is not there */
-export type RemoteRead = (Found & { gone?: undefined }) | { gone: true }
+export type RemoteRead<T extends object = object> =
+  (Found<T> & { gone?: undefined }) | { gone: true }
 
 /** What a page's flushers are told: `quiet` when nobody asked to save,
  * so a draft that does not parse is held without a toast */
 export type Flusher = (options?: { quiet?: boolean }) => void
 
 /** A re-read, with the version of the editor and the path it was asked at */
-type Arrival = RemoteRead & { version: number; path: string | null }
+type Arrival<T extends object> = RemoteRead<T> & {
+  version: number
+  path: string | null
+}
 
 /** The toast an unedited document's reload shows */
 export const REMOTE_RELOADED = 'Updated by an agent or another tab'
@@ -179,8 +183,10 @@ export const OPEN_DOCUMENT: UndoTarget = {
   away: 'Nothing undone: another workflow, or a newer copy of this one, has opened since.',
 }
 
-export class DocumentEditor {
-  doc = $state<Record<string, any>>({})
+export class DocumentEditor<T extends object = object> {
+  // Empty only until the first load or startNew, which both pages do before
+  // anything reads it
+  doc = $state<T>({} as T)
   // The document as last loaded or saved, serialized; '' until one loads,
   // so nothing reads as dirty before there is anything to compare
   baseline = $state('')
@@ -243,7 +249,7 @@ export class DocumentEditor {
   #flushers: Flusher[] = []
   // The newer read a diverged document holds for Load theirs, and the ETag
   // Keep mine declined; neither renders
-  #theirs: Found | null = null
+  #theirs: Found<T> | null = null
   #declined: string | null = null
   // Moved by every load and save, so a re-read begun before one is dropped
   #version = 0
@@ -389,7 +395,7 @@ export class DocumentEditor {
 
   /** Open `doc` as the unedited document, read at `etag` from `path`. */
   load(
-    doc: Record<string, any>,
+    doc: T,
     { etag = null, path = null, writable = true }: LoadOptions = {},
   ) {
     this.doc = doc
@@ -423,7 +429,7 @@ export class DocumentEditor {
     read,
   }: {
     kind: ChangeKind
-    read: () => Promise<RemoteRead>
+    read: () => Promise<RemoteRead<T>>
   }): void {
     const reread = resource(() => this.#reread(read), {
       watch: [kind],
@@ -445,7 +451,9 @@ export class DocumentEditor {
   }
 
   /** Nothing to compare while no document is open or a save is writing */
-  async #reread(read: () => Promise<RemoteRead>): Promise<Arrival | null> {
+  async #reread(
+    read: () => Promise<RemoteRead<T>>,
+  ): Promise<Arrival<T> | null> {
     if (this.busy) this.#missed = true
     if (this.loadState !== 'loaded' || this.busy) return null
     const version = this.#version
@@ -454,7 +462,7 @@ export class DocumentEditor {
   }
 
   /** Whether `read` is about the document on screen, as it is now */
-  #current(read: Arrival): boolean {
+  #current(read: Arrival<T>): boolean {
     return (
       read.version === this.#version &&
       read.path === this.loadedPath &&
@@ -463,7 +471,7 @@ export class DocumentEditor {
     )
   }
 
-  #arrived(read: Arrival) {
+  #arrived(read: Arrival<T>) {
     if (this.busy) this.#missed = true
     if (!this.#current(read)) return
     if (read.gone) {
@@ -512,7 +520,7 @@ export class DocumentEditor {
   }
 
   /** Open `doc` as a document no file holds yet. */
-  startNew(doc: Record<string, any>) {
+  startNew(doc: T) {
     this.load(doc)
     this.loadState = 'new'
   }
@@ -564,7 +572,7 @@ export class DocumentEditor {
    * duplicate, or a definition from image metadata - and the folder it
    * came from. Both keys are cleared; null when there is no readable one,
    * so a plain "New" stays a blank slate. */
-  takeImport(importKey: string, folderKey: string): Record<string, any> | null {
+  takeImport(importKey: string, folderKey: string): T | null {
     this.folder = sessionStorage.getItem(folderKey) ?? ''
     sessionStorage.removeItem(folderKey)
     const imported = sessionStorage.getItem(importKey)

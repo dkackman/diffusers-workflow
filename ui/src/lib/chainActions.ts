@@ -17,7 +17,7 @@ import type { ChainRow, ChainTable } from './chainRows'
 import { definitionStep, resolved } from './chainRows'
 import { OUTPUT, VARIABLE, reference, referenceName } from './references'
 import { api, type ValidateRequest } from './api'
-import type { WorkflowDefinition } from './types'
+import type { WorkflowDefinition, WorkflowStep } from './types'
 
 /** The only repair template the catalog holds */
 export const REPAIR_TEMPLATE = 'templates/minimax/repair-segment'
@@ -33,7 +33,7 @@ export const FIRST_SEGMENT =
 export const REPAIRED_TAKE = 'a repaired take has no segment files'
 export const NO_SEGMENTS = 'this job did not keep its segments'
 
-type Definition = Record<string, any> | null | undefined
+type Definition = WorkflowDefinition | null | undefined
 
 export type RepairAction =
   | { enabled: true; workflow: string; arguments: Record<string, string> }
@@ -44,7 +44,7 @@ export interface ContinueAction {
 }
 
 const modelOf = (
-  step: any,
+  step: WorkflowStep | null | undefined,
   definition: Definition,
   args?: Record<string, unknown> | null,
 ): string | null => {
@@ -71,8 +71,8 @@ export function chainModel(
 export function repairModels(repair: Definition): string[] {
   const steps = Array.isArray(repair?.steps) ? repair.steps : []
   return steps
-    .map((step: any) => modelOf(step, repair, null))
-    .filter((name: string | null): name is string => name !== null)
+    .map((step) => modelOf(step, repair, null))
+    .filter((name): name is string => name !== null)
 }
 
 /** The models the repair template loads, as the server has it now; none
@@ -170,7 +170,7 @@ export function continueValidation(
   const source = job.workflow_name
     ? { workflow_path: job.workflow_name }
     : definition
-      ? { workflow: definition as WorkflowDefinition }
+      ? { workflow: definition }
       : null
   if (!source) return null
   return {

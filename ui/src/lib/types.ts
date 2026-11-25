@@ -170,10 +170,124 @@ export const WORKFLOW_TRAITS = [
 ] as const
 export type WorkflowTrait = (typeof WORKFLOW_TRAITS)[number]
 
+/** The nodes of a workflow document (dw/workflow_schema.json), as the editor
+ * reads them. Hand-written: the server publishes no TypeScript for them. A
+ * file on disk may omit what the schema requires and still open, so a block
+ * the UI does not itself create is optional - a read or a write through it
+ * has to say what happens when it is missing. Any value may be a `variable:`
+ * reference, and a key not named here is kept as `unknown`. */
+export type StepArguments = Record<string, unknown>
+
+export interface PipelineConfiguration {
+  component_type?: string
+  offload?: string
+  attention_backend?: string
+  prompt_weighting?: unknown
+  cache?: string | CacheBlock
+  [key: string]: unknown
+}
+
+export interface CacheBlock {
+  type?: string
+  threshold?: number | string
+  [key: string]: unknown
+}
+
+export interface FromPretrainedArguments {
+  model_name?: string
+  torch_dtype?: string
+  [key: string]: unknown
+}
+
+export interface QuantizationBlock {
+  configuration?: { config_type?: string; [key: string]: unknown }
+  arguments?: StepArguments
+}
+
+export interface PipelineComponent {
+  configuration?: { component_type?: string; [key: string]: unknown }
+  from_pretrained_arguments?: FromPretrainedArguments
+  quantization_config?: QuantizationBlock
+  group_offload?: {
+    offload_type?: string
+    use_stream?: boolean
+    [key: string]: unknown
+  }
+  [key: string]: unknown
+}
+
+export interface SchedulerBlock {
+  configuration?: { scheduler_type?: string; [key: string]: unknown }
+  from_config_args?: StepArguments
+  shift?: number | string
+}
+
+export interface LoraEntry {
+  model_name?: string
+  weight_name?: string
+  revision?: string
+  scale?: number | string
+  [key: string]: unknown
+}
+
+export interface PipelineBlock {
+  configuration?: PipelineConfiguration
+  from_pretrained_arguments?: FromPretrainedArguments
+  arguments?: StepArguments
+  scheduler?: SchedulerBlock
+  audio_scheduler?: SchedulerBlock
+  loras?: LoraEntry[]
+  chain?: Record<string, unknown>
+  /** Every other key: an option block, or a component by its slot name */
+  [key: string]: unknown
+}
+
+export interface TaskBlock {
+  command?: string
+  arguments?: StepArguments
+  inputs?: unknown
+  [key: string]: unknown
+}
+
+export interface SubWorkflowBlock {
+  path?: string
+  arguments?: StepArguments
+}
+
+export interface PipelineReferenceBlock {
+  reference_name?: string
+  arguments?: StepArguments
+  chain?: Record<string, unknown>
+}
+
+export interface StepResult {
+  content_type?: string
+  save?: unknown
+  file_base_name?: string
+  subfolder?: string
+  role?: string
+  [key: string]: unknown
+}
+
+export interface WorkflowStep {
+  name: string
+  seed?: unknown
+  for_each?: unknown
+  pipeline?: PipelineBlock
+  task?: TaskBlock
+  workflow?: SubWorkflowBlock
+  pipeline_reference?: PipelineReferenceBlock
+  result?: StepResult
+  [key: string]: unknown
+}
+
 export interface WorkflowDefinition {
-  id: string
+  /** Required by the schema; a draft or hand-written file may still lack it */
+  id?: string
+  description?: string
+  seed?: unknown
   variables?: Record<string, unknown>
-  steps?: Array<Record<string, unknown>>
+  steps?: WorkflowStep[]
   [key: string]: unknown
 }
 

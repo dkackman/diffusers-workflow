@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { WorkflowDefinition } from '../types'
   /* A chained step's segments, one row each, read-only (#1475): the
    * segment's frame, how many renders its check tried, each measure its
    * kept attempt computed against the ceiling, and whether it was resumed or
@@ -41,7 +42,7 @@
   let {
     job,
     definition = null,
-  }: { job: JobDetail; definition?: Record<string, any> | null } = $props()
+  }: { job: JobDetail; definition?: WorkflowDefinition | null } = $props()
 
   const tables = $derived(
     (job.manifest ?? [])

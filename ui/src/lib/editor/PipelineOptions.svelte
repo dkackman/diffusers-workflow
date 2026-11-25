@@ -20,6 +20,11 @@
     emptyComponent,
     setNumber,
   } from '../editor'
+  import type {
+    PipelineBlock,
+    PipelineComponent,
+    PipelineConfiguration,
+  } from '../types'
 
   // A pipeline step's optional blocks, each a <details> that opens on its
   // own when the step sets it or a compact digest line jumped to it
@@ -29,13 +34,22 @@
     openSection,
     references,
   }: {
-    pipeline: Record<string, any>
+    pipeline: PipelineBlock
     index: number
     openSection: string
     references: string[]
   } = $props()
 
-  const configuration = $derived(pipeline.configuration ?? {})
+  // What the fields read. A write that may be the block's first goes
+  // through writable(), so it lands on the pipeline, never on this stand-in
+  const configuration = $derived<PipelineConfiguration>(
+    pipeline.configuration ?? {},
+  )
+
+  function writable(): PipelineConfiguration {
+    pipeline.configuration ??= {}
+    return pipeline.configuration
+  }
 
   // ---- optional blocks: components, loras, scheduler, acceleration ----
 
@@ -44,14 +58,16 @@
   const activeSlots = $derived.by(() => {
     if (!pipeline) return []
     const known: readonly string[] = COMPONENT_SLOTS
-    const extra = Object.keys(pipeline).filter(
-      (key) =>
-        !known.includes(key) &&
-        !(OPTION_KEYS as readonly string[]).includes(key) &&
-        pipeline[key] !== null &&
-        typeof pipeline[key] === 'object' &&
-        'from_pretrained_arguments' in pipeline[key],
-    )
+    const extra = Object.entries(pipeline)
+      .filter(
+        ([key, value]) =>
+          !known.includes(key) &&
+          !(OPTION_KEYS as readonly string[]).includes(key) &&
+          value !== null &&
+          typeof value === 'object' &&
+          'from_pretrained_arguments' in value,
+      )
+      .map(([key]) => key)
     return [...known.filter((slot) => slot in pipeline), ...extra]
   })
   let addSlot = $state('')
@@ -110,6 +126,7 @@
 
   function setSchedulerType(key: SchedulerKey, value: string) {
     const scheduler = pipeline[key]
+    if (!scheduler) return
     if (!value) {
       delete scheduler.configuration
     } else if (scheduler.configuration) {
@@ -121,20 +138,22 @@
   }
 
   function setShift(key: SchedulerKey, raw: string) {
+    const scheduler = pipeline[key]
+    if (!scheduler) return
     const value = raw.trim()
     const parsed = Number(value)
-    if (!value) delete pipeline[key].shift
-    else pipeline[key].shift = Number.isNaN(parsed) ? value : parsed
+    if (!value) delete scheduler.shift
+    else scheduler.shift = Number.isNaN(parsed) ? value : parsed
   }
 
   function toggleCache(enabled: boolean) {
     if (enabled) {
-      configuration.cache = configuration.cache ?? {
+      writable().cache ??= {
         type: 'first_block',
         threshold: 0.1,
       }
     } else {
-      delete configuration.cache
+      delete pipeline.configuration?.cache
     }
   }
 
@@ -172,7 +191,10 @@
       {/if}
       <ComponentEditor
         {slot}
-        bind:component={pipeline[slot]}
+        bind:component={
+          () => pipeline[slot] as PipelineComponent,
+          (component) => (pipeline[slot] = component)
+        }
         suggestions={references}
         onremove={() => delete pipeline[slot]}
       />
@@ -214,7 +236,7 @@
 </details>
 
 {#snippet schedulerFields(key: SchedulerKey)}
-  {@const scheduler = pipeline[key]}
+  {@const scheduler = pipeline[key] ?? {}}
   <label for={`${key}type-${index}`}>scheduler_type</label>
   <div>
     <Suggest
@@ -305,7 +327,8 @@
           }}
         />
       {:else if configuration.cache}
-        <select bind:value={configuration.cache.type}>
+        {@const cache = configuration.cache}
+        <select bind:value={cache.type}>
           {#each CACHE_TYPES as cacheType (cacheType)}<option>
               {cacheType}
             </option>{/each}
@@ -313,9 +336,8 @@
         <input
           class="num"
           placeholder="threshold"
-          value={configuration.cache.threshold ?? ''}
-          onchange={(e) =>
-            setNumber(configuration.cache, 'threshold', e.currentTarget.value)}
+          value={cache.threshold ?? ''}
+          onchange={(e) => setNumber(cache, 'threshold', e.currentTarget.value)}
         />
       {/if}
     </div>
@@ -328,8 +350,8 @@
         value={current}
         onchange={(e) => {
           if (e.currentTarget.value)
-            configuration.attention_backend = e.currentTarget.value
-          else delete configuration.attention_backend
+            writable().attention_backend = e.currentTarget.value
+          else delete pipeline.configuration?.attention_backend
         }}
       >
         <option value="">pipeline default</option>
@@ -349,8 +371,8 @@
         value={configuration.attention_backend ?? ''}
         placeholder="pipeline default"
         onchange={(v) => {
-          if (v) configuration.attention_backend = v
-          else delete configuration.attention_backend
+          if (v) writable().attention_backend = v
+          else delete pipeline.configuration?.attention_backend
         }}
       />
     {/if}
@@ -362,8 +384,8 @@
       class="check"
       checked={!!configuration.prompt_weighting}
       onchange={(e) => {
-        if (e.currentTarget.checked) configuration.prompt_weighting = true
-        else delete configuration.prompt_weighting
+        if (e.currentTarget.checked) writable().prompt_weighting = true
+        else delete pipeline.configuration?.prompt_weighting
       }}
     />
   </div>

@@ -46,7 +46,8 @@
     /** define: edit the workflow's own defaults (add/remove/coerce).
      * override: fill per-run values over read-only defaults. */
     mode: 'define' | 'override'
-    variables: Record<string, unknown>
+    // Absent on a workflow that declares none; adding one creates it
+    variables?: Record<string, unknown>
     overrides?: Record<string, string>
     idPrefix: string
     /** Variables that feed an attention_backend: a dropdown of the
@@ -104,7 +105,7 @@
    * stays the text field. */
   function isPresetSelect(key: string): boolean {
     if (mode !== 'override' || !Object.hasOwn(selectors, key)) return false
-    const declared = variables[key]
+    const declared = variables![key]
     const plainDefault =
       declared === undefined ||
       declared === null ||
@@ -116,10 +117,10 @@
   function placeholderFor(key: string): string {
     if (mode !== 'override') return ''
     if (requiredVariables.has(key)) return 'required'
-    if (key === seed && variables[key] == null) return 'random each job'
+    if (key === seed && variables![key] == null) return 'random each job'
     return (
       presetPlaceholder(presetDefinition, overrides, key) ??
-      displayValue(variables[key])
+      displayValue(variables![key])
     )
   }
 
@@ -138,7 +139,7 @@
   }
   function computeFileField(key: string): boolean {
     if (mode === 'override' && Object.hasOwn(kinds, key)) return true
-    const value = variables[key]
+    const value = variables![key]
     return (
       referenceName(value, ASSET) !== null ||
       referenceName(value, OUTPUT) !== null
@@ -154,7 +155,7 @@
   /** The default file reference a field would use while it holds nothing,
    * for its tile */
   function defaultFile(key: string): string | undefined {
-    const declared = variables[key]
+    const declared = variables![key]
     return mode === 'override' && typeof declared === 'string'
       ? declared
       : undefined
@@ -165,14 +166,14 @@
 
   function shown(key: string): string {
     if (mode === 'override') return overrides[key] ?? ''
-    return displayValue(variables[key])
+    return displayValue(variables![key])
   }
 
   /** The value the field is effectively holding - an override falls back
    * to the default it would leave in place. */
   function effective(key: string): unknown {
-    if (mode === 'override') return overrides[key] || variables[key]
-    return variables[key]
+    if (mode === 'override') return overrides[key] || variables![key]
+    return variables![key]
   }
 
   /** A backend variable is a dropdown when the server listed backends and
@@ -186,14 +187,16 @@
       v === undefined ||
       v === null ||
       (typeof v === 'string' && !isReference(v))
-    return plain(variables[key]) && (mode === 'define' || plain(overrides[key]))
+    return (
+      plain(variables![key]) && (mode === 'define' || plain(overrides[key]))
+    )
   }
 
   /** Define mode: no backend is null, which the engine skips - an empty
    * string would reach diffusers as a backend name. Override mode keeps ''
    * meaning "use the workflow default". */
   function commitBackend(key: string, raw: string) {
-    if (mode === 'define' && raw === '') variables[key] = null
+    if (mode === 'define' && raw === '') variables![key] = null
     else commit(key, raw)
   }
 
@@ -205,8 +208,8 @@
     }
     // Coerce to the row's type - schema validation runs on the definition
     // itself, so "9" where 9 belongs breaks the workflow
-    const type = typeOf(variables[key])
-    variables[key] =
+    const type = typeOf(variables![key])
+    variables![key] =
       fresh.delete(key) || type === 'none' ? inferValue(raw) : asType(raw, type)
   }
 
@@ -215,8 +218,11 @@
 
   function retype(key: string, type: string) {
     fresh.delete(key)
-    variables[key] = asType(displayValue(variables[key]), type as VariableType)
-    notBoolean[key] = type === 'boolean' && typeof variables[key] !== 'boolean'
+    variables![key] = asType(
+      displayValue(variables![key]),
+      type as VariableType,
+    )
+    notBoolean[key] = type === 'boolean' && typeof variables![key] !== 'boolean'
   }
 
   // An override is live as it is typed, so Run takes what is in the box
@@ -234,17 +240,17 @@
    * the first key that followed it and is still there. A key added again
    * meanwhile is the person's newer word, so it is left as it is */
   function removeVariable(key: string) {
-    const order = Object.keys(variables)
-    const value = $state.snapshot(variables[key])
+    const order = Object.keys(variables!)
+    const value = $state.snapshot(variables![key])
     variables = Object.fromEntries(
-      Object.entries(variables).filter(([k]) => k !== key),
+      Object.entries(variables!).filter(([k]) => k !== key),
     )
     undoToast(
       `Removed variable ${key}`,
       () => {
-        if (Object.hasOwn(variables, key))
+        if (Object.hasOwn(variables!, key))
           return notify.success(`${key} is already back`)
-        const entries = Object.entries(variables)
+        const entries = Object.entries(variables!)
         const after = new Set(order.slice(order.indexOf(key) + 1))
         const found = entries.findIndex(([k]) => after.has(k))
         const at = found < 0 ? entries.length : found
@@ -257,7 +263,7 @@
 </script>
 
 {#snippet enhance(key: string)}
-  {#if mode === 'override' && onenhance && isFreeText(variables[key])}
+  {#if mode === 'override' && onenhance && isFreeText(variables![key])}
     <button
       class="quiet"
       onclick={() => onenhance(key)}
@@ -283,7 +289,7 @@
           onchange={(e) => commit(key, e.currentTarget.value)}
         >
           <option value="">
-            default ({displayValue(variables[key]) || 'none'})
+            default ({displayValue(variables![key]) || 'none'})
           </option>
           {#if current && !selectors[key].bundles.includes(current)}
             <option value={current}>{current} (not a preset)</option>
@@ -301,7 +307,7 @@
         >
           <option value="">
             {mode === 'override'
-              ? `default (${displayValue(variables[key]) || 'none'})`
+              ? `default (${displayValue(variables![key]) || 'none'})`
               : 'default (none)'}
           </option>
           {#if current && !attentionBackends.list.includes(current)}
@@ -344,12 +350,12 @@
         <select
           class="vartype"
           aria-label="type of {key}"
-          value={typeOf(variables[key])}
+          value={typeOf(variables![key])}
           onchange={(e) => retype(key, e.currentTarget.value)}
         >
           {#each VARIABLE_TYPES as type (type)}<option>{type}</option>{/each}
         </select>
-        {#if notBoolean[key] && typeOf(variables[key]) !== 'boolean'}
+        {#if notBoolean[key] && typeOf(variables![key]) !== 'boolean'}
           <span class="muted" role="status">
             Only true or false can be a boolean.
           </span>

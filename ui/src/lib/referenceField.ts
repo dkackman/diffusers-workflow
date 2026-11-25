@@ -11,7 +11,7 @@ import { referenceCompletions } from './refcomplete.svelte'
 import { referenceSuggestions } from './referenceSuggestions'
 import { ASSET, OUTPUT, PREVIOUS_RESULT, referenceName } from './references'
 import { leafName } from './names'
-import type { AssetKind } from './types'
+import type { AssetKind, WorkflowDefinition } from './types'
 import type { SuggestItem } from './ui/suggest'
 import { workspace } from './workspace.svelte'
 
@@ -53,12 +53,12 @@ function resultIs(ref: string, contentType: string, kind: MediaKind): boolean {
  * the steps before it, with a video's `.frames` for an image field and its
  * `.audio` for an audio one; every one for any file. */
 export function earlierResults(
-  workflow: Record<string, any>,
+  workflow: WorkflowDefinition,
   stepIndex: number,
   kind?: FieldKind,
 ): string[] {
   const media = mediaKindOf(kind)
-  const steps: Array<Record<string, any>> = workflow.steps ?? []
+  const steps = workflow.steps ?? []
   return referenceSuggestions(workflow, stepIndex).filter((ref) => {
     if (referenceName(ref, PREVIOUS_RESULT) === null) return false
     if (!media) return true

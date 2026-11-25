@@ -1,5 +1,11 @@
 import { flowNodeName } from './runstate'
-import type { JobEvent, ManifestEntry, StepEndEvent } from './types'
+import type {
+  JobEvent,
+  ManifestEntry,
+  StepEndEvent,
+  WorkflowDefinition,
+  WorkflowStep,
+} from './types'
 
 /** One step's output files, with where in the run directory they landed. */
 export interface StepGroup {
@@ -136,7 +142,7 @@ export interface UnsavedReason {
 
 /** Why a step's result block saves no file: the two ways the engine skips
  * the save, both in `Result.save` (dw/result.py). */
-export function unsavedReason(step: Record<string, any>): UnsavedReason | null {
+export function unsavedReason(step: WorkflowStep): UnsavedReason | null {
   const result = step.result
   if (result && result.save === false) {
     return {
@@ -167,10 +173,10 @@ export function unsavedReason(step: Record<string, any>): UnsavedReason | null {
 export function unsavedSteps(
   manifest: ManifestEntry[] | null | undefined,
   events: JobEvent[],
-  definition: Record<string, any> | null,
+  definition: WorkflowDefinition | null,
 ): UnsavedStep[] {
-  const byNode = new Map<string, Record<string, any>>()
-  for (const step of (definition?.steps ?? []) as Array<Record<string, any>>) {
+  const byNode = new Map<string, WorkflowStep>()
+  for (const step of definition?.steps ?? []) {
     if (typeof step?.name === 'string') byNode.set(step.name, step)
   }
   if (!byNode.size) return []

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { WorkflowDefinition } from '../types'
   import { Braces } from '@lucide/svelte'
   import { TERMINAL_STATUSES, api } from '../api'
   import { untrack } from 'svelte'
@@ -109,8 +110,8 @@
   const noteMoved = $derived(
     record.changed.has('note') && !noteEditing && noteResolvedAt === null,
   )
-  const definition = $derived<Record<string, any> | null>(
-    ran?.definition ?? null,
+  const definition = $derived<WorkflowDefinition | null>(
+    (ran?.definition as WorkflowDefinition | undefined) ?? null,
   )
   const seedVariable = $derived(ran?.seed_variable ?? null)
   const realized = $derived(ran?.realized ?? false)

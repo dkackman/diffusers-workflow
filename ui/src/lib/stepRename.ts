@@ -11,6 +11,7 @@ import {
   PREVIOUS_RESULT,
   isReference,
 } from './references'
+import type { WorkflowDefinition } from './types'
 
 const PROPERTY_SEPARATOR = '.'
 
@@ -62,10 +63,10 @@ function renamedReference(
  * to it - in the variables and in every step, at any depth - following it.
  * `count` is the references changed, the step's own name not among them. */
 export function renameStep(
-  workflow: Record<string, any>,
+  workflow: WorkflowDefinition,
   from: string,
   to: string,
-): { workflow: Record<string, any>; count: number } {
+): { workflow: WorkflowDefinition; count: number } {
   let count = 0
   const walk = (value: unknown, key: string | null): unknown => {
     if (Array.isArray(value)) return value.map((v) => walk(v, null))
@@ -84,10 +85,8 @@ export function renameStep(
     count += 1
     return next
   }
-  const copy = walk(workflow, null) as Record<string, any>
-  const step = (copy.steps ?? []).find(
-    (s: Record<string, any>) => s?.name === from,
-  )
+  const copy = walk(workflow, null) as WorkflowDefinition
+  const step = (copy.steps ?? []).find((s) => s?.name === from)
   if (step) step.name = to
   return { workflow: copy, count }
 }

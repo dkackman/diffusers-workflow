@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { PromptDefinition } from '../types'
   import { untrack } from 'svelte'
   import Suggest from '../ui/Suggest.svelte'
   import { isNameSegment } from '../names'
@@ -45,7 +46,7 @@
   let { name = '' }: { name?: string } = $props()
 
   const shell = watchPrompt(
-    new DocumentEditor({
+    new DocumentEditor<PromptDefinition>({
       viewKey: 'dw-prompt-editor-view',
       views: ['form', 'split', 'json'],
       label: (): string => shell.savePath() ?? 'this prompt',
@@ -140,7 +141,10 @@
 
   // ---------------------------------------------------------------- editing
 
-  function setField(key: string, value: string) {
+  function setField(
+    key: 'description' | 'intended_model' | 'negative_prompt',
+    value: string,
+  ) {
     if (value) shell.doc[key] = value
     else delete shell.doc[key]
   }

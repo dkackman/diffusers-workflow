@@ -3,6 +3,7 @@
 // just added opens full without that being remembered, so reopening the
 // file shows it the way every other step opens.
 import { storageGet, storageSet } from './storage'
+import type { WorkflowStep } from './types'
 
 export type StepMode = 'collapsed' | 'compact' | 'full'
 
@@ -16,11 +17,11 @@ export class StepModes {
     this.#key = key
   }
 
-  of(step: Record<string, any>): StepMode {
+  of(step: WorkflowStep): StepMode {
     return this.#modes[step.name] ?? 'compact'
   }
 
-  set(step: Record<string, any>, mode: StepMode) {
+  set(step: WorkflowStep, mode: StepMode) {
     this.#modes[step.name] = mode
     this.#persist()
   }
@@ -44,7 +45,7 @@ export class StepModes {
     storageSet(this.#key(), stored)
   }
 
-  setAll(steps: Record<string, any>[], mode: StepMode) {
+  setAll(steps: WorkflowStep[], mode: StepMode) {
     for (const step of steps) this.#modes[step.name] = mode
     this.#persist()
   }

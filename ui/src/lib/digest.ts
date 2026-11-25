@@ -3,6 +3,15 @@
  * one per populated area, each tagged with the full-view section it
  * expands into. Pure: same JSON in, same text out. */
 
+import type {
+  PipelineBlock,
+  PipelineComponent,
+  PipelineConfiguration,
+  FromPretrainedArguments,
+  SchedulerBlock,
+  WorkflowStep,
+} from './types'
+
 export type DigestSection =
   'main' | 'arguments' | 'components' | 'loras' | 'scheduler' | 'acceleration'
 
@@ -39,8 +48,8 @@ function countText(n: number, noun: string): string {
   return `${n} ${noun}${n === 1 ? '' : 's'}`
 }
 
-export function stepDigest(step: Record<string, any>): StepDigest {
-  if (step.pipeline) return pipelineDigest(step)
+export function stepDigest(step: Partial<WorkflowStep>): StepDigest {
+  if (step.pipeline) return pipelineDigest(step.pipeline, step)
   if (step.task) {
     const argCount = Object.keys(step.task.arguments ?? {}).length
     return {
@@ -71,12 +80,10 @@ function argsLine(args: Record<string, unknown> | undefined): DigestLine[] {
   ]
 }
 
-type Config = Record<string, any>
-
 function mainLine(
-  step: Config,
-  configuration: Config,
-  pretrained: Config,
+  step: Partial<WorkflowStep>,
+  configuration: PipelineConfiguration,
+  pretrained: FromPretrainedArguments,
 ): DigestLine[] {
   const main = [
     pretrained.model_name,
@@ -87,7 +94,7 @@ function mainLine(
   return main.length ? [{ section: 'main', text: main.join(' · ') }] : []
 }
 
-function componentsLine(pipeline: Config): DigestLine[] {
+function componentsLine(pipeline: PipelineBlock): DigestLine[] {
   const components = Object.keys(pipeline).filter(
     (key) =>
       !COMPONENT_KEYS.has(key) &&
@@ -100,7 +107,9 @@ function componentsLine(pipeline: Config): DigestLine[] {
       section: 'components',
       text: components
         .map((slot) => {
-          const quant = pipeline[slot]?.quantization_config?.config_type
+          const component = pipeline[slot] as PipelineComponent | undefined
+          const quant =
+            component?.quantization_config?.configuration?.config_type
           return quant ? `${slot} (${quant})` : slot
         })
         .join(' · '),
@@ -108,8 +117,8 @@ function componentsLine(pipeline: Config): DigestLine[] {
   ]
 }
 
-function lorasLine(pipeline: Config): DigestLine[] {
-  const loras: Array<Record<string, any>> = pipeline.loras ?? []
+function lorasLine(pipeline: PipelineBlock): DigestLine[] {
+  const loras = pipeline.loras ?? []
   if (!loras.length) return []
   return [
     {
@@ -122,7 +131,7 @@ function lorasLine(pipeline: Config): DigestLine[] {
 }
 
 // A scheduler block names a replacement class, a shift, or both
-function schedulerText(scheduler: Config | undefined): string {
+function schedulerText(scheduler: SchedulerBlock | undefined): string {
   return [
     scheduler?.configuration?.scheduler_type,
     scheduler?.shift !== undefined ? `shift ${scheduler.shift}` : null,
@@ -131,7 +140,7 @@ function schedulerText(scheduler: Config | undefined): string {
     .join(' · ')
 }
 
-function schedulerLine(pipeline: Config): DigestLine[] {
+function schedulerLine(pipeline: PipelineBlock): DigestLine[] {
   const video = schedulerText(pipeline.scheduler)
   const audio = schedulerText(pipeline.audio_scheduler)
   const text = [video, audio ? `audio: ${audio}` : null]
@@ -140,7 +149,7 @@ function schedulerLine(pipeline: Config): DigestLine[] {
   return text ? [{ section: 'scheduler', text }] : []
 }
 
-function accelerationLine(configuration: Config): DigestLine[] {
+function accelerationLine(configuration: PipelineConfiguration): DigestLine[] {
   const acceleration = [
     configuration.cache
       ? `cache: ${typeof configuration.cache === 'string' ? configuration.cache : configuration.cache.type}`
@@ -157,8 +166,10 @@ function accelerationLine(configuration: Config): DigestLine[] {
 
 /** A pipeline step at a glance: one summary, then one line per part that
  * is set, in the order the step editor shows them. */
-function pipelineDigest(step: Record<string, any>): StepDigest {
-  const pipeline = step.pipeline
+function pipelineDigest(
+  pipeline: PipelineBlock,
+  step: Partial<WorkflowStep>,
+): StepDigest {
   const configuration = pipeline.configuration ?? {}
   const pretrained = pipeline.from_pretrained_arguments ?? {}
   const args = pipeline.arguments ?? {}

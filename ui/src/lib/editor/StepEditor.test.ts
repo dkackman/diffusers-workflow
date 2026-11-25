@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
 import { api } from '../test/apiMock'
 import { VARIABLE } from '../references'
 import StepEditor from './StepEditor.svelte'
+import type { PipelineDescription, WorkflowStep } from '../types'
 
 // The LoRA editor asks the catalog about a literal base repo; keep it offline
 vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
@@ -171,4 +172,64 @@ it('a step removed during the pause never reads its sub-workflow', async () => {
   } finally {
     vi.useRealTimers()
   }
+})
+
+const full = (s: WorkflowStep) =>
+  render(StepEditor, {
+    step: s,
+    workflow: {},
+    index: 0,
+    count: 1,
+    mode: 'full',
+    onremove: () => {},
+    onmove: () => {},
+  })
+
+// `arguments` is optional in a definition, and the full view used to throw
+// reading a key of it
+it('opens full on a step with no arguments, and writes nothing', async () => {
+  const s: WorkflowStep = {
+    name: 'bare',
+    pipeline: { configuration: { component_type: '' } },
+  }
+  const before = JSON.stringify(s)
+  full(s)
+  await new Promise((r) => setTimeout(r, 50))
+  expect(screen.getByLabelText('model')).toBeInTheDocument()
+  expect(JSON.stringify(s)).toBe(before)
+})
+
+// Typing into a block the definition does not have yet used to write to a
+// throwaway object, so the edit was lost
+it('keeps what is typed into a block the step did not have', async () => {
+  const s: WorkflowStep = { name: 'bare', pipeline: {} }
+  full(s)
+  await fireEvent.input(screen.getByLabelText('model'), {
+    target: { value: 'org/model' },
+  })
+  expect(s.pipeline?.from_pretrained_arguments).toEqual({
+    model_name: 'org/model',
+  })
+  await fireEvent.change(screen.getByLabelText('attention backend'), {
+    target: { value: 'flash' },
+  })
+  expect(s.pipeline?.configuration?.attention_backend).toBe('flash')
+})
+
+it('creates the arguments block with the first argument added', async () => {
+  api.describeClass.mockResolvedValue({
+    name: 'Probe',
+    summary: '',
+    parameters: [],
+    accepts_kwargs: true,
+  } as unknown as PipelineDescription)
+  const s: WorkflowStep = {
+    name: 'bare',
+    pipeline: { configuration: { component_type: 'Probe' } },
+  }
+  full(s)
+  const [add] = await screen.findAllByPlaceholderText('add custom argument…')
+  await fireEvent.input(add, { target: { value: 'steps' } })
+  await fireEvent.keyDown(add, { key: 'Enter' })
+  expect(JSON.stringify(s.pipeline)).toContain('"steps":""')
 })
