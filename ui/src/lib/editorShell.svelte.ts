@@ -284,7 +284,8 @@ export class DocumentEditor<T extends object = object> {
     // inside the handler only, so the listener registers exactly once
     $effect(() => {
       const guard = (event: BeforeUnloadEvent) => {
-        if (this.unsaved()) event.preventDefault()
+        // quiet: a toast raised while the page unloads is never read
+        if (this.unsaved({ quiet: true })) event.preventDefault()
       }
       window.addEventListener('beforeunload', guard)
       return () => window.removeEventListener('beforeunload', guard)

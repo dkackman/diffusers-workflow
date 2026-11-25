@@ -602,3 +602,63 @@ describe('job event stream', () => {
     expect(source.closed).toBe(false)
   })
 })
+
+describe('an id is one path segment', () => {
+  // a job id reaches these from the page's hash, already percent-decoded
+  const id = 'a/../b?x=1#y'
+  const encoded = 'a%2F..%2Fb%3Fx%3D1%23y'
+
+  it.each([
+    ['getJob', () => api.getJob(id), `/api/jobs/${encoded}`],
+    ['getJobWorkflow', () => api.getJobWorkflow(id), `/workflow`],
+    ['eventLog', () => api.eventLog(id), `/event-log`],
+    ['rerunJob', () => api.rerunJob(id), `/rerun`],
+    ['rerunRestartBatch', () => api.rerunRestartBatch(id), `-batch`],
+    ['moveJob', () => api.moveJob(id, 'up'), `/move`],
+    ['exportJob', () => api.exportJob(id, 'default'), `/export`],
+    ['cancelJob', () => api.cancelJob(id), `/cancel`],
+    ['cancelDownload', () => api.cancelDownload(id), `/cancel`],
+    ['describePipeline', () => api.describePipeline(id), encoded],
+  ])('%s', async (_, call, tail) => {
+    const calls = stubFetch({ ok: true, body: {} })
+    await call()
+    const url = new URL(calls[0][0], 'http://dw')
+    expect(url.pathname).toContain(encoded)
+    expect(url.pathname.endsWith(tail.split('/').pop()!)).toBe(true)
+    expect(url.searchParams.has('x')).toBe(false)
+    expect(url.hash).toBe('')
+  })
+
+  it.each(['.', '..'])('%s is not walked as a dot segment', async (dots) => {
+    const calls = stubFetch({ ok: true, body: {} })
+    await api.cancelJob(dots)
+    const { pathname } = new URL(calls[0][0], 'http://dw')
+    expect(pathname).toMatch(/^\/api\/jobs\/(%252E){1,2}\/cancel$/)
+  })
+
+  it('in the event stream URL', () => {
+    const urls: string[] = []
+    vi.stubGlobal(
+      'EventSource',
+      class {
+        constructor(url: string) {
+          urls.push(url)
+        }
+        close() {}
+      },
+    )
+    streamJobEvents(
+      id,
+      0,
+      () => {},
+      () => {},
+    )
+    expect(urls[0]).toContain(`/api/jobs/${encoded}/events?after=`)
+  })
+
+  it('and the class kind is one query value', async () => {
+    const calls = stubFetch({ ok: true, body: {} })
+    await api.listClasses('a&b=1')
+    expect(calls[0][0]).toContain('/api/classes?kind=a%26b%3D1')
+  })
+})

@@ -848,3 +848,18 @@ describe('editorKeys', () => {
     expect(save).not.toHaveBeenCalled()
   })
 })
+
+it('a tab close over a broken JSON draft raises no toast', () => {
+  const shell = mount()
+  shell.load({ text: 'a' })
+  flushSync()
+  // as the JSON editor does: its flusher applies the draft it holds
+  shell.registerFlush(({ quiet } = {}) =>
+    shell.applyJson('{ broken', { quiet }),
+  )
+  vi.mocked(notify.error).mockClear()
+  const event = new Event('beforeunload', { cancelable: true })
+  window.dispatchEvent(event)
+  expect(event.defaultPrevented).toBe(true)
+  expect(notify.error).not.toHaveBeenCalled()
+})

@@ -780,3 +780,55 @@ it('storage that throws keeps scrolls in memory', async () => {
   placeScroll()
   expect(scrollTo).toHaveBeenLastCalledWith(0, 400)
 })
+
+it('setHashQuery writes nothing while a leave guard is asking', async () => {
+  const { route, addLeaveGuard, setHashQuery } = await loadRouter()
+  await go('#/ws/studio/overview')
+  let answer: (ok: boolean) => void = () => {}
+  addLeaveGuard(() => new Promise<boolean>((resolve) => (answer = resolve)))
+  await go('#/ws/studio/jobs')
+  setHashQuery({ q: 'typed' })
+  expect(location.hash).toBe('#/ws/studio/jobs')
+  await nav(() => answer(false), 1, 'popstate')
+  // the walk back lands on the editor's own entry, under its own URL
+  expect(location.hash).toBe('#/ws/studio/overview')
+  expect(route.view).toMatchObject({ section: 'overview' })
+})
+
+it('a declined missing-workspace redirect keeps the editor on its own workspace', async () => {
+  const { notify } = await import('./toast')
+  const { route, addLeaveGuard } = await loadRouter()
+  const { loadWorkspaces, workspace } = await import('./workspace.svelte')
+  let land: () => void = () => {}
+  api.listWorkspaces.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        land = () =>
+          resolve({
+            workspace_root: '/ws',
+            default: 'default',
+            workspaces: [{ name: 'default', default: true }],
+          } as Awaited<ReturnType<typeof api.listWorkspaces>>)
+      }),
+  )
+  // an editor open in a workspace that is then deleted elsewhere
+  await go('#/ws/gone/workflows')
+  const listed = loadWorkspaces()
+  addLeaveGuard(() => false)
+  await nav(land)
+  await listed
+  expect(notify.error).toHaveBeenCalledWith(expect.stringContaining('gone'))
+  expect(location.hash).toBe('#/ws/gone/workflows')
+  expect(route.view).toMatchObject({ workspace: 'gone' })
+  expect(workspace.current).toBe('gone')
+})
+
+it('hashState needs a codec for a box that is not a string', async () => {
+  const { hashState } = await loadRouter()
+  // type-checked by `npm run check`, never run
+  const unused = () => {
+    // @ts-expect-error the default codec reads and writes strings only
+    hashState('k', 0)
+  }
+  expect(unused).toBeTypeOf('function')
+})

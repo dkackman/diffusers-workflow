@@ -77,6 +77,7 @@ import {
   outputUrl,
   queryOf,
   scopeTo,
+  segment,
   withToken,
 } from './apiUrls'
 import { documentRoutes } from './apiDocuments'
@@ -129,14 +130,14 @@ export const api = {
     const url = qs ? `/api/jobs?${qs}` : '/api/jobs'
     return request<JobList>(url, undefined, UNSCOPED)
   },
-  getJob: (id: string) => request<JobDetail>(`/api/jobs/${id}`),
+  getJob: (id: string) => request<JobDetail>(`/api/jobs/${segment(id)}`),
   /** The definition a job ran, for the job page's read-only flow view.
    * `realized` true means `definition` is the realized copy the run itself
    * wrote - every mutable input pinned - rather than the definition as
    * submitted. 404s when the job named a workflow file that is no longer
    * readable. */
   getJobWorkflow: (id: string) =>
-    request<JobWorkflow>(`/api/jobs/${id}/workflow`),
+    request<JobWorkflow>(`/api/jobs/${segment(id)}/workflow`),
   /** One JSON page of a job's events, after `after` (exclusive). `kinds`
    * goes as repeated parameters and keeps events whose `event` or `kind`
    * is one of them. A finished job answers from the tail history kept,
@@ -154,7 +155,7 @@ export const api = {
     if (limit !== undefined) query.set('limit', String(limit))
     for (const kind of kinds ?? []) query.append('kinds', kind)
     const qs = query.toString()
-    const path = `/api/jobs/${id}/event-log`
+    const path = `/api/jobs/${segment(id)}/event-log`
     return request<EventLogReply>(qs ? `${path}?${qs}` : path)
   },
   /** Queue the job again. `newSeed` draws a fresh seed into the workflow's
@@ -171,7 +172,7 @@ export const api = {
     }: { newSeed?: boolean; arguments?: Record<string, unknown> } = {},
   ) =>
     adopting(
-      await request<JobDetail>(`/api/jobs/${id}/rerun`, {
+      await request<JobDetail>(`/api/jobs/${segment(id)}/rerun`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(
@@ -188,7 +189,7 @@ export const api = {
    * a batch can span workspaces and the route needs no workspace. */
   rerunRestartBatch: (id: string, acknowledged = false) =>
     request<RestartBatchRerun>(
-      `/api/jobs/${id}/rerun-restart-batch`,
+      `/api/jobs/${segment(id)}/rerun-restart-batch`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -202,7 +203,7 @@ export const api = {
   describeTask: (command: string) =>
     request<PipelineDescription>(`/api/tasks/${encodeURIComponent(command)}`),
   moveJob: (id: string, direction: 'up' | 'down' | 'front' | 'back') =>
-    request<JobMoved>(`/api/jobs/${id}/move`, {
+    request<JobMoved>(`/api/jobs/${segment(id)}/move`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ direction }),
@@ -217,7 +218,7 @@ export const api = {
   exportJob: (id: string, workspace: string, overwrite = false) =>
     request<JobExport>(
       appendQuery(
-        scopeTo(`/api/jobs/${id}/export`, workspace),
+        scopeTo(`/api/jobs/${segment(id)}/export`, workspace),
         'overwrite',
         overwrite ? 'true' : 'false',
       ),
@@ -229,7 +230,7 @@ export const api = {
    * token is added - `withToken` would scope it a second time. */
   exportZipUrl: (zipUrl: string) => addToken(zipUrl),
   cancelJob: (id: string) =>
-    request<JobCancelled>(`/api/jobs/${id}/cancel`, {
+    request<JobCancelled>(`/api/jobs/${segment(id)}/cancel`, {
       method: 'POST',
     }),
   /** Queue a run. With `request` and `item` it is linked to that item of
@@ -255,7 +256,7 @@ export const api = {
     }),
   listDownloads: () => request<ModelDownloads>('/api/models/downloads'),
   cancelDownload: (id: string) =>
-    request<ModelDownload>(`/api/models/downloads/${id}/cancel`, {
+    request<ModelDownload>(`/api/models/downloads/${segment(id)}/cancel`, {
       method: 'POST',
     }),
   deleteModel: (repo: string) =>
@@ -467,9 +468,9 @@ export const api = {
     }),
   listPipelines: () => request<PipelineNames>('/api/pipelines'),
   describePipeline: (name: string) =>
-    request<PipelineDescription>(`/api/pipelines/${name}`),
+    request<PipelineDescription>(`/api/pipelines/${segment(name)}`),
   listClasses: (kind: string) =>
-    request<ClassList>(`/api/classes?kind=${kind}`),
+    request<ClassList>(`/api/classes?kind=${encodeURIComponent(kind)}`),
   describeClass: (name: string, target: 'call' | 'init' | 'load') =>
     request<PipelineDescription>(
       `/api/classes/${encodeURIComponent(name)}?target=${target}`,
@@ -575,7 +576,7 @@ export function streamJobEvents(
   // EventSource cannot set custom headers, so a configured token rides
   // along as a query parameter for this one route - see docs/SERVER.md.
   const source = new EventSource(
-    withToken(`/api/jobs/${jobId}/events?after=${after}`),
+    withToken(`/api/jobs/${segment(jobId)}/events?after=${after}`),
   )
   source.onmessage = (message) => {
     const event: JobEvent = JSON.parse(message.data)
