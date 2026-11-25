@@ -207,7 +207,8 @@ class Job:
         # has no split
         self.host_memory_job_peak_committed_mb = None
         # The host RAM it was projected to hold at its peak when admitted,
-        # (mb, basis, runs, inherited_from) or None (host_ram_need.py, #869)
+        # (mb, basis, runs) - plus inherited_from when basis is inherited -
+        # or None (host_ram_need.py, #869)
         self.host_ram_need = None
         # The Hub repos admission found the job names (Admission.repos_named),
         # stamped into dw/model_use.py when its run starts (#1445). Not
