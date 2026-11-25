@@ -24,3 +24,24 @@ export function holdLayer(): () => void {
 export function overlayOpen(own = 0): boolean {
   return open > own
 }
+
+/** Where one overlay portals: the full-screen element when one is showing
+ * (the browser draws nothing outside it, so a dialog on <body> would be open
+ * and unseen), else <body>. Read as the overlay opens and held until it next
+ * does: a target changed while it closes makes Bits mount the closing content
+ * afresh there, where it stays on screen. */
+export function portalTarget(isOpen: () => boolean): {
+  readonly to: HTMLElement
+} {
+  let held: HTMLElement | undefined
+  const to = $derived.by(() => {
+    if (isOpen() || !held)
+      held = (document.fullscreenElement as HTMLElement | null) ?? document.body
+    return held
+  })
+  return {
+    get to() {
+      return to
+    },
+  }
+}

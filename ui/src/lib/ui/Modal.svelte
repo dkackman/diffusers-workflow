@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
   import { Dialog } from 'bits-ui'
-  import { holdLayer } from './layers.svelte'
+  import { holdLayer, portalTarget } from './layers.svelte'
 
   let {
     open = $bindable(false),
@@ -29,6 +29,7 @@
   $effect(() => {
     if (open) return holdLayer()
   })
+  const portal = portalTarget(() => open)
 
   // A press on a toast (its Undo, its close) is not a press outside the
   // sheet: the sheet stays open under it
@@ -42,7 +43,7 @@
 <!-- A modal: focus is trapped inside and returns to the trigger on close;
      Escape and an outside click close it -->
 <Dialog.Root bind:open>
-  <Dialog.Portal>
+  <Dialog.Portal to={portal.to}>
     <Dialog.Overlay class="ui-overlay" />
     <Dialog.Content
       class={['ui-sheet panel', size && `ui-sheet-${size}`]
