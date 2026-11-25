@@ -11,6 +11,9 @@ import { api } from '../test/apiMock'
 import { formatExact, formatMtime } from '../format'
 import { attempt, item, request } from '../request/fixtures'
 import type { GalleryFile, GalleryLinkedJob, GalleryMetadata } from '../types'
+import { quiet, useQuietClock } from '../test/quiet'
+
+useQuietClock()
 
 const setNote = vi.hoisted(() => vi.fn())
 // What the server holds as the note a save reads first (its etag read)
@@ -205,7 +208,7 @@ it('a note saved while the file will not read again tells the page nothing', asy
   })
   await fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
   await waitFor(() => expect(reread).toHaveBeenCalledTimes(1))
-  for (let i = 0; i < 3; i++) await new Promise((r) => setTimeout(r, 10))
+  await quiet()
   expect(onnotesaved).not.toHaveBeenCalled()
 })
 

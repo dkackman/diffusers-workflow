@@ -11,6 +11,9 @@ import '../router.svelte'
 import { DEFAULT_WORKSPACE, workspace } from '../workspace.svelte'
 import { api } from '../test/apiMock'
 import { feed } from '../test/feedMock'
+import { quiet, useQuietClock } from '../test/quiet'
+
+useQuietClock()
 
 const detail = (origin: string, writable: boolean) => ({
   description: '',
@@ -59,7 +62,7 @@ afterEach(() => {
   workspace.current = DEFAULT_WORKSPACE
 })
 const settle = async () => {
-  for (let i = 0; i < 3; i++) await new Promise((r) => setTimeout(r, 10))
+  await quiet()
 }
 
 it('badges a prompt by the origin on its own detail', async () => {

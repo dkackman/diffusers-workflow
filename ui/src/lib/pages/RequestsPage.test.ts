@@ -13,6 +13,9 @@ import { api } from '../test/apiMock'
 import { feed } from '../test/feedMock'
 import { connection } from '../connection.svelte'
 import { formatExact, formatRelative } from '../format'
+import { quiet, useQuietClock } from '../test/quiet'
+
+useQuietClock()
 
 const data = vi.hoisted(() => ({
   requests: [] as unknown[],
@@ -214,7 +217,7 @@ it("drops another workspace's list that lands after a switch", async () => {
     workspace: 'studio',
     requests: [summary({ id: 's1', title: 'Studio ask' })],
   })
-  await new Promise((r) => setTimeout(r, 10))
+  await quiet()
   expect(screen.queryByText('Studio ask')).toBeNull()
   expect(screen.getByRole('link', { name: /Other ask/ })).toBeTruthy()
 })

@@ -13,6 +13,9 @@ import WorkflowsPage from './WorkflowsPage.svelte'
 import { api } from '../test/apiMock'
 import { feed } from '../test/feedMock'
 import '../router.svelte'
+import { quiet, useQuietClock } from '../test/quiet'
+
+useQuietClock()
 
 type Detail = Record<string, unknown>
 
@@ -282,7 +285,7 @@ it('the workspace view links a card under the current workspace', async () => {
   )
 })
 
-const settle = () => new Promise((r) => setTimeout(r, 10))
+const settle = quiet
 
 it('reloads the listing when workflows move, keeping the cards on screen', async () => {
   await renderPage('tti')

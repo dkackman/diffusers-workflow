@@ -3,10 +3,13 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import OutputTile from './OutputTile.svelte'
 import { api } from '../test/apiMock'
 import { assetMedia, type MediaFile } from '../media'
+import { quiet, useQuietClock } from '../test/quiet'
 
 // The stylesheet's text: vitest stubs a stylesheet's import, so it is read
 // from disk (tests run from ui/). A specifier that is not a literal keeps
 // node's types out of the app's program, as freshness.test.ts does
+useQuietClock()
+
 const FS = 'node:fs'
 const { readFileSync } = (await import(/* @vite-ignore */ FS)) as {
   readFileSync: (path: string, encoding: 'utf8') => string
@@ -123,7 +126,7 @@ it('a text tile reads its first lines once, when it is first seen', async () => 
       }),
     },
   })
-  await new Promise((r) => setTimeout(r, 10))
+  await quiet()
   expect(fileText).not.toHaveBeenCalled()
   observer.show()
   await waitFor(() =>
@@ -132,7 +135,7 @@ it('a text tile reads its first lines once, when it is first seen', async () => 
     ),
   )
   observer.show()
-  await new Promise((r) => setTimeout(r, 10))
+  await quiet()
   expect(fileText).toHaveBeenCalledTimes(1)
   expect(fileText).toHaveBeenCalledWith('/outputs/demo/prompt.txt')
   expect(container.querySelector('.tile-media')?.textContent).toContain('¶')
@@ -261,7 +264,7 @@ it("a text tile reads its lines again when the file's stamp changes", async () =
   )
   // A listing read again hands the tile a new object for the same file
   await rerender({ file: text('1:10') })
-  await new Promise((r) => setTimeout(r, 10))
+  await quiet()
   expect(fileText).toHaveBeenCalledTimes(1)
   // Replaced: a new mtime and size
   fileText.mockResolvedValueOnce('new first\nnew second\n')

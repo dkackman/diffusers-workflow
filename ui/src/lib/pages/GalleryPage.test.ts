@@ -20,6 +20,9 @@ import { api } from '../test/apiMock'
 import { feed } from '../test/feedMock'
 import { CLOCK_TICK_MS } from '../clock.svelte'
 import { outputLibrary } from '../outputlib.svelte'
+import { quiet, useQuietClock } from '../test/quiet'
+
+useQuietClock()
 
 const file = (
   name: string,
@@ -259,7 +262,7 @@ const metaReply = (over: Record<string, unknown> = {}) => ({
 })
 
 const settle = async () => {
-  for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 10))
+  await quiet()
 }
 
 it('lists once on mount, and again when the gallery moves, with no blanking', async () => {
@@ -463,7 +466,7 @@ it('a double click on Download sends one request', async () => {
   download.click()
 
   await waitFor(() => expect(api.archiveOutputs).toHaveBeenCalled())
-  await new Promise((r) => setTimeout(r, 20))
+  await quiet()
   expect(api.archiveOutputs).toHaveBeenCalledTimes(1)
 })
 
@@ -518,7 +521,7 @@ it('does not delete anything when the confirmation is declined', async () => {
   screen.getByRole('button', { name: /^delete/i }).click()
   await answerConfirm(false)
 
-  await new Promise((r) => setTimeout(r, 10))
+  await quiet()
   expect(api.deleteOutput).not.toHaveBeenCalled()
 })
 
@@ -1145,7 +1148,7 @@ it("leaves the editors' output library whole under a request filter", async () =
   const everything = listing.files
   listing.files = [file('only.png')]
   await renderGallery('only.png')
-  await new Promise((r) => setTimeout(r, 10))
+  await quiet()
   // Nothing held, so the library's own first use still fetches the lot
   expect(outputLibrary.items).toBeUndefined()
   expect(outputLibrary.workspace).toBeUndefined()
@@ -1177,7 +1180,7 @@ it('drops an unfiltered listing that lands after the filtered one', async () => 
   await fireEvent.change(picker, { target: { value: 'r1' } })
   await waitFor(() => expect(screen.getByLabelText('select only.png')))
   land({ files: everything })
-  await new Promise((r) => setTimeout(r, 10))
+  await quiet()
   expect(screen.getByTestId('req-filter')).toBeTruthy()
   expect(screen.queryByLabelText('select a.png')).toBeNull()
   expect(screen.getByLabelText('select only.png')).toBeTruthy()

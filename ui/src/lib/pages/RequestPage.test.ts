@@ -16,6 +16,9 @@ import type { LedgerRequest } from '../types'
 import { api } from '../test/apiMock'
 import { feed } from '../test/feedMock'
 import { readSnapshot, snapshotOf, writeSnapshot } from '../request/planDiff'
+import { quiet, useQuietClock } from '../test/quiet'
+
+useQuietClock()
 
 const data = vi.hoisted(() => ({
   request: null as unknown,
@@ -377,7 +380,7 @@ it('drops a request that lands after the page moved to another', async () => {
   await view.rerender({ requestId: 'r2' })
   await screen.findByText('Second ask')
   land(make())
-  await new Promise((r) => setTimeout(r, 10))
+  await quiet()
   expect(screen.queryByText('Launch posters')).toBeNull()
   expect(screen.getByText('Second ask')).toBeTruthy()
 })
@@ -532,7 +535,7 @@ it('a refresh answered after a save does not put the old revision back', async (
   await atRevision(4)
   // then the feed's read, still carrying revision 3 and no note
   land(make())
-  await new Promise((r) => setTimeout(r, 10))
+  await quiet()
   expect(revision()).toBe('now at r4')
   expect(within(row('Second poster')).getByText('more red')).toBeTruthy()
 })
@@ -617,7 +620,7 @@ it('a refresh sent before a save and answered after it does not undo the save', 
   await atRevision(4)
   // then the refresh, still carrying revision 3 and no note
   land(make())
-  await new Promise((r) => setTimeout(r, 10))
+  await quiet()
   expect(revision()).toBe('now at r4')
   expect(within(row('Second poster')).getByText('more red')).toBeTruthy()
 })
@@ -691,7 +694,7 @@ it('says once when the agent answers a waiting note, and the toast goes to it', 
   ).toBe('false')
   action.onClick()
   // focus is no mutation for waitFor to see, and its interval is faked
-  await new Promise((r) => setTimeout(r, 20))
+  await quiet()
   expect(document.activeElement?.id).toBe('request-note-n1')
   expect(
     screen
@@ -901,7 +904,7 @@ it('a read that does not move the revision writes nothing', async () => {
     await waitFor(() =>
       expect(api.getRequest.mock.calls.length).toBe(reads + 1),
     )
-    await new Promise((r) => setTimeout(r, 20))
+    await quiet()
     expect(seenWrites()).toBe(0)
     expect(document.querySelector('.since')).toBeNull()
   } finally {

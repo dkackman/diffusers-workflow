@@ -12,6 +12,9 @@ import { invalidateWorkspaces, workspace } from './workspace.svelte'
 import { api } from './test/apiMock'
 import { feed } from './test/feedMock'
 import { CLOCK_TICK_MS } from './clock.svelte'
+import { quiet, useQuietClock } from './test/quiet'
+
+useQuietClock()
 
 vi.mock('./api', async () => (await import('./test/apiMock')).apiModule())
 api.listWorkspaces.mockImplementation(() =>
@@ -371,7 +374,7 @@ it('one feed poll that moves the workspaces and a content kind lists them once',
   // watcher called in turn (changes.svelte.ts)
   feed.move(workspace.current, 'workspaces')
   feed.move(workspace.current, 'assets')
-  await new Promise((r) => setTimeout(r, 10))
+  await quiet()
   // the content resource joins the relist on its way
   expect(api.listWorkspaces.mock.calls.length).toBe(calls + 1)
 })
@@ -387,9 +390,9 @@ it('a content move does not join a listing read started before it', async () => 
     () => new Promise((resolve) => (land = () => resolve(original()))),
   )
   feed.move(workspace.current, 'workspaces')
-  await new Promise((r) => setTimeout(r, 10))
+  await quiet()
   feed.move(workspace.current, 'assets')
-  await new Promise((r) => setTimeout(r, 10))
+  await quiet()
   expect(api.listWorkspaces.mock.calls.length).toBe(calls + 2)
   land()
 })
@@ -399,7 +402,7 @@ it("the open workspace's time follows the route's feed", async () => {
   await waitFor(() => expect(screen.getByText('default')).toBeTruthy())
   // `current` moved off the route's workspace (studio)
   workspace.current = 'default'
-  await new Promise((r) => setTimeout(r, 10))
+  await quiet()
   const calls = api.listWorkspaces.mock.calls.length
   feed.move('studio', 'assets')
   await waitFor(() =>

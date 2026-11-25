@@ -18,6 +18,7 @@ import { feed } from '../test/feedMock'
 import { notify } from '../toast'
 import { emptyStep } from '../editor'
 import { formatMtime } from '../format'
+import { quiet, useQuietClock } from '../test/quiet'
 
 // EditorPage talks to the server on mount (pipeline/class/task catalogs,
 // the workflow listing, the prompt library) purely to feed forms the flow
@@ -25,6 +26,8 @@ import { formatMtime } from '../format'
 // the view switch, not the network.
 // Monaco cannot boot in jsdom; the JSON view is read through this stub,
 // which renders the value it was handed as plain text
+useQuietClock()
+
 vi.mock('../editor/JsonEditor.svelte', async () => ({
   default: (await import('./JsonEditorStub.svelte')).default,
 }))
@@ -333,7 +336,7 @@ describe('EditorPage validation plan', () => {
       new Promise((resolve) => (arrive = resolve)) as never,
     )
     render(EditorPage, { name: 'models/z-image' })
-    await new Promise((r) => setTimeout(r, 700))
+    await quiet()
     expect(api.validate).not.toHaveBeenCalled()
     arrive({
       definition: { id: 'Late', steps: [{ name: 'generate', pipeline: {} }] },
@@ -366,7 +369,7 @@ describe('EditorPage validation plan', () => {
     render(EditorPage, { name: '' })
     const id = () => screen.getByLabelText('workflow id') as HTMLInputElement
     await waitFor(() => expect(id()).toBeTruthy())
-    await new Promise((done) => setTimeout(done, 900))
+    await quiet()
     expect(api.validate).not.toHaveBeenCalled()
     await fireEvent.click(screen.getByRole('button', { name: /Validate/ }))
     await waitFor(() => expect(api.validate).toHaveBeenCalledTimes(1))
@@ -587,7 +590,7 @@ describe('EditorPage new workflow origin', () => {
     vi.mocked(api.listWorkflows).mockResolvedValue(withExample as never)
     render(EditorPage, { name: '' })
     await waitFor(() => expect(startFrom().options.length).toBe(2))
-    await new Promise((done) => setTimeout(done, 900))
+    await quiet()
     vi.mocked(api.validate).mockClear()
     await fireEvent.change(startFrom(), { target: { value: 'templates/tti' } })
     await waitFor(() => expect(api.validate).toHaveBeenCalled(), {
@@ -777,7 +780,7 @@ describe('EditorPage saving', () => {
     saveButton().click()
     saveButton().click()
     await waitFor(() => expect(api.saveWorkflow).toHaveBeenCalled())
-    await new Promise((r) => setTimeout(r, 20))
+    await quiet()
     expect(api.saveWorkflow).toHaveBeenCalledTimes(1)
   })
 

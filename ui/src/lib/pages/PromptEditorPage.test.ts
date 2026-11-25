@@ -15,9 +15,12 @@ import { ApiError } from '../apiErrors'
 import { chooseDialog, confirmDialog } from '../confirm.svelte'
 import { feed } from '../test/feedMock'
 import { formatMtime } from '../format'
+import { quiet, useQuietClock } from '../test/quiet'
 
 // Monaco cannot boot in jsdom; the JSON view is read through this stub,
 // which renders the value it was handed as plain text
+useQuietClock()
+
 vi.mock('../editor/JsonEditor.svelte', async () => ({
   default: (await import('./JsonEditorStub.svelte')).default,
 }))
@@ -178,7 +181,7 @@ it('a double Ctrl+S writes once', async () => {
     new KeyboardEvent('keydown', { key: 's', ctrlKey: true }),
   )
   await waitFor(() => expect(api.savePrompt).toHaveBeenCalled())
-  await new Promise((r) => setTimeout(r, 20))
+  await quiet()
   expect(api.savePrompt).toHaveBeenCalledTimes(1)
 })
 
@@ -534,7 +537,7 @@ it('a draft and the focus survive the quiet read-back after Save', async () => {
     etag: '"p2"',
   } as never)
   feed.move('default', 'prompts')
-  await new Promise((r) => setTimeout(r, 30))
+  await quiet()
   expect(promptText()).toBe(field)
   expect(field.value).toBe('a hero at midnight')
   expect(document.activeElement).toBe(field)

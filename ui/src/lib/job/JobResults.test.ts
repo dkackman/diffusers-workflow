@@ -12,6 +12,9 @@ import { api } from '../test/apiMock'
 import { feed } from '../test/feedMock'
 import type { JobDetail } from '../types'
 import { workspace } from '../workspaceState.svelte'
+import { quiet, useQuietClock } from '../test/quiet'
+
+useQuietClock()
 
 const timeline = {
   kind: 'timeline',
@@ -379,7 +382,7 @@ it('the star is enabled from the listing when the recipe read fails', async () =
   })
   // let the listing's own read land, then fail the viewer's
   await waitFor(() => expect(api.galleryMetadata).toHaveBeenCalled())
-  await new Promise((r) => setTimeout(r, 50))
+  await quiet()
   held.fail = true
   const sheet = await openOutput('run1/a.png')
   const star = await within(sheet).findByRole('button', {
@@ -398,7 +401,7 @@ it('the star of an unstarred file is enabled from the listing when the recipe re
     kinds: { 'run1/a.png': 'image' },
   })
   await waitFor(() => expect(api.galleryMetadata).toHaveBeenCalled())
-  await new Promise((r) => setTimeout(r, 50))
+  await quiet()
   held.fail = true
   const sheet = await openOutput('run1/a.png')
   const star = await within(sheet).findByRole('button', {
@@ -415,7 +418,7 @@ it('the star of an unstarred file is enabled from the listing when the recipe re
 it('a video-only run stars its first file from the listing when the recipe read fails', async () => {
   render(JobResults, clips)
   await waitFor(() => expect(api.galleryMetadata).toHaveBeenCalled())
-  await new Promise((r) => setTimeout(r, 50))
+  await quiet()
   held.fail = true
   const sheet = await openOutput('run1/s3.mp4')
   const star = await within(sheet).findByRole('button', {
@@ -443,7 +446,7 @@ it('a star set in the viewer stands when the listing is rebuilt', async () => {
     fileGroups: [group('gen', ['run1/a.png', 'run1/b.png'])],
     kinds: { 'run1/a.png': 'image', 'run1/b.png': 'image' },
   })
-  await new Promise((r) => setTimeout(r, 50))
+  await quiet()
   expect(within(sheet).getByRole('button', { name: 'Star' }).ariaPressed).toBe(
     'true',
   )
@@ -551,7 +554,7 @@ it('a recipe read asked before a star write does not undo the star', async () =>
     await fireEvent.click(star)
     await waitFor(() => expect(api.setStarred).toHaveBeenCalled())
     answers.forEach((answer) => answer())
-    await new Promise((r) => setTimeout(r, 30))
+    await quiet()
     expect(star.getAttribute('aria-pressed')).toBe('true')
   } finally {
     api.galleryMetadata.mockImplementation(original)

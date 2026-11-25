@@ -25,9 +25,12 @@ import {
 import type { LedgerRequest } from '../types'
 import { api } from '../test/apiMock'
 import { feed } from '../test/feedMock'
+import { quiet, useQuietClock } from '../test/quiet'
 
 // The page's edits against a ledger that keeps the server's rules: a stale
 // revision is refused, a dropped item with no job is deleted
+useQuietClock()
+
 const world = vi.hoisted(() => ({
   ledger: null as unknown as import('../request/fakeLedger').FakeLedger,
   confirm: vi.fn(),
@@ -151,7 +154,7 @@ it("an accept's Undo pressed twice while its toast fades takes it back once", as
   // the second press found the toast used: one write back, not two
   expect(push).toHaveBeenCalledTimes(1)
   push.mockRestore()
-  await new Promise((r) => setTimeout(r, 20))
+  await quiet()
   expect(whys()).toEqual([
     'accept j1 for cast',
     'clear the accepted take of cast',
@@ -179,7 +182,7 @@ it("a drop's Undo pressed once another request is open does nothing to it", asyn
       'Nothing undone: another request is open now.',
     ),
   )
-  await new Promise((r) => setTimeout(r, 20))
+  await quiet()
   expect(world.ledger.puts).toHaveLength(0)
 })
 
@@ -195,7 +198,7 @@ it("the user's own accept is not marked as an agent's change", async () => {
   const reads = world.ledger.gets
   feed.move('studio', 'requests')
   await waitFor(() => expect(world.ledger.gets).toBe(reads + 1))
-  await new Promise((r) => setTimeout(r, 20))
+  await quiet()
   expect(document.querySelector('li.row-changed')).toBeNull()
   // an agent's edit after it still is
   world.ledger.agent('retitled shot 4', (items) =>
@@ -248,7 +251,7 @@ it('declining the confirm drops nothing', async () => {
   await start()
   await choose('s3', 'Drop from plan')
   await waitFor(() => expect(world.confirm).toHaveBeenCalled())
-  await new Promise((r) => setTimeout(r, 10))
+  await quiet()
   expect(order()).toEqual(['cast', 's3', 's4', 'cut'])
   expect(world.ledger.puts).toHaveLength(0)
   expect(world.notify.undo).not.toHaveBeenCalled()
@@ -954,7 +957,7 @@ it('a take with no file is accepted and stars nothing', async () => {
   await accept(2)
   await saved(4)
   expect(world.ledger.current.items[0].accepted?.job).toBe('j2')
-  await new Promise((r) => setTimeout(r, 20))
+  await quiet()
   expect(api.setStarred).not.toHaveBeenCalled()
 })
 

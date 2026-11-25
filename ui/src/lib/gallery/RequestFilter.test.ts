@@ -11,6 +11,9 @@ import { summary } from '../request/fixtures'
 import { api } from '../test/apiMock'
 import { feed } from '../test/feedMock'
 import { workspace } from '../workspaceState.svelte'
+import { quiet, useQuietClock } from '../test/quiet'
+
+useQuietClock()
 
 const data = vi.hoisted(() => ({
   requests: [] as unknown[],
@@ -50,14 +53,14 @@ it('offers the requests of the workspace as a picker', async () => {
 it('is hidden when the call fails, and says nothing', async () => {
   data.error = new Error('down')
   render(RequestFilter, { request: '', item: '' })
-  await new Promise((r) => setTimeout(r, 10))
+  await quiet()
   expect(picker()).toBeNull()
   expect(screen.queryByRole('alert')).toBeNull()
 })
 
 it('a request written from outside appears when the feed says requests moved', async () => {
   render(RequestFilter, { request: '', item: '' })
-  await new Promise((r) => setTimeout(r, 10))
+  await quiet()
   expect(feed.watched('studio')).toEqual(['requests'])
   expect(picker()).toBeNull()
   data.requests = [summary()]
@@ -99,7 +102,7 @@ it('keeps the hash and the filter in step, both ways', async () => {
 it('offers no picker when it is not pickable', async () => {
   data.requests = [summary()]
   render(RequestFilter, { request: '', item: '', pickable: false })
-  await new Promise((r) => setTimeout(r, 10))
+  await quiet()
   expect(picker()).toBeNull()
 })
 

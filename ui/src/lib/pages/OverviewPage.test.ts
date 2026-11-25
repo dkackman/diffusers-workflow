@@ -18,6 +18,9 @@ import { invalidateWorkspaces, workspace } from '../workspace.svelte'
 /** A list's time: relative, as `<Time>` shows it in a list */
 const listed = (at: number) => formatRelative(at, Date.now() / 1000)
 import '../router.svelte'
+import { quiet, useQuietClock } from '../test/quiet'
+
+useQuietClock()
 
 const data = vi.hoisted(() => ({
   files: [] as unknown[],
@@ -405,12 +408,12 @@ it("drops another workspace's requests that land after a switch", async () => {
   window.dispatchEvent(new HashChangeEvent('hashchange'))
   await waitFor(() => expect(screen.getByText('Default ask')).toBeTruthy())
   land({ workspace: 'studio', requests: [summary({})] })
-  await new Promise((r) => setTimeout(r, 10))
+  await quiet()
   expect(screen.queryByText('Launch posters')).toBeNull()
   expect(screen.getByText('Default ask')).toBeTruthy()
 })
 
-const settle = () => new Promise((r) => setTimeout(r, 10))
+const settle = quiet
 
 it('each kind that moves reloads its own panel quietly, and nothing else', async () => {
   data.workflows = ['shot']

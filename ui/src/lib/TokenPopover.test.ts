@@ -13,6 +13,7 @@ vi.mock('./toast', () => ({ notify: { success, error: vi.fn() } }))
 import TokenPopover from './TokenPopover.svelte'
 import { overlayOpen } from './ui/layers.svelte'
 import { connection } from './connection.svelte'
+import { quiet, useQuietClock } from './test/quiet'
 
 // jsdom has no layout: Bits never positions the popover, so it stays
 // visibility:hidden, and an accessible-name query cannot see a hidden
@@ -20,6 +21,8 @@ import { connection } from './connection.svelte'
 // the e2e suite (a real browser) covers that it shows and is named, and
 // that a press outside closes it (Bits' dismiss layer does not see a
 // synthetic jsdom press as its own).
+useQuietClock()
+
 const popover = () =>
   document.querySelector<HTMLElement>('[data-popover-content]')
 
@@ -62,7 +65,7 @@ it('leaves a press on its own trigger to the trigger', async () => {
   await waitFor(() => expect(popover()).not.toBeNull())
   await fireEvent.pointerDown(button)
   await fireEvent.pointerUp(button)
-  await new Promise((r) => setTimeout(r, 50))
+  await quiet()
   expect(popover()).not.toBeNull()
 })
 

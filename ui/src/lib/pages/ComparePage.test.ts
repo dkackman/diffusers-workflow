@@ -59,6 +59,9 @@ defaults()
 
 import ComparePage from './ComparePage.svelte'
 import { compareHref } from '../routes'
+import { quiet, useQuietClock } from '../test/quiet'
+
+useQuietClock()
 
 describe('ComparePage', () => {
   afterEach(() => {
@@ -109,7 +112,7 @@ describe('ComparePage', () => {
   })
 
   const names = ['wf/r1/a.png', 'wf/gone.png']
-  const settle = () => new Promise((r) => setTimeout(r, 20))
+  const settle = quiet
 
   it('reloads when the gallery moves, with no skeleton, and cells keep their metadata', async () => {
     render(ComparePage, { props: { names } })
