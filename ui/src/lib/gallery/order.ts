@@ -1,5 +1,7 @@
 // The gallery grid's order and filter, kept out of the page so it can be
 // tested on its own.
+import { groupNames } from '../grouping'
+import { compareNames } from '../names'
 import type { Picks } from '../picks.svelte'
 import type { GalleryFile, OutputRole } from '../types'
 
@@ -8,31 +10,143 @@ export const roleOf = (f: GalleryFile): OutputRole => f.role ?? 'final'
 
 const runKey = (f: GalleryFile) => `${f.folder}\u0000${f.run_id}`
 
-/** The files the grid shows, in its order: those whose name holds
- * `filter`, in one of `roles`, starred when `starredOnly`. Finals lead
- * inside a run only: the server's order (newest first) holds between runs,
- * so runs sit where their newest file put them. The sort is stable, so it
- * holds inside each role too */
-export function gridFiles(
-  files: GalleryFile[],
-  filter: string,
-  roles: OutputRole[],
-  starredOnly: boolean,
-): GalleryFile[] {
-  const needle = filter.toLowerCase()
-  const shown = files.filter(
-    (f) =>
-      f.name.toLowerCase().includes(needle) &&
-      roles.includes(roleOf(f)) &&
-      (!starredOnly || f.starred),
-  )
-  // Each run's place is the index of its first (newest) file. Built back
-  // to front so the first file's index is the one that sticks; a Map keeps
-  // this linear at thousands of files
+/** How the grid is ordered: newest runs first (the server's order), oldest
+ * runs first, or by name */
+export const SORTS = ['newest', 'oldest', 'name'] as const
+export type GallerySort = (typeof SORTS)[number]
+/** What the grid's headings are: folders, or the day a file was written */
+export const GROUPINGS = ['folder', 'date'] as const
+export type Grouping = (typeof GROUPINGS)[number]
+/** The header's two Segmented choices */
+export const SORT_OPTIONS = [
+  { value: 'newest', label: 'Newest' },
+  { value: 'oldest', label: 'Oldest' },
+  { value: 'name', label: 'Name' },
+]
+export const GROUP_OPTIONS = [
+  { value: 'folder', label: 'Folder' },
+  { value: 'date', label: 'Date' },
+]
+
+/** What the grid is narrowed and ordered by. `prompts` is each run's
+ * submitted prompt, by run id; a run whose job has left history has none */
+export interface GalleryQuery {
+  text: string
+  roles: OutputRole[]
+  starredOnly: boolean
+  sort: GallerySort
+  prompts: Record<string, string>
+}
+
+/** Whether every word of `text` is somewhere in the file's name, label,
+ * note or its run's prompt, case aside */
+function matchesText(
+  f: GalleryFile,
+  words: string[],
+  prompts: Record<string, string>,
+): boolean {
+  if (!words.length) return true
+  const hay = [f.name, f.label, f.note ?? '', prompts[f.run_id] ?? '']
+    .join('\n')
+    .toLowerCase()
+  return words.every((word) => hay.includes(word))
+}
+
+/** Runs in the server's order (newest first), finals leading inside a run.
+ * A run's place is the index of its first (newest) file; built back to
+ * front so the first file's index is the one that sticks, and a Map keeps
+ * this linear at thousands of files. The sort is stable, so the server's
+ * order holds inside each role too */
+function byRun(shown: GalleryFile[], oldest: boolean): GalleryFile[] {
   const runs = new Map(shown.map((f, i) => [runKey(f), i] as const).reverse())
   const place = (f: GalleryFile) => runs.get(runKey(f))!
   const rank = (f: GalleryFile) => Number(roleOf(f) === 'intermediate')
-  return shown.sort((a, b) => place(a) - place(b) || rank(a) - rank(b))
+  const way = oldest ? -1 : 1
+  return shown.sort((a, b) => way * (place(a) - place(b)) || rank(a) - rank(b))
+}
+
+/** The files the grid shows, in its order: those matching every word of
+ * `text` (matchesText), in one of `roles`, starred when `starredOnly`,
+ * sorted by `sort` */
+export function gridFiles(
+  files: GalleryFile[],
+  query: GalleryQuery,
+): GalleryFile[] {
+  const { roles, starredOnly, prompts } = query
+  const words = query.text.toLowerCase().split(/\s+/).filter(Boolean)
+  const shown = files.filter(
+    (f) =>
+      roles.includes(roleOf(f)) &&
+      (!starredOnly || f.starred) &&
+      matchesText(f, words, prompts),
+  )
+  if (query.sort === 'name')
+    return shown.sort((a, b) => compareNames(a.name, b.name))
+  return byRun(shown, query.sort === 'oldest')
+}
+
+/** The date headings, newest first */
+export const DATE_GROUPS = [
+  'Today',
+  'Yesterday',
+  'This week',
+  'Earlier',
+] as const
+export type DateGroup = (typeof DATE_GROUPS)[number]
+
+/** Which date heading a file written at `mtime` (unix seconds) sits under,
+ * by local days: today, yesterday, the seven days before yesterday, or
+ * earlier */
+export function dateGroup(mtime: number, now: Date): DateGroup {
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const at = mtime * 1000
+  if (at >= today.getTime()) return 'Today'
+  const yesterday = new Date(today)
+  yesterday.setDate(today.getDate() - 1)
+  if (at >= yesterday.getTime()) return 'Yesterday'
+  const week = new Date(yesterday)
+  week.setDate(yesterday.getDate() - 7)
+  return at >= week.getTime() ? 'This week' : 'Earlier'
+}
+
+/** How the grid's headings fall: each file's heading, the headings' order,
+ * and how a heading reads. Folders sort as FolderGroups always has; dates
+ * run newest first, or oldest first under that sort */
+export function gridGroups(
+  files: GalleryFile[],
+  by: Grouping,
+  sort: GallerySort,
+  now: Date,
+): {
+  groupOf: (name: string) => string
+  rank?: (group: string) => number
+  heading?: (group: string) => string
+} {
+  const byName = new Map(files.map((f) => [f.name, f]))
+  if (by === 'folder')
+    return { groupOf: (name) => byName.get(name)?.folder ?? '' }
+  const order: readonly string[] =
+    sort === 'oldest' ? [...DATE_GROUPS].reverse() : DATE_GROUPS
+  return {
+    groupOf: (name) => dateGroup(byName.get(name)?.mtime ?? 0, now),
+    rank: (group) => order.indexOf(group),
+    heading: (group) => group,
+  }
+}
+
+/** The files in the order the grid shows them, heading by heading: what
+ * the viewer steps through, a shift-range spans and Select all picks. A
+ * group `shut` says is collapsed shows no files, so none of its are here */
+export function inGroupOrder(
+  files: GalleryFile[],
+  groups: ReturnType<typeof gridGroups>,
+  shut: (group: string) => boolean = () => false,
+): GalleryFile[] {
+  const byName = new Map(files.map((f) => [f.name, f]))
+  const names = files.map((f) => f.name)
+  return [...groupNames(names, groups.groupOf, groups.rank).entries()]
+    .flatMap(([group, inGroup]) => (shut(group) ? [] : inGroup))
+    .map((name) => byName.get(name)!)
 }
 
 /** What a listing read holds: the files, the request filter it was asked
@@ -42,7 +156,16 @@ export interface Listing {
   files: GalleryFile[]
   key: string
   began: number
+  /** The workspace the listing is of, which its thumbnails are served from */
+  workspace: string
+  /** Each run's submitted prompt, by run id, for the search */
+  prompts: Record<string, string>
 }
+
+/** A listing's rows by file name, for the changed-row mark (resource's
+ * `rows`) */
+export const listingRows = (listing: Listing) =>
+  listing.files.map((f) => [f.name, f] as const)
 
 type Named = { name: string }
 

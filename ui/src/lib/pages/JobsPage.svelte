@@ -1,19 +1,29 @@
 <script lang="ts">
-  import { formatDuration, formatExact, formatMtime } from '../format'
-  import { holdKind } from '../progress'
-  import { queueWait } from '../jobTimes'
+  import { proofByRun } from '../proofs'
+  import JobRow from '../job/JobRow.svelte'
   import { resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
+  import PageHeader from '../ui/PageHeader.svelte'
   import { onMount } from 'svelte'
-  import { ChevronDown, ChevronUp, ChevronsUp, Inbox, X } from '@lucide/svelte'
+  import { Inbox } from '@lucide/svelte'
   import { api } from '../api'
-  import { notify } from '../toast'
-  import type { JobSummary } from '../types'
-  import { wsHref } from '../routes'
-  import { hashQuery, setHashQuery } from '../router.svelte'
-  import { parseRequestFilter, type RequestFilter } from '../requestFilter'
-  import { listingRefused, listingWorkspace, queueLength } from '../jobsListing'
+  import { action } from '../action.svelte'
+  import { hashState } from '../router.svelte'
+  import RequestFilter from '../gallery/RequestFilter.svelte'
+  import {
+    JOBS_PAGE,
+    heldFor,
+    type HeldJobs,
+    jobMatches,
+    listWithPrompts,
+    listingRefused,
+    listingWorkspace,
+    queueLength,
+    queuedEverywhere,
+    runningProgress,
+  } from '../jobsListing'
   import { loadWorkspaces, workspace } from '../workspace.svelte'
+  import { wsHref } from '../routes'
   import {
     rerunRestartBatchWithConfirm,
     restartBanners,
@@ -24,53 +34,30 @@
 
   // The filters live in the hash's query, so opening a job and coming back
   // - or sharing the link - keeps the narrowed view
-  const initial = hashQuery()
-  let statusFilter = $state(initial.status ?? '')
-  let nameFilter = $state(initial.q ?? '')
+  const statusFilter = hashState('status', '')
+  const nameFilter = hashState('q', '')
   // Server-side, unlike the two filters above: it changes which jobs are
   // fetched at all, not just which of the fetched ones are shown. Only read
   // under scope 'all' - empty there means every workspace, which is the
   // point of that view; a workspace's own Jobs page filters by
   // `workspace.current` instead.
-  let workspaceFilter = $state(initial.ws ?? '')
-  // Server-side too: `req=<id>` or `req=<id>/<item>` asks the server for
-  // the jobs linked to that requests-ledger request (or one item of it)
-  let reqFilter = $state(initial.req ?? '')
-  const requestScope = $derived(parseRequestFilter(reqFilter))
+  const workspaceFilter = hashState('ws', '')
+  // Server-side too: the request (or one item of it) the jobs were linked
+  // to. RequestFilter keeps it in the hash (`req`) and reads it at init
+  const requestScope = $state({ request: '', item: '' })
 
-  $effect(() =>
-    setHashQuery({
-      status: statusFilter,
-      q: nameFilter,
-      ws: scope === 'all' ? workspaceFilter : '',
-      req: reqFilter,
-    }),
-  )
-  // The route's view is unchanged when the Jobs nav link lands on the bare
-  // route from a narrowed one, so the page is not re-created: the filters
-  // follow the hash too, and a hash with no query clears them
-  $effect(() => {
-    const sync = () => {
-      const query = hashQuery()
-      statusFilter = query.status ?? ''
-      nameFilter = query.q ?? ''
-      workspaceFilter = query.ws ?? ''
-      reqFilter = query.req ?? ''
-    }
-    window.addEventListener('hashchange', sync)
-    return () => window.removeEventListener('hashchange', sync)
-  })
   // The server-side filters narrow what is fetched, so an empty answer is
   // "nothing matches"; the client-side ones only mean that when there were
   // rows to filter (on an empty listing the answer is "no jobs yet")
   const narrowed = $derived(
-    !!requestScope.request || (scope === 'all' && !!workspaceFilter),
+    !!requestScope.request || (scope === 'all' && !!workspaceFilter.value),
   )
   function clearFilters() {
-    statusFilter = ''
-    nameFilter = ''
-    workspaceFilter = ''
-    reqFilter = ''
+    statusFilter.value = ''
+    nameFilter.value = ''
+    workspaceFilter.value = ''
+    requestScope.request = ''
+    requestScope.item = ''
   }
   // A request lives in one workspace, so its filter is never read across
   // them (listingWorkspace): on the all-jobs view it pins the picker to the
@@ -78,13 +65,14 @@
   const listed = $derived(
     listingWorkspace(
       scope,
-      workspaceFilter,
+      workspaceFilter.value,
       workspace.current,
       requestScope.request,
     ),
   )
   $effect(() => {
-    if (scope === 'all' && listed !== workspaceFilter) workspaceFilter = listed
+    if (scope === 'all' && listed !== workspaceFilter.value)
+      workspaceFilter.value = listed
   })
 
   // Only worth a picker once there is a choice - a single-workspace server
@@ -95,15 +83,62 @@
   // What load reads before its first await (the scope's workspace and the
   // request filter) restarts the read when it changes, so a narrowed view
   // never shows another question's rows
+  // Prompts ride along only for jobs not yet read (listWithPrompts): a
+  // prompt never changes, so the 3 s poll does not ask for them again
+  const known = new Map<string, string>()
+  // How many finished jobs are read: the newest page, then what Show older
+  // or Search all asked for. A change re-reads, and a filter does not reset it
+  let shown = $state(JOBS_PAGE)
+  // Search all read the whole history once; from then on a poll reads a
+  // page and merges it into `held`, so the cost per poll stays a page
+  let loadAll = $state(false)
+  const held: HeldJobs = { question: '', jobs: new Map() }
+  // A different workspace or request is a new question: it starts at the
+  // first page again, as `held` does, so the three cannot drift apart
+  let asking = ''
   const list = resource(
     async () => {
-      const [ws, scoped] = [listed, requestScope]
-      const rows = (await listJobs(ws, scoped)).jobs.reverse()
+      const [ws, scoped] = [listed, { ...requestScope }]
+      const question = JSON.stringify([ws, scoped])
+      if (question !== asking) {
+        asking = question
+        shown = JOBS_PAGE
+        loadAll = false
+      }
+      const [limit, all] = [shown, loadAll]
+      const { list: answer, prompts } = await listWithPrompts(
+        ws,
+        scoped,
+        known,
+        limit,
+        all ? heldFor(held, ws, scoped) : undefined,
+      )
+      const rows = answer.jobs.reverse()
       const queued = await queuedEverywhere(rows, !!(ws || scoped.request))
-      return { rows, queueSize: queueLength(rows, queued) }
+      const progress = await runningProgress(rows)
+      return {
+        rows,
+        total: answer.total,
+        finished: answer.finished,
+        queueSize: queueLength(rows, queued),
+        prompts,
+        progress,
+      }
     },
     { live: { everyMs: 3000 } },
   )
+  // Each run's picture, from the workspace's gallery
+  const gallery = resource(
+    async () => {
+      const { files, workspace: from } = await api.gallery()
+      return { from, runs: proofByRun(files) }
+    },
+    { watch: ['gallery'] },
+  )
+  const runs = $derived(gallery.data?.runs ?? {})
+  const listedGallery = $derived(gallery.data?.from ?? '')
+  const prompts = $derived(list.data?.prompts ?? {})
+  const progress = $derived(list.data?.progress ?? {})
   // The server turning the question down: its message is the explanation,
   // and the rows of an earlier question must not stay under this one's
   const refused = $derived(
@@ -113,104 +148,72 @@
   )
   const jobs = $derived(refused ? [] : (list.data?.rows ?? []))
   const filtered = $derived(
-    narrowed || ((!!statusFilter || !!nameFilter) && jobs.length > 0),
+    narrowed ||
+      ((!!statusFilter.value || !!nameFilter.value) && jobs.length > 0),
   )
   const queueSize = $derived(list.data?.queueSize ?? 0)
+  const total = $derived(refused ? 0 : (list.data?.total ?? 0))
+  const finished = $derived(refused ? 0 : (list.data?.finished ?? 0))
+  const partial = $derived(!loadAll && shown < finished)
+  const olderBy = $derived(Math.min(JOBS_PAGE, finished - shown))
   const visible = $derived(
     jobs.filter(
       (job) =>
-        (!statusFilter || job.status === statusFilter) &&
-        (job.workflow ?? '').toLowerCase().includes(nameFilter.toLowerCase()),
+        (!statusFilter.value || job.status === statusFilter.value) &&
+        jobMatches(job, prompts[job.id] ?? '', nameFilter.value),
     ),
   )
-  const listJobs = (ws: string, scoped: RequestFilter) =>
-    api.listJobs(
-      ws || undefined,
-      undefined,
-      undefined,
-      scoped.request || undefined,
-      scoped.item || undefined,
-    )
-  /** The server's count of every queued job, asked for only by a narrowed
-   * listing that shows a waiting one: an unnarrowed listing holds the whole
-   * queue, and 0 leaves the length to the rows. */
-  async function queuedEverywhere(rows: JobSummary[], narrowed: boolean) {
-    if (!narrowed || !rows.some((job) => job.queue_position !== undefined))
-      return 0
-    return (await api.listJobs(undefined, 1, 'queued')).total
-  }
-
   // Batches a preview found nothing left to rerun in: their banner stays
   // hidden for the rest of the session, in memory only - the client's
   // count is an estimate and the preview corrected it
   let dismissedBatches = $state(new Set<string>())
-  let previewing = $state('')
   // All of a scope's rows, not the name-filtered ones: a batch spans
   // workflows. A status filter that hides cancelled rows hides it too
   const banners = $derived(
-    statusFilter && statusFilter !== 'cancelled'
+    statusFilter.value && statusFilter.value !== 'cancelled'
       ? []
       : restartBanners(jobs, dismissedBatches),
   )
 
   // Only a click previews: the preview prices every member of the batch,
-  // which the 3 s poll must never pay for
-  async function rerunBatch(banner: RestartBanner) {
-    previewing = banner.batch
-    try {
+  // which the 3 s poll must never pay for. Its question and its failures
+  // are rerunRestartBatchWithConfirm's
+  // Which banner's rerun is in flight: the action's one flag is every
+  // banner's, but only that banner is busy
+  let busyBatch = $state<string | null>(null)
+  const rerunning = action(
+    async (banner: RestartBanner) => {
+      busyBatch = banner.batch
       const outcome = await rerunRestartBatchWithConfirm(banner.id)
       if (outcome === 'empty')
         dismissedBatches = new Set([...dismissedBatches, banner.batch])
-    } finally {
-      previewing = ''
-    }
-  }
+      return outcome
+    },
+    { doing: 'rerun the jobs' },
+  )
 
-  async function move(
-    event: MouseEvent,
-    id: string,
-    direction: 'up' | 'down' | 'front',
-  ) {
-    event.preventDefault()
-    try {
+  // The job being moved, for its buttons' busy cue
+  let movingId = $state<string | null>(null)
+  const moving = action(
+    async (id: string, direction: 'up' | 'down' | 'front') => {
+      movingId = id
       await api.moveJob(id, direction)
-    } catch (e) {
-      notify.failure('move the job', e)
-      return
-    }
-    // Same listing the poll asks for - refreshing without its filters would
-    // flash every workspace's jobs into a view the user had narrowed to one
-    await list.reload()
-  }
-
-  const requestLabel = (f: { request: string; item: string }) =>
-    f.item ? `${f.request} › ${f.item}` : f.request
-  const when = (t: number | null) => (t ? formatMtime(t) : '—')
-  const waitOf = (job: JobSummary) => queueWait(job, Date.now() / 1000)
-  // The row shows the compact start; hovering gives it to the second, with
-  // the finish and any time spent queued
-  const timesOf = (job: JobSummary) => {
-    const wait = waitOf(job)
-    return [
-      job.started_at && `started ${formatExact(job.started_at)}`,
-      job.finished_at && `finished ${formatExact(job.finished_at)}`,
-      wait !== null &&
-        wait >= 1 &&
-        `waited ${formatDuration(wait)} in the queue`,
-    ]
-      .filter(Boolean)
-      .join('\n')
-  }
-  const duration = (job: JobSummary) => {
-    if (!job.started_at) return ''
-    const end = job.finished_at ?? Date.now() / 1000
-    return formatDuration(end - job.started_at)
+      // Same listing the poll asks for - refreshing without its filters
+      // would flash every workspace's jobs into a view the user had
+      // narrowed to one
+      await list.reload()
+    },
+    { doing: 'move the job' },
+  )
+  // The buttons sit inside the row's link, so a click must not follow it
+  function move(event: MouseEvent, id: string, way: 'up' | 'down' | 'front') {
+    event.preventDefault()
+    void moving.run(id, way)
   }
 </script>
 
-<div class="pagehead">
-  <h1>{scope === 'all' ? 'All jobs' : 'Jobs'}</h1>
-  <select bind:value={statusFilter} title="filter by status">
+{#snippet filters()}
+  <select bind:value={statusFilter.value} title="filter by status">
     <option value="">all statuses</option>
     <option value="running">running</option>
     <option value="queued">queued</option>
@@ -220,9 +223,9 @@
   </select>
   {#if scope === 'all' && (workspace.names?.length ?? 0) > 1}
     <select
-      bind:value={workspaceFilter}
+      bind:value={workspaceFilter.value}
       onchange={() => {
-        if (!workspaceFilter) reqFilter = ''
+        if (!workspaceFilter.value) requestScope.request = ''
       }}
       title="filter by workspace"
     >
@@ -234,29 +237,25 @@
   {/if}
   <input
     class="filter"
-    placeholder="filter by workflow…"
-    bind:value={nameFilter}
+    placeholder="search names, prompts, notes and ids…"
+    title="search names, prompts, notes and ids"
+    bind:value={nameFilter.value}
   />
-  {#if requestScope.request}
-    <span class="wschip active-filter" data-testid="req-filter">
-      <a
-        class="plain"
-        href={wsHref(listed, 'requests', requestScope.request)}
-        title="open this request"
-      >
-        {requestLabel(requestScope)}
-      </a>
-      <button
-        class="quiet icon"
-        onclick={() => (reqFilter = '')}
-        title="remove the request filter"
-        aria-label="remove the request filter"
-      >
-        <X size={12} />
-      </button>
-    </span>
-  {/if}
-</div>
+{/snippet}
+<!-- Under the status page, the queue is a section of the server's page -->
+<PageHeader
+  title={scope === 'all' ? 'All jobs' : 'Jobs'}
+  nested={scope === 'all'}
+  filter={filters}
+>
+  {#snippet actions()}
+    <RequestFilter
+      bind:request={requestScope.request}
+      bind:item={requestScope.item}
+      workspace={listed}
+    />
+  {/snippet}
+</PageHeader>
 
 {#each banners as banner (banner.batch)}
   <div class="panel restart" role="status" data-batch={banner.batch}>
@@ -264,14 +263,30 @@
       {`${banner.count} ${banner.count === 1 ? 'job was' : 'jobs were'} cancelled by a server restart`}
     </span>
     <button
-      onclick={() => rerunBatch(banner)}
-      disabled={previewing === banner.batch}
+      onclick={() => void rerunning.run(banner)}
+      disabled={rerunning.busy && busyBatch === banner.batch}
+      aria-busy={rerunning.busy && busyBatch === banner.batch}
       title="preview what a rerun would queue, with its cost, before anything is queued"
     >
       Rerun…
     </button>
   </div>
 {/each}
+
+{#if partial && (statusFilter.value || nameFilter.value)}
+  <p class="hint">
+    Searching the newest {jobs.length} of {total} jobs.
+    <button
+      class="quiet"
+      onclick={() => {
+        shown = finished
+        loadAll = true
+      }}
+    >
+      Search all {total}
+    </button>
+  </p>
+{/if}
 
 <LoadState
   of={list}
@@ -281,201 +296,39 @@
   onclear={clearFilters}
 >
   {#snippet emptyIcon()}<Inbox size={36} strokeWidth={1.5} />{/snippet}
-  {#snippet emptyText()}No jobs yet — pick a workflow and run it.{/snippet}
+  {#snippet emptyText()}No jobs yet.
+    <a href={wsHref(workspace.current, 'workflows')}>Pick a workflow</a> and run it.{/snippet}
   {#if visible.length > 0}
     <div class="panel list">
       {#each visible as job (job.id)}
-        <a
-          class="row plain"
-          class:historical={job.historical}
-          class:row-live={job.status === 'running'}
-          href={wsHref(job.workspace, 'jobs', job.id)}
-          title={job.historical
-            ? 'finished before this server started - loaded from history'
-            : ''}
-        >
-          <span class="chip {job.status}">{job.status}</span>
-          <span class="namecol">
-            <span class="name">
-              {job.workflow}
-              {#if job.run_version}
-                <span
-                  class="wschip muted"
-                  title="version {job.run_version} of this workflow - the gallery labels its files the same way"
-                >
-                  v{job.run_version}
-                </span>
-              {/if}
-              {#if job.rerun_of}
-                <span class="wschip muted" title="a rerun of {job.rerun_of}">
-                  rerun
-                </span>
-              {/if}
-              {#if job.request}
-                <span
-                  class="wschip muted"
-                  title="request {job.request}{job.item
-                    ? `, item ${job.item}`
-                    : ''}"
-                >
-                  {requestLabel({
-                    request: job.request,
-                    item: job.item ?? '',
-                  })}
-                </span>
-              {/if}
-              {#if scope === 'all' && (workspace.names?.length ?? 0) > 1}
-                <span class="wschip muted" title="workspace">
-                  {job.workspace}
-                </span>
-              {/if}
-              {#if job.device}
-                <span class="wschip muted" title="the card this job ran on">
-                  {job.device}
-                </span>
-              {/if}
-              {#if job.acknowledged === 'bound'}
-                <span
-                  class="wschip muted"
-                  title="queued with a cost acknowledgement bound to the validated plan"
-                >
-                  acknowledged
-                </span>
-              {/if}
-              {#if job.queue_position !== undefined}
-                <span class="qpos" title="position in the waiting queue">
-                  #{job.queue_position + 1}
-                </span>
-                {#if queueSize > 1}
-                  <span class="qmove">
-                    {#if job.queue_position > 0}
-                      <button
-                        class="quiet icon"
-                        onclick={(e) => move(e, job.id, 'front')}
-                        title="run this job next"
-                        aria-label="move {job.id} to the front of the queue"
-                      >
-                        <ChevronsUp size={13} />
-                      </button>
-                      <button
-                        class="quiet icon"
-                        onclick={(e) => move(e, job.id, 'up')}
-                        title="move up one place"
-                        aria-label="move {job.id} up one place"
-                      >
-                        <ChevronUp size={13} />
-                      </button>
-                    {/if}
-                    {#if job.queue_position < queueSize - 1}
-                      <button
-                        class="quiet icon"
-                        onclick={(e) => move(e, job.id, 'down')}
-                        title="move down one place"
-                        aria-label="move {job.id} down one place"
-                      >
-                        <ChevronDown size={13} />
-                      </button>
-                    {/if}
-                  </span>
-                {/if}
-              {/if}
-            </span>
-            {#if job.reason}
-              <span class="reason muted" title={job.reason}>{job.reason}</span>
-            {/if}
-          </span>
-          {#if job.status === 'queued'}
-            {@const wait = waitOf(job)}
-            <span
-              class="muted started"
-              title={job.created_at
-                ? `queued ${formatExact(job.created_at)} - time spent waiting for a card`
-                : 'time spent waiting for a card'}
-            >
-              waiting {wait === null ? '' : formatDuration(wait)}
-            </span>
-            {#if job.waiting_for}
-              {@const kind = holdKind(job.waiting_for)}
-              <span class="muted" title={job.waiting_for}>
-                · {kind === 'host_ram'
-                  ? 'host RAM'
-                  : kind === 'cards_busy'
-                    ? 'cards busy'
-                    : 'held'}
-              </span>
-            {/if}
-          {:else}
-            <span class="muted started" title={timesOf(job)}>
-              {when(job.started_at)}
-            </span>
-          {/if}
-          <span class="muted dur">{duration(job)}</span>
-          <code class="muted jobid">{job.id}</code>
-        </a>
+        {@const proof = job.run_id ? runs[job.run_id] : undefined}
+        <JobRow
+          {job}
+          {queueSize}
+          showWorkspace={scope === 'all' && (workspace.names?.length ?? 0) > 1}
+          prompt={prompts[job.id] ?? ''}
+          percent={progress[job.id] ?? null}
+          proof={proof && job.workspace === listedGallery ? proof : null}
+          onmove={move}
+          busyId={moving.busy ? movingId : null}
+        />
       {/each}
     </div>
   {/if}
 </LoadState>
 
+{#if partial}
+  <p class="hint">
+    Showing the newest {jobs.length} of {total} jobs.
+    <button class="quiet" onclick={() => (shown += JOBS_PAGE)}>
+      Show {olderBy} older
+    </button>
+  </p>
+{/if}
+
 <style>
-  .pagehead h1 {
-    margin: 0;
-    flex: 1;
-  }
-  .pagehead select {
+  select {
     max-width: 150px;
-  }
-  .filter {
-    max-width: 220px;
-  }
-  .list {
-    padding: 0.3rem;
-  }
-  .row {
-    display: grid;
-    grid-template-columns: 90px minmax(0, 1fr) auto auto auto;
-    gap: 1rem;
-    align-items: center;
-    padding: 0.55rem 0.8rem;
-    border-radius: 6px;
-    color: var(--ink);
-  }
-  /* The job id is the widest unbreakable cell and is repeated on the job
-     page itself, so it is the first thing to go as the row narrows; below
-     that the timestamps drop to a second line under the name */
-  @media (max-width: 860px) {
-    .row {
-      grid-template-columns: 90px minmax(0, 1fr) auto auto;
-    }
-    .jobid {
-      display: none;
-    }
-  }
-  @media (max-width: 560px) {
-    .row {
-      grid-template-columns: auto minmax(0, 1fr);
-      gap: 0.2rem 0.7rem;
-    }
-  }
-  .row:hover {
-    background: var(--panel-2);
-  }
-  .row.historical {
-    opacity: 0.72;
-  }
-  /* The name and, under it, why a failed or cancelled job ended - each its
-     own element, so a later line beside the reason is a sibling */
-  .namecol {
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-    min-width: 0;
-  }
-  .reason {
-    font-size: var(--t-xs);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
   .restart {
     display: flex;
@@ -485,52 +338,5 @@
     padding: 0.55rem 0.8rem;
     margin-bottom: 0.6rem;
     box-shadow: inset 3px 0 0 var(--warn);
-  }
-  /* A workflow name is what the engine resolved to run this job */
-  .name {
-    font-family: var(--font-mono);
-    font-size: var(--t-sm);
-    font-weight: 600;
-    display: inline-flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 0.4rem;
-    min-width: 0;
-    overflow-wrap: anywhere;
-  }
-  .started,
-  .dur {
-    font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
-    font-size: var(--t-xs);
-  }
-  .qpos {
-    font-family: var(--font-mono);
-    font-size: var(--t-xs);
-    color: var(--muted);
-    border: 1px solid var(--line);
-    border-radius: 4px;
-    padding: 0 0.3rem;
-    font-variant-numeric: tabular-nums;
-  }
-  .wschip {
-    font-family: var(--font-mono);
-    font-size: var(--t-xs);
-    border: 1px solid var(--line);
-    border-radius: 4px;
-    padding: 0 0.3rem;
-  }
-  .active-filter {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-  }
-  .qmove {
-    display: inline-flex;
-    gap: 0.1rem;
-  }
-  .icon {
-    display: inline-flex;
-    padding: 0.15rem 0.3rem;
   }
 </style>

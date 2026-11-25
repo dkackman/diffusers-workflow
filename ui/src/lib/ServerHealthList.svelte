@@ -48,10 +48,4 @@
 </dl>
 
 <style>
-  .bad {
-    color: var(--bad);
-  }
-  .warn {
-    color: var(--warn);
-  }
 </style>

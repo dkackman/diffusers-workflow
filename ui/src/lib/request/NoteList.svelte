@@ -6,8 +6,16 @@
   import NoteRef from './NoteRef.svelte'
   import { draftKey, refKey } from './draft'
   import { listening } from './listening.svelte'
-  import { noteAnchor, noteLine } from './noteState'
+  import {
+    answerOf,
+    noteAnchor,
+    noteListEditable,
+    noteListShows,
+    noteLine,
+  } from './noteState'
+  import { holdsStopped } from './reviewText'
   import { addRef, collapseRefs, writtenRefs } from './noteRefs'
+  import { action } from '../action.svelte'
 
   // The user's notes for the agent on a request or one of its items: each
   // with where it stands and what it is about, then the box a new one is
@@ -27,6 +35,7 @@
     ongo,
     onadded,
     onmove,
+    onopen,
     onchanged,
   }: {
     notes: LedgerNote[]
@@ -50,6 +59,8 @@
     /** An item's box offers "For the whole request instead": the draft and
      * what it is about, for the page to take to the request's own box */
     onmove?: (text: string, refs: LedgerNoteRef[]) => void
+    /** A box here was opened to write in */
+    onopen?: () => void
     onchanged: () => void | Promise<void>
   } = $props()
 
@@ -57,11 +68,13 @@
   $effect(() => channel.hold())
 
   const shown = $derived(filter ? notes.filter(filter) : notes)
-  // A dropped item keeps its notes to read; the ledger takes no more
-  const editable = $derived(
-    item === null || request.items.some((i) => i.key === item && !i.dropped),
-  )
+  // A dropped item, or a closed request, keeps its notes to read; the
+  // ledger takes no more until it is reopened
+  const editable = $derived(noteListEditable(request, item))
   const live = $derived(request.items.filter((i) => !i.dropped))
+  // What saving a note here would stop: the request's note every hold, an
+  // item's note that item's own
+  const stops = $derived(holdsStopped(request, item))
   // The picker offers the items the new note is not yet about
   const unpicked = $derived(
     live.filter(
@@ -86,6 +99,37 @@
   // references go then, not before, so a sent draft is never kept under
   // the key of a box with none
   let stored: LedgerNote | null = null
+  // Each box's writes are an action, so a second Save while one is on its
+  // way sends nothing. A refusal is not the action's to toast: it goes back
+  // to the box, which says it beside the draft (ItemNote's store)
+  type Write =
+    | { add: string }
+    | { edit: LedgerNote; text: string }
+    | { remove: LedgerNote }
+  // Keyed by box (a note's id, '' for the new one); nothing renders it
+  const boxes: Record<string, ReturnType<typeof boxWriter>> = {}
+  function boxWriter() {
+    return action(
+      async (w: Write): Promise<{ refused: unknown }> => {
+        try {
+          if ('add' in w) await added(w.add)
+          else if ('edit' in w) await edited(w.edit, w.text)
+          else await deleted(w.remove)
+          return { refused: null }
+        } catch (refused) {
+          return { refused }
+        }
+      },
+      { doing: 'save the note' },
+    )
+  }
+  async function write(box: string, w: Write) {
+    boxes[box] ??= boxWriter()
+    const outcome = await boxes[box].run(w)
+    // Undefined while another write from this box is out: the action's
+    // guard, the only one here
+    if (outcome?.refused) throw outcome.refused
+  }
   async function added(text: string) {
     await channel.refresh()
     const refs = writtenRefs(pendingRefs)
@@ -140,27 +184,31 @@
   {/if}
 {/snippet}
 
-{#if shown.length || editable}
+{#if noteListShows(request, item, shown.length)}
   <section class="notes" aria-label="Notes for the agent on {about}">
-    <p class="label">
-      <MessageSquare size={13} aria-hidden="true" /> Note for the agent
-    </p>
+    <!-- With none saved, the box's button says it: no heading over it -->
     {#if shown.length}
+      <p class="label">
+        <MessageSquare size={13} aria-hidden="true" /> Note for the agent
+      </p>
       <ul class="list">
         {#each shown as note (note.id)}
           <li id={noteAnchor(note.id)} tabindex="-1">
             <ItemNote
               {note}
               {about}
-              line={noteLine(note, request, new Date(), channel.listening)}
+              line={noteLine(note, request, channel.listening)}
+              answer={answerOf(note, request)}
               {editable}
               draftKey={draftKey(workspace, request.id, item, `@${note.id}`)}
               listening={channel.listening}
+              {stops}
               refs={collapseRefs(note.refs ?? [])}
               {chip}
-              onsave={(text) => edited(note, text)}
-              ondelete={() => deleted(note)}
+              onsave={(text) => write(note.id, { edit: note, text })}
+              ondelete={() => write(note.id, { remove: note })}
               onreload={onchanged}
+              {onopen}
             />
           </li>
         {/each}
@@ -174,14 +222,16 @@
         line={null}
         draftKey={draftKey(workspace, request.id, item, refKey(pendingRefs))}
         listening={channel.listening}
+        {stops}
         refs={pendingRefs}
         {chip}
         onremoveref={unref}
         extra={pickItems && live.length ? picker : undefined}
-        onsave={added}
+        onsave={(text) => write('', { add: text })}
         onsaved={sent}
         onmove={item !== null && onmove ? move : undefined}
         onreload={onchanged}
+        {onopen}
       />
     {/if}
   </section>

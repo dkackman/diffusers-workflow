@@ -34,7 +34,8 @@ from ..api_models import (
 )
 
 from ..api_models_library import WorkspaceChanges
-from ..changes import ASSETS, GALLERY, PROMPTS, WORKFLOWS, changed, changed_everywhere
+from ..changes import ASSETS, GALLERY, PROMPTS, WORKFLOWS, WORKSPACES, ChangeRoute
+from ..changes import JOBS, Change, pending_change, writes
 from ...argument_warnings import workflow_argument_warnings
 from ...schema import format_validation_errors, load_schema, validate_data
 from ... import references, validation
@@ -63,6 +64,7 @@ from ...workspace import (
     named_workspace,
     workspace_contents,
     workspace_names,
+    workspace_times,
     workspace_usage,
 )
 from ..admission import JobRequest, admit_for
@@ -74,6 +76,7 @@ from ..catalog import (
     resolve_readable_workflow,
     resolve_writable_workflow,
     workflow_details,
+    with_times,
 )
 from ..catalog_shape import derive_catalog_metadata, project_listing
 from ..deps import (
@@ -98,8 +101,7 @@ from ..preconditions import (
 from ..job_record import TERMINAL_STATES
 
 logger = logging.getLogger("dw")
-
-router = APIRouter()
+router = APIRouter(route_class=ChangeRoute)
 
 
 class WorkspaceRequest(BaseModel):
@@ -109,18 +111,14 @@ class WorkspaceRequest(BaseModel):
 @router.get(
     "/api/workspaces", response_model=WorkspaceList, response_model_exclude_unset=True
 )
-def list_workspaces(request: Request):
-    """Every workspace on this server, the default first.
-
-    A workspace is a namespace, not a security boundary: the API token
-    is all-or-nothing, so anything that can list these can reach all of
-    them.
+def list_workspaces(request: Request, times: bool = False):
+    """Every workspace on this server, the default first; `times` adds when
+    each last changed. A namespace, not a security boundary: the API token
+    is all-or-nothing, so anything that can list these can reach all of them.
     """
     state = request.app.state
     root = state.workspace_root
-    # workspace_names lists the whole root once; everything after the
-    # first entry (always the default, see its docstring) is a named
-    # workspace to describe individually
+    # The first name is always the default (workspace_names' docstring)
     names = workspace_names(root)[1:] if root else []
     listed = [state.default_workspace]
     for name in names:
@@ -128,10 +126,10 @@ def list_workspaces(request: Request):
     described = []
     for space in listed:
         entry = space.describe()
-        # Roughly how much disk it holds, cached for a minute inside
-        # workspace_usage - a listing is a glance, and a job writing
-        # into outputs moves the number continuously anyway
+        # Cached for a minute: a listing is a glance, and a job moves it anyway
         entry["usage"] = workspace_usage(space)
+        if times:
+            entry.update(workspace_times(space))
         note = read_workspace_note(space.root) if space.root else None
         if note:
             entry["note"] = note
@@ -165,6 +163,7 @@ def workspace_changes(request: Request, name: str):
     response_model=WorkspaceInfo,
     response_model_exclude_unset=True,
 )
+@writes(WORKSPACES)
 def add_workspace(http_request: Request, request: WorkspaceRequest):
     """Create a workspace: its own workflows, assets and outputs, sharing
     this server's one prompt library."""
@@ -178,7 +177,6 @@ def add_workspace(http_request: Request, request: WorkspaceRequest):
         raise HTTPException(status_code=409, detail=str(e))
     forget_workspace_usage()
     state.changes.forget(created.name)
-    state.changes.bump_workspaces()
     logger.info(f"Created workspace {request.name} at {created.root}")
     return created.describe()
 
@@ -222,8 +220,12 @@ def _copy_side(state, root, name):
     response_model=WorkspaceCopied,
     response_model_exclude_unset=True,
 )
+@writes(GALLERY, ASSETS)
 def copy_into_workspace(
-    http_request: Request, destination: str, request: WorkspaceCopyRequest
+    http_request: Request,
+    destination: str,
+    request: WorkspaceCopyRequest,
+    change: Change = Depends(pending_change),
 ):
     """Copy runs and asset-library entries from another workspace into this one.
 
@@ -270,8 +272,9 @@ def copy_into_workspace(
         raise HTTPException(status_code=e.status, detail=detail)
     except (SecurityError, InvalidInputError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
-    kinds = ((GALLERY,) if request.runs else ()) + ((ASSETS,) if request.assets else ())
-    changed(http_request, target.name, *kinds)
+    done = copied["copied"]
+    kinds = ((GALLERY,) if done["runs"] else ()) + ((ASSETS,) if done["assets"] else ())
+    change.in_workspace(target.name).only(*kinds) if kinds else change.nothing()
     return copied
 
 
@@ -280,6 +283,7 @@ def copy_into_workspace(
     response_model=WorkspaceDeleted,
     response_model_exclude_unset=True,
 )
+@writes(WORKSPACES)
 def remove_workspace(request: Request, name: str, acknowledged: bool = False):
     """Delete a workspace and everything in it.
 
@@ -339,7 +343,6 @@ def remove_workspace(request: Request, name: str, acknowledged: bool = False):
     forget_workspace_usage()
     manager.forget_workspace(name)
     state.changes.forget(name)
-    state.changes.bump_workspaces()
     logger.info(f"Deleted workspace {name}")
     return {"name": name, "deleted": True, "contents": contents}
 
@@ -360,6 +363,8 @@ def list_workflows(
     configures: Optional[str] = None,
     include_models: bool = False,
     view: Optional[str] = None,
+    inputs: bool = False,
+    times: bool = False,
 ):
     """Every workflow the search path offers, each detail saying which
     library it came from and whether it can be written to. 'libraries' is
@@ -369,8 +374,9 @@ def list_workflows(
     `shape`, `traits` (comma-separated, all must match) and `configures`
     narrow the listing; `view=compact` is the agent's view - summaries
     rather than descriptions, templates rather than model configs
-    unless `include_models` asks for them. `workflows` always names
-    exactly the entries `details` holds.
+    unless `include_models` asks for them; `inputs` adds each media
+    input's kind; `times` when each file changed. `workflows` names exactly
+    the entries `details` holds.
     """
     state = request.app.state
     library = sources_for(state, ws)
@@ -387,9 +393,12 @@ def list_workflows(
             configures=configures,
             include_models=include_models,
             view=view,
+            inputs=inputs,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    if times:
+        details = with_times(details, found)
     answer = {
         "workspace": ws.name,
         "libraries": library.describe(),
@@ -398,15 +407,9 @@ def list_workflows(
         "shadowed": [
             entry for entry in shadowed_listing(hidden) if entry["name"] in details
         ],
-        # What a `cost` is, and so what a null one means. Curated:
-        # figures a maintainer measured once on the devices named and
-        # wrote into the workflow - nothing derives them from this
-        # server's own job history, so null means nobody wrote one
-        # down, not that the run is cheap or that this box has never
-        # run it (#91). A detail's `observed` block, when present, is the
-        # other kind of number: this box's own finished runs of that
-        # workflow, derived rather than claimed, and never a substitute
-        # for `cost` (#93)
+        # `cost` is curated: measured once by a maintainer, never derived from
+        # this box's jobs; null means nobody wrote one down (#91). `observed`
+        # is the derived kind, this box's own runs (#93)
         "cost_basis": "curated",
     }
     # The agent's compact view is a different, smaller card than the one
@@ -444,9 +447,8 @@ def _write_validated(http_request, ws, name, definition):
         path,
         ws.workflows,
     )
-    # A definition that fails validation is a refusal (400); validation
-    # itself failing is the server's (500), and its message may carry
-    # internals the log keeps
+    # A definition that fails validation is a refusal (400); validation itself
+    # failing is the server's (500), its message may carry internals (log only)
     try:
         # With the LoRA catalog, as the validate route checks it - a save
         # the server would refuse to run is refused here too (#870)
@@ -463,10 +465,9 @@ def _write_validated(http_request, ws, name, definition):
         json.dump(definition, file, indent=2)
         file.write("\n")
     logger.info(f"Saved workflow {name} to {path}")
-    # What the catalog will say about it, so the author sees the match
-    # it just created. An empty summary is a warning, never a refusal:
-    # a workflow with no description still runs, it is just invisible
-    # to shape-first discovery
+    # What the catalog will say about it, so the author sees the match it
+    # just created. An empty summary warns, never refuses: a workflow with
+    # no description still runs, it is just invisible to shape-first discovery
     metadata = derive_catalog_metadata(definition)
     warnings = list(workflow_argument_warnings(definition))
     warnings += validation.run_warning_check(
@@ -497,6 +498,7 @@ def _write_validated(http_request, ws, name, definition):
     response_model=WorkflowSaved,
     response_model_exclude_unset=True,
 )
+@writes(WORKFLOWS)
 def save_workflow(
     http_request: Request,
     response: Response,
@@ -521,7 +523,6 @@ def save_workflow(
         path, saved = _write_validated(http_request, ws, name, request.workflow)
         etag = content_etag(path)
     response.headers["ETag"] = etag
-    changed(http_request, ws.name, WORKFLOWS)
     return saved
 
 
@@ -530,6 +531,7 @@ def save_workflow(
     response_model=WorkflowSaved,
     response_model_exclude_unset=True,
 )
+@writes(WORKFLOWS)
 def patch_workflow(
     http_request: Request,
     response: Response,
@@ -555,7 +557,6 @@ def patch_workflow(
         )
         etag = content_etag(path)
     response.headers["ETag"] = etag
-    changed(http_request, ws.name, WORKFLOWS)
     return saved
 
 
@@ -564,6 +565,7 @@ def patch_workflow(
     response_model=WorkflowDeleted,
     response_model_exclude_unset=True,
 )
+@writes(WORKFLOWS)
 def delete_workflow(
     request: Request, name: str, ws: Workspace = Depends(selected_workspace)
 ):
@@ -584,12 +586,10 @@ def delete_workflow(
     os.remove(path)
     logger.info(f"Deleted workflow {name} ({path})")
     forget_workspace_usage()
-    # This identity's job history goes with it (#274) - otherwise a name
-    # reused in this workspace, including by a regression cycle that
-    # deletes and recreates the same workflow, would inherit the deleted
-    # copy's observed figures and host-memory history
+    # This identity's job history goes with it (#274), or a name reused here
+    # (a regression cycle deleting and recreating a workflow) would inherit the
+    # deleted copy's observed figures and host-memory history
     manager.history.orphan_workflow_history(ws.name, name)
-    changed(request, ws.name, WORKFLOWS)
     return {
         "name": name,
         "workspace": ws.name,
@@ -666,16 +666,14 @@ def get_workflow_variables(
         "origin": source.origin,
     }
     # The rule beside the default it constrains: a consumer reading
-    # `num_frames: 124` with no range picked 61 and paid 138 s of
-    # loading to be told the rule was 17n + 5 from 124 (#96)
+    # `num_frames: 124` alone picked 61 and paid 138 s of loading for 17n + 5 (#96)
     constraints = definition.get("variable_constraints")
     if isinstance(constraints, dict) and constraints:
         answer["constraints"] = constraints
     # What an entry of each list-driven variable carries, with any rule
-    # that reaches one of its fields stated beside that field: a caller
-    # reading what a `shots` entry takes reads the bound for
-    # `num_frames` there, rather than having to match it to a key of
-    # `constraints` that names no top-level variable (#145)
+    # that reaches one of its fields stated beside it: a `shots` entry's
+    # `num_frames` bound is read there, not matched to a `constraints` key
+    # that names no top-level variable (#145)
     lists = derive_catalog_metadata(definition).get("lists")
     if lists:
         answer["lists"] = lists
@@ -758,6 +756,7 @@ def list_prompts(
     tag: str | None = None,
     intended_model: str | None = None,
     include_text: bool = True,
+    times: bool = False,
 ):
     state = request.app.state
     # A stray file too deep or oddly named can sit in the directory, but
@@ -770,20 +769,17 @@ def list_prompts(
         name: os.path.join(root.root, f"{name}.json") for name, root in winners.items()
     }
     details = prompt_details(paths)
-
-    # Narrowing happens after the details are read, since that is where a
-    # prompt says what it is for, and it narrows every parallel key at
-    # once: a `prompts` list and a `details` map that disagree is worse
-    # than no filter at all
+    if times:
+        details = with_times(details, winners)
+    # Narrowing happens after the details are read (that is where a prompt
+    # says what it is for) and narrows every parallel key at once: a
+    # `prompts` list and `details` map that disagree is worse than no filter
     wanted = matching_prompts(details, tag, intended_model)
     if wanted is not None:
         details = {name: detail for name, detail in details.items() if name in wanted}
-    # `prompts` and `details` agree by construction, filter or no filter.
-    # `prompt_details` drops a path whose mtime it cannot read - the file
-    # went away between the walk and the read - and listing a name that
-    # carries no detail only tells a caller to go and get a 404. Each detail
-    # says which library it came from and whether a save can reach it, as a
-    # workflow's does (a copy: the detail itself is cached)
+    # `prompts` and `details` agree: prompt_details drops a file gone since
+    # the walk. Each says its library and whether a save reaches it, as a
+    # workflow's does (a copy: the detail is cached)
     details = {
         name: {
             **detail,
@@ -821,6 +817,7 @@ def list_prompts(
     response_model=PromptSaved,
     response_model_exclude_unset=True,
 )
+@writes(PROMPTS, shared=True)
 def save_prompt(
     http_request: Request, response: Response, name: str, request: PromptRequest
 ):
@@ -848,8 +845,6 @@ def save_prompt(
         etag = content_etag(path)
     response.headers["ETag"] = etag
     logger.info(f"Saved prompt {name} to {path}")
-    # One library every workspace reads
-    changed_everywhere(http_request, PROMPTS)
     return {"name": name}
 
 
@@ -858,6 +853,7 @@ def save_prompt(
     response_model=Deleted,
     response_model_exclude_unset=True,
 )
+@writes(PROMPTS, shared=True)
 def delete_prompt(request: Request, name: str):
     """Remove a prompt file from the prompt directory. A prompt that
     came from a read-only examples library is not this server's to
@@ -872,7 +868,6 @@ def delete_prompt(request: Request, name: str):
     os.remove(path)
     logger.info(f"Deleted prompt {name} ({path})")
     forget_workspace_usage()
-    changed_everywhere(request, PROMPTS)
     return {"name": name, "deleted": True}
 
 
@@ -936,6 +931,7 @@ def list_enhancers():
     response_model=JobDetail,
     response_model_exclude_unset=True,
 )
+@writes(JOBS, by="the job manager")
 def enhance(
     http_request: Request,
     request: EnhanceRequest,

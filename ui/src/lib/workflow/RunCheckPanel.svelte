@@ -1,25 +1,32 @@
 <script lang="ts">
   // What validate says a Run with these values would do, checked as you
-  // edit. It informs; it never gates Run. Every finding is server text,
-  // shown as text
+  // edit: the verdict in plain words, the plan, what stands in the way, and
+  // behind a fold what only the workflow's author can act on. Every finding
+  // is server text, shown as text
   import type { Finding } from '../findings'
-  import type { PlanLine } from '../plan'
+  import ErrorLine from '../ui/ErrorLine.svelte'
+  import Details from '../ui/Details.svelte'
+  import type { Plan } from '../types'
   import type { Verdict } from '../runCheck.svelte'
+  import PlanLines from './PlanLines.svelte'
 
   let {
     verdict,
     checking,
-    planLines,
+    plan,
     checkError,
     findings,
+    author,
   }: {
     verdict: Verdict | null
     checking: boolean
-    planLines: PlanLine[]
-    /** A check the server refused outright, first in the list */
-    checkError: string
+    plan: Plan | null
+    /** A check the server refused outright, as caught, first in the list */
+    checkError: unknown
     /** What validate said that names no field the form shows */
     findings: Finding[]
+    /** Warnings no field the form shows is the place for */
+    author: Finding[]
   } = $props()
 </script>
 
@@ -27,64 +34,45 @@
   <div class="verdict">
     {#if verdict}
       <span class={verdict.tone}>{verdict.text}</span>
+      {#if verdict.remedy}<span class="muted">{verdict.remedy}</span>{/if}
     {/if}
-    {#if checking}<span class="muted">checking…</span>{/if}
+    {#if checking}<span class="muted">Checking…</span>{/if}
   </div>
-  {#if planLines.length}
-    <ul
-      class="plan"
-      aria-label="what a run will do"
-      title="from the workflow's own cost block and this server's model cache - a plan, not a promise"
-    >
-      {#each planLines as line, i (i)}
-        <li class:warn={line.tone === 'warn'}>{line.text}</li>
+  {#if plan}<PlanLines {plan} />{/if}
+  {#if checkError != null || findings.length}
+    <ul class="findings" aria-label="findings">
+      {#if checkError != null}
+        <li class="bad">
+          <ErrorLine error={checkError} doing="check these values" />
+        </li>
+      {/if}
+      {#each findings as finding, i (i)}
+        <li id="issue-{i}" class={finding.tone}>{finding.text}</li>
       {/each}
     </ul>
   {/if}
-  {#if checkError || findings.length}
-    <ul class="findings" aria-label="findings">
-      {#if checkError}<li class="bad">{checkError}</li>{/if}
-      {#each findings as finding, i (i)}
-        <li class={finding.tone}>{finding.text}</li>
-      {/each}
-    </ul>
+  {#if author.length}
+    <Details
+      summary="{author.length} {author.length === 1
+        ? 'note'
+        : 'notes'} for the workflow's author"
+      detail={author.map((f) => f.text).join('\n')}
+    />
   {/if}
 </section>
 
 <style>
-  /* The check beside Run: the verdict, then the plan in mono (figures the
-     engine resolves), then what validate said that names no field */
+  /* The check beside Run: the verdict, then the plan, then what validate
+     said that names no field */
   .check {
     margin-bottom: var(--space-4);
     font-size: var(--t-sm);
   }
   .verdict {
     display: flex;
+    flex-wrap: wrap;
     gap: var(--space-3);
     align-items: baseline;
-  }
-  .good {
-    color: var(--good);
-  }
-  .warn {
-    color: var(--warn);
-  }
-  .bad {
-    color: var(--bad);
-  }
-  .plan {
-    list-style: none;
-    margin: var(--space-2) 0 0;
-    padding: 0;
-    font-family: var(--font-mono);
-    font-size: var(--t-xs);
-    color: var(--muted);
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.2rem var(--space-3);
-  }
-  .plan .warn {
-    color: var(--warn);
   }
   .findings {
     list-style: none;

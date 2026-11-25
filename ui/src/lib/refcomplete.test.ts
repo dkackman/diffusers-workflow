@@ -1,8 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AssetFile } from './types'
 
-const listAssets = vi.hoisted(() => vi.fn())
-vi.mock('./api', () => ({ api: { listAssets: () => listAssets() } }))
+vi.mock('./api', async () => (await import('./test/apiMock')).apiModule())
 
 import { assetLibrary } from './assetlib.svelte'
 import { promptLibrary } from './promptlib.svelte'
@@ -13,6 +12,7 @@ import {
   referenceCompletions,
 } from './refcomplete.svelte'
 import { workspace } from './workspace.svelte'
+import { api } from './test/apiMock'
 
 const asset = (
   name: string,
@@ -46,7 +46,7 @@ beforeEach(() => {
   promptLibrary.tags = { scenic: ['landscape'], 'cast/priya-intro': [] }
   promptLibrary.descriptions = { scenic: '', 'cast/priya-intro': 'opening' }
 })
-afterEach(() => listAssets.mockReset())
+afterEach(() => api.listAssets.mockReset())
 
 describe('referenceCompletions', () => {
   it('leaves a field that has not started a library reference alone', () => {
@@ -89,25 +89,27 @@ describe('assetChoices', () => {
   it('shows an image, a glyph for other media, and the library', () => {
     const rows = assetChoices('cast')
     expect(rows.find((r) => r.value === 'cast/priya.png')).toMatchObject({
-      thumb: expect.stringContaining(
-        '/api/gallery/asset%3Acast/priya.png/thumbnail',
-      ),
+      media: {
+        kind: 'image',
+        thumb: expect.stringContaining(
+          '/api/gallery/asset%3Acast/priya.png/thumbnail',
+        ),
+      },
       badge: 'shared',
     })
     expect(rows.find((r) => r.value === 'cast/theme.wav')).toMatchObject({
-      glyph: '♪',
-      thumb: undefined,
+      media: { kind: 'audio', thumb: null },
       badge: undefined,
     })
   })
 
   it('loads the library on first use, once', async () => {
     assetLibrary.workspace = undefined
-    listAssets.mockReturnValue(new Promise(() => {}))
+    api.listAssets.mockReturnValue(new Promise(() => {}))
     assetChoices('')
     assetChoices('x')
     await Promise.resolve()
-    expect(listAssets).toHaveBeenCalledTimes(1)
+    expect(api.listAssets).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -162,6 +164,14 @@ describe('output: completions', () => {
         label: 'shot.mp4',
       },
     ]
+  })
+
+  it("an output row's thumbnail names the listing's workspace", async () => {
+    const { outputLibrary } = await import('./outputlib.svelte')
+    outputLibrary.workspace = 'studio'
+    const rows = referenceCompletions('output:')!
+    expect(rows[0].media?.workspace).toBe('studio')
+    expect(rows[0].media?.thumb).toContain('workspace=studio')
   })
 
   it('offers what earlier runs wrote, newest first, with the run', () => {

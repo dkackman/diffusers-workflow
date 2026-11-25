@@ -246,7 +246,13 @@ class Reruns:
                     "workspace": workspace,
                 }
                 if not queue:
-                    answer["would_queue"].append({**entry, "admission": admission})
+                    answer["would_queue"].append(
+                        {
+                            **entry,
+                            "workflow_name": member.get("workflow_name"),
+                            "admission": admission,
+                        }
+                    )
                     continue
                 try:
                     job = self.rerun(

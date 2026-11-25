@@ -8,26 +8,17 @@ import {
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import LinkedNotes from './LinkedNotes.svelte'
 import { LinkedRequest } from './linkedRequest.svelte'
+import { api, resetApi } from '../test/apiMock'
 import { attempt, item, request } from './fixtures'
 import type { LedgerNote } from '../types'
 
-const api = vi.hoisted(() => ({
-  getRequest: vi.fn(),
-  addNote: vi.fn(),
-  editNote: vi.fn(),
-  deleteNote: vi.fn(),
-  notesChannel: vi.fn(),
-}))
-vi.mock('../api', async () => {
-  const { ApiError } = await import('../apiErrors')
-  return { ApiError, api }
-})
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
 vi.mock('../confirm.svelte', () => ({ confirmDialog: vi.fn() }))
 vi.mock('../toast', () => ({ notify: { error: vi.fn(), news: vi.fn() } }))
 
 beforeEach(() => {
   sessionStorage.clear()
-  for (const call of Object.values(api)) call.mockReset()
+  resetApi()
   api.notesChannel.mockResolvedValue({ listening: false, last_seen: null })
   api.editNote.mockResolvedValue({ revision: 4 })
   api.deleteNote.mockResolvedValue({ revision: 4 })

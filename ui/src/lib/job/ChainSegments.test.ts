@@ -75,7 +75,7 @@ it('renders one row per segment with verdicts, marks and the planned count', () 
 
   expect(rows[0].textContent).toContain('resumed')
   expect(rows[0].textContent).toContain(
-    'not recorded - resumed from an earlier run',
+    'not recorded - resumed from an earlier job',
   )
 
   const two = rows[1] as HTMLElement

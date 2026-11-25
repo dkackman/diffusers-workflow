@@ -1,16 +1,18 @@
 <script lang="ts">
-  import { Check, CircleDashed, Clock, Lock, Play, X } from '@lucide/svelte'
-  import { api } from '../api'
+  import { Check, CircleDashed, Clock, Lock, X } from '@lucide/svelte'
+  import { ledgerMedia } from '../media'
   import type { LedgerOutput } from '../types'
+  import OutputTile from '../ui/OutputTile.svelte'
 
-  // What stands for a job in a request: its picture in a contact-sheet
-  // frame, or - while there is none - a same-size dashed slot whose icon
-  // says why. The slot is not a .frame: the frame is only ever the picture
+  // What stands for a job in a request: its file as a tile, or - while
+  // there is none - a same-size dashed slot whose icon says why. The slot is
+  // not a tile: the tile is only ever the file
   let {
     output,
     state: shown,
     workspace,
     href = null,
+    onopen,
     alt,
     size = 'row',
     picked = false,
@@ -22,9 +24,12 @@
     workspace: string
     /** The job it leads to; a proof inside a link passes none */
     href?: string | null
+    /** Makes the tile a button that opens the file large, in place of the
+     * link to the job; a slot still links */
+    onopen?: () => void
     alt: string
     size?: 'row' | 'take' | 'cover'
-    /** The take the user accepted: the picked edge of frames.css */
+    /** The take the user accepted: the tile's picked edge */
     picked?: boolean
   } = $props()
 
@@ -36,12 +41,8 @@
     done: Check,
     succeeded: Check,
   }
+  const TILE_SIZES = { row: 'strip', take: 'take', cover: 'mini' } as const
   const Icon = $derived(ICONS[shown as keyof typeof ICONS] ?? CircleDashed)
-  const picture = $derived(
-    output && (output.kind === 'image' || output.kind === 'video')
-      ? output
-      : null,
-  )
   // A result that arrives while the page is open fades in; the one a row
   // is first drawn with does not
   // svelte-ignore state_referenced_locally
@@ -49,77 +50,49 @@
   const arrived = $derived(!!output && output.name !== first)
 </script>
 
-{#snippet inside()}
-  {#if picture}
-    {#key picture.name}
-      <img
-        class:arrived
-        src={api.galleryThumbnailUrl(picture.name, workspace)}
-        {alt}
-        loading="lazy"
-      />
-    {/key}
-    {#if picture.kind === 'video'}
-      <span class="videobadge" aria-hidden="true"><Play size={11} /></span>
-    {/if}
-  {:else if output}
+{#if output}
+  {#key output.name}
     <!-- Named where it stands alone; a proof inside a named link is not -->
-    <span
-      class="glyph"
-      role={alt ? 'img' : undefined}
-      aria-label={alt || undefined}
-      aria-hidden={alt ? undefined : 'true'}
-    >
-      {output.kind === 'text' ? '¶' : '♪'}
+    <span class="tilewrap as-{size}" class:arrived>
+      <OutputTile
+        file={ledgerMedia(output, workspace)}
+        size={TILE_SIZES[size]}
+        caption="none"
+        href={onopen ? undefined : (href ?? undefined)}
+        onclick={onopen}
+        {alt}
+        {picked}
+        title={onopen
+          ? 'open this file large'
+          : href
+            ? 'open the job'
+            : undefined}
+        aria-label={(onopen || href) && alt ? alt : undefined}
+      />
     </span>
-  {:else if shown === 'running'}
+  {/key}
+{:else if href}
+  <a class="plain slot as-{size}" {href} title="open the job">
+    {@render why()}
+  </a>
+{:else}
+  <span class="slot as-{size}">{@render why()}</span>
+{/if}
+
+{#snippet why()}
+  {#if shown === 'running'}
     <span class="pulse-dot" aria-hidden="true"></span>
   {:else}
     <Icon size={size === 'cover' ? 14 : 18} aria-hidden="true" />
   {/if}
 {/snippet}
 
-{#if href}
-  <a
-    class="plain proof as-{size}"
-    class:frame={!!output}
-    class:slot={!output}
-    class:picked
-    {href}
-    title="open the job"
-  >
-    {@render inside()}
-  </a>
-{:else}
-  <span
-    class="proof as-{size}"
-    class:frame={!!output}
-    class:slot={!output}
-    class:picked
-  >
-    {@render inside()}
-  </span>
-{/if}
-
 <style>
-  .proof {
+  /* The slot takes the frame of the tile it stands in for */
+  .slot {
     flex: none;
     width: 96px;
-    aspect-ratio: 4 / 3;
-  }
-  .as-take {
-    width: 120px;
-  }
-  .as-cover {
-    width: 48px;
-  }
-  .as-cover .videobadge {
-    top: 2px;
-    left: 2px;
-    width: 14px;
-    height: 14px;
-  }
-  .slot {
+    aspect-ratio: 1;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -127,28 +100,28 @@
     border-radius: var(--radius-frame);
     color: var(--muted);
   }
+  .slot.as-take {
+    width: 240px;
+    aspect-ratio: 4 / 3;
+  }
+  .slot.as-cover {
+    width: 48px;
+  }
   a.slot:hover {
     border-color: var(--ink);
     color: var(--ink);
   }
-  .frame {
+  .tilewrap {
+    flex: none;
     display: flex;
-    align-items: center;
-    justify-content: center;
   }
-  .glyph {
-    font-size: var(--t-md);
-    color: var(--muted);
+  .as-cover :global(.videobadge) {
+    top: 2px;
+    left: 2px;
+    width: 14px;
+    height: 14px;
   }
-  .as-cover .glyph {
-    font-size: var(--t-sm);
-  }
-  /* The take the user chose: an ink edge, as a ticked tile has */
-  .picked {
-    border-color: var(--ink);
-    box-shadow: inset 0 0 0 1px var(--ink);
-  }
-  .arrived {
+  .arrived :global(.tile-pic) {
     animation: proof-in 200ms ease-out;
   }
   @keyframes proof-in {
@@ -157,7 +130,7 @@
     }
   }
   @media (prefers-reduced-motion: reduce) {
-    .arrived {
+    .arrived :global(.tile-pic) {
       animation: none;
     }
   }

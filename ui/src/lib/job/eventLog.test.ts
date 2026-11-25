@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { api } from '../api'
+import { api } from '../test/apiMock'
 import type { EventLogReply, JobEvent } from '../types'
 import {
   EVENT_LOG_CAP,
@@ -8,12 +8,12 @@ import {
   fetchEventLog,
 } from './eventLog'
 
-vi.mock('../api', () => ({ api: { eventLog: vi.fn() } }))
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
 
 /** A server holding events 0..total-1, paged the way the route pages:
  * after is exclusive, truncated when more lie past the page. */
 function serve(total: number, note: string | null = null) {
-  vi.mocked(api.eventLog).mockImplementation(
+  api.eventLog.mockImplementation(
     async (id, { after = -1, limit = 200 } = {}) => {
       const pending: JobEvent[] = []
       for (let seq = after + 1; seq < total; seq++)
@@ -31,7 +31,7 @@ function serve(total: number, note: string | null = null) {
   )
 }
 
-afterEach(() => vi.mocked(api.eventLog).mockReset())
+afterEach(() => api.eventLog.mockReset())
 
 describe('fetchEventLog', () => {
   it('reads one page when the server says it is whole', async () => {
@@ -41,9 +41,7 @@ describe('fetchEventLog', () => {
     expect(got.note).toBe('only the tail was kept')
     expect(got.capped).toBe(false)
     expect(got.lastSeq).toBe(2)
-    expect(vi.mocked(api.eventLog).mock.calls).toEqual([
-      ['j1', { after: -1, limit: 500 }],
-    ])
+    expect(api.eventLog.mock.calls).toEqual([['j1', { after: -1, limit: 500 }]])
   })
 
   it('follows truncated, paging on from each last_seq', async () => {
@@ -52,9 +50,9 @@ describe('fetchEventLog', () => {
     expect(got.events.length).toBe(1200)
     expect(got.events.map((e) => e.seq)).toEqual([...Array(1200).keys()])
     expect(got.capped).toBe(false)
-    expect(
-      vi.mocked(api.eventLog).mock.calls.map(([, query]) => query?.after),
-    ).toEqual([-1, 499, 999])
+    expect(api.eventLog.mock.calls.map(([, query]) => query?.after)).toEqual([
+      -1, 499, 999,
+    ])
   })
 
   it('stops at the cap and says the server holds more', async () => {
@@ -64,7 +62,7 @@ describe('fetchEventLog', () => {
     expect(EVENT_LOG_CAP).toBe(5000)
     expect(got.capped).toBe(true)
     expect(got.lastSeq).toBe(4999)
-    expect(vi.mocked(api.eventLog).mock.calls.length).toBe(10)
+    expect(api.eventLog.mock.calls.length).toBe(10)
   })
 
   it('is not capped when the log is exactly the cap', async () => {
@@ -79,19 +77,76 @@ describe('fetchEventLog', () => {
     const got = await fetchEventLog('j1', 9)
     expect(got.events).toEqual([])
     expect(got.lastSeq).toBe(9)
-    expect(vi.mocked(api.eventLog).mock.calls[0][1]?.after).toBe(9)
+    expect(api.eventLog.mock.calls[0][1]?.after).toBe(9)
   })
 })
 
 describe('row text', () => {
-  it("shows a message as is, or the payload's rest as compact JSON", () => {
-    expect(eventSummary({ seq: 1, event: 'log', at: 2, message: 'hi' })).toBe(
-      'hi',
+  const said = (event: JobEvent) => eventSummary(event).text
+
+  it('words the named events as sentences', () => {
+    expect(said({ seq: 1, event: 'step_start', step: 'gen' })).toBe(
+      'Started gen',
+    )
+    expect(said({ seq: 1, event: 'step_end', step: 'gen' })).toBe(
+      'Finished gen',
     )
     expect(
-      eventSummary({ seq: 2, event: 'step_start', at: 3, step: 'gen' }),
-    ).toBe('{"step":"gen"}')
-    expect(eventSummary({ seq: 3, event: 'job_done' })).toBe('')
+      said({ seq: 1, event: 'pipeline_step', step: 3, total_steps: 26 }),
+    ).toBe('Denoise 3 of 26')
+    expect(said({ seq: 1, event: 'workflow_start' })).toBe(
+      'Started the workflow',
+    )
+    expect(said({ seq: 1, event: 'job_status', status: 'running' })).toBe(
+      'Status: running',
+    )
+    expect(said({ seq: 1, event: 'queue_wait' })).toBe('Waiting for a card')
+    expect(said({ seq: 1, event: 'warning', message: 'clipped' })).toBe(
+      'clipped',
+    )
+  })
+
+  it('a log row is its message, said once', () => {
+    expect(eventSummary({ seq: 3, event: 'log', message: 'muxing' })).toEqual({
+      text: 'muxing',
+      data: null,
+    })
+    expect(
+      eventSummary({ seq: 3, event: 'log', message: 'muxing', level: 'info' }),
+    ).toEqual({ text: 'muxing', data: '{\n  "level": "info"\n}' })
+  })
+
+  it('a missing count or message leaves no broken row', () => {
+    expect(said({ seq: 1, event: 'pipeline_step', step: 3 })).toBe('Denoise 3')
+    expect(said({ seq: 1, event: 'warning' })).toBe('warning')
+    expect(said({ seq: 1, event: 'log' })).toBe('log')
+    expect(said({ seq: 1, event: 'log', message: '' })).toBe('log')
+  })
+
+  it('leaves no data when the sentence says all of the payload', () => {
+    expect(eventSummary({ seq: 1, event: 'step_start', step: 'gen' })).toEqual({
+      text: 'Started gen',
+      data: null,
+    })
+  })
+
+  it('folds what the sentence leaves out as indented JSON', () => {
+    expect(
+      eventSummary({ seq: 1, event: 'step_start', step: 'gen', index: 0 }).data,
+    ).toBe('{\n  "index": 0\n}')
+  })
+
+  it('any other event shows its name, the data folded', () => {
+    expect(
+      eventSummary({ seq: 2, event: 'memory', at: 1, info: { run_count: 3 } }),
+    ).toEqual({
+      text: 'memory',
+      data: '{\n  "info": {\n    "run_count": 3\n  }\n}',
+    })
+    expect(eventSummary({ seq: 3, event: 'job_done' })).toEqual({
+      text: 'job_done',
+      data: null,
+    })
   })
 
   it('files a warning under its own kind beside the event name', () => {

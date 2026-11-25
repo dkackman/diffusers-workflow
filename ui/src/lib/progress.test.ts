@@ -3,6 +3,7 @@ import {
   activeStall,
   estimateEta,
   holdKind,
+  holdText,
   nextStepTimes,
   phaseLabel,
   stepProgress,
@@ -195,5 +196,18 @@ describe('holdKind', () => {
     )
     expect(holdKind('something else')).toBe('other')
     expect(holdKind(null)).toBeNull()
+  })
+})
+
+describe('holdText', () => {
+  it('rewrites a tilde before a figure to about', () => {
+    expect(holdText('waiting for host RAM: needs ~12 GB, ~8.5 GB free')).toBe(
+      'waiting for host RAM: needs about 12 GB, about 8.5 GB free',
+    )
+  })
+  it('leaves text without a tilde figure alone', () => {
+    expect(holdText('queued behind 2 running job(s) on every card')).toBe(
+      'queued behind 2 running job(s) on every card',
+    )
   })
 })

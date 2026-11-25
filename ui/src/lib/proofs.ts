@@ -11,14 +11,27 @@ import type { GalleryFile } from './types'
 export function latestProofs(
   files: GalleryFile[],
 ): Record<string, GalleryFile> {
-  const latest: Record<string, GalleryFile> = {}
+  return proofsBy(files, (file) => file.folder)
+}
+
+/** Each run's proof, by run id: its first image, else its first clip, by
+ * the rule `latestProofs` keeps per workflow - what a job's row shows. */
+export function proofByRun(files: GalleryFile[]): Record<string, GalleryFile> {
+  return proofsBy(files, (file) => file.run_id)
+}
+
+function proofsBy(
+  files: GalleryFile[],
+  keyOf: (file: GalleryFile) => string | null | undefined,
+): Record<string, GalleryFile> {
+  const proofs: Record<string, GalleryFile> = {}
   for (const file of files) {
-    if (!file.folder) continue
-    const held = latest[file.folder]
+    const key = keyOf(file)
+    if (!key) continue
     if (file.kind !== 'image' && file.kind !== 'video') continue
-    if (!held) latest[file.folder] = file
-    else if (held.kind !== 'image' && file.kind === 'image')
-      latest[file.folder] = file
+    const held = proofs[key]
+    if (!held || (held.kind !== 'image' && file.kind === 'image'))
+      proofs[key] = file
   }
-  return latest
+  return proofs
 }

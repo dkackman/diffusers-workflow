@@ -9,15 +9,18 @@ import { createRawSnippet } from 'svelte'
 import { afterEach, expect, it, vi } from 'vitest'
 import RequestHeader from './RequestHeader.svelte'
 import { planState } from './itemState'
+import { api } from '../test/apiMock'
 import { attempt, doneItem, entry, item, request } from './fixtures'
 import type { LedgerItem, LedgerRequest } from '../types'
+import { formatMtime } from '../format'
 
-const api = vi.hoisted(() => ({
-  addNote: vi.fn(),
-  editNote: vi.fn(),
-  notesChannel: vi.fn(async () => ({ listening: false, last_seen: null })),
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
+api.addNote.mockReturnValue(undefined)
+api.editNote.mockReturnValue(undefined)
+api.notesChannel.mockImplementation(async () => ({
+  listening: false,
+  last_seen: null,
 }))
-vi.mock('../api', () => ({ api }))
 vi.mock('../confirm.svelte', () => ({ confirmDialog: vi.fn() }))
 vi.mock('../toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
 
@@ -75,6 +78,27 @@ it('leads with where the request stands and what needs the user', () => {
   expect(container.textContent).not.toMatch(/revision/)
 })
 
+it('pressing a needs part goes to its first item', async () => {
+  const p = props([
+    item('cast', { title: 'Cast sheet', ready: true }),
+    failed,
+    item('plate', { title: 'Plate', ready: true }),
+  ])
+  const { container } = render(RequestHeader, p)
+  expect(container.querySelector('.needs')?.textContent).toBe(
+    'Needs you: 2 ready to run, 1 failed.',
+  )
+  const ready = screen.getByRole('button', { name: '2 ready to run' })
+  expect(ready.getAttribute('title')).toBe('Go to Cast sheet')
+  expect(ready.classList.contains('bare')).toBe(true)
+  await fireEvent.click(ready)
+  expect(p.onselect).toHaveBeenLastCalledWith('cast')
+  const bad = screen.getByRole('button', { name: '1 failed' })
+  expect(bad.getAttribute('title')).toBe('Go to Shot 2')
+  await fireEvent.click(bad)
+  expect(p.onselect).toHaveBeenLastCalledWith('bad')
+})
+
 it('leaves out the needs line when nothing needs the user', () => {
   const { container } = render(RequestHeader, props([doneItem('a'), running]))
   expect(container.querySelector('.needs')).toBeNull()
@@ -125,7 +149,7 @@ it('gives minutes spent with no tilde, what is left, and the notes waiting', () 
       .querySelector('.figures')
       ?.textContent?.replace(/\s+/g, ' ')
       .trim(),
-  ).toBe('38 min spent ~52 min left 2 notes waiting')
+  ).toBe('38 min spent about 52 min left 2 notes waiting')
 })
 
 it('says nothing of what is left on a closed request', () => {
@@ -165,7 +189,7 @@ it("holds the request's own notes, by an item note's rules", async () => {
   api.editNote.mockResolvedValue({ revision: 4 })
   render(RequestHeader, given)
   expect(screen.getByText('make it all warmer')).toBeTruthy()
-  expect(screen.getByText(/No agent session is listening/)).toBeTruthy()
+  expect(screen.getByText(/The agent isn't connected\. It reads/)).toBeTruthy()
   await fireEvent.click(screen.getByRole('button', { name: 'Edit note' }))
   const box = screen.getByLabelText(
     'Edit your note for the agent on this request',
@@ -219,12 +243,10 @@ it('has no filled button of its own, and a place for the one a page hands it', (
   const { container } = render(RequestHeader, {
     ...props([item('a', { ready: true })]),
     actions: createRawSnippet(() => ({
-      render: () => '<button type="button">Run 1 ready…</button>',
+      render: () => '<button type="button">Run 1…</button>',
     })),
   })
-  expect(container.querySelector('.primary button')?.textContent).toBe(
-    'Run 1 ready…',
-  )
+  expect(container.querySelector('.primary button')?.textContent).toBe('Run 1…')
 })
 
 const UNTIL = '2026-11-21T15:30:00+00:00'
@@ -253,7 +275,7 @@ it('shows one hold banner, worded by its most urgent state, with Run now for the
   })
   await waitFor(() =>
     expect(banner(container)).toMatch(
-      /^2 items held for your review\. No session is listening, so nothing will run at .+\. Run them here, or leave a note\.$/,
+      /^2 items waiting for your OK\. The agent isn't connected, so nothing runs at .+ unless it reconnects\. Run them here, or leave a note\.$/,
     ),
   )
   expect(container.querySelectorAll('.hold')).toHaveLength(1)
@@ -268,14 +290,14 @@ it('has no Run now when no held row is ready, and no banner with nothing held', 
     ...props([held('b', 'holding')]),
     onrunheld: vi.fn(),
   })
-  expect(banner(container)).toMatch(/^1 item held for your review\./)
+  expect(banner(container)).toMatch(/^1 item waiting for your OK\./)
   expect(screen.queryByRole('button', { name: 'Run now…' })).toBeNull()
   unmount()
   const free = render(RequestHeader, props([item('a', { ready: true })]))
   expect(free.container.querySelector('.hold')).toBeNull()
 })
 
-it('counts down while a session listens, and says a redirect without a button', async () => {
+it('counts down while a session listens, and says a redirect with Run now', async () => {
   api.notesChannel.mockResolvedValue({ listening: true, last_seen: null })
   const { container, unmount } = render(RequestHeader, {
     ...props([held('a', 'holding', { ready: true, estimate_minutes: 3 })]),
@@ -283,7 +305,7 @@ it('counts down while a session listens, and says a redirect without a button', 
   })
   await waitFor(() =>
     expect(banner(container)).toMatch(
-      /^1 item held for your review \(about 3 min by the agent's estimate\)\. A session is listening: at .+ \(in 02:05\) it is told to run it, unless you leave a note\.$/,
+      /^1 item waiting for your OK \(about 3 min by the agent's estimate\)\. The agent will run it at .+ if it's connected \(in 02:05\), unless you leave a note\.$/,
     ),
   )
   expect(screen.getByRole('button', { name: 'Run now…' })).toBeTruthy()
@@ -293,9 +315,9 @@ it('counts down while a session listens, and says a redirect without a button', 
     onrunheld: vi.fn(),
   })
   expect(banner(redirected.container)).toBe(
-    'You left a note after these were held: the agent will revise before running.',
+    "You left a note after these were held, so they won't start on their own. The agent will read it and may revise them; run them here if they're right as they are.",
   )
-  expect(screen.queryByRole('button', { name: 'Run now…' })).toBeNull()
+  expect(screen.getByRole('button', { name: 'Run now…' })).toBeTruthy()
   redirected.unmount()
   api.notesChannel.mockResolvedValue({ listening: false, last_seen: null })
 })
@@ -316,4 +338,26 @@ it("says the agent's latest word under what needs the user, and nothing of it on
     props([item('a')], { history, state: 'done' }),
   )
   expect(closed.container.querySelector('.said')).toBeNull()
+})
+
+it("the agent's latest word carries its time, and hovering it gives the whole word", () => {
+  const why = 'board-01 now blue; awaiting go-ahead to draw'
+  const history = [entry(1, 'agent', 'opened'), entry(3, 'agent', why)]
+  const view = render(RequestHeader, props([item('a')], { history }))
+  const time = view.container.querySelector('.said time') as HTMLElement
+  expect(view.container.querySelector('.said .who')?.textContent).toMatch(
+    new RegExp(
+      `^\\s*The agent, r3 ·\\s+${formatMtime(Date.parse(history[1].at) / 1000)}:\\s*$`,
+    ),
+  )
+  expect(time.getAttribute('title')).toBe(why)
+})
+
+it("the agent's latest word still shows when its stored time does not parse", () => {
+  const history = [entry(2, 'agent', 'all set', { at: 'not a time' })]
+  const view = render(RequestHeader, props([item('a')], { history }))
+  const said = view.container.querySelector('.said') as HTMLElement
+  expect(said.textContent).toMatch(/The agent, r2 ·\s+unknown time:/)
+  expect(said.textContent).toContain('all set')
+  expect(said.querySelector('[datetime]')).toBeNull()
 })

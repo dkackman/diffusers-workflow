@@ -54,7 +54,7 @@
   </div>
 
   {#if component.configuration}
-    <div class="grid">
+    <div class="formgrid top">
       <label for={`${uid}-type`}>class</label>
       <Suggest
         id={`${uid}-type`}
@@ -128,26 +128,6 @@
     align-items: center;
     gap: 0.5rem;
     margin-bottom: 0.5rem;
-  }
-  .grid {
-    display: grid;
-    grid-template-columns: 120px minmax(0, 1fr);
-    gap: 0.45rem 0.7rem;
-    align-items: start;
-  }
-  @container (max-width: 380px) {
-    .grid {
-      grid-template-columns: minmax(0, 1fr);
-      gap: 0.2rem;
-    }
-    .grid > label {
-      padding-top: 0.3rem;
-    }
-  }
-  .grid > label {
-    font-weight: 600;
-    color: var(--muted);
-    padding-top: 0.35rem;
   }
   .gofield {
     display: flex;

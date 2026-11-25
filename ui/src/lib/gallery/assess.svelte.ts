@@ -2,13 +2,24 @@ import { SvelteMap } from 'svelte/reactivity'
 import { api } from '../api'
 import type { AssessReply } from '../types'
 
+/** Assess measures shots, seams and a soundtrack; a still has none, and
+ * the title says so in the server's own words (dw/server/assess.py) */
+export const assessable = (kind: string) => kind === 'video' || kind === 'audio'
+export const assessTitle = (kind: string) =>
+  assessable(kind)
+    ? 'measure this file for shots, seams, sync and level - places to look, not verdicts'
+    : kind === 'image'
+      ? 'a still has no shots, seams or soundtrack to measure'
+      : 'not a video or audio file'
+
 /** One output's Assess: running, its reply, or the server's refusal. A
  * failure keeps the reply before it, so the list shown stays the last one
  * the server measured. */
 export type AssessState = {
   running: boolean
   reply: AssessReply | null
-  error: string | null
+  /** The failure as caught, for ErrorLine to describe; null when none */
+  error: unknown
 }
 
 /** Assess results by output, held for the page's life and never persisted -
@@ -33,8 +44,7 @@ export class AssessCache {
       const next = await api.assess(name)
       this.#entries.set(key, { running: false, reply: next, error: null })
     } catch (e) {
-      const error = e instanceof Error ? e.message : String(e)
-      this.#entries.set(key, { running: false, reply, error })
+      this.#entries.set(key, { running: false, reply, error: e })
     }
   }
 }

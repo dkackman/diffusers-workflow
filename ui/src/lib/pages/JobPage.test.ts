@@ -4,14 +4,17 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/svelte'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import JobPage from './JobPage.svelte'
 import '../router.svelte'
-import { api, setNote } from '../api'
+import { setNote } from '../api'
+import { api } from '../test/apiMock'
 import { ApiError, NetworkError } from '../apiErrors'
 import { connection } from '../connection.svelte'
 import type { JobDetail, JobEvent } from '../types'
+import { feed } from '../test/feedMock'
 
 const detail = vi.hoisted(() => ({ job: null as JobDetail | null }))
 // The live stream's callback, captured so a test can push step_end events
@@ -27,12 +30,15 @@ const metadata = vi.hoisted(() => ({
   byFile: {} as Record<string, Record<string, unknown>>,
   // The run inputs the route reports beside a file's metadata
   inputs: [] as Array<{ reference: string; kind: 'asset' | 'output' }>,
+  // Which files the route reports as starred
+  starred: {} as Record<string, boolean>,
 }))
 // The definition the job ran, for the flow view and the unsaved reasons,
 // and whether it is the realized copy or the definition as submitted
 const ran = vi.hoisted(() => ({
   definition: null as Record<string, any> | null,
   realized: true,
+  seedVariable: null as string | null,
 }))
 // What the event-log route answers: one page, or a status to fail with
 const eventLog = vi.hoisted(() => ({
@@ -47,74 +53,78 @@ vi.mock('../editor/JsonEditor.svelte', async () => ({
   default: (await import('./JsonEditorStub.svelte')).default,
 }))
 
-vi.mock('../api', () => ({
-  ApiError: class ApiError extends Error {
-    status: number
-    constructor(message: string, status = 500) {
-      super(message)
-      this.name = 'ApiError'
-      this.status = status
+vi.mock('../api', async () =>
+  (await import('../test/apiMock')).apiModule({
+    outputUrl: (path: string) => `/outputs/${path}`,
+    setNote: vi.fn((target: string, note: string | null) =>
+      Promise.resolve({ target, note, note_source: note ? 'run' : null }),
+    ),
+    streamJobEvents: (
+      _jobId: string,
+      after: number,
+      onEvent: (event: JobEvent) => void,
+      _onEnd: () => void,
+      onDrop?: () => void,
+    ) => {
+      stream.onEvent = onEvent
+      stream.onDrop = onDrop ?? null
+      stream.opened.push(after)
+      return () => {
+        stream.stopped++
+      }
+    },
+  }),
+)
+api.getJob.mockImplementation(() => Promise.resolve(detail.job))
+api.getJobWorkflow.mockImplementation(() =>
+  Promise.resolve({
+    definition: ran.definition,
+    realized: ran.realized,
+    seed_variable: ran.seedVariable,
+  }),
+)
+api.galleryMetadata.mockImplementation((name: string) =>
+  Promise.resolve({
+    name,
+    metadata: metadata.byFile[name] ?? null,
+    inputs: metadata.inputs,
+    starred: metadata.starred[name],
+    job: null,
+  }),
+)
+api.outputDownloadUrl.mockImplementation(
+  (name: string) => `/api/gallery/${name}/download`,
+)
+api.setStarred.mockImplementation((name: string, starred: boolean) =>
+  Promise.resolve({ name, starred }),
+)
+api.noteForSave.mockImplementation((target: string) =>
+  Promise.resolve({ target, note: detail.job?.note ?? null, etag: '"e"' }),
+)
+api.eventLog.mockImplementation(
+  async (id: string, query: { after?: number } = {}) => {
+    if (eventLog.status) {
+      const { ApiError } = await import('../api')
+      throw new ApiError('Unknown job', eventLog.status)
+    }
+    const after = query.after ?? -1
+    const page = eventLog.events.filter((e) => e.seq > after)
+    return {
+      id,
+      status: detail.job?.status ?? null,
+      events: page,
+      last_seq: page.length ? page[page.length - 1].seq : after,
+      truncated: false,
+      note: eventLog.note,
     }
   },
-  TERMINAL_STATUSES: ['succeeded', 'failed', 'cancelled'],
-  api: {
-    getJob: vi.fn(() => Promise.resolve(detail.job)),
-    getJobWorkflow: vi.fn(() =>
-      Promise.resolve({
-        definition: ran.definition,
-        realized: ran.realized,
-        seed_variable: null,
-      }),
-    ),
-    galleryMetadata: vi.fn((name: string) =>
-      Promise.resolve({
-        name,
-        metadata: metadata.byFile[name] ?? null,
-        inputs: metadata.inputs,
-        job: null,
-      }),
-    ),
-    outputDownloadUrl: (name: string) => `/api/gallery/${name}/download`,
-    eventLog: vi.fn(async (id: string, query: { after?: number } = {}) => {
-      if (eventLog.status) {
-        const { ApiError } = await import('../api')
-        throw new ApiError('Unknown job', eventLog.status)
-      }
-      const after = query.after ?? -1
-      const page = eventLog.events.filter((e) => e.seq > after)
-      return {
-        id,
-        status: detail.job?.status ?? null,
-        events: page,
-        last_seq: page.length ? page[page.length - 1].seq : after,
-        truncated: false,
-        note: eventLog.note,
-      }
-    }),
-  },
-  outputUrl: (path: string) => `/outputs/${path}`,
-  setNote: vi.fn((target: string, note: string | null) =>
-    Promise.resolve({ target, note, note_source: note ? 'run' : null }),
-  ),
-  streamJobEvents: (
-    _jobId: string,
-    after: number,
-    onEvent: (event: JobEvent) => void,
-    _onEnd: () => void,
-    onDrop?: () => void,
-  ) => {
-    stream.onEvent = onEvent
-    stream.onDrop = onDrop ?? null
-    stream.opened.push(after)
-    return () => {
-      stream.stopped++
-    }
-  },
-}))
+)
 vi.mock('../changes.svelte', async () => ({
   changes: (await import('../test/feedMock')).feed.changes,
 }))
-vi.mock('../toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
+vi.mock('../toast', () => ({
+  notify: { error: vi.fn(), success: vi.fn(), undo: vi.fn(), failure: vi.fn() },
+}))
 
 const job = (manifest: JobDetail['manifest']): JobDetail => ({
   id: 'j1',
@@ -152,16 +162,18 @@ afterEach(() => {
   stream.onDrop = null
   stream.opened = []
   stream.stopped = 0
-  vi.mocked(api.getJob).mockClear()
+  api.getJob.mockClear()
   metadata.byFile = {}
   metadata.inputs = []
+  metadata.starred = {}
   ran.definition = null
   ran.realized = true
+  ran.seedVariable = null
   eventLog.events = []
   eventLog.note = null
   eventLog.status = 0
-  vi.mocked(api.galleryMetadata).mockClear()
-  vi.mocked(api.eventLog).mockClear()
+  api.galleryMetadata.mockClear()
+  api.eventLog.mockClear()
 })
 
 /** The flow view's box for one step of the definition. */
@@ -178,7 +190,7 @@ function unsavedRows(container: HTMLElement) {
   )
 }
 
-it('shows each image beside what made it, with a download link, and never probes a video', async () => {
+it('shows each image with its model and seed, its recipe in the viewer, and never probes a video', async () => {
   metadata.byFile['a.png'] = {
     model_name: 'org/model',
     seed: 7,
@@ -189,20 +201,84 @@ it('shows each image beside what made it, with a download link, and never probes
     output_kinds: { 'a.png': 'image', 'clip.mp4': 'video' },
   }
   render(JobPage, { jobId: 'j1' })
-  await waitFor(() => expect(screen.getByText('org/model')).toBeTruthy())
-  expect(screen.getByText('7')).toBeTruthy()
-  expect(screen.getByText('a cat')).toBeTruthy()
-  expect(screen.getByText('a dog')).toBeTruthy()
-  expect(
-    screen
-      .getAllByRole('link', { name: 'Download' })
-      .map((a) => a.getAttribute('href')),
-  ).toEqual(['/api/gallery/a.png/download', '/api/gallery/clip.mp4/download'])
+  const tile = await screen.findByLabelText('Open a.png')
+  await waitFor(() => expect(tile).toHaveTextContent('org/model · seed 7'))
   // The metadata route decodes a video whole to probe it, and the page
   // shows nothing a probe would report
-  expect(vi.mocked(api.galleryMetadata).mock.calls.map((c) => c[0])).toEqual([
-    'a.png',
-  ])
+  expect(api.galleryMetadata.mock.calls.map((c) => c[0])).toEqual(['a.png'])
+  await fireEvent.click(tile)
+  const sheet = await screen.findByRole('dialog', { name: 'a.png' })
+  await waitFor(() => expect(sheet).toHaveTextContent('a cat'))
+  expect(sheet).toHaveTextContent('a dog')
+  expect(
+    within(sheet).getByRole('link', { name: 'Download' }).getAttribute('href'),
+  ).toBe('/api/gallery/a.png/download')
+})
+
+it('a bare S stars the open file, as its star says, and S again unstars it', async () => {
+  detail.job = {
+    ...job([{ step: 'generate', files: ['a.png'] }]),
+    output_kinds: { 'a.png': 'image' },
+  }
+  render(JobPage, { jobId: 'j1' })
+  await fireEvent.click(await screen.findByLabelText('Open a.png'))
+  const sheet = await screen.findByRole('dialog', { name: 'a.png' })
+  const star = await within(sheet).findByRole('button', { name: 'Star' })
+  await waitFor(() => expect(star).not.toBeDisabled())
+  api.setStarred.mockClear()
+  // a modified S is the browser's or the page's own
+  await fireEvent.keyDown(sheet, { key: 'S', shiftKey: true })
+  expect(api.setStarred).not.toHaveBeenCalled()
+  await fireEvent.keyDown(sheet, { key: 's' })
+  await waitFor(() =>
+    expect(api.setStarred).toHaveBeenCalledWith('a.png', true),
+  )
+  await waitFor(() => expect(star).toHaveAttribute('aria-pressed', 'true'))
+  await fireEvent.keyDown(sheet, { key: 's' })
+  await waitFor(() =>
+    expect(api.setStarred).toHaveBeenLastCalledWith('a.png', false),
+  )
+})
+
+it('a star Undo leaves a star another writer changed', async () => {
+  const { notify } = await import('../toast')
+  vi.mocked(notify.undo).mockClear()
+  vi.mocked(notify.error).mockClear()
+  detail.job = {
+    ...job([{ step: 'generate', files: ['a.png'] }]),
+    output_kinds: { 'a.png': 'image' },
+  }
+  render(JobPage, { jobId: 'j1' })
+  await fireEvent.click(await screen.findByLabelText('Open a.png'))
+  const sheet = await screen.findByRole('dialog', { name: 'a.png' })
+  const star = await within(sheet).findByRole('button', { name: 'Star' })
+  await waitFor(() => expect(star).not.toBeDisabled())
+  api.setStarred.mockClear()
+  await fireEvent.keyDown(sheet, { key: 's' })
+  await waitFor(() => expect(notify.undo).toHaveBeenCalledTimes(1))
+  // Unstarred elsewhere since: the re-read says so
+  feed.move('default', 'gallery')
+  await waitFor(() => expect(star).toHaveAttribute('aria-pressed', 'false'))
+  vi.mocked(notify.undo).mock.calls[0][1]()
+  await waitFor(() =>
+    expect(notify.error).toHaveBeenCalledWith(
+      'Nothing undone: the star was changed since.',
+    ),
+  )
+  expect(api.setStarred).toHaveBeenCalledTimes(1)
+})
+
+it('sets the tab title to the workflow file the job ran', async () => {
+  detail.job = {
+    ...job([]),
+    workflow: 'Storyboard',
+    workflow_name: 'templates/minimax/storyboard',
+  }
+  render(JobPage, { jobId: 'j1' })
+  await waitFor(() =>
+    expect(document.title).toBe('storyboard · diffusers-workflow'),
+  )
+  expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
 })
 
 it("drops one job's image metadata when the page switches to another", async () => {
@@ -214,14 +290,14 @@ it("drops one job's image metadata when the page switches to another", async () 
     output_kinds: { 'a.png': 'image' },
   }
   const { rerender } = render(JobPage, { jobId: 'j1' })
-  await waitFor(() => expect(screen.getByText('org/first')).toBeTruthy())
+  await waitFor(() => expect(screen.getByText(/org\/first/)).toBeTruthy())
 
   metadata.byFile['a.png'] = { model_name: 'org/second' }
   detail.job = { ...detail.job, id: 'j2' }
   await rerender({ jobId: 'j2' })
-  await waitFor(() => expect(screen.getByText('org/second')).toBeTruthy())
-  expect(screen.queryByText('org/first')).toBeNull()
-  expect(vi.mocked(api.galleryMetadata).mock.calls.map((c) => c[0])).toEqual([
+  await waitFor(() => expect(screen.getByText(/org\/second/)).toBeTruthy())
+  expect(screen.queryByText(/org\/first/)).toBeNull()
+  expect(api.galleryMetadata.mock.calls.map((c) => c[0])).toEqual([
     'a.png',
     'a.png',
   ])
@@ -267,7 +343,7 @@ it('renders an unfoldered run exactly as before: step headings, no subfolder hea
       .map((h) => h.textContent?.trim()),
   ).toEqual(['generate', 'upscale'])
   expect(screen.queryByRole('heading', { level: 4 })).toBeNull()
-  expect(screen.queryByText('(run root)')).toBeNull()
+  expect(screen.queryByText('(top folder)')).toBeNull()
 })
 
 it('places a live step_end under its subfolder before the manifest arrives', async () => {
@@ -525,7 +601,9 @@ it('names the run by the version the gallery labels its files with', async () =>
   }
   render(JobPage, { jobId: 'j1' })
   const chip = await waitFor(() => screen.getByText('v4'))
-  expect(chip.getAttribute('title')).toContain('20260922-120000-aaaaaaaa')
+  expect(chip.getAttribute('title')).toBe(
+    '4th job of this workflow in this folder',
+  )
 })
 
 it('shows no version for a job that never opened a run', async () => {
@@ -541,14 +619,96 @@ it('renders each output by the kind the server reports', async () => {
     output_kinds: { 'a.bmp': 'image', 'b.mov': 'video', 'c.flac': 'audio' },
   }
   const { container } = render(JobPage, { jobId: 'j1' })
-  await waitFor(() => expect(container.querySelector('audio')).toBeTruthy())
-  expect(container.querySelector('img')?.getAttribute('src')).toContain('a.bmp')
-  expect(container.querySelector('video')?.getAttribute('src')).toContain(
-    'b.mov',
+  await screen.findByLabelText('Open c.flac')
+  // tiles: a picture and a clip's poster, never a stream; a sound's glyph
+  const pics = [...container.querySelectorAll('.filetile img')].map((i) =>
+    i.getAttribute('src'),
   )
-  expect(container.querySelector('audio')?.getAttribute('src')).toContain(
-    'c.flac',
+  expect(pics[0]).toContain('a.bmp/thumbnail')
+  expect(pics[1]).toContain('b.mov/thumbnail')
+  expect(container.querySelector('.filetile video, .filetile audio')).toBeNull()
+  expect(screen.getByLabelText('Open c.flac')).toHaveTextContent('♪')
+  // the viewer plays each by its kind
+  await fireEvent.click(screen.getByLabelText('Open b.mov'))
+  const sheet = await screen.findByRole('dialog', { name: 'b.mov' })
+  expect(sheet.querySelector('video')?.getAttribute('src')).toContain('b.mov')
+})
+
+/** The page's panels' h2 headings, in order */
+const panelOrder = () =>
+  screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent?.trim())
+
+it('a finished job shows Results before the workflow and Progress', async () => {
+  ran.definition = { steps: [{ name: 'generate', pipeline: {} }] }
+  detail.job = {
+    ...job([{ step: 'generate', files: ['a.png'] }]),
+    output_kinds: { 'a.png': 'image' },
+    run_dir: 'wf/run-1',
+  }
+  render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(stream.onEvent).not.toBeNull())
+  stream.onEvent!({ seq: 1, event: 'workflow_start', steps: ['generate'] })
+  stream.onEvent!({ seq: 2, event: 'step_end', step: 'generate', files: [] })
+  await waitFor(() => expect(panelOrder()).toContain('Progress'))
+  const order = panelOrder().filter((h) =>
+    ['Results', 'Workflow', 'Progress'].includes(h ?? ''),
   )
+  expect(order).toEqual(['Results', 'Workflow', 'Progress'])
+  // the note sits in a panel of its own, between Results and the workflow
+  const note = screen.getByText('Your note on this job').closest('.panel')
+  expect(note?.querySelector('h2')).toBeNull()
+  // the JSON toggle sits in the Workflow head
+  const head = screen.getByRole('heading', {
+    level: 2,
+    name: 'Workflow',
+  }).parentElement!
+  expect(within(head).getByRole('button', { name: 'show JSON' })).toBeTruthy()
+})
+
+it('a running job keeps Progress first', async () => {
+  detail.job = { ...job([]), status: 'running', finished_at: null }
+  render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(stream.onEvent).not.toBeNull())
+  stream.onEvent!({ seq: 1, event: 'workflow_start', steps: ['generate'] })
+  stream.onEvent!({
+    seq: 2,
+    event: 'step_end',
+    step: 'generate',
+    files: ['a.png'],
+    output_kinds: { 'a.png': 'image' },
+  })
+  await waitFor(() => expect(panelOrder()).toContain('Results'))
+  const order = panelOrder().filter((h) =>
+    ['Results', 'Progress'].includes(h ?? ''),
+  )
+  expect(order).toEqual(['Progress', 'Results'])
+  // the list is open while it runs
+  expect(screen.getByText('generate', { selector: '.step span' })).toBeTruthy()
+  expect(document.querySelector('details.progress')).toBeNull()
+})
+
+it("a finished job's progress is one line until opened", async () => {
+  detail.job = { ...job([]), started_at: 100, finished_at: 172 }
+  render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(stream.onEvent).not.toBeNull())
+  stream.onEvent!({
+    seq: 1,
+    event: 'workflow_start',
+    steps: ['base', 'upscale'],
+  })
+  stream.onEvent!({ seq: 2, event: 'step_end', step: 'base', files: [] })
+  const details = await waitFor(() => {
+    const found = document.querySelector('details.progress')
+    expect(found).toBeTruthy()
+    return found as HTMLDetailsElement
+  })
+  expect(details.open).toBe(false)
+  const summary = details.querySelector('summary')!
+  expect(summary.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+    'Progress 1 of 2 steps · 1m 12s',
+  )
+  // the list is behind the disclosure
+  expect(details.querySelectorAll('.step')).toHaveLength(2)
 })
 
 it('shows the card the job ran on', async () => {
@@ -650,16 +810,14 @@ it('reads Made from off the first output of a video-only run, probing once', asy
   expect(container.querySelector('.madefrom .role-tag')?.textContent).toBe(
     'Input',
   )
-  expect(vi.mocked(api.galleryMetadata).mock.calls.map((c) => c[0])).toEqual([
-    'a.mp4',
-  ])
+  expect(api.galleryMetadata.mock.calls.map((c) => c[0])).toEqual(['a.mp4'])
 })
 
-it('shows the run note when the job has a run', async () => {
+it('shows your note on the job when the job has a run', async () => {
   detail.job = { ...job([]), run_dir: 'wf/run-1', note: 'second pass' }
   render(JobPage, { jobId: 'j1' })
   await waitFor(() => expect(screen.getByText('second pass')).toBeTruthy())
-  expect(screen.getByText('Run note')).toBeTruthy()
+  expect(screen.getByText('Your note on this job')).toBeTruthy()
 })
 
 it("saves the run note in the job's own workspace", async () => {
@@ -676,18 +834,194 @@ it("saves the run note in the job's own workspace", async () => {
     target: { value: 'third pass' },
   })
   await fireEvent.click(screen.getByRole('button', { name: /save/i }))
-  expect(vi.mocked(setNote)).toHaveBeenCalledWith(
-    'wf/run-1',
-    'third pass',
-    'studio',
+  await waitFor(() =>
+    expect(vi.mocked(setNote)).toHaveBeenCalledWith(
+      'wf/run-1',
+      'third pass',
+      'studio',
+      '"e"',
+    ),
   )
+})
+
+describe('data changed underneath the page', () => {
+  const notice = () => screen.queryByText('Updated by an agent or another tab')
+  /** The feed moves `kind`, and the page's quiet re-reads land */
+  async function moved(kind: 'jobs' | 'gallery' | 'workflows') {
+    feed.move('default', kind)
+    for (let i = 0; i < 6; i++) await Promise.resolve()
+  }
+  /** The workflow JSON the page shows, once opened */
+  const shownJson = () => screen.queryByTestId('json-editor')?.textContent
+  const noted = (note: string) => {
+    detail.job = { ...job([]), run_dir: 'wf/run-1', note }
+  }
+
+  it('a run note written elsewhere says so', async () => {
+    noted('second pass')
+    render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(screen.getByText('second pass')).toBeTruthy())
+    noted('from the agent')
+    await moved('gallery')
+    await waitFor(() => expect(notice()).toBeTruthy())
+    expect(screen.getByText('from the agent')).toBeTruthy()
+  })
+
+  it('a note being edited keeps its draft when a newer one lands', async () => {
+    noted('second pass')
+    render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(screen.getByText('second pass')).toBeTruthy())
+    await fireEvent.click(screen.getByRole('button', { name: /edit note/i }))
+    await fireEvent.input(screen.getByRole('textbox'), {
+      target: { value: 'my third pass' },
+    })
+    noted('from the agent')
+    await moved('gallery')
+    // The box's own notice is the one: the page's line stays down (#1597)
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          /Your note on this job changed while you were editing/,
+        ),
+      ).toBeTruthy(),
+    )
+    expect(notice()).toBeNull()
+    expect(screen.getAllByRole('status')).toHaveLength(1)
+    const box = screen.getByRole('textbox') as HTMLTextAreaElement
+    expect(box.value).toBe('my third pass')
+  })
+
+  it('a resolved note does not say it was updated', async () => {
+    noted('second pass')
+    render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(screen.getByText('second pass')).toBeTruthy())
+    await fireEvent.click(screen.getByRole('button', { name: /edit note/i }))
+    await fireEvent.input(screen.getByRole('textbox'), {
+      target: { value: 'my third pass' },
+    })
+    noted('from the agent')
+    await moved('gallery')
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Keep mine' }),
+    )
+    await fireEvent.click(screen.getByRole('button', { name: /^save/i }))
+    await waitFor(() => expect(screen.queryByRole('textbox')).toBeNull())
+    await waitFor(() => expect(screen.getByText('my third pass')).toBeTruthy())
+    // The box answered that change: the page does not raise it again
+    expect(notice()).toBeNull()
+  })
+
+  it("the page's own note save says nothing", async () => {
+    noted('second pass')
+    render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(screen.getByText('second pass')).toBeTruthy())
+    await fireEvent.click(screen.getByRole('button', { name: /edit note/i }))
+    await fireEvent.input(screen.getByRole('textbox'), {
+      target: { value: 'third pass' },
+    })
+    await fireEvent.click(screen.getByRole('button', { name: /save/i }))
+    await waitFor(() => expect(screen.getByText('third pass')).toBeTruthy())
+    // The save's own write moves the feed; the re-read holds that note
+    noted('third pass')
+    const reads = api.getJob.mock.calls.length
+    await moved('gallery')
+    await waitFor(() =>
+      expect(api.getJob.mock.calls.length).toBeGreaterThan(reads),
+    )
+    expect(notice()).toBeNull()
+  })
+
+  it('an edit elsewhere to a job with no realized copy is shown and marked', async () => {
+    // Queued: what the page shows is the workflow file as it is now
+    detail.job = { ...job([]), status: 'queued', finished_at: null }
+    ran.definition = { steps: [{ name: 'base', pipeline: {} }] }
+    ran.realized = false
+    render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(screen.getByText('as submitted')).toBeTruthy())
+    await fireEvent.click(screen.getByRole('button', { name: 'show JSON' }))
+    ran.definition = { steps: [{ name: 'edited', pipeline: {} }] }
+    await moved('workflows')
+    await waitFor(() => expect(shownJson()).toContain('"name": "edited"'))
+    expect(notice()).toBeTruthy()
+  })
+
+  it('a run deleted elsewhere flips "realized" off', async () => {
+    detail.job = { ...job([]), run_dir: 'wf/run-1' }
+    ran.definition = { steps: [{ name: 'base', pipeline: { seed: 7 } }] }
+    render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(screen.getByText('realized')).toBeTruthy())
+    // Delete run writes the gallery and jobs; the job's record and status
+    // stay as they were, and the live file answers in the run's place
+    ran.definition = { steps: [{ name: 'base', pipeline: {} }] }
+    ran.realized = false
+    await moved('gallery')
+    await waitFor(() => expect(screen.getByText('as submitted')).toBeTruthy())
+    expect(screen.queryByText('realized')).toBeNull()
+  })
+
+  it('a status move that brings a changed definition marks it', async () => {
+    detail.job = { ...job([]), status: 'queued', finished_at: null }
+    ran.definition = { steps: [{ name: 'base', pipeline: {} }] }
+    ran.realized = false
+    render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(screen.getByText('as submitted')).toBeTruthy())
+    await fireEvent.click(screen.getByRole('button', { name: 'show JSON' }))
+    // The file was edited, and only the job's start moved the feed
+    ran.definition = { steps: [{ name: 'edited', pipeline: {} }] }
+    detail.job = { ...job([]), status: 'running', finished_at: null }
+    await moved('jobs')
+    await waitFor(() => expect(shownJson()).toContain('"name": "edited"'))
+    expect(notice()).toBeTruthy()
+  })
+
+  it("the run's own realized copy replacing the submitted one says nothing", async () => {
+    detail.job = { ...job([]), status: 'running', finished_at: null }
+    ran.definition = { steps: [{ name: 'base', pipeline: {} }] }
+    ran.realized = false
+    render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(screen.getByText('as submitted')).toBeTruthy())
+    // The run ends: it wrote its realized copy as its status moved
+    ran.definition = { steps: [{ name: 'base', pipeline: { seed: 7 } }] }
+    ran.realized = true
+    detail.job = job([])
+    await moved('jobs')
+    await waitFor(() => expect(screen.getByText('realized')).toBeTruthy())
+    expect(notice()).toBeNull()
+  })
+
+  it('a move that leaves the note and definition alone says nothing', async () => {
+    noted('second pass')
+    ran.definition = { steps: [{ name: 'base', pipeline: {} }] }
+    render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(screen.getByText('realized')).toBeTruthy())
+    await moved('jobs')
+    await moved('gallery')
+    expect(notice()).toBeNull()
+  })
+
+  it('a jobs move of another job reads no workflow', async () => {
+    noted('second pass')
+    ran.definition = { steps: [{ name: 'base', pipeline: {} }] }
+    render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(screen.getByText('realized')).toBeTruthy())
+    const reads = api.getJobWorkflow.mock.calls.length
+    const jobReads = api.getJob.mock.calls.length
+    await moved('jobs')
+    // This job's record is read again, its status unchanged: the workflow
+    // it ran is not
+    await waitFor(() =>
+      expect(api.getJob.mock.calls.length).toBeGreaterThan(jobReads),
+    )
+    await moved('jobs')
+    expect(api.getJobWorkflow.mock.calls.length).toBe(reads)
+  })
 })
 
 it('refetches the detail on queue_wait and on a live warning, not on a stall', async () => {
   detail.job = { ...job([]), status: 'running', finished_at: null }
   render(JobPage, { jobId: 'j1' })
   await waitFor(() => expect(stream.onEvent).not.toBeNull())
-  const calls = () => vi.mocked(api.getJob).mock.calls.length
+  const calls = () => api.getJob.mock.calls.length
   const before = calls()
   stream.onEvent!({ seq: 1, event: 'queue_wait', reason: 'gpu_busy' })
   await waitFor(() => expect(calls()).toBe(before + 1))
@@ -709,6 +1043,37 @@ it('refetches the detail on queue_wait and on a live warning, not on a stall', a
   await waitFor(() =>
     expect(screen.getByText('gen: audio clipped')).toBeTruthy(),
   )
+})
+
+it("the seed warning is folded under the author's notes", async () => {
+  detail.job = {
+    ...job([]),
+    warnings: ['gen: the step cache ignores the seed'],
+  }
+  const { container } = render(JobPage, { jobId: 'j1' })
+  const summary = await screen.findByText("1 note for the workflow's author")
+  expect(summary.closest('details')!.open).toBe(false)
+  expect(container.querySelector('.warnrow')).toBeNull()
+  expect(container.querySelector('.warn-edge')).toBeNull()
+})
+
+it('a warning about an argument this job was given stays in view', async () => {
+  detail.job = {
+    ...job([]),
+    arguments: { prompt: 'a cat' },
+    warnings: [
+      'arguments.prompt: too long',
+      'gen: the step cache ignores the seed',
+    ],
+  }
+  const { container } = render(JobPage, { jobId: 'j1' })
+  await waitFor(() =>
+    expect(container.querySelector('.warnrow')?.textContent).toContain(
+      'prompt: too long',
+    ),
+  )
+  expect(container.querySelectorAll('.warnrow')).toHaveLength(1)
+  expect(screen.getByText("1 note for the workflow's author")).toBeTruthy()
 })
 
 it('shows a stall line while a phase_stall is the latest event', async () => {
@@ -826,12 +1191,12 @@ describe('event log (#1478)', () => {
       'Only the last 200 events of this job were retained; everything before seq 41 was dropped when the job was recorded.'
     eventLog.events = [
       { seq: 41, event: 'step_start', at: 1.5, step: 'gen' },
-      { seq: 42, event: 'log', at: 2, message: 'loading model' },
+      { seq: 42, event: 'step_end', at: 2, step: 'gen' },
     ]
     const { container } = render(JobPage, { jobId: 'j1' })
     await waitFor(() => expect(logToggle()).toBeTruthy())
     expect(logToggle().getAttribute('aria-expanded')).toBe('false')
-    expect(vi.mocked(api.eventLog)).not.toHaveBeenCalled()
+    expect(api.eventLog).not.toHaveBeenCalled()
 
     await fireEvent.click(logToggle())
     await waitFor(() => expect(logRows(container).length).toBe(2))
@@ -839,12 +1204,10 @@ describe('event log (#1478)', () => {
       screen.getByText(/everything before seq 41 was dropped/),
     ).toBeTruthy()
     expect(logRows(container)).toEqual([
-      ['41', '+1.5s', 'step_start', '{"step":"gen"}'],
-      ['42', '+2.0s', 'log', 'loading model'],
+      ['41', '+1.5s', 'step_start', 'Started gen'],
+      ['42', '+2.0s', 'step_end', 'Finished gen'],
     ])
-    expect(vi.mocked(api.eventLog).mock.calls).toEqual([
-      ['j1', { after: -1, limit: 500 }],
-    ])
+    expect(api.eventLog.mock.calls).toEqual([['j1', { after: -1, limit: 500 }]])
     // A finished job's log does not grow, so nothing offers to refresh it
     expect(
       screen.queryByRole('button', { name: 'Refresh event log' }),
@@ -925,18 +1288,205 @@ describe('event log (#1478)', () => {
     )
     await waitFor(() => expect(logRows(container).length).toBe(5))
     expect(screen.getByText('5 events, seq 0–4')).toBeTruthy()
-    expect(vi.mocked(api.eventLog).mock.calls.at(-1)).toEqual([
+    expect(api.eventLog.mock.calls.at(-1)).toEqual([
       'j1',
       { after: 3, limit: 500 },
     ])
     expect(nodeFor(container, 'mux').classList.contains('active')).toBe(false)
+  })
+
+  it('a log row shows its message, not the word log', async () => {
+    detail.job = job([])
+    eventLog.events = [
+      { seq: 0, event: 'log', message: 'loading the model' },
+      { seq: 1, event: 'step_end', step: 'gen' },
+    ]
+    const { container } = render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(logToggle()).toBeTruthy())
+    await fireEvent.click(logToggle())
+    await waitFor(() => expect(logRows(container).length).toBe(2))
+    expect(logRows(container)[0]).toEqual(['0', '', 'log', 'loading the model'])
+    expect(container.querySelector('.eventlog details')).toBeNull()
+  })
+
+  it('a finished job starts with Follow off', async () => {
+    detail.job = job([])
+    eventLog.events = [{ seq: 0, event: 'log', message: 'one' }]
+    render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(logToggle()).toBeTruthy())
+    await fireEvent.click(logToggle())
+    const follow = await screen.findByRole('button', {
+      name: 'Follow new events',
+    })
+    expect(follow.getAttribute('aria-pressed')).toBe('false')
+  })
+
+  it('a job that starts after the page loads turns Follow on, unless the user chose', async () => {
+    detail.job = { ...job([]), status: 'queued', finished_at: null }
+    eventLog.events = [{ seq: 0, event: 'log', message: 'one' }]
+    const { rerender } = render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(logToggle()).toBeTruthy())
+    await fireEvent.click(logToggle())
+    const follow = await screen.findByRole('button', {
+      name: 'Follow new events',
+    })
+    expect(follow.getAttribute('aria-pressed')).toBe('true')
+    // `live` was false while the record loaded, then turned true: Follow
+    // came on with it. Once the user has chosen, a later re-read of the
+    // same live job leaves their choice alone
+    await fireEvent.click(follow)
+    expect(follow.getAttribute('aria-pressed')).toBe('false')
+    await rerender({ jobId: 'j1' })
+    expect(follow.getAttribute('aria-pressed')).toBe('false')
+  })
+
+  it('a job change resets the Follow toggle', async () => {
+    detail.job = { ...job([]), status: 'running', finished_at: null }
+    eventLog.events = [{ seq: 0, event: 'log', message: 'one' }]
+    const { rerender } = render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(logToggle()).toBeTruthy())
+    await fireEvent.click(logToggle())
+    let follow = await screen.findByRole('button', {
+      name: 'Follow new events',
+    })
+    await fireEvent.click(follow)
+    expect(follow.getAttribute('aria-pressed')).toBe('false')
+    detail.job = { ...detail.job!, id: 'j2' }
+    await rerender({ jobId: 'j2' })
+    await waitFor(() =>
+      expect(logToggle().getAttribute('aria-expanded')).toBe('false'),
+    )
+    await fireEvent.click(logToggle())
+    follow = await screen.findByRole('button', { name: 'Follow new events' })
+    expect(follow.getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('shrinking content does not turn Follow off', async () => {
+    detail.job = { ...job([]), status: 'running', finished_at: null }
+    eventLog.events = [
+      { seq: 0, event: 'log', message: 'one' },
+      { seq: 1, event: 'warning', kind: 'audio_clipped', message: 'clip' },
+    ]
+    const { container } = render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(logToggle()).toBeTruthy())
+    await fireEvent.click(logToggle())
+    const follow = await screen.findByRole('button', {
+      name: 'Follow new events',
+    })
+    const box = container.querySelector('#event-log-body') as HTMLElement
+    let top = 900
+    let height = 900
+    Object.defineProperty(box, 'scrollHeight', { get: () => height })
+    Object.defineProperty(box, 'clientHeight', { value: 300 })
+    Object.defineProperty(box, 'scrollTop', {
+      get: () => top,
+      set: (v: number) => (top = v),
+    })
+    await fireEvent.scroll(box)
+    // A narrower filter shortens the box; the browser clamps to its bottom
+    height = 400
+    top = 100
+    await fireEvent.scroll(box)
+    expect(follow.getAttribute('aria-pressed')).toBe('true')
+    // A real move up leaves the bottom
+    height = 900
+    top = 300
+    await fireEvent.scroll(box)
+    expect(follow.getAttribute('aria-pressed')).toBe('true')
+    top = 100
+    await fireEvent.scroll(box)
+    expect(follow.getAttribute('aria-pressed')).toBe('false')
+  })
+
+  it("reads a live job's new events as the stream brings them, in view only while following", async () => {
+    detail.job = { ...job([]), status: 'running', finished_at: null }
+    eventLog.events = [{ seq: 0, event: 'log', message: 'one' }]
+    const { container } = render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(stream.onEvent).not.toBeNull())
+    await fireEvent.click(logToggle())
+    const follow = await screen.findByRole('button', {
+      name: 'Follow new events',
+    })
+    const box = container.querySelector('#event-log-body') as HTMLElement
+    let top = 0
+    Object.defineProperty(box, 'scrollHeight', { value: 900 })
+    Object.defineProperty(box, 'clientHeight', { value: 300 })
+    Object.defineProperty(box, 'scrollTop', {
+      get: () => top,
+      set: (v: number) => (top = v),
+    })
+    const arrive = (seq: number) => {
+      eventLog.events.push({ seq, event: 'log', message: `line ${seq}` })
+      stream.onEvent!({ seq, event: 'log', message: `line ${seq}` })
+    }
+
+    arrive(1)
+    await waitFor(() => expect(logRows(container).length).toBe(2), {
+      timeout: 3000,
+    })
+    await waitFor(() => expect(top).toBe(900))
+    expect(logRows(container)[1][3]).toBe('line 1')
+
+    top = 100
+    await fireEvent.scroll(box)
+    expect(follow.getAttribute('aria-pressed')).toBe('false')
+    arrive(2)
+    // Reads start a second apart, so this one waits out the gap
+    await waitFor(() => expect(logRows(container).length).toBe(3), {
+      timeout: 3000,
+    })
+    expect(top).toBe(100)
+    // Every row once, in order
+    expect(logRows(container).map((r) => r[0])).toEqual(['0', '1', '2'])
+  })
+
+  it('the event log follows a live job until the user scrolls up', async () => {
+    detail.job = { ...job([]), status: 'running', finished_at: null }
+    eventLog.events = [{ seq: 0, event: 'log', message: 'one' }]
+    const { container } = render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(logToggle()).toBeTruthy())
+    await fireEvent.click(logToggle())
+    const follow = await screen.findByRole('button', {
+      name: 'Follow new events',
+    })
+    expect(follow.getAttribute('aria-pressed')).toBe('true')
+    // jsdom has no layout: give the box a height and a scroll position
+    const box = container.querySelector('#event-log-body') as HTMLElement
+    let top = 0
+    Object.defineProperty(box, 'scrollHeight', { value: 900 })
+    Object.defineProperty(box, 'scrollTop', {
+      get: () => top,
+      set: (v: number) => (top = v),
+    })
+    const refresh = () =>
+      fireEvent.click(screen.getByRole('button', { name: 'Refresh event log' }))
+    eventLog.events.push({ seq: 1, event: 'log', message: 'two' })
+    await refresh()
+    await waitFor(() => expect(top).toBe(900))
+    expect(follow.getAttribute('aria-pressed')).toBe('true')
+
+    // Our own scroll to the bottom is not the user's
+    await fireEvent.scroll(box)
+    expect(follow.getAttribute('aria-pressed')).toBe('true')
+
+    top = 100
+    await fireEvent.scroll(box)
+    expect(follow.getAttribute('aria-pressed')).toBe('false')
+    eventLog.events.push({ seq: 2, event: 'log', message: 'three' })
+    await refresh()
+    await waitFor(() => expect(logRows(container).length).toBe(3))
+    expect(top).toBe(100)
+
+    await fireEvent.click(follow)
+    expect(follow.getAttribute('aria-pressed')).toBe('true')
+    await waitFor(() => expect(top).toBe(900))
   })
 })
 
 it("clears a previous job id's error when the id changes to a valid job", async () => {
   const good = job([])
   detail.job = good
-  vi.mocked(api.getJob).mockRejectedValueOnce(new ApiError('Unknown job', 404))
+  api.getJob.mockRejectedValueOnce(new ApiError('Unknown job', 404))
   const { rerender } = render(JobPage, { jobId: 'dead' })
   await screen.findByText("Couldn't load job dead: job dead wasn't found")
   await rerender({ jobId: 'j1' })
@@ -955,12 +1505,10 @@ describe('after an outage', () => {
     detail.job = running()
     render(JobPage, { jobId: 'j1' })
     await waitFor(() => expect(stream.onDrop).not.toBeNull())
-    const before = vi.mocked(api.getJob).mock.calls.length
+    const before = api.getJob.mock.calls.length
     // Still running: the stream is EventSource's to repair, so it stays
     stream.onDrop!()
-    await waitFor(() =>
-      expect(vi.mocked(api.getJob).mock.calls.length).toBe(before + 1),
-    )
+    await waitFor(() => expect(api.getJob.mock.calls.length).toBe(before + 1))
     expect(stream.stopped).toBe(0)
     detail.job = { ...running(), status: 'succeeded', finished_at: 2 }
     stream.onDrop!()
@@ -980,9 +1528,7 @@ describe('after an outage', () => {
     render(JobPage, { jobId: 'j1' })
     await waitFor(() => expect(stream.onDrop).not.toBeNull())
     await screen.findByText('Event log')
-    vi.mocked(api.getJob).mockRejectedValueOnce(
-      new ApiError('Unknown job', 404),
-    )
+    api.getJob.mockRejectedValueOnce(new ApiError('Unknown job', 404))
     stream.onDrop!()
     await screen.findByText("Couldn't load job j1: job j1 wasn't found")
     expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy()
@@ -992,9 +1538,7 @@ describe('after an outage', () => {
 
   it('the page recovers when the server returns', async () => {
     detail.job = running()
-    vi.mocked(api.getJob).mockRejectedValueOnce(
-      new NetworkError('fetch failed'),
-    )
+    api.getJob.mockRejectedValueOnce(new NetworkError('fetch failed'))
     render(JobPage, { jobId: 'j1' })
     await screen.findByText("Couldn't load job j1: Can't reach the server")
     expect(stream.opened).toEqual([])
@@ -1020,19 +1564,19 @@ describe('after an outage', () => {
     render(JobPage, { jobId: 'j1' })
     await waitFor(() => expect(stream.onDrop).not.toBeNull())
     await screen.findByText('Event log')
-    const before = vi.mocked(api.getJob).mock.calls.length
+    const before = api.getJob.mock.calls.length
     connection.state = 'offline'
     try {
       // EventSource retries every few seconds while the server is down
       stream.onDrop!()
       stream.onDrop!()
       await new Promise((r) => setTimeout(r, 20))
-      expect(vi.mocked(api.getJob).mock.calls.length).toBe(before)
+      expect(api.getJob.mock.calls.length).toBe(before)
       expect(screen.queryByText(/Couldn't refresh job/)).toBeNull()
       connection.state = 'ok'
       connection.epoch++
       await waitFor(() => expect(stream.opened).toEqual([-1, -1]))
-      expect(vi.mocked(api.getJob).mock.calls.length).toBe(before + 1)
+      expect(api.getJob.mock.calls.length).toBe(before + 1)
     } finally {
       connection.state = 'unknown'
     }
@@ -1042,13 +1586,11 @@ describe('after an outage', () => {
     detail.job = running()
     const { rerender } = render(JobPage, { jobId: 'j1' })
     await screen.findByText('Event log')
-    vi.mocked(api.getJob).mockRejectedValueOnce(
-      new ApiError('Unknown job', 404),
-    )
+    api.getJob.mockRejectedValueOnce(new ApiError('Unknown job', 404))
     connection.epoch++
     await screen.findByText("Couldn't load job j1: job j1 wasn't found")
     let answer: (job: JobDetail) => void = () => {}
-    vi.mocked(api.getJob).mockImplementationOnce(
+    api.getJob.mockImplementationOnce(
       () => new Promise<JobDetail>((r) => (answer = r)),
     )
     await rerender({ jobId: 'j2' })
@@ -1065,13 +1607,11 @@ describe('after an outage', () => {
     render(JobPage, { jobId: 'j1' })
     await waitFor(() => expect(stream.onDrop).not.toBeNull())
     await screen.findByText('Event log')
-    vi.mocked(api.getJob).mockRejectedValueOnce(
-      new ApiError('Unknown job', 404),
-    )
+    api.getJob.mockRejectedValueOnce(new ApiError('Unknown job', 404))
     stream.onDrop!()
     await screen.findByText("Couldn't load job j1: job j1 wasn't found")
     let answer: (job: JobDetail) => void = () => {}
-    vi.mocked(api.getJob).mockImplementationOnce(
+    api.getJob.mockImplementationOnce(
       () => new Promise<JobDetail>((r) => (answer = r)),
     )
     await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
@@ -1086,9 +1626,121 @@ describe('after an outage', () => {
     render(JobPage, { jobId: 'j1' })
     await waitFor(() => expect(stream.opened).toEqual([-1]))
     connection.epoch++
-    await waitFor(() =>
-      expect(vi.mocked(api.getJob).mock.calls.length).toBeGreaterThan(1),
-    )
+    await waitFor(() => expect(api.getJob.mock.calls.length).toBeGreaterThan(1))
     expect(stream.opened).toEqual([-1])
   })
+})
+
+const failedJob = (): JobDetail => ({
+  ...job([]),
+  status: 'failed',
+  arguments: { steps: 30 },
+  error: 'torch.OutOfMemoryError: CUDA out of memory',
+  traceback: 'Traceback (most recent call last):\n  boom',
+  progress: { step: 'generate', parent_step: null } as JobDetail['progress'],
+})
+
+it('a failed job leads with what failed and the remedy, the traceback folded', async () => {
+  ran.definition = { steps: [{ name: 'generate', pipeline: {} }] }
+  detail.job = failedJob()
+  const { container } = render(JobPage, { jobId: 'j1' })
+  const alert = (await screen.findByText('Failed in step', { exact: false }))
+    .parentElement!
+  // A job that loads already failed is no news: no live region
+  expect(alert).not.toHaveAttribute('role')
+  expect(alert).toHaveTextContent('Failed in step generate.')
+  expect(alert).toHaveTextContent('The card ran out of memory.')
+  expect(alert).toHaveTextContent(
+    'Run it again with a smaller size or fewer frames.',
+  )
+  expect(
+    within(alert).getByRole('button', { name: 'Run again with changes…' }),
+  ).toBeInTheDocument()
+  const folded = container.querySelector('details.engine-detail')!
+  expect((folded as HTMLDetailsElement).open).toBe(false)
+  expect(folded.textContent).toContain('CUDA out of memory')
+  expect(folded.textContent).toContain('boom')
+})
+
+it('a failed job with nothing to change does not offer a rerun form', async () => {
+  detail.job = { ...failedJob(), arguments: {} }
+  render(JobPage, { jobId: 'j1' })
+  await screen.findByText('The card ran out of memory.')
+  expect(
+    screen.queryByRole('button', { name: 'Run again with changes…' }),
+  ).toBeNull()
+})
+
+it('announces a failure that happens while the page is open', async () => {
+  detail.job = { ...failedJob(), status: 'running', error: null }
+  render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(stream.onEvent).not.toBeNull())
+  expect(screen.queryByRole('alert')).toBeNull()
+  detail.job = failedJob()
+  stream.onEvent!({ seq: 1, event: 'job_status', status: 'failed' })
+  const alert = await screen.findByRole('alert')
+  expect(alert).toHaveTextContent('The card ran out of memory.')
+})
+
+it('an error no case knows still shows the engine text behind Details', async () => {
+  detail.job = { ...failedJob(), error: 'KeyError: weird' }
+  const { container } = render(JobPage, { jobId: 'j1' })
+  const alert = (await screen.findByText('The job stopped with an error.'))
+    .parentElement!
+  expect(alert).toHaveTextContent('The job stopped with an error.')
+  expect(container.querySelector('details.engine-detail')).toHaveTextContent(
+    'KeyError: weird',
+  )
+})
+
+it('the failed step is red on a job read from history', async () => {
+  ran.definition = {
+    steps: [
+      { name: 'prep', pipeline: {} },
+      { name: 'generate', pipeline: {} },
+    ],
+  }
+  detail.job = failedJob()
+  const { container } = render(JobPage, { jobId: 'j1' })
+  await waitFor(() =>
+    expect(nodeFor(container, 'generate').classList.contains('failed')).toBe(
+      true,
+    ),
+  )
+})
+
+it('the seed shows on a job read from history', async () => {
+  ran.definition = {
+    steps: [
+      { name: 'prep', pipeline: {} },
+      { name: 'generate', pipeline: {} },
+    ],
+  }
+  ran.seedVariable = 'seed'
+  detail.job = { ...job([]), arguments: { seed: 4242 } }
+  render(JobPage, { jobId: 'j1' })
+  expect(await screen.findByText('seed 4242')).toBeInTheDocument()
+})
+
+it('the workflow updates when the job finishes', async () => {
+  ran.definition = {
+    steps: [
+      { name: 'prep', pipeline: {} },
+      { name: 'generate', pipeline: {} },
+    ],
+  }
+  detail.job = { ...job([]), status: 'running', finished_at: null }
+  const { container } = render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(nodeFor(container, 'generate')).toBeTruthy())
+  expect(nodeFor(container, 'finish')).toBeUndefined()
+  ran.definition = {
+    steps: [
+      { name: 'prep', pipeline: {} },
+      { name: 'generate', pipeline: {} },
+      { name: 'finish', pipeline: {} },
+    ],
+  }
+  detail.job = job([])
+  feed.move('default', 'jobs')
+  await waitFor(() => expect(nodeFor(container, 'finish')).toBeTruthy())
 })

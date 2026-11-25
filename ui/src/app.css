@@ -19,9 +19,9 @@
  *   it in the sidebar and breadcrumb. It is identity, not state.
  *
  * Where `--live` and `--select` may appear is held by
- * scripts/design-rules.test.ts. Interactive elements are ink - the primary
- * button is a solid ink fill, links are ink with an underline - so nothing
- * in the chrome competes with the work.
+ * scripts/design-rules.test.ts; shared classes overflow into patterns.css.
+ * Interactive elements are ink - the primary button is a solid ink fill,
+ * links are ink with an underline - so nothing in the chrome competes.
  *
  * Type carries the other rule: anything the ENGINE reads literally (a
  * workflow name, a `variable:` reference, a path, a seed, a run id, a
@@ -242,7 +242,8 @@ button:hover {
 :root:not([data-theme='light']) button:hover {
   filter: brightness(0.85);
 }
-button:disabled {
+button:disabled,
+button[aria-disabled='true'] {
   opacity: 0.4;
   cursor: default;
   filter: none;
@@ -303,17 +304,6 @@ a.icon {
    one global definition each instead. */
 .flex {
   flex: 1;
-}
-/* The row a list page opens with: title, count and controls */
-.pagehead {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.4rem 0.8rem;
-  margin-bottom: var(--space-4);
-}
-.pagehead.baseline {
-  align-items: baseline;
 }
 button.withicon,
 .withicon {
@@ -465,46 +455,17 @@ a.danger:hover {
   color: var(--muted);
 }
 
-/* The row of a list that the machine is on right now - a running job, a
-   request item being rendered, a request with a job running - marked the
-   way it is marked in the header: the one row you came to find. Here, so
-   a page's own file needs no --live. The tripled class outranks a page's
-   scoped `.row:hover`, which sits at (0,3,0) */
-.row-live {
-  background: color-mix(in srgb, var(--live) 10%, transparent);
-  box-shadow: inset 2px 0 0 var(--live);
-}
-a.row-live.row-live.row-live:hover {
-  background: color-mix(in srgb, var(--live) 16%, transparent);
-}
-
-/* Words for a screen reader only: a live region's announcement, the name
-   of a column of icons */
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-}
-
-/* Prose stays inside a comfortable measure wherever it runs long. */
-.prose {
-  max-width: 68ch;
-}
-
 /* The contact-sheet frame (.frame, .videobadge) and the pickable tile
    (.cellwrap) are in frames.css. */
 
-/* One stacking scale for everything above the page. Bits renders overlays
-   in a portal on <body>, where a component's scoped styles cannot reach,
-   so their look lives here. */
+/* One stacking scale above the page (Bits portals overlays to <body>). A
+   popover tops any modal: a press outside closes it, so none is left under */
 :root {
   --layer-sticky: 10;
   --layer-drawer: 20;
-  --layer-popover: 30;
   --layer-modal: 60;
+  --layer-ask: 70;
+  --layer-popover: 80;
 }
 .ui-overlay {
   position: fixed;

@@ -53,6 +53,16 @@ export function culprit(
   return later.findLast((e) => e.by === 'agent') ?? later.at(-1) ?? null
 }
 
+/** The write to name for a state that moved on (`moved_on`): the newest
+ * whose diff names the request's state - the one that set it as it is -
+ * whoever wrote later. Null when the history no longer holds it, rather
+ * than a write that did not move it */
+export function stateCulprit(
+  history: LedgerHistoryEntry[],
+): LedgerHistoryEntry | null {
+  return history.findLast((e) => e.state != null) ?? null
+}
+
 const who = (entry: LedgerHistoryEntry | null) =>
   entry?.by === 'agent' ? 'the agent' : 'another edit'
 const cite = (entry: LedgerHistoryEntry | null) =>
@@ -94,6 +104,8 @@ export function goneText(conflict: Conflict): string {
       return `Not applied: ${who(entry)} dropped ${title}${inRevision(entry)}.`
     case 'attempt_gone':
       return `Not applied: that take is no longer one of ${title}'s takes${aside(entry)}.`
+    case 'moved_on':
+      return `Undo not applied: ${who(entry)} changed the state of ${title} since${aside(entry)}.`
     case 'anchor_gone':
       return `Not applied: the item ${title} was moved beside is no longer in the plan${aside(entry)}.`
     default:

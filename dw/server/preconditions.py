@@ -58,16 +58,27 @@ def check_write_preconditions(request: Request, path: str, label: str) -> None:
                 status_code=409,
                 detail={"code": "exists", "message": f"{label} already exists"},
             )
-    if_match = request.headers.get("if-match")
-    if if_match is not None:
-        current = content_etag(path)
-        tags = _tags(if_match)
-        if current is None or not ("*" in tags or current in tags):
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "stale_write",
-                    "message": f"{label} changed since it was read",
-                    "etag": current,
-                },
-            )
+    if request.headers.get("if-match") is not None:
+        _match(request, content_etag(path), label)
+
+
+def check_if_match(request: Request, data: bytes, label: str) -> None:
+    """`If-Match` against bytes the caller already holds - a value stored
+    inside a file, such as one note in notes.json - rather than a whole
+    file: a 409 `stale_write` carrying their etag unless the header names
+    it. No header, no check. Call it under the lock its write takes."""
+    if request.headers.get("if-match") is not None:
+        _match(request, content_etag_of(data), label)
+
+
+def _match(request: Request, current: Optional[str], label: str) -> None:
+    tags = _tags(request.headers["if-match"])
+    if current is None or not ("*" in tags or current in tags):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "stale_write",
+                "message": f"{label} changed since it was read",
+                "etag": current,
+            },
+        )

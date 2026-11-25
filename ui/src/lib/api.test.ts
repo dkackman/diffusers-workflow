@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { api, fetchOutputText, setNote, streamJobEvents } from './api'
+import { galleryThumbnailUrl } from './apiUrls'
 
 type Stub = {
   ok: boolean
@@ -208,6 +209,14 @@ describe('job listing', () => {
     await api.listJobs()
     expect(calls[0][0]).toBe('/api/jobs')
   })
+
+  it('asks for prompts only when told to', async () => {
+    const calls = stubFetch({ ok: true, body: { jobs: [], total: 0 } })
+    await api.listJobs('studio', undefined, undefined, undefined, undefined, {
+      prompts: true,
+    })
+    expect(calls[0][0]).toBe('/api/jobs?workspace=studio&prompts=true')
+  })
 })
 
 describe('workflow definition fetch', () => {
@@ -248,14 +257,27 @@ describe('gallery listing and thumbnails', () => {
     expect(calls[1][0]).toBe('/api/gallery?limit=100000')
   })
 
+  it('asks for prompts and durations only when told to', async () => {
+    const calls = stubFetch({ ok: true, body: {} })
+    await api.gallery(undefined, undefined, undefined, {
+      prompts: true,
+      media: true,
+    })
+    await api.gallery(undefined, undefined, undefined, {})
+    expect(calls[0][0]).toBe(
+      '/api/gallery?limit=100000&prompts=true&media=true',
+    )
+    expect(calls[1][0]).toBe('/api/gallery?limit=100000')
+  })
+
   it("scopes a thumbnail URL to the file's own workspace when one is named", () => {
-    expect(api.galleryThumbnailUrl('run/clip.mp4', 'studio')).toBe(
+    expect(galleryThumbnailUrl('run/clip.mp4', 'studio')).toBe(
       '/api/gallery/run/clip.mp4/thumbnail?workspace=studio',
     )
   })
 
   it('builds a thumbnail URL that keeps folder separators', () => {
-    expect(api.galleryThumbnailUrl('ltx/wf-gen.0-0.0.png')).toBe(
+    expect(galleryThumbnailUrl('ltx/wf-gen.0-0.0.png')).toBe(
       '/api/gallery/ltx/wf-gen.0-0.0.png/thumbnail',
     )
   })
@@ -284,6 +306,35 @@ describe('fetchOutputText', () => {
   })
 })
 
+describe('text reads through the shared request path', () => {
+  const unreachable = () =>
+    vi.stubGlobal('fetch', () =>
+      Promise.reject(new TypeError('Failed to fetch')),
+    )
+
+  it('reads an output text that never arrived as the offline copy', async () => {
+    const { connection } = await import('./connection.svelte')
+    const { describeError } = await import('./apiErrors')
+    unreachable()
+    const failed = await fetchOutputText('enhance-0.0.txt').catch((e) => e)
+    expect(describeError(failed).title).toBe("Can't reach the server")
+    expect(connection.state).toBe('offline')
+  })
+
+  it("reads a gallery file's text that never arrived as the offline copy", async () => {
+    const { describeError } = await import('./apiErrors')
+    unreachable()
+    const failed = await api.fileText('/outputs/a.txt').catch((e) => e)
+    expect(describeError(failed).title).toBe("Can't reach the server")
+  })
+
+  it("reads a gallery file's text with the token, not re-scoped", async () => {
+    const calls = stubFetch({ ok: true, text: 'hello' })
+    expect(await api.fileText('/outputs/a.txt?workspace=shots')).toBe('hello')
+    expect(calls[0][0]).toBe('/outputs/a.txt?workspace=shots')
+  })
+})
+
 describe('output URLs', () => {
   it('keeps the subfolder of an output-dir-relative name', async () => {
     const { outputUrl } = await import('./api')
@@ -309,15 +360,13 @@ describe('output URLs', () => {
     const { setApiToken } = await import('./token')
     setApiToken('s3cr3t')
     try {
-      expect(api.galleryThumbnailUrl('a.png')).toBe(
+      expect(galleryThumbnailUrl('a.png')).toBe(
         '/api/gallery/a.png/thumbnail?token=s3cr3t',
       )
     } finally {
       setApiToken('')
     }
-    expect(api.galleryThumbnailUrl('a.png')).toBe(
-      '/api/gallery/a.png/thumbnail',
-    )
+    expect(galleryThumbnailUrl('a.png')).toBe('/api/gallery/a.png/thumbnail')
   })
 })
 
@@ -419,6 +468,24 @@ describe('setNote', () => {
     const calls = stubFetch({ ok: true, body: {} })
     await setNote('wf/run-1', null)
     expect(calls[0][0]).toBe('/api/notes')
+  })
+
+  it('sends If-Match only when given an etag', async () => {
+    const calls = stubFetch({ ok: true, body: {} })
+    await setNote('wf/run-1', 'n', 'studio', '"e1"')
+    await setNote('wf/run-1', 'n', 'studio')
+    const sent = (i: number) => new Headers(calls[i][1]?.headers)
+    expect(sent(0).get('If-Match')).toBe('"e1"')
+    expect(sent(1).get('If-Match')).toBeNull()
+  })
+
+  it('reads a note and its etag, scoped like the write', async () => {
+    const calls = stubFetch({
+      ok: true,
+      body: { target: 'wf/run 1', note: null, etag: '"e"' },
+    })
+    expect((await api.noteForSave('wf/run 1', 'studio')).etag).toBe('"e"')
+    expect(calls[0][0]).toBe('/api/notes?target=wf%2Frun%201&workspace=studio')
   })
 })
 

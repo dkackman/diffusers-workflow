@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { Braces, TriangleAlert } from '@lucide/svelte'
+  import { Braces } from '@lucide/svelte'
   import { TERMINAL_STATUSES, api } from '../api'
-  import { resource } from '../resource.svelte'
+  import { untrack } from 'svelte'
+  import { CHANGED_MARK_MS, resource } from '../resource.svelte'
   import { followJob, jobRecord } from '../job/followJob.svelte'
   import LoadState from '../ui/LoadState.svelte'
   import { replaceRoute, route } from '../router.svelte'
@@ -26,6 +27,8 @@
   import FlowView from '../editor/FlowView.svelte'
   import JsonEditor from '../editor/JsonEditor.svelte'
   import JobHeader from '../job/JobHeader.svelte'
+  import JobError from '../job/JobError.svelte'
+  import JobWarnings from '../job/JobWarnings.svelte'
   import JobProgress from '../job/JobProgress.svelte'
   import NoteEditor from '../ui/NoteEditor.svelte'
   import JobResults from '../job/JobResults.svelte'
@@ -33,6 +36,7 @@
   import ChainSegments from '../job/ChainSegments.svelte'
   import LinkedNotes from '../request/LinkedNotes.svelte'
   import { LinkedRequest } from '../request/linkedRequest.svelte'
+  import RemoteNotice from '../ui/RemoteNotice.svelte'
   import type { JobEvent, LedgerNote } from '../types'
 
   let { jobId }: { jobId: string } = $props()
@@ -53,9 +57,58 @@
       const id = jobId
       return { ...(await api.getJobWorkflow(id)), of: id }
     },
-    { watch: [] },
+    // With no realized copy (queued, from before run tracking, or its run
+    // deleted) the server answers with the workflow file as it is now: an
+    // edit to it is a workflows move. A run deleted - the realized copy
+    // gone - is a gallery move. Each re-read is quiet, so another writer's
+    // edit is marked; one that only swaps the submitted copy for the run's
+    // realized one, or back, is not news: it moves 'realized' too
+    {
+      watch: ['workflows', 'gallery'],
+      rows: (d) => [
+        ['realized', d.realized],
+        [d.of, d.definition],
+      ],
+    },
   )
+  // A jobs move of another job reads no workflow: only this job's own
+  // status moving can have changed what it ran (the run writes its
+  // realized copy as its status moves). The first status seen for a job is
+  // the baseline: the read for that job already answers it
+  let statusSeen: { id: string; status: string } | undefined
+  $effect(() => {
+    const seen = job && { id: job.id, status: job.status }
+    untrack(() => {
+      if (
+        seen &&
+        statusSeen?.id === seen.id &&
+        statusSeen.status !== seen.status
+      )
+        void ranRead.refresh()
+      if (seen) statusSeen = seen
+    })
+  })
   const ran = $derived(ranRead.data?.of === jobId ? ranRead.data : null)
+  // Another writer changed what this page shows: the inline notice
+  const definitionMoved = $derived(
+    ranRead.changed.has(jobId) && !ranRead.changed.has('realized'),
+  )
+  // The run note's box is open: its own notice says a newer note, so the
+  // page's line would be a second, and a wrong one (the box did not move)
+  let noteEditing = $state(false)
+  // Keep mine or Use theirs answered the change in the box: the line stays
+  // down for the rest of the change's mark, after the box closes too
+  let noteResolvedAt = $state<number | null>(null)
+  function noteResolved() {
+    const at = Date.now()
+    noteResolvedAt = at
+    setTimeout(() => {
+      if (noteResolvedAt === at) noteResolvedAt = null
+    }, CHANGED_MARK_MS)
+  }
+  const noteMoved = $derived(
+    record.changed.has('note') && !noteEditing && noteResolvedAt === null,
+  )
   const definition = $derived<Record<string, any> | null>(
     ran?.definition ?? null,
   )
@@ -164,10 +217,14 @@
           : (e.message as string),
       ),
   )
-  const seed = $derived(
-    events.find((e) => e.event === 'workflow_start')?.seed as
-      number | undefined,
-  )
+  // A job read from history has no events: its record keeps the seed it was
+  // queued with, under the variable the workflow draws it into
+  const seed = $derived.by(() => {
+    const drawn = events.find((e) => e.event === 'workflow_start')?.seed
+    if (typeof drawn === 'number') return drawn
+    const queued = seedVariable ? job?.arguments?.[seedVariable] : undefined
+    return typeof queued === 'number' ? queued : undefined
+  })
   // The record's number once the job has one; while it runs, the run_start
   // event says it first - so the page names the run the moment it opens
   const runVersion = $derived(
@@ -202,11 +259,34 @@
   // drawn red on the graph so the reader does not have to match the error
   // to a step by name
   const failed = $derived(job?.status === 'failed')
+  // A job read from history has no events, so its record's last step stands in
+  const failedStep = $derived(
+    activeNode ??
+      flowNodeName(
+        job?.progress?.step ?? undefined,
+        job?.progress?.parent_step ?? undefined,
+      ),
+  )
   const failedNode = $derived(
-    failed && activeNode && !finishedSteps.includes(activeNode)
-      ? activeNode
+    failed && failedStep && !finishedSteps.includes(failedStep)
+      ? failedStep
       : undefined,
   )
+  let rerunOpen = $state(false)
+  // The same condition RerunWithChanges shows its own button on: a run with
+  // no variables and no arguments has nothing for the dialog to change
+  const canRerun = $derived(
+    Object.keys({
+      ...(definition?.variables ?? {}),
+      ...(job?.arguments ?? {}),
+    }).length > 0,
+  )
+  // A job seen unfinished on this page and then failed is news to announce;
+  // one that loads already failed is not
+  let seenRunning = $state<string | null>(null)
+  $effect(() => {
+    if (running) seenRunning = jobId
+  })
   const failedMemberStep = $derived(
     failed ? activeMember(events as JobEvent[]) : undefined,
   )
@@ -253,6 +333,27 @@
   })
 </script>
 
+<!-- A running job leads with this; a finished one has it as one line,
+     after its results and the workflow -->
+{#snippet progressPanel()}
+  {#if steps.length}
+    <div class="panel">
+      <JobProgress
+        {steps}
+        {finishedSteps}
+        {listStep}
+        {running}
+        {progress}
+        {etaSeconds}
+        {stall}
+        took={job?.started_at && job.finished_at
+          ? job.finished_at - job.started_at
+          : null}
+      />
+    </div>
+  {/if}
+{/snippet}
+
 <JobHeader
   {job}
   {jobId}
@@ -261,52 +362,78 @@
   {running}
   {cancelPending}
   {seedVariable}
+  bind:rerunOpen
   declared={definition?.variables ?? null}
   request={linked?.request ?? null}
   requestGone={linked?.gone ?? false}
 />
 
-{#if linked && linkItem}
-  <LinkedNotes
-    bind:this={agentNotes}
-    {linked}
-    item={linkItem}
-    filter={aboutJob}
-    refs={[{ item: linkItem, job: jobId }]}
-  />
-{/if}
-
 <LoadState of={record} label="job {jobId}" what="job {jobId}">
   {#if job}
-    {#if job.warnings.length}
-      <div class="panel warnings warn-edge">
-        {#each job.warnings as warning, i (i)}
-          <div class="warnrow"><TriangleAlert size={14} /> {warning}</div>
-        {/each}
+    <JobWarnings
+      warnings={job.warnings}
+      given={Object.keys(job.arguments ?? {})}
+    />
+
+    {#if running}{@render progressPanel()}{/if}
+
+    {#if job.error}
+      <JobError
+        {job}
+        step={failedNode ?? null}
+        onrerun={() => (rerunOpen = true)}
+        {canRerun}
+        live={seenRunning === jobId}
+      />
+    {/if}
+
+    {#if fileGroups.length || unsaved.length}
+      <div class="panel">
+        {#key job.id}
+          <JobResults
+            {job}
+            {fileGroups}
+            {unsaved}
+            {kinds}
+            {seedVariable}
+            {running}
+            onnote={linked?.request && linkItem && !running
+              ? noteFile
+              : undefined}
+          />
+        {/key}
       </div>
     {/if}
 
-    {#if steps.length}
+    <ChainSegments {job} {definition} />
+
+    {#if job.run_dir}
       <div class="panel">
-        <h2>Progress</h2>
-        <JobProgress
-          {steps}
-          {finishedSteps}
-          {listStep}
-          {running}
-          {progress}
-          {etaSeconds}
-          {stall}
+        <RemoteNotice shown={noteMoved} />
+        <!-- An edit in progress keeps its draft when a newer note lands; the
+             page's own save is adopted, so it marks nothing -->
+        <NoteEditor
+          note={job.note}
+          target={job.run_dir}
+          workspace={job.workspace}
+          label="Your note on this job"
+          bind:editing={noteEditing}
+          onresolved={noteResolved}
+          onsaved={(note) =>
+            job && record.adopt({ ...job, note: note ?? undefined })}
         />
       </div>
     {/if}
 
-    {#if job.run_dir}
-      <NoteEditor
-        note={job.note}
-        target={job.run_dir}
-        workspace={job.workspace}
-        label="Run note"
+    <!-- The note for the agent sits with the job's own, under Results:
+         "Note this file" opens its box below the tiles it came from -->
+    {#if linked && linkItem}
+      <LinkedNotes
+        bind:this={agentNotes}
+        {linked}
+        item={linkItem}
+        filter={aboutJob}
+        refs={[{ item: linkItem, job: jobId }]}
       />
     {/if}
 
@@ -317,11 +444,23 @@
           <span
             class="muted jsonmark"
             title={realized
-              ? 'this is the realized copy the run itself wrote - every mutable input pinned to the value it used'
-              : 'this is the definition as submitted - no realized copy of this run is on file'}
+              ? 'this is the realized copy the job itself wrote - every mutable input pinned to the value it used'
+              : 'this is the definition as submitted - no realized copy of this job is on file'}
           >
             {realized ? 'realized' : 'as submitted'}
           </span>
+          <button
+            class="quiet icon"
+            onclick={() => (showJson = !showJson)}
+            aria-expanded={showJson}
+            aria-label={showJson ? 'hide JSON' : 'show JSON'}
+            title={showJson
+              ? 'hide the workflow this job ran'
+              : 'show the workflow this job ran, as JSON'}
+          >
+            <Braces size={14} />
+          </button>
+          <RemoteNotice shown={definitionMoved} inline />
         </div>
         <FlowView
           workflow={definition}
@@ -338,20 +477,6 @@
           {nodeTimes}
           {memberTimes}
         />
-        <!-- The JSON toggle sits where the JSON opens, beneath the graph -->
-        <div class="jsontoggle">
-          <button
-            class="quiet icon"
-            onclick={() => (showJson = !showJson)}
-            aria-expanded={showJson}
-            aria-label={showJson ? 'hide JSON' : 'show JSON'}
-            title={showJson
-              ? 'hide the workflow this job ran'
-              : 'show the workflow this job ran, as JSON'}
-          >
-            <Braces size={14} />
-          </button>
-        </div>
         {#if showJson}
           <div class="json">
             <JsonEditor
@@ -364,33 +489,7 @@
       </section>
     {/if}
 
-    {#if fileGroups.length || unsaved.length}
-      <div class="panel">
-        <h2>Results</h2>
-        {#key job.id}
-          <JobResults
-            {job}
-            {fileGroups}
-            {unsaved}
-            {kinds}
-            {seedVariable}
-            onnote={linked?.request && linkItem && !running
-              ? noteFile
-              : undefined}
-          />
-        {/key}
-      </div>
-    {/if}
-
-    <ChainSegments {job} {definition} />
-
-    {#if job.error}
-      <div class="panel error-edge">
-        <h2 class="error">Error</h2>
-        <p>{job.error}</p>
-        {#if job.traceback}<pre>{job.traceback}</pre>{/if}
-      </div>
-    {/if}
+    {#if !running}{@render progressPanel()}{/if}
 
     {#if logs.length}
       <div class="panel">
@@ -399,7 +498,7 @@
       </div>
     {/if}
 
-    <EventLog {jobId} live={running} />
+    <EventLog {jobId} live={running} pulse={events.length} />
   {/if}
 </LoadState>
 
@@ -417,11 +516,6 @@
     gap: 0.4rem 1rem;
     margin-bottom: var(--space-2);
   }
-  .jsontoggle {
-    display: flex;
-    justify-content: flex-end;
-    margin-top: var(--space-1);
-  }
   .flowhead h2 {
     margin: 0;
   }
@@ -429,16 +523,5 @@
   .jsonmark {
     font-family: var(--font-mono);
     font-size: var(--t-xs);
-  }
-  .warnings {
-    color: var(--warn);
-  }
-  .warnrow {
-    display: flex;
-    align-items: center;
-    gap: 0.45rem;
-  }
-  .error {
-    color: var(--bad);
   }
 </style>

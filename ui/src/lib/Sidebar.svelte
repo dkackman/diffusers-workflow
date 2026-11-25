@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, untrack } from 'svelte'
+  import { untrack } from 'svelte'
   import {
     BookCopy,
     ClipboardList,
@@ -24,21 +24,21 @@
   import { prefersReducedMotion } from 'svelte/motion'
   import { route } from './router.svelte'
   import {
+    SECTION_LABELS,
     serverHref,
     sharedHref,
+    switchHref,
     wsHref,
     type ServerSection,
     type SharedSection,
     type WsSection,
   } from './routes'
-  import { changes } from './changes.svelte'
-  import {
-    invalidateWorkspaces,
-    loadWorkspaces,
-    workspace,
-  } from './workspace.svelte'
-  import { createWorkspaceAndGo } from './workspaceActions'
+  import { resource } from './resource.svelte'
+  import { relistOrJoin, relistWorkspaces, workspace } from './workspace.svelte'
+  import NewWorkspace from './NewWorkspace.svelte'
   import { formatBytes } from './format'
+  import Time from './ui/Time.svelte'
+  import { now } from './clock.svelte'
   import { wsColor } from './wsColor'
   import { groupWorkspaces } from './wsGroups'
   import { hiddenWorkspaces } from './hiddenWorkspaces.svelte'
@@ -50,15 +50,35 @@
     inert = false,
   }: { collapsed: boolean; onToggle: () => void; inert?: boolean } = $props()
 
-  onMount(loadWorkspaces)
   // A workspace an agent creates or deletes shows within one feed interval:
-  // the counter is server-wide, so the open workspace's feed carries it
-  $effect(() =>
-    changes(workspace.current).watch(['workspaces'], () => {
-      invalidateWorkspaces()
-      void loadWorkspaces()
-    }),
+  // the counter is server-wide, so the open workspace's feed carries it.
+  // What the listing holds is module state (workspace.svelte.ts), drawn
+  // from there; the resource is how it stays fresh
+  resource(() => relistWorkspaces(), { watch: ['workspaces'] })
+  // The open workspace's own content moving (a save, an upload, an output
+  // landing) moves its time: the listing is read again quietly, at most once
+  // per clock tick, a move in a tick that already read it owed to the next,
+  // joining a `workspaces` relist on its way. Jobs are not watched: a
+  // queued job changes no folder until it lands
+  let tick = 0
+  let readIn = -1
+  let owed = false
+  const content = resource(
+    async () => {
+      owed = readIn === tick
+      if (owed) return
+      readIn = tick
+      await relistOrJoin()
+    },
+    { watch: ['workflows', 'prompts', 'assets', 'gallery'], lazy: true },
   )
+  $effect(() => {
+    void now.value
+    untrack(() => {
+      tick++
+      if (owed) void content.refresh()
+    })
+  })
 
   // The workspace whose sections are open: the route's when it names one,
   // else the one the UI is scoped to (a shared or server page still sits
@@ -93,31 +113,55 @@
 
   const WS_ITEMS: { section: WsSection; label: string; icon: typeof Layers }[] =
     [
-      { section: 'overview', label: 'Overview', icon: LayoutDashboard },
-      { section: 'workflows', label: 'Workflows', icon: Layers },
-      { section: 'jobs', label: 'Jobs', icon: ListTodo },
-      { section: 'requests', label: 'Requests', icon: ClipboardList },
-      { section: 'gallery', label: 'Gallery', icon: Images },
-      { section: 'assets', label: 'Assets', icon: FolderOpen },
-      { section: 'edit', label: 'Editor', icon: SquarePen },
+      {
+        section: 'overview',
+        label: SECTION_LABELS.ws.overview,
+        icon: LayoutDashboard,
+      },
+      {
+        section: 'workflows',
+        label: SECTION_LABELS.ws.workflows,
+        icon: Layers,
+      },
+      { section: 'jobs', label: SECTION_LABELS.ws.jobs, icon: ListTodo },
+      {
+        section: 'requests',
+        label: SECTION_LABELS.ws.requests,
+        icon: ClipboardList,
+      },
+      { section: 'gallery', label: SECTION_LABELS.ws.gallery, icon: Images },
+      { section: 'assets', label: SECTION_LABELS.ws.assets, icon: FolderOpen },
+      { section: 'edit', label: SECTION_LABELS.ws.edit, icon: SquarePen },
     ]
   const SHARED_ITEMS: {
     section: SharedSection
     label: string
     icon: typeof Layers
   }[] = [
-    { section: 'prompts', label: 'Prompts', icon: MessageSquareText },
-    { section: 'assets', label: 'Assets', icon: FolderOpen },
-    { section: 'examples', label: 'Examples', icon: BookCopy },
+    {
+      section: 'prompts',
+      label: SECTION_LABELS.shared.prompts,
+      icon: MessageSquareText,
+    },
+    {
+      section: 'assets',
+      label: SECTION_LABELS.shared.assets,
+      icon: FolderOpen,
+    },
+    {
+      section: 'examples',
+      label: SECTION_LABELS.shared.examples,
+      icon: BookCopy,
+    },
   ]
   const SERVER_ITEMS: {
     section: ServerSection
     label: string
     icon: typeof Layers
   }[] = [
-    { section: 'models', label: 'Models', icon: Database },
-    { section: 'schema', label: 'Schema', icon: ListTree },
-    { section: 'status', label: 'Status', icon: Server },
+    { section: 'models', label: SECTION_LABELS.server.models, icon: Database },
+    { section: 'schema', label: SECTION_LABELS.server.schema, icon: ListTree },
+    { section: 'status', label: SECTION_LABELS.server.status, icon: Server },
   ]
   // prompt-edit sits under Prompts in the nav
   const sharedActive = (s: SharedSection) =>
@@ -139,23 +183,18 @@
   let showHidden = $state(false)
 
   let adding = $state(false)
-  let newName = $state('')
-  let addError = $state('')
-  let nameInput = $state<HTMLInputElement | null>(null)
-
-  function startAdd() {
-    adding = true
-    addError = ''
-    newName = ''
-    // the input mounts on the next tick
-    queueMicrotask(() => nameInput?.focus())
-  }
-  async function submitAdd() {
-    const failure = await createWorkspaceAndGo(newName.trim())
-    if (failure) addError = failure
-    else adding = false
-  }
+  // held here, not in the form, so collapsing the rail keeps a typed name
+  let draft = $state('')
 </script>
+
+<!-- Which workspace was last worked in, and which has gone stale -->
+{#snippet changedAt(name: string)}
+  {#if workspace.changed[name]}
+    <span class="muted stamp">
+      <Time at={workspace.changed[name]} label="changed" />
+    </span>
+  {/if}
+{/snippet}
 
 {#snippet wsRow(name: string)}
   {#if name === expanded}
@@ -178,6 +217,7 @@
               {formatBytes(workspace.usage[name].bytes)}
             </span>
           {/if}
+          {@render changedAt(name)}
         </span>
       {/if}
       <div class="sections" transition:slide={motion}>
@@ -195,10 +235,20 @@
         {/each}
       </div>
     </div>
-  {:else if !collapsed}
+  {:else if collapsed}
+    <a
+      class="plain dotlink"
+      href={switchHref(name, route.view)}
+      title={name}
+      aria-label="{name} workspace"
+      style:--ws-dot={wsColor(name)}
+    >
+      <span class="dot solo"></span>
+    </a>
+  {:else}
     <a
       class="plain ws shut"
-      href={wsHref(name, 'overview')}
+      href={switchHref(name, route.view)}
       title={name}
       style:--ws-dot={wsColor(name)}
     >
@@ -210,6 +260,7 @@
           {formatBytes(workspace.usage[name].bytes)}
         </span>
       {/if}
+      {@render changedAt(name)}
     </a>
   {/if}
 {/snippet}
@@ -277,46 +328,37 @@
           </div>
         {/if}
       {/if}
-      {#if !collapsed && workspace.root}
-        {#if adding}
-          <form
-            class="newws"
-            onsubmit={(e) => {
-              e.preventDefault()
-              submitAdd()
-            }}
-          >
-            <input
-              bind:this={nameInput}
-              bind:value={newName}
-              placeholder="name"
-              aria-label="new workspace name"
-              onkeydown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  submitAdd()
-                }
-                if (e.key === 'Escape') adding = false
-              }}
-            />
-            {#if addError}<span class="muted err">{addError}</span>{/if}
-          </form>
-        {:else}
-          <button
-            class="bare item"
-            onclick={startAdd}
-            title="new workspace"
-            aria-label="new workspace"
-          >
-            <Plus size={15} /><span class="label">new</span>
-          </button>
-        {/if}
+      {#if collapsed}
+        <!-- the rail has no room for the form or the reason -->
+      {:else if adding}
+        <NewWorkspace bind:name={draft} onclose={() => (adding = false)} />
+      {:else if workspace.root}
+        <button
+          class="bare item"
+          onclick={() => {
+            draft = ''
+            adding = true
+          }}
+          title="new workspace"
+          aria-label="new workspace"
+        >
+          <Plus size={15} /><span class="label">new</span>
+        </button>
+      {:else if workspace.listed}
+        <span
+          class="muted noroot"
+          title="Start the server with --workspace <folder> to add workspaces."
+        >
+          New workspaces need a workspace folder
+        </span>
       {/if}
     </div>
 
     <div class="rule" aria-hidden="true"></div>
     <div class="group" role="group" aria-label="shared">
-      {#if !collapsed}<span class="grouplabel muted">Shared</span>{/if}
+      {#if !collapsed}<span class="grouplabel muted">
+          {SECTION_LABELS.groups.shared}
+        </span>{/if}
       {#each SHARED_ITEMS as item (item.section)}
         <a
           class="plain item"
@@ -333,7 +375,9 @@
 
     <div class="rule" aria-hidden="true"></div>
     <div class="group" role="group" aria-label="server">
-      {#if !collapsed}<span class="grouplabel muted">Server</span>{/if}
+      {#if !collapsed}<span class="grouplabel muted">
+          {SECTION_LABELS.groups.server}
+        </span>{/if}
       {#each SERVER_ITEMS as item (item.section)}
         <a
           class="plain item"
@@ -419,7 +463,8 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .size {
+  .size,
+  .stamp {
     flex: none;
     font-size: var(--t-xs);
   }
@@ -537,18 +582,15 @@
     width: 100%;
     text-align: left;
   }
-  .newws {
+  .dotlink {
     display: flex;
-    flex-direction: column;
-    gap: var(--space-1);
-    padding: 0.2rem var(--space-4);
+    justify-content: center;
   }
-  .newws input {
-    width: 100%;
-    font-family: var(--font-mono);
-    font-size: var(--t-sm);
+  .dotlink:hover {
+    background: var(--panel-2);
   }
-  .err {
+  .noroot {
+    padding: 0.35rem var(--space-4);
     font-family: var(--font-sans);
     font-size: var(--t-xs);
   }

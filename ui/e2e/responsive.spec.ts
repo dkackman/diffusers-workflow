@@ -14,6 +14,10 @@ const ROUTES = [
   '#/gallery',
   '#/models',
   '#/schema',
+  '#/ws/default/overview',
+  '#/server/status',
+  '#/ws/default/requests',
+  '#/ws/default/assets',
 ]
 
 const WIDTHS = [1280, 900, 768, 640, 480, 375]
@@ -71,4 +75,45 @@ test('below the breakpoint the sidebar becomes a drawer opened from the header',
   // any navigation closes the drawer again
   await nav.getByRole('link', { name: 'Workflows' }).click()
   await expect(nav).not.toBeInViewport()
+})
+
+test('the models table shows size at 390px', async ({ page }) => {
+  // The listing is this test's own: the fixture's seeded repo is deleted by a
+  // journey, so the test answers a one-row cache itself, whatever ran before.
+  await page.route('**/api/models', async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback()
+    await route.fulfill({
+      json: {
+        cache_dir: '/tmp/e2e-hub',
+        disk_free: null,
+        disk_total: null,
+        size_on_disk: 4096,
+        warnings: [],
+        repos: [
+          {
+            repo_id: 'e2e/tiny',
+            repo_type: 'model',
+            size_on_disk: 4096,
+            nb_files: 3,
+            last_accessed: null,
+            last_job_use: null,
+            last_modified: null,
+            revisions: [],
+          },
+        ],
+      },
+    })
+  })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/#/models')
+  await page.waitForLoadState('networkidle')
+  const size = page.getByRole('columnheader', { name: 'size' })
+  await expect(
+    page.getByRole('cell', { name: /e2e\/tiny/ }).first(),
+  ).toBeVisible()
+  await expect(size).toBeInViewport()
+  await expect(page.getByRole('columnheader', { name: 'files' })).toBeHidden()
+  await expect(
+    page.getByRole('columnheader', { name: 'last used' }),
+  ).toBeHidden()
 })

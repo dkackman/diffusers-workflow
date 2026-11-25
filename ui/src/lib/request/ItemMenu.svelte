@@ -76,12 +76,16 @@
       min-height: 44px;
     }
   }
+  /* As wide as its widest entry, at least the panel's: none runs into
+     the edge */
   .entries {
     list-style: none;
     margin: 0;
     padding: 0;
     display: flex;
     flex-direction: column;
+    width: max-content;
+    min-width: 100%;
   }
   .entries button,
   .entries a {

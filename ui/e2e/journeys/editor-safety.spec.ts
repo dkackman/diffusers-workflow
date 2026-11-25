@@ -200,7 +200,7 @@ test('saving a new workflow over an existing name asks to Replace, and Cancel le
   await jsonView(page)
   await typeJson(page, JSON.stringify({ ...BASE, id: 'Imposter' }))
   await page.getByRole('button', { name: 'form', exact: true }).click()
-  await page.locator('#wf-savename').fill(WF)
+  await page.locator('#doc-savename').fill(WF)
   await page.getByRole('button', { name: /^Save/ }).click()
   const dialog = page.getByRole('alertdialog')
   await expect(dialog).toContainText(`${WF} already exists. Replace it?`)

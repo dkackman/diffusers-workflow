@@ -1,0 +1,267 @@
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/svelte'
+import ConfirmDialog from '../ui/ConfirmDialog.svelte'
+import { confirmState, resolveChoice } from '../confirm.svelte'
+import { action } from '../action.svelte'
+import { ApiError } from '../apiErrors'
+import type { GalleryFile } from '../types'
+import { api } from '../test/apiMock'
+import { assetLibrary } from '../assetlib.svelte'
+import { assetNameError, listAssetNames, saveAsAsset } from './saveAsAsset'
+
+const notifyMock = vi.hoisted(() => ({
+  success: vi.fn(),
+  error: vi.fn(),
+  failure: vi.fn(),
+  undo: vi.fn(),
+}))
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
+vi.mock('../toast', () => ({ notify: notifyMock }))
+
+const file = {
+  name: 'wf/run-1/final/face.png',
+  kind: 'image',
+} as GalleryFile
+
+// keep_output's exists refusal: code 'exists' (dw/server/routes/assets.py)
+const taken = () =>
+  new ApiError(
+    'asset:face.png already exists - pass overwrite=true to replace it',
+    409,
+    'exists',
+  )
+const kept = (name: string) => ({ reference: `asset:${name}` })
+
+beforeEach(() => {
+  api.keepOutput.mockReset()
+  api.listAssets.mockReset()
+  for (const fn of Object.values(notifyMock)) fn.mockReset()
+  render(ConfirmDialog)
+})
+afterEach(() => {
+  cleanup()
+  while (confirmState.open) resolveChoice(null)
+})
+
+/** The library's names as a listing after a 409 reads them */
+const listed = vi.fn<() => Promise<string[]>>()
+
+/** saveAsAsset as the Gallery runs it */
+const save = (
+  existing: string[] = [],
+  listNames: () => Promise<string[]> = listed,
+) => {
+  listed.mockReset()
+  listed.mockResolvedValue(existing)
+  return action(saveAsAsset, {
+    doing: 'save it as an asset',
+    success: (r) => `Saved as asset ${r.name}`,
+  }).run(file, listNames)
+}
+
+async function name(value?: string) {
+  const dialog = await screen.findByRole('alertdialog', {
+    name: 'Save as asset',
+  })
+  const field = within(dialog).getByRole('textbox', {
+    name: 'Name in the asset library',
+  }) as HTMLInputElement
+  expect(field.value).toBe('face.png')
+  if (value !== undefined) await fireEvent.input(field, { target: { value } })
+  await fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+}
+
+const conflict = () =>
+  waitFor(() =>
+    screen.getByRole('alertdialog', {
+      name: '"face.png" is already in the asset library.',
+    }),
+  )
+
+const closed = () =>
+  waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+
+it('saves under the typed name and says so', async () => {
+  api.keepOutput.mockResolvedValueOnce(kept('hero.png'))
+  const done = save()
+  await name('hero.png')
+  expect(await done).toEqual({ name: 'hero.png' })
+  expect(api.keepOutput).toHaveBeenCalledWith(file.name, 'hero.png')
+  expect(notifyMock.success).toHaveBeenCalledWith('Saved as asset hero.png')
+})
+
+it('an existing name asks Replace, Keep both or Cancel', async () => {
+  api.keepOutput
+    .mockRejectedValueOnce(taken())
+    .mockResolvedValueOnce(kept('face.png'))
+  const done = save(['face.png'])
+  await name()
+  const dialog = await conflict()
+  const labels = within(dialog)
+    .getAllByRole('button')
+    .map((b) => b.textContent?.trim())
+  expect(labels.sort()).toEqual(['Cancel', 'Keep both', 'Replace'])
+  const replace = within(dialog).getByRole('button', { name: 'Replace' })
+  expect(replace.classList.contains('danger')).toBe(true)
+  expect(within(dialog).getByRole('button', { name: 'Keep both' }).title).toBe(
+    'save it as face-2.png',
+  )
+  await fireEvent.click(replace)
+  expect(await done).toEqual({ name: 'face.png' })
+  expect(api.keepOutput).toHaveBeenLastCalledWith(file.name, 'face.png', true)
+  expect(notifyMock.success).toHaveBeenCalledWith('Saved as asset face.png')
+})
+
+it('Keep both saves under the free name', async () => {
+  api.keepOutput
+    .mockRejectedValueOnce(taken())
+    .mockResolvedValueOnce(kept('face-3.png'))
+  const done = save(['face.png', 'face-2.png'])
+  await name()
+  await fireEvent.click(
+    within(await conflict()).getByRole('button', { name: 'Keep both' }),
+  )
+  expect(await done).toEqual({ name: 'face-3.png' })
+  expect(api.keepOutput).toHaveBeenLastCalledWith(file.name, 'face-3.png')
+  expect(notifyMock.success).toHaveBeenCalledWith('Saved as asset face-3.png')
+})
+
+it('Keep both on a name typed without its extension frees the full name', async () => {
+  api.keepOutput
+    .mockRejectedValueOnce(taken())
+    .mockResolvedValueOnce(kept('face-2.png'))
+  const done = save(['face.png'])
+  await name('face')
+  await fireEvent.click(
+    within(await conflict()).getByRole('button', { name: 'Keep both' }),
+  )
+  await done
+  expect(api.keepOutput).toHaveBeenLastCalledWith(file.name, 'face-2.png')
+})
+
+it('Keep both tries the next name when the listing was behind', async () => {
+  api.keepOutput
+    .mockRejectedValueOnce(taken())
+    .mockRejectedValueOnce(taken())
+    .mockResolvedValueOnce(kept('face-3.png'))
+  const done = save(['face.png'])
+  await name()
+  await fireEvent.click(
+    within(await conflict()).getByRole('button', { name: 'Keep both' }),
+  )
+  expect(await done).toEqual({ name: 'face-3.png' })
+  expect(api.keepOutput.mock.calls.map((c) => c[1])).toEqual([
+    'face.png',
+    'face-2.png',
+    'face-3.png',
+  ])
+})
+
+it('Cancel at either step makes no request and no toast', async () => {
+  // The name dialog: Cancel, then Escape
+  let done = save()
+  await fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }))
+  expect(await done).toBeNull()
+  await closed()
+  done = save()
+  await fireEvent.keyDown(await screen.findByRole('alertdialog'), {
+    key: 'Escape',
+  })
+  expect(await done).toBeNull()
+  expect(api.keepOutput).not.toHaveBeenCalled()
+  await closed()
+
+  // The exists question: Cancel, then Escape - only the first try was sent
+  for (const answer of ['cancel', 'escape']) {
+    api.keepOutput.mockReset()
+    api.keepOutput.mockRejectedValueOnce(taken())
+    done = save(['face.png'])
+    await name()
+    const dialog = await conflict()
+    if (answer === 'cancel')
+      await fireEvent.click(
+        within(dialog).getByRole('button', { name: 'Cancel' }),
+      )
+    else await fireEvent.keyDown(dialog, { key: 'Escape' })
+    expect(await done).toBeNull()
+    expect(api.keepOutput).toHaveBeenCalledTimes(1)
+    await closed()
+  }
+  for (const fn of Object.values(notifyMock)) expect(fn).not.toHaveBeenCalled()
+})
+
+it('a refusal for another reason is a failure, not a question', async () => {
+  api.keepOutput.mockRejectedValueOnce(
+    new ApiError('This workspace has no asset library', 409),
+  )
+  const done = save()
+  await name()
+  expect(await done).toBeUndefined()
+  expect(notifyMock.failure).toHaveBeenCalledWith(
+    'save it as an asset',
+    expect.objectContaining({ message: 'This workspace has no asset library' }),
+  )
+  expect(api.keepOutput).toHaveBeenCalledTimes(1)
+})
+
+it('lists the library only after the name is taken', async () => {
+  api.keepOutput.mockResolvedValueOnce(kept('hero.png'))
+  let done = save(['face.png'])
+  await name('hero.png')
+  await done
+  expect(listed).not.toHaveBeenCalled()
+  await closed()
+
+  api.keepOutput
+    .mockRejectedValueOnce(taken())
+    .mockResolvedValueOnce(kept('face-2.png'))
+  done = save(['face.png'])
+  await name()
+  await fireEvent.click(
+    within(await conflict()).getByRole('button', { name: 'Keep both' }),
+  )
+  expect(await done).toEqual({ name: 'face-2.png' })
+  expect(listed).toHaveBeenCalledTimes(1)
+})
+
+it('a failed listing leaves the shared list alone', async () => {
+  assetLibrary.items = [{ name: 'face.png' }] as typeof assetLibrary.items
+  api.listAssets.mockRejectedValueOnce(new Error('down'))
+  api.keepOutput.mockRejectedValueOnce(taken())
+  const done = save([], listAssetNames)
+  await name()
+  // the question is still asked, its suggestion from no names
+  const dialog = await conflict()
+  expect(api.listAssets).toHaveBeenCalledTimes(1)
+  await fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+  expect(await done).toBeNull()
+  expect(assetLibrary.items).toEqual([{ name: 'face.png' }])
+  expect(notifyMock.failure).not.toHaveBeenCalled()
+})
+
+it('names a bad name and an empty one', () => {
+  expect(assetNameError('face.png')).toBeNull()
+  expect(assetNameError('')).toBe('Type a name for the asset')
+  expect(assetNameError('my face.png')).toBe(
+    'Start with a letter, digit or _; then letters, digits, _, - and .',
+  )
+  expect(assetNameError('x'.repeat(101))).toBe('Use at most 100 characters')
+})
+
+it('an exists code asks; the wording alone does not', async () => {
+  api.keepOutput.mockRejectedValueOnce(
+    new ApiError('asset:face.png already exists - pass overwrite=true', 409),
+  )
+  const done = save()
+  await name()
+  expect(await done).toBeUndefined()
+  expect(notifyMock.failure).toHaveBeenCalled()
+  expect(api.keepOutput).toHaveBeenCalledTimes(1)
+})

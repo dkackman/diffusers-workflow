@@ -1,7 +1,9 @@
 <script lang="ts">
   import { CircleCheck, Download, Sparkles } from '@lucide/svelte'
+  import Details from '../ui/Details.svelte'
   import Suggest from '../ui/Suggest.svelte'
   import type { Enhancer } from '../enhancer.svelte'
+  import { jobHref } from '../routes'
 
   // The prompt editor's "Enhance with AI" panel. Its state is the page's
   // Enhancer, so a view switch that unmounts this keeps a download going
@@ -20,7 +22,7 @@
       Editing and saving still work.
     </p>
   {/if}
-  <div class="metagrid">
+  <div class="formgrid metagrid">
     <label for="enhance-preset">preset</label>
     <select
       id="enhance-preset"
@@ -90,7 +92,12 @@
     </button>
     {#if enhancer.busy && enhancer.jobId}
       <button class="quiet" onclick={() => enhancer.cancel()}>Cancel</button>
-      <a class="muted joblink" href={'#/jobs/' + enhancer.jobId}>watch job</a>
+      <a
+        class="muted joblink"
+        href={jobHref(enhancer.jobId, enhancer.jobWorkspace)}
+      >
+        watch job
+      </a>
     {/if}
     {#if enhancer.status}
       <span class="muted enhancestatus">
@@ -98,13 +105,18 @@
       </span>
     {/if}
   </div>
-  {#if enhancer.error}<p class="error">{enhancer.error}</p>{/if}
+  {#if enhancer.error}
+    <div class="error" role="alert">
+      <p>{enhancer.error}</p>
+      <Details summary="Engine detail" detail={enhancer.errorDetail} />
+    </div>
+  {/if}
   {#if enhancer.result}
     <textarea class="resultbox" rows="8" readonly value={enhancer.result}
     ></textarea>
     <div class="enhanceactions">
       <button class="withicon" onclick={onuse}>
-        <CircleCheck size={14} />Use as prompt text
+        <CircleCheck size={14} />Use this prompt
       </button>
       <button class="quiet" onclick={() => (enhancer.result = '')}>
         Discard
@@ -118,32 +130,12 @@
     margin-bottom: 1rem;
     min-width: 0;
   }
-  .panel h2 {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-  }
   textarea {
     width: 100%;
     resize: vertical;
   }
   .metagrid {
-    display: grid;
-    grid-template-columns: minmax(120px, 40%) minmax(0, 1fr);
-    gap: 0.5rem 0.8rem;
-    align-items: center;
     margin-top: 0.6rem;
-  }
-  @container (max-width: 420px) {
-    .metagrid {
-      grid-template-columns: minmax(0, 1fr);
-      gap: 0.2rem;
-    }
-  }
-  .metagrid label {
-    font-weight: 600;
-    color: var(--muted);
-    font-size: 0.85rem;
   }
   .metagrid textarea {
     align-self: stretch;
@@ -180,9 +172,9 @@
     font-size: 0.9rem;
   }
   .error {
-    color: var(--bad);
+    margin: 0.5rem 0 0;
   }
-  .hint {
-    font-size: 0.8rem;
+  .error p {
+    margin: 0;
   }
 </style>

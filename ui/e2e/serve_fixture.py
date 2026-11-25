@@ -24,11 +24,16 @@ import json
 import shutil
 import sqlite3
 import sys
+import struct
 import tempfile
+import wave
+import zlib
 from datetime import datetime, timedelta, timezone
 
 root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-scratch = tempfile.mkdtemp(prefix="dw-e2e-")
+# playwright.config.ts makes the directory and passes it on, so a spec can
+# reach what the fixture seeds (the hub cache, to put back what a case deletes)
+scratch = os.environ.get("DW_E2E_SCRATCH") or tempfile.mkdtemp(prefix="dw-e2e-")
 for name in ("workflows", "prompts"):
     shutil.copytree(os.path.join(root, name), os.path.join(scratch, name))
 outputs = os.path.join(scratch, "outputs")
@@ -63,8 +68,95 @@ for run_id in ("20260906-101500-a1b2c3d4", "20260906-101612-ffffffff"):
     with open(os.path.join(run_dir, "still.png"), "wb") as handle:
         handle.write(ONE_PIXEL_PNG)
 
+# The media the find-and-reuse journey looks for, in one run: a tall PNG whose
+# `parameters` tEXt chunk (before IDAT, as the engine's embed_metadata writes
+# it) holds the recipe, a small PNG with none, two seconds of silence and a
+# three-line note. Written with the standard library, as the fixture runs
+# before the server and imports no imaging stack.
+FIND_RUN = "20260910-120000-0f1d0f1d"
+
+
+def png_chunk(kind, data):
+    body = kind + data
+    return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
+
+
+def solid_png(width, height, rgb, text=None):
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    rows = (b"\x00" + bytes(rgb) * width) * height
+    chunks = [png_chunk(b"IHDR", header)]
+    if text is not None:
+        chunks.append(png_chunk(b"tEXt", b"parameters\x00" + text.encode("latin-1")))
+    chunks += [png_chunk(b"IDAT", zlib.compress(rows)), png_chunk(b"IEND", b"")]
+    return b"\x89PNG\r\n\x1a\n" + b"".join(chunks)
+
+
+find_dir = os.path.join(outputs, "e2e-find", FIND_RUN)
+os.makedirs(find_dir)
+recipe = {
+    "prompt": "a lighthouse at dusk",
+    "seed": 4242,
+    "model_name": "e2e/tiny",
+    "arguments": {"prompt": "a lighthouse at dusk", "seed": 4242, "steps": 12},
+}
+with open(os.path.join(find_dir, "lighthouse.png"), "wb") as handle:
+    handle.write(solid_png(400, 1600, (40, 90, 160), json.dumps(recipe)))
+with open(os.path.join(find_dir, "harbour.png"), "wb") as handle:
+    handle.write(solid_png(64, 64, (160, 120, 40)))
+with wave.open(os.path.join(find_dir, "hum.wav"), "wb") as hum:
+    hum.setnchannels(1)
+    hum.setsampwidth(2)
+    hum.setframerate(8000)
+    hum.writeframes(b"\x00\x00" * 8000 * 2)
+with open(os.path.join(find_dir, "notes.txt"), "w") as handle:
+    handle.write("Keeper's log, first night\nthe lamp is lit\nnothing on the water\n")
+
+# One asset and one workflow with a proof picture, each a real image, so the
+# specs that look at a tile's or a card's change mark have a picture to cover
+with open(os.path.join(scratch, "assets", "e2e-proof-asset.png"), "wb") as handle:
+    handle.write(solid_png(96, 96, (60, 140, 90)))
+proof_dir = os.path.join(outputs, "card-proof", "20260910-130000-0f1d0f1d")
+os.makedirs(proof_dir)
+with open(os.path.join(proof_dir, "proof.png"), "wb") as handle:
+    handle.write(solid_png(128, 96, (150, 70, 70)))
+# Old, so it is not one of the Overview's recent files ahead of lighthouse.png
+os.utime(os.path.join(proof_dir, "proof.png"), (1767312000.0, 1767312000.0))
+with open(os.path.join(scratch, "workflows", "card-proof.json"), "w") as handle:
+    json.dump(
+        {
+            "id": "CardProof",
+            "description": "A workflow that has run once, for its card's picture.",
+            "variables": {"line": "Proof"},
+            "steps": [
+                {
+                    "name": "card",
+                    "task": {
+                        "command": "compose_text",
+                        "arguments": {"parts": ["variable:line"]},
+                    },
+                    "result": {"content_type": "text/plain"},
+                }
+            ],
+        },
+        handle,
+    )
+
 helper = os.path.join(scratch, "helper")
 os.environ["DIFFUSERS_HELPER_ROOT"] = helper
+
+# The hub cache is scratch too, seeded with one made-up repo so the models
+# journey has a row to delete without ever reaching the developer's cache.
+# Set before the server import: huggingface_hub reads it when it loads.
+hub_cache = os.path.join(scratch, "hub-cache")
+os.environ["HF_HUB_CACHE"] = hub_cache
+revision = "0123456789abcdef0123456789abcdef01234567"
+repo_dir = os.path.join(hub_cache, "models--e2e--tiny")
+os.makedirs(os.path.join(repo_dir, "snapshots", revision))
+os.makedirs(os.path.join(repo_dir, "refs"))
+with open(os.path.join(repo_dir, "snapshots", revision, "config.json"), "w") as handle:
+    handle.write("{}")
+with open(os.path.join(repo_dir, "refs", "main"), "w") as handle:
+    handle.write(revision)
 
 # Two jobs a dead server's restart cancelled before they started: the
 # tombstones the jobs page offers to rerun as one batch (#1473). They share
@@ -96,6 +188,39 @@ with sqlite3.connect(history_db) as connection:
             ),
         )
 
+# The job that made them: a history row the job page and the viewer's recipe
+# read, its manifest naming the pictures as the step's results.
+find_started = 1767484810.0
+with sqlite3.connect(history_db) as connection:
+    connection.execute(
+        "INSERT INTO jobs (id, workflow, status, created_at, started_at,"
+        " finished_at, arguments, spec, manifest, error, events, workspace,"
+        " run_id, run_dir)"
+        " VALUES ('e2efind00001', 'text-to-image', 'succeeded', ?, ?, ?, ?, ?, ?,"
+        " NULL, '[]', 'default', ?, ?)",
+        (
+            find_started - 10,
+            find_started,
+            find_started + 60,
+            json.dumps({"prompt": "a lighthouse at dusk"}),
+            json.dumps({"workflow_path": template, "workspace": "default"}),
+            json.dumps(
+                [
+                    {
+                        "step": "image",
+                        "files": [
+                            f"e2e-find/{FIND_RUN}/{name}"
+                            for name in ("lighthouse.png", "harbour.png")
+                        ],
+                        "role": "final",
+                    }
+                ]
+            ),
+            FIND_RUN,
+            f"e2e-find/{FIND_RUN}",
+        ),
+    )
+
 # One request in the default workspace's ledger (requests.json at the
 # workspace root), for the Requests pages: a done item with two succeeded
 # jobs, each leaving a run with an image, and neither accepted; a planned
@@ -122,47 +247,49 @@ linked = {
     ],
     "cut": [{"job": "e2ereqcut001", "status": "failed", "run_id": None}],
 }
-with sqlite3.connect(history_db) as connection:
-    for key, jobs in linked.items():
-        for index, job in enumerate(jobs):
-            done = job["status"] == "succeeded"
-            run = os.path.join("e2e-request", job["run_id"]) if done else None
-            if done:
-                os.makedirs(os.path.join(outputs, run))
-                with open(os.path.join(outputs, run, "hero.png"), "wb") as handle:
-                    handle.write(ONE_PIXEL_PNG)
-            started = 1767312010.0 + 1800 * index
-            connection.execute(
-                "INSERT INTO jobs (id, workflow, status, created_at, started_at,"
-                " finished_at, arguments, spec, manifest, error, events, workspace,"
-                " run_id, run_dir, request, item)"
-                " VALUES (?, 'text-to-image', ?, ?, ?, ?, '{}', ?, ?, ?, '[]',"
-                " 'default', ?, ?, ?, ?)",
-                (
-                    job["job"],
-                    job["status"],
-                    started - 10,
-                    started,
-                    started + 90,
-                    json.dumps({"workflow_path": template, "workspace": "default"}),
-                    json.dumps(
-                        [
-                            {
-                                "step": "image",
-                                "files": [f"{run}/hero.png"],
-                                "role": "final",
-                            }
-                        ]
-                        if done
-                        else []
+
+
+def seed_jobs(request_id, jobs_by_item, folder, filename, first_start, seconds):
+    """History rows for a request's linked jobs, the shape a linked submit
+    records: each succeeded job leaves a run under `folder` holding one
+    `filename`, each failed one an error (its own `error`, or a stock one).
+    The jobs of one item start half an hour apart from `first_start`."""
+    with sqlite3.connect(history_db) as connection:
+        for key, jobs in jobs_by_item.items():
+            for index, job in enumerate(jobs):
+                done = job["status"] == "succeeded"
+                run = os.path.join(folder, job["run_id"]) if done else None
+                if done:
+                    os.makedirs(os.path.join(outputs, run))
+                    with open(os.path.join(outputs, run, filename), "wb") as handle:
+                        handle.write(ONE_PIXEL_PNG)
+                started = first_start + 1800 * index
+                files = [f"{run}/{filename}"] if done else []
+                manifest = [{"step": "image", "files": files, "role": "final"}]
+                connection.execute(
+                    "INSERT INTO jobs (id, workflow, status, created_at, started_at,"
+                    " finished_at, arguments, spec, manifest, error, events, workspace,"
+                    " run_id, run_dir, request, item)"
+                    " VALUES (?, 'text-to-image', ?, ?, ?, ?, '{}', ?, ?, ?, '[]',"
+                    " 'default', ?, ?, ?, ?)",
+                    (
+                        job["job"],
+                        job["status"],
+                        started - 10,
+                        started,
+                        started + seconds,
+                        json.dumps({"workflow_path": template, "workspace": "default"}),
+                        json.dumps(manifest if done else []),
+                        None if done else job.get("error", "e2e: this attempt failed"),
+                        job["run_id"],
+                        run,
+                        request_id,
+                        key,
                     ),
-                    None if done else "e2e: this attempt failed",
-                    job["run_id"],
-                    run,
-                    REQUEST_ID,
-                    key,
-                ),
-            )
+                )
+
+
+seed_jobs(REQUEST_ID, linked, "e2e-request", "hero.png", 1767312010.0, 90)
 
 
 def plan_item(key, title, **extra):
@@ -210,28 +337,34 @@ ledger.put_request(
 # done with two succeeded takes and neither accepted; `shot` failed once;
 # `cut` waits on `shot`; `title` has never run and waits on nothing, so it
 # is ready; `score` failed once and nothing depends on it. `title` runs
-# `e2e-card`, a workflow of one text task - no model, nothing to download,
+# `e2e-title`, a workflow of one text task - no model, nothing to download,
 # done in a second or two - so the run dialog's job can really be queued.
 EDIT_ID = "e2e-board"
-with open(os.path.join(scratch, "workflows", "e2e-card.json"), "w") as handle:
-    json.dump(
-        {
-            "id": "E2ECard",
-            "description": "A title card as one line of text.",
-            "variables": {"line": "Title card"},
-            "steps": [
-                {
-                    "name": "card",
-                    "task": {
-                        "command": "compose_text",
-                        "arguments": {"parts": ["variable:line"]},
-                    },
-                    "result": {"content_type": "text/plain"},
-                }
-            ],
-        },
-        handle,
-    )
+# The `title` items run `e2e-title`, the same workflow under a name of its
+# own. A task-only workflow that has run is quoted from its history, and
+# other specs queue `e2e-card` on this one server - so a quote read off
+# `e2e-card` depends on which specs ran first. Nothing queues `e2e-title`
+# before the run dialog's own submit, so until then it has no figure.
+for card_name, card_id in (("e2e-card", "E2ECard"), ("e2e-title", "E2ETitle")):
+    with open(os.path.join(scratch, "workflows", f"{card_name}.json"), "w") as handle:
+        json.dump(
+            {
+                "id": card_id,
+                "description": "A title card as one line of text.",
+                "variables": {"line": "Title card"},
+                "steps": [
+                    {
+                        "name": "card",
+                        "task": {
+                            "command": "compose_text",
+                            "arguments": {"parts": ["variable:line"]},
+                        },
+                        "result": {"content_type": "text/plain"},
+                    }
+                ],
+            },
+            handle,
+        )
 edit_linked = {
     "board": [
         {
@@ -248,47 +381,7 @@ edit_linked = {
     "shot": [{"job": "e2ebrdshot01", "status": "failed", "run_id": None}],
     "score": [{"job": "e2ebrdscore1", "status": "failed", "run_id": None}],
 }
-with sqlite3.connect(history_db) as connection:
-    for key, jobs in edit_linked.items():
-        for index, job in enumerate(jobs):
-            done = job["status"] == "succeeded"
-            run = os.path.join("e2e-board", job["run_id"]) if done else None
-            if done:
-                os.makedirs(os.path.join(outputs, run))
-                with open(os.path.join(outputs, run, "board.png"), "wb") as handle:
-                    handle.write(ONE_PIXEL_PNG)
-            started = 1767398410.0 + 1800 * index
-            connection.execute(
-                "INSERT INTO jobs (id, workflow, status, created_at, started_at,"
-                " finished_at, arguments, spec, manifest, error, events, workspace,"
-                " run_id, run_dir, request, item)"
-                " VALUES (?, 'text-to-image', ?, ?, ?, ?, '{}', ?, ?, ?, '[]',"
-                " 'default', ?, ?, ?, ?)",
-                (
-                    job["job"],
-                    job["status"],
-                    started - 10,
-                    started,
-                    started + 60,
-                    json.dumps({"workflow_path": template, "workspace": "default"}),
-                    json.dumps(
-                        [
-                            {
-                                "step": "image",
-                                "files": [f"{run}/board.png"],
-                                "role": "final",
-                            }
-                        ]
-                        if done
-                        else []
-                    ),
-                    None if done else "e2e: this attempt failed",
-                    job["run_id"],
-                    run,
-                    EDIT_ID,
-                    key,
-                ),
-            )
+seed_jobs(EDIT_ID, edit_linked, "e2e-board", "board.png", 1767398410.0, 60)
 
 ledger.put_request(
     scratch,
@@ -305,7 +398,7 @@ ledger.put_request(
             plan_item("cut", "Final cut", depends_on=["shot"]),
             {
                 **plan_item("title", "Title card", estimate_minutes=3),
-                "workflow": "e2e-card",
+                "workflow": "e2e-title",
                 "arguments": {"line": "The opening"},
                 # held for review for the next hour, for the hold's specs
                 "review_until": (
@@ -317,6 +410,77 @@ ledger.put_request(
     },
     by="agent",
     linked_jobs=lambda _request, key: edit_linked.get(key, []),
+)
+
+# A third request, for the review-a-request journey, that wants something of
+# every kind from the person: `hero` is done with two succeeded takes and
+# neither accepted; `plate` failed once on a long CUDA error, its workflow
+# `e2e-card` so it can run again; `comp` failed once and waits on `plate`;
+# `title` on `e2e-title` is held for the next hour. Its takes are under a
+# folder and name the gallery specs' searches (`e2e`, `still`) do not find.
+REVIEW_ID = "e2e-review"
+review_linked = {
+    "hero": [
+        {
+            "job": "e2erevhero01",
+            "status": "succeeded",
+            "run_id": "20260909-090000-5eed5eed",
+        },
+        {
+            "job": "e2erevhero02",
+            "status": "succeeded",
+            "run_id": "20260909-093000-5eed5eed",
+        },
+    ],
+    "plate": [
+        {
+            "job": "e2erevplate1",
+            "status": "failed",
+            "run_id": None,
+            "error": "CUDA out of memory. Tried to allocate 2.00 GiB\n"
+            "Traceback (most recent call last): …",
+        }
+    ],
+    "comp": [{"job": "e2erevcomp01", "status": "failed", "run_id": None}],
+}
+# The list puts held requests first; the journey asserts only that nothing
+# ahead of this one is anything but held, so no write timing is relied on
+seed_jobs(REVIEW_ID, review_linked, "review-takes", "hero-take.png", 1767441610.0, 60)
+# Written last, the takes would be the gallery's newest files and push the
+# find-and-reuse journey's lighthouse off the overview's recent row: dated
+# back to when their jobs ended
+for job in review_linked["hero"]:
+    take = os.path.join(outputs, "review-takes", job["run_id"], "hero-take.png")
+    os.utime(take, (1767441670.0, 1767441670.0))
+ledger.put_request(
+    scratch,
+    REVIEW_ID,
+    {
+        "title": "E2E review",
+        "goal": "A hero still, a plate, a composite and a title card",
+        "prompt": "a still I can review before the composite",
+        "why": "opened",
+        "revision": 0,
+        "items": [
+            plan_item("hero", "Hero still"),
+            {
+                **plan_item("plate", "Background plate"),
+                "workflow": "e2e-card",
+                "arguments": {"line": "A plate"},
+            },
+            plan_item("comp", "Composite", depends_on=["plate"]),
+            {
+                **plan_item("title", "Title card"),
+                "workflow": "e2e-title",
+                "arguments": {"line": "The review"},
+                "review_until": (
+                    datetime.now(timezone.utc) + timedelta(hours=1)
+                ).isoformat(timespec="seconds"),
+            },
+        ],
+    },
+    by="agent",
+    linked_jobs=lambda _request, key: review_linked.get(key, []),
 )
 
 os.chdir(root)

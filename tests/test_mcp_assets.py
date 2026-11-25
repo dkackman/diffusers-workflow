@@ -254,6 +254,20 @@ class TestKeeping:
         with pytest.raises(DwApiError, match="already exists"):
             keep_output(client_over(handler), "Gyre/run/still.png")
 
+    def test_mcp_keep_output_conflict_text_is_unchanged(self):
+        """The server's 409 detail is `{code, message}` (the UI's question);
+        the agent still reads the same sentence."""
+        sentence = "asset:hero.png already exists - pass overwrite=true to replace it"
+
+        def handler(request):
+            return httpx.Response(
+                409, json={"detail": {"code": "exists", "message": sentence}}
+            )
+
+        with pytest.raises(DwApiError) as raised:
+            keep_output(client_over(handler), "Gyre/run/still.png")
+        assert str(raised.value) == sentence
+
 
 class TestDeleting:
     """The counterpart to upload and keep: without it a mistaken name could

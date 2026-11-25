@@ -166,6 +166,23 @@ class ExportSummary:
             "missing": self.missing,
         }
 
+    def inline_json(self):
+        """The export's three JSON files as read back off its directory, each
+        None when unreadable - the route hands them inline as well, since a
+        client on another machine has no other way to read them."""
+        found = {}
+        for key, name in (
+            ("workflow", WORKFLOW_FILE_NAME),
+            ("manifest", MANIFEST_FILE_NAME),
+            ("job", JOB_FILE_NAME),
+        ):
+            try:
+                with open(os.path.join(self.directory, name), "r") as file:
+                    found[key] = json.load(file)
+            except (OSError, ValueError):
+                found[key] = None
+        return found
+
 
 def export_directory(workspace_root, job_id):
     """Where one job's export lives, confined to the workspace root.

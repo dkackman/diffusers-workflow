@@ -87,6 +87,22 @@ describe('a failure toast', () => {
     )
   })
 
+  it("a caller's lines ride in Copy details after the error's own", async () => {
+    copy.mockResolvedValue(true)
+    notify.failure(
+      'delete 2 of 5 files',
+      new ApiError('busy\nmore', 409),
+      undefined,
+      'a.png: busy\nb.png: busy',
+    )
+    const [message] = sonner.error.mock.calls[0]
+    expect(message).toBe("Couldn't delete 2 of 5 files: busy")
+    press()
+    expect(copy).toHaveBeenCalledWith('busy\nmore\na.png: busy\nb.png: busy')
+    notify.failure('delete 1 of 2 files', new ApiError('', 500), undefined, 'a')
+    expect(sonner.error.mock.calls[1][1].action.label).toBe('Copy details')
+  })
+
   it('a copy that fails puts the detail in the same toast', async () => {
     copy.mockResolvedValue(false)
     sonner.error.mockReturnValue('t1')

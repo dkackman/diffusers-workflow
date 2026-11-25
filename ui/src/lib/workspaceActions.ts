@@ -1,6 +1,7 @@
 import { api } from './api'
-import { describeError } from './apiErrors'
+import { ApiError, describeError } from './apiErrors'
 import { confirmDialog } from './confirm.svelte'
+import { workspaceConfirm } from './destructive'
 import { wsHref } from './routes'
 import { notify } from './toast'
 import {
@@ -71,13 +72,21 @@ export async function createWorkspaceAndGo(
   return null
 }
 
-/** Delete a workspace after an informed confirm - the server's unacknowledged
- * refusal says what it holds - and land on the default overview. */
-export async function deleteWorkspaceWithConfirm(
-  name: string,
-): Promise<boolean> {
-  if (name === DEFAULT_WORKSPACE) return false
-  let detail = ''
+type Contents = Parameters<typeof workspaceConfirm>[1]
+
+/** What the server's unacknowledged refusal says the workspace holds: the
+ * `contents` of its payload, never parsed out of the message */
+function contentsOf(e: unknown): Contents {
+  const contents = e instanceof ApiError ? e.detail?.contents : undefined
+  return contents && typeof contents === 'object' ? (contents as Contents) : {}
+}
+
+/** The informed question: the server's counts, and the starred outputs -
+ * read off the gallery, since the workspace deleted is the current one.
+ * Null (reported) when the server's counts could not be read; a gallery that
+ * cannot be read asks without the starred count */
+async function askToDelete(name: string): Promise<boolean | null> {
+  let contents: Contents = {}
   try {
     // Unacknowledged first: the server answers with what it would remove,
     // which is what makes the confirmation an informed one
@@ -86,19 +95,32 @@ export async function deleteWorkspaceWithConfirm(
     // The server's refusal says what the workspace holds, and is the point
     // of the confirm. Any other failure (offline, a fault) is not something
     // to confirm over: it is reported, with its detail disclosed
-    const described = describeError(e)
-    if (described.kind !== 'refused') {
+    if (describeError(e).kind !== 'refused') {
       notify.failure(`delete ${name}`, e)
-      return false
+      return null
     }
-    detail = described.detail ?? described.title
+    contents = contentsOf(e)
   }
-  if (
-    !(await confirmDialog(`${detail}\n\nDelete workspace "${name}"?`.trim(), {
-      confirmLabel: 'Delete',
-    }))
-  )
-    return false
+  // A gallery that cannot be read still asks: the confirm says the count is
+  // unknown rather than leave the workspace undeletable
+  let starred: number | null
+  try {
+    const { files } = await api.gallery()
+    starred = files.filter((f) => f.starred).length
+  } catch {
+    starred = null
+  }
+  const spec = workspaceConfirm(name, contents, starred)
+  return confirmDialog(spec.message, spec)
+}
+
+/** Delete a workspace after an informed confirm - the server's unacknowledged
+ * refusal says what it holds - and land on the default overview. */
+export async function deleteWorkspaceWithConfirm(
+  name: string,
+): Promise<boolean> {
+  if (name === DEFAULT_WORKSPACE) return false
+  if (!(await askToDelete(name))) return false
   try {
     await api.deleteWorkspace(name, true)
   } catch (e) {

@@ -1,5 +1,6 @@
 /* The contact-sheet frame and the pickable tile: the global rules for
-   wherever the app shows something a workflow produced. Loaded straight
+   wherever the app shows something a workflow produced, and the state a
+   row, tile or card shows (`.row-live`, `.row-changed`). Loaded straight
    after app.css (main.ts), whose tokens these read. */
 
 /* A contact-sheet frame. Every place the app shows something a workflow
@@ -77,13 +78,49 @@ button.frame:hover {
 .cellwrap .pick:checked {
   opacity: 1;
 }
-/* Ticked is the user's own state, not the machine's, so it reads as a
-   heavier ink edge rather than taking the signal colour. A page's own
-   scoped `.cell.active` / `.cell:hover` sits at the same (0,3,0)+hash
-   specificity as this global rule and would win on source order, so the
-   doubled class pushes this one to (0,4,0) to outrank it deliberately
-   rather than by accident of where each stylesheet lands. */
-.cellwrap.picked > .cell.cell {
-  border-color: var(--ink);
-  box-shadow: inset 0 0 0 1px var(--ink);
+/* Ticked (`.picked` here) is the user's own state: the tile inside draws
+   it, as OutputTile's ink edge (`.filetile.picked`, patterns.css). */
+
+/* Machine state on a list row, so a page's own file needs no --live:
+   the row the machine is on now (a running job, an item being rendered),
+   the one you came to find; and a row a quiet reload changed (`.row-changed`,
+   frames.css). The tripled class outranks a page's
+   scoped `.row:hover`, which sits at (0,3,0) */
+.row-live {
+  background: color-mix(in srgb, var(--live) 10%, transparent);
+  box-shadow: inset 2px 0 0 var(--live);
+}
+a.row-live.row-live.row-live:hover {
+  background: color-mix(in srgb, var(--live) 16%, transparent);
+}
+
+/* A row, tile or card a quiet reload changed (`.row-changed`): the bar is an
+   overlay that sits over the host's children, so a tile's picture or a
+   card's frame cannot cover it, and never a box-shadow, so `.row-live`'s
+   inset bar stays beside it. A ticked tile keeps its own edge.
+   `--live` over a 1px `--bg` edge reads over a bright picture. The
+   resource clears the class and sets it again when a row changes twice,
+   which restarts the fade. */
+.row-changed {
+  position: relative;
+}
+.row-changed::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--live);
+  box-shadow: 1px 0 0 var(--bg);
+  pointer-events: none;
+  animation: dw-changed-fade 4s ease-in forwards;
+}
+@keyframes dw-changed-fade {
+  to {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .row-changed::after {
+    animation: none;
+  }
 }

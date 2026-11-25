@@ -3,26 +3,35 @@
   import { api } from '../api'
   import { resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
+  import PageHeader from '../ui/PageHeader.svelte'
   import FolderGroups from '../FolderGroups.svelte'
-  import { leafOf } from '../grouping'
+  import { groupOf, leafOf } from '../grouping'
   import HintBar from '../HintBar.svelte'
   import { sharedHref } from '../routes'
   import { writableRoot } from '../libraries'
   import type { PromptDetail } from '../types'
+  import { hashState } from '../router.svelte'
+  import ListSort, { listSort, newestFirst } from '../ui/ListSort.svelte'
+  import Time from '../ui/Time.svelte'
 
-  let filter = $state('')
+  // In the hash, so Back from a prompt - or a shared link - keeps it
+  const filter = hashState('q', '')
+  const sort = listSort()
 
-  // A prompt an agent saves shows within one feed interval
-  const list = resource(() => api.listPrompts(), { watch: ['prompts'] })
+  // A prompt an agent saves shows within one feed interval, marked
+  const list = resource(() => api.listPrompts(), {
+    watch: ['prompts'],
+    rows: (data) => data.prompts.map((name) => [name, data.details[name]]),
+  })
   const prompts = $derived(list.data?.prompts ?? [])
   const details = $derived<Record<string, PromptDetail>>(
     list.data?.details ?? {},
   )
   const promptDir = $derived(writableRoot(list.data?.libraries ?? []))
 
-  const visible = $derived(
+  const matching = $derived(
     prompts.filter((name) => {
-      const needle = filter.toLowerCase()
+      const needle = filter.value.toLowerCase()
       const detail = details[name]
       return (
         name.toLowerCase().includes(needle) ||
@@ -32,23 +41,28 @@
       )
     }),
   )
+  // Newest first is one list across the folders
+  const newest = $derived(sort.value === 'newest')
+  const visible = $derived(
+    newest ? newestFirst(matching, (name) => details[name]?.mtime) : matching,
+  )
 
   const href = (name: string) => sharedHref('prompt-edit', ...name.split('/'))
 </script>
 
-<div class="pagehead">
-  <h1>Prompts</h1>
-  <span class="flex"></span>
-  <input placeholder="filter…" bind:value={filter} class="filter" />
-  <a
-    class="quiet icon plain"
-    href={sharedHref('prompt-edit')}
-    title="new prompt"
-    aria-label="new prompt"
-  >
-    <Plus size={15} />
-  </a>
-</div>
+{#snippet search()}
+  <input placeholder="filter…" bind:value={filter.value} class="filter" />
+{/snippet}
+<PageHeader title="Prompts" filter={search}>
+  {#snippet actions()}<ListSort {sort} /><a
+      class="quiet icon plain"
+      href={sharedHref('prompt-edit')}
+      title="new prompt"
+      aria-label="new prompt"
+    >
+      <Plus size={15} />
+    </a>{/snippet}
+</PageHeader>
 
 <HintBar storageKey="prompt-hint-dismissed">
   Write a prompt once, reuse it anywhere: a workflow argument set to prompt:name
@@ -59,8 +73,8 @@
   of={list}
   label="prompts"
   empty={visible.length === 0}
-  filtered={filter !== '' && prompts.length > 0}
-  onclear={() => (filter = '')}
+  filtered={filter.value !== '' && prompts.length > 0}
+  onclear={() => (filter.value = '')}
 >
   {#snippet emptyIcon()}<MessageSquareText
       size={36}
@@ -70,7 +84,8 @@
   <FolderGroups
     names={visible}
     collapseKey="collapsed-prompt-folders"
-    filterActive={filter !== ''}
+    filterActive={filter.value !== ''}
+    groupOf={newest ? () => '' : undefined}
     newHref="#/prompt-edit"
     onnewingroup={(group) =>
       sessionStorage.setItem('dw-prompt-editor-folder', group)}
@@ -79,7 +94,7 @@
       {@const detail = details[name]}
       <!-- The link is an overlay rather than a wrapper: buttons may not
          nest inside an anchor, and the chips are real buttons -->
-      <div class="card panel">
+      <div class="card panel" class:row-changed={list.changed.has(name)}>
         <a
           class="cardcover"
           href={href(name)}
@@ -87,7 +102,7 @@
           title={detail?.description || detail?.text || undefined}
         ></a>
         <span class="cardtop">
-          <span class="cardname">{leafOf(name)}</span>
+          <span class="cardname" title={name}>{leafOf(name)}</span>
           {#if details[name]?.origin && details[name].origin !== 'workspace'}
             <span
               class="origin muted"
@@ -96,27 +111,45 @@
               {details[name].origin}
             </span>
           {/if}
-          {#if detail?.intended_model}
-            <button
-              class="chip modelchip"
-              onclick={() => (filter = detail.intended_model)}
-              title="written for {detail.intended_model} - click to filter"
-            >
-              {detail.intended_model}
-            </button>
-          {/if}
         </span>
+        <!-- One list across the folders moves the folder onto the card, as
+           the Workflows page does -->
+        {#if newest && groupOf(name)}
+          <span class="cardfolder muted">{groupOf(name)}</span>
+        {/if}
         {#if detail?.description || detail?.text}
           <span class="carddesc muted">
             {detail.description || detail.text}
           </span>
         {/if}
-        {#if detail?.tags?.length}
+        {#if detail?.mtime}
+          <span class="stamp muted">
+            <Time at={detail.mtime} label="changed" />
+          </span>
+        {/if}
+        {#if detail?.intended_model || detail?.tags?.length}
           <span class="cardtags">
-            {#each detail.tags as tag (tag)}
+            {#if detail?.intended_model}
               <button
-                class="chip"
-                onclick={() => (filter = tag)}
+                class="togglechip modelchip"
+                class:on={filter.value === detail.intended_model}
+                aria-pressed={filter.value === detail.intended_model}
+                onclick={() =>
+                  (filter.value =
+                    filter.value === detail.intended_model
+                      ? ''
+                      : detail.intended_model)}
+                title="written for {detail.intended_model} - click to filter"
+              >
+                {detail.intended_model}
+              </button>
+            {/if}
+            {#each detail?.tags ?? [] as tag (tag)}
+              <button
+                class="togglechip"
+                class:on={filter.value === tag}
+                aria-pressed={filter.value === tag}
+                onclick={() => (filter.value = filter.value === tag ? '' : tag)}
                 title="click to filter by this tag"
               >
                 {tag}
@@ -140,9 +173,6 @@
   .origin {
     font-size: 0.75rem;
   }
-  .pagehead .flex {
-    flex: 1;
-  }
   /* An absolute path is worth knowing and not worth the slot beside the
      title - and as one unbreakable token it was pushing the page sideways
      on a phone */
@@ -153,10 +183,6 @@
   .path {
     font-family: var(--font-mono);
     word-break: break-all;
-  }
-  .filter {
-    max-width: 220px;
-    margin-left: auto;
   }
   .card {
     position: relative;
@@ -175,7 +201,7 @@
     inset: 0;
     border-radius: inherit;
   }
-  .chip {
+  .togglechip {
     position: relative;
   }
   .cardtop {
@@ -186,9 +212,13 @@
   }
   .cardname {
     flex: 1;
+    min-width: 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
   }
   .carddesc {
     font-weight: 400;
@@ -205,20 +235,9 @@
     flex-wrap: wrap;
     gap: 0.3rem;
   }
-  /* A tag is a button, and the global button rule would paint it accent-ink
-     on the panel - invisible in either theme - so the text colour is set here */
-  .chip {
-    cursor: pointer;
-    border: 1px solid var(--line);
-    background: var(--panel-2);
-    color: var(--muted);
-    font-size: 0.7rem;
-    font-weight: 500;
-    padding: 0.05rem 0.45rem;
-  }
-  .chip:hover {
-    border-color: var(--accent);
-    color: var(--accent);
+  .stamp {
+    font-weight: 400;
+    font-size: var(--t-xs);
   }
   .modelchip {
     flex-shrink: 0;

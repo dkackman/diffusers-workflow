@@ -5,7 +5,7 @@
   import NoteList from './NoteList.svelte'
   import type { LinkedRequest } from './linkedRequest.svelte'
   import { refKey } from './draft'
-  import { noteWaiting } from './noteState'
+  import { noteListShows, noteWaiting } from './noteState'
   import { IDLE_MS } from './refresh'
 
   // The notes for the agent on one item, away from the request page: the
@@ -66,7 +66,7 @@
   }
 </script>
 
-{#if request && home}
+{#if request && home && noteListShows(request, item, home.notes.filter(filter).length)}
   <div class="agentnotes panel" bind:this={box}>
     <NoteList
       bind:this={list}

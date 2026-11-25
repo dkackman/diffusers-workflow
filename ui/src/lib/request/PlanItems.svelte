@@ -1,8 +1,11 @@
 <script lang="ts">
   import { tick } from 'svelte'
   import { GripVertical } from '@lucide/svelte'
+  import { action } from '../action.svelte'
+  import { api } from '../api'
   import { ApiError } from '../apiErrors'
   import { confirmDialog } from '../confirm.svelte'
+  import { undoToast } from '../destructive'
   import { requestQuery } from '../requestFilter'
   import { wsHref } from '../routes'
   import { notify } from '../toast'
@@ -18,9 +21,21 @@
     type PlanState,
     type Take,
   } from './itemState'
-  import type { Outcome, PlanStore } from './planStore.svelte'
+  import {
+    onThisRequest,
+    type Outcome,
+    type PlanStore,
+  } from './planStore.svelte'
   import { handleId, Reorder } from './reorder.svelte'
-  import { moveTarget, type Direction, type Move } from './reorderMath'
+  import {
+    laterIn,
+    moveTarget,
+    placeBefore,
+    runsAfter,
+    titlesOf,
+    type Direction,
+    type Move,
+  } from './reorderMath'
   import RequestItem from './RequestItem.svelte'
   import type { ReviewCountdown } from './review.svelte'
 
@@ -40,6 +55,9 @@
     onrun,
     countdown,
     onmove,
+    changed,
+    onreopen,
+    reopening = false,
   }: {
     store: PlanStore
     /** The request as the page shows it: the store's view */
@@ -61,7 +79,16 @@
     countdown?: ReviewCountdown
     /** An item's note moved to the request's own box */
     onmove?: (text: string, refs: LedgerNoteRef[]) => void
+    /** The items a quiet read changed, by key: marked (`.row-changed`) */
+    changed?: ReadonlySet<string>
+    /** Reopen a closed request: the header menu's own Reopen */
+    onreopen?: () => void
+    /** A Reopen is in flight: the button waits */
+    reopening?: boolean
   } = $props()
+
+  // A closed request is read-only: no grip, Accept, row action or note box
+  const open = $derived(request.state === 'open')
 
   let list = $state<HTMLElement>()
   const keys = $derived(plan.live.map((row) => row.item.key))
@@ -70,26 +97,25 @@
   /** A write that failed for a reason that is not the plan moving */
   function failed(error: unknown) {
     const stale = error instanceof ApiError && error.code === 'stale_revision'
-    const message = error instanceof Error ? error.message : String(error)
-    notify.error(
-      stale
-        ? 'The plan kept changing, so that was not saved. Try again.'
-        : `Not saved: ${message}`,
-    )
+    if (stale) {
+      notify.error('The plan kept changing, so that was not saved. Try again.')
+    } else {
+      notify.failure('save that', error)
+    }
   }
   const quietly = (write: Promise<Outcome>) => void write.catch(failed)
 
   let toasts = 0
-  /** An edit shown at once, with the toast that takes it back. The toast
-   * goes if the edit was not written after all: held back to ask, no
-   * longer applying, or refused */
+  /** An edit shown at once, with the toast that takes it back - once, and
+   * only on this request. The toast goes if the edit was not written after
+   * all: held back to ask, no longer applying, or refused */
   function undoable(
     write: Promise<Outcome>,
     message: string,
     back: () => void,
   ) {
     const id = `request-undo-${++toasts}`
-    notify.undo(message, back, id)
+    undoToast(message, back, onThisRequest(store), id)
     write
       .then((outcome) => {
         if (outcome.status !== 'saved') notify.dismiss(id)
@@ -100,12 +126,18 @@
       })
   }
 
+  // Rows placed above something they depend on: the dependency wins
+  const later = $derived(open ? runsAfter(plan) : {})
+
   function moved(row: ItemState, move: Move) {
     quietly(
       store.stage({ kind: 'move', key: row.item.key, before: move.before }),
     )
+    const next = placeBefore(keys, row.item.key, move.before)
+    const wins = laterIn(next, row.item.key, row.after)
     onsay(
-      `${row.item.title} moved to position ${move.position} of ${move.total}.`,
+      `${row.item.title} moved to position ${move.position} of ${move.total}.` +
+        (wins.length ? ` It still runs after ${titlesOf(wins)}.` : ''),
     )
   }
   const byKey = (key: string) => plan.live.find((row) => row.item.key === key)
@@ -120,16 +152,34 @@
   })
   $effect(() => () => reorder.destroy())
 
+  // The star is the accept's own: Undo takes back the acceptance only, and
+  // a star that fails leaves the acceptance (notify.failure says so). One
+  // action per accept: a shared one would drop a second accept's star while
+  // the first is on its way, under a toast that says it was starred
+  const star = (name: string) =>
+    action(() => api.setStarred(name, true), {
+      doing: 'star the accepted take',
+    }).run()
+
   function accept(row: ItemState, take: Take, job: string | null) {
     const { key, title } = row.item
     const previous = row.item.accepted?.job ?? null
+    const file = take.attempt.output?.name
+    const write = store.push({ kind: 'accept', key, job })
+    const starred = job !== null && file ? ' and starred it' : ''
     undoable(
-      store.push({ kind: 'accept', key, job }),
+      write,
       job === null
         ? `Cleared the accepted take of ${title}`
-        : `Accepted take ${take.n} for ${title}`,
+        : `Accepted take ${take.n} for ${title}${starred}`,
       () => quietly(store.push({ kind: 'accept', key, job: previous })),
     )
+    if (starred && file)
+      void write
+        .then((outcome) => {
+          if (outcome.status === 'saved') void star(file)
+        })
+        .catch(() => undefined)
   }
 
   /** "Keep this take": the revised item's shown take accepted again, which
@@ -187,6 +237,7 @@
       outputsHref:
         wsHref(workspace, 'gallery') + requestQuery(request.id, row.item.key),
       canRun: !!onrun,
+      open,
     })
 
   const shown = $derived(new Set(plan.items.map((row) => row.item.key)))
@@ -215,7 +266,7 @@
   </button>
 {/snippet}
 
-{#snippet action(row: ItemState)}
+{#snippet rowAction(row: ItemState)}
   {#if row.item.dropped}
     <button type="button" class="quiet act" onclick={() => restore(row)}>
       Restore
@@ -254,6 +305,11 @@
 {/snippet}
 
 {#snippet notice(row: ItemState)}
+  {#if later[row.item.key]}
+    <p class="onrow hint muted">
+      Runs after {titlesOf(later[row.item.key])} whatever its place.
+    </p>
+  {/if}
   {#each store.conflicts.filter((c) => c.key === row.item.key) as conflict (conflict.id)}
     <div class="onrow">
       <ConflictNotice
@@ -272,14 +328,15 @@
     {workspace}
     {onreload}
     {ongo}
-    handle={row.item.dropped ? undefined : handle}
-    {action}
+    handle={row.item.dropped || !open ? undefined : handle}
+    action={open ? rowAction : undefined}
     {menu}
     {notice}
-    onaccept={(take, job) => accept(row, take, job)}
-    onkeep={(take) => keep(row, take)}
+    onaccept={open ? (take, job) => accept(row, take, job) : undefined}
+    onkeep={open ? (take) => keep(row, take) : undefined}
     {countdown}
     {onmove}
+    changed={changed?.has(row.item.key) ?? false}
   />
 {/snippet}
 
@@ -297,6 +354,20 @@
     <ConflictNotice {conflict} ondismiss={() => store.dismiss(conflict.id)} />
   </div>
 {/each}
+
+{#if !open}
+  <div class="panel closed">
+    <p role="note">
+      This request is {request.state}. Reopen it to change the plan or leave a
+      note.
+    </p>
+    {#if onreopen}
+      <button type="button" onclick={onreopen} disabled={reopening}>
+        {reopening ? 'Reopening…' : 'Reopen'}
+      </button>
+    {/if}
+  </div>
+{/if}
 
 {#if plan.items.length === 0}
   <p class="muted">The agent has not planned any items for this request yet.</p>
@@ -324,6 +395,20 @@
   .above {
     margin-bottom: var(--space-3);
   }
+  .closed {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+    margin: 0 0 var(--space-3);
+  }
+  .closed p {
+    margin: 0;
+  }
+  .hint {
+    margin: 0;
+    font-size: var(--t-sm);
+  }
   .onrow {
     padding: 0 0.8rem var(--space-3) calc(0.2rem + 24px + var(--space-3));
   }
@@ -337,6 +422,20 @@
   }
   .items > :global(li + li) {
     border-top: 1px solid var(--line);
+  }
+  /* A row being dragged, and where it would land: the reorder sets these
+     on the row's <li>. Ink, the pointer's place, as a drop target is */
+  .items > :global(li.insert-before) {
+    box-shadow: inset 0 2px 0 var(--ink);
+  }
+  .items > :global(li.insert-after) {
+    box-shadow: inset 0 -2px 0 var(--ink);
+  }
+  .items > :global(li.dragging) {
+    position: relative;
+    z-index: 1;
+    opacity: 0.85;
+    background: var(--panel);
   }
   .droppedgroup {
     border-top: 1px solid var(--line);

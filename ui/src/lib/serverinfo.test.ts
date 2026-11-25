@@ -3,7 +3,9 @@ import {
   addressLabel,
   browserUrl,
   isLoopbackBind,
+  reachedOrigin,
   isUnauthenticatedPublicBind,
+  bindSnippet,
   mcpAddCommand,
   mcpUrl,
   runtimeRows,
@@ -76,9 +78,33 @@ describe('mcp add command', () => {
   })
 })
 
+describe('mcp add command token header', () => {
+  it('the mcp line carries the token header only when a token is required', () => {
+    expect(mcpAddCommand('10.0.0.4', 8765, '/mcp', true)).toContain(
+      '--header "Authorization: Bearer <token>"',
+    )
+    expect(mcpAddCommand('10.0.0.4', 8765, '/mcp', false)).toBe(
+      'claude mcp add --transport http dw http://10.0.0.4:8765/mcp',
+    )
+  })
+
+  it('the bind snippet uses python -m dw.serve and the placeholder', () => {
+    expect(bindSnippet()).toBe(
+      'DW_API_TOKEN=<token> python -m dw.serve --host 0.0.0.0',
+    )
+  })
+})
+
 describe('bind classification', () => {
   it('recognises loopback binds', () => {
-    for (const host of ['127.0.0.1', 'localhost', '::1', '127.0.1.1'])
+    for (const host of [
+      '127.0.0.1',
+      'localhost',
+      '::1',
+      '127.0.1.1',
+      '[::1]',
+      '::ffff:127.0.0.1',
+    ])
       expect(isLoopbackBind(host)).toBe(true)
     for (const host of ['0.0.0.0', '192.168.1.50', '::'])
       expect(isLoopbackBind(host)).toBe(false)
@@ -97,6 +123,21 @@ describe('bind classification', () => {
       ),
     ).toBe(false)
   })
+})
+
+it('reports the page origin only when the page is not on loopback', () => {
+  expect(
+    reachedOrigin({ hostname: 'localhost', origin: 'http://localhost:8765' }),
+  ).toBeNull()
+  expect(
+    reachedOrigin({ hostname: '[::1]', origin: 'http://[::1]:8765' }),
+  ).toBeNull()
+  expect(
+    reachedOrigin({
+      hostname: 'dw.example.com',
+      origin: 'https://dw.example.com',
+    }),
+  ).toBe('https://dw.example.com')
 })
 
 it('labels an address by interface', () => {

@@ -133,7 +133,14 @@ it('shows rows from `complete` in place of its suggestions', async () => {
           {
             value: 'asset:cast/priya.png',
             label: 'cast/priya.png',
-            thumb: '/inputs/cast/priya.png',
+            media: {
+              name: 'cast/priya.png',
+              kind: 'image' as const,
+              url: '/inputs/cast/priya.png',
+              label: 'priya.png',
+              workspace: 'default',
+              thumb: '/inputs/cast/priya.png',
+            },
             detail: 'the lead',
             badge: 'shared',
           },
@@ -196,4 +203,39 @@ it('opens on focus only when asked to', async () => {
   expect(
     screen.queryByRole('listbox', { hidden: true })?.getAttribute('data-state'),
   ).not.toBe('open')
+})
+
+const mediaRow = (kind: 'image' | 'audio', thumb: string | null) => ({
+  value: 'asset:x',
+  media: {
+    name: 'x',
+    kind,
+    url: '/inputs/x',
+    label: 'x',
+    workspace: 'default',
+    thumb,
+  },
+})
+
+async function rowFor(item: ReturnType<typeof mediaRow>) {
+  render(Suggest, {
+    props: { id: 'v', value: '', complete: () => [item] },
+  })
+  await fireEvent.input(screen.getByRole('combobox'), {
+    target: { value: 'asset:' },
+  })
+  return waitFor(() => screen.getByRole('option', { hidden: true }))
+}
+
+it('a row with a picture draws it as a tile', async () => {
+  const option = await rowFor(mediaRow('image', '/thumb/x.png'))
+  const tile = option.querySelector('.filetile')!
+  expect(tile.classList).toContain('tile-row')
+  expect(tile.querySelector('img')?.getAttribute('src')).toBe('/thumb/x.png')
+})
+
+it('a row without one draws its glyph', async () => {
+  const option = await rowFor(mediaRow('audio', null))
+  expect(option.querySelector('img')).toBeNull()
+  expect(option.querySelector('.tile-glyph')?.textContent?.trim()).toBe('♪')
 })

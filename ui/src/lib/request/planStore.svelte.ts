@@ -4,10 +4,12 @@
 // queue folded over the read, so a refresh replaces the read without
 // undoing an edit the user has just made. An intent is applied to the read
 // only at the moment it is sent: a plan read earlier is never sent again.
+import { api } from '../api'
 import { ApiError } from '../apiErrors'
 import type { RequestWriteBody } from '../apiRequest'
+import type { UndoTarget } from '../destructive'
 import type { LedgerItem, LedgerRequest } from '../types'
-import { culprit, itemDiff, type Conflict } from './conflict'
+import { culprit, itemDiff, stateCulprit, type Conflict } from './conflict'
 import {
   apply,
   fold,
@@ -51,6 +53,24 @@ export type PlanIo = {
   put: (body: RequestWriteBody) => Promise<LedgerRequest>
   /** Every time the read is replaced, with what it replaced */
   onread?: (previous: LedgerRequest | null, next: LedgerRequest) => void
+  /** A write of the user's was saved: what is held after it, for a
+   * resource to `adopt` so the edit is never marked as someone else's */
+  onsaved?: (held: LedgerRequest) => void
+  /** A read made to retry a stale write, after `onread`: the agent's
+   * change it found, for a resource to `observe` as a quiet read so it is
+   * marked, and not lost to the save's `adopt` */
+  onquiet?: (read: LedgerRequest) => void
+}
+
+/** The two calls a store makes for request `id` of workspace `ws` */
+export function requestRoutes(
+  ws: string,
+  id: string,
+): Pick<PlanIo, 'get' | 'put'> {
+  return {
+    get: () => api.getRequest(ws, id),
+    put: (body) => api.putRequest(ws, id, body),
+  }
 }
 
 const done = (status: Outcome['status'], stripped: string[] = []): Outcome => ({
@@ -66,6 +86,13 @@ const keyOf = (intent: Intent) => ('key' in intent ? intent.key : null)
  * rest (a move, a restore) mean the same whatever it now holds */
 const decides = (intent: Intent) =>
   intent.kind === 'drop' || intent.kind === 'accept'
+
+/** The page and its store are reused for the next request: an Undo made
+ * here is held to the request it was made on (`undoToast`'s target) */
+export const onThisRequest = (store: PlanStore): UndoTarget => ({
+  now: () => store.read?.id ?? null,
+  away: 'Nothing undone: another request is open now.',
+})
 
 export class PlanStore {
   read = $state.raw<LedgerRequest | null>(null)
@@ -118,6 +145,19 @@ export class PlanStore {
     if (next === previous) return
     this.read = next
     this.#io.onread?.(previous, next)
+  }
+
+  /** Read the request again and keep it unless what is held is newer
+   * (`take`). Resolves with what is then held; a reply for a request the
+   * store has since been reset from, or that `isCurrent` says a later read
+   * overtook, is not taken. `get` is called before any await, so a resource
+   * loading through this tracks what it reads */
+  async refresh(isCurrent?: () => boolean): Promise<LedgerRequest> {
+    const epoch = this.#epoch
+    const found = await this.#io.get()
+    if (epoch !== this.#epoch || isCurrent?.() === false) return found
+    this.take(found)
+    return this.read ?? found
   }
 
   /** Queue an edit. Resolves with how it ended; rejects with the server's
@@ -274,7 +314,12 @@ export class PlanStore {
       refusal,
       key,
       title: entry.seen?.title ?? key ?? 'this request',
-      entry: culprit(basis.history, entry.since),
+      // A state moved on may have been read before this write was asked
+      // for: the write that set the state names it, however long ago
+      entry:
+        refusal === 'moved_on'
+          ? stateCulprit(basis.history)
+          : culprit(basis.history, entry.since),
       changes,
     }
     this.conflicts = [...this.conflicts, conflict]
@@ -319,6 +364,7 @@ export class PlanStore {
     }
     if (epoch !== this.#epoch) return
     this.take(saved)
+    this.#io.onsaved?.(this.read ?? saved)
     if (entry.tries > 0)
       this.notice = {
         entry: culprit(saved.history, entry.since, saved.revision),
@@ -334,7 +380,10 @@ export class PlanStore {
       return this.#reject(entry, error)
     try {
       const fresh = await this.#io.get()
-      if (epoch === this.#epoch) this.take(fresh)
+      if (epoch === this.#epoch) {
+        this.take(fresh)
+        this.#io.onquiet?.(fresh)
+      }
     } catch (failure) {
       if (epoch === this.#epoch) this.#reject(entry, failure)
     }

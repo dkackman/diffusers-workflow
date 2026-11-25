@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { describeEstimate, describeEstimateTotal, describePlan } from './plan'
+import {
+  describeEstimate,
+  describeEstimateTotal,
+  describePlan,
+  planSummary,
+} from './plan'
 import type { Plan } from './types'
 
 const base: Plan = {
@@ -29,7 +34,7 @@ describe('describePlan', () => {
     const lines = describePlan(base)
     expect(lines.map((line) => line.text)).toEqual([
       '8 steps (shots: 5)',
-      '~42 min on cuda - measured on RTX 3090',
+      'about 42 min on cuda - measured on RTX 3090',
       '0 of 8 steps cached',
       'needs download: org/model (41.2 GB)',
     ])
@@ -47,7 +52,7 @@ describe('describePlan', () => {
       estimate: { ...base.estimate, basis: 'per_entry' },
     })
     expect(figure.text).toBe(
-      '~42 min on cuda - re-priced for 5 shots, measured on RTX 3090',
+      'about 42 min on cuda - re-priced for 5 shots, measured on RTX 3090',
     )
   })
 
@@ -57,7 +62,7 @@ describe('describePlan', () => {
       estimate: { ...base.estimate, basis: 'derived' },
     })
     expect(figure.text).toBe(
-      '~42 min on cuda - estimated for 5 shots, from a figure measured on RTX 3090',
+      'about 42 min on cuda - estimated for 5 shots, from a figure measured on RTX 3090',
     )
     expect(figure.tone).toBe('warn')
   })
@@ -74,7 +79,7 @@ describe('describePlan', () => {
       },
     })
     expect(figure.text).toBe(
-      '~26.3 min on cuda - estimated (scaled from the curated 7.9 min: steps 30 vs 9), from a figure measured on RTX 3090',
+      'about 26.3 min on cuda - estimated (scaled from the curated 7.9 min: steps 30 vs 9), from a figure measured on RTX 3090',
     )
     expect(figure.tone).toBe('warn')
   })
@@ -107,7 +112,7 @@ describe('describePlan', () => {
       },
     })
     expect(figure.text).toBe(
-      '~42 min on cuda - re-priced for 5 shots, measured on RTX 3090 (scaled from the curated 7.9 min: steps 30 vs 9)',
+      'about 42 min on cuda - re-priced for 5 shots, measured on RTX 3090 (scaled from the curated 7.9 min: steps 30 vs 9)',
     )
     expect(figure.tone).toBe('plain')
   })
@@ -159,7 +164,7 @@ describe('describePlan', () => {
     })
     expect(lines.map((line) => line.text)).toEqual([
       '1 step',
-      '~42 min on cuda - measured on RTX 3090',
+      'about 42 min on cuda - measured on RTX 3090',
     ])
   })
 
@@ -169,7 +174,7 @@ describe('describePlan', () => {
       cached_steps: 8,
       downloads_required: [],
     })
-    expect(lines[2].text).toBe('all 8 steps cached - a run generates nothing')
+    expect(lines[2].text).toBe('all 8 steps cached - a job generates nothing')
   })
 
   it('a download without a size, and a checkpoint URL, are still named', () => {
@@ -195,23 +200,23 @@ describe('describePlan', () => {
     const cases: [Plan['host_memory'], string][] = [
       [
         { basis: 'observed', projected_mb: 23552, runs: 4 },
-        'host RAM ~23 GB (observed)',
+        'host RAM about 23 GB (observed)',
       ],
       [
         { basis: 'fit', projected_mb: 30000, runs: 3 },
-        'host RAM ~29.3 GB (fit to 3 runs)',
+        'host RAM about 29.3 GB (fit to 3 runs)',
       ],
       [
         { basis: 'fit', projected_mb: 1024, runs: 1 },
-        'host RAM ~1 GB (fit to 1 run)',
+        'host RAM about 1 GB (fit to 1 run)',
       ],
       [
         { basis: 'declared', projected_mb: 65536, runs: 0 },
-        'host RAM ~64 GB (declared)',
+        'host RAM about 64 GB (declared)',
       ],
       [
         { basis: 'inherited', projected_mb: 20480, runs: 2 },
-        'host RAM ~20 GB (inherited from the template)',
+        'host RAM about 20 GB (inherited from an example)',
       ],
     ]
     for (const [memory, text] of cases) {
@@ -220,13 +225,40 @@ describe('describePlan', () => {
     }
   })
 
+  it('an inherited host-RAM figure names its example', () => {
+    const lines = describePlan({
+      ...base,
+      host_memory: {
+        basis: 'inherited',
+        projected_mb: 20480,
+        runs: 2,
+        inherited_from: 'H3-template',
+      },
+    })
+    expect(lines[2].text).toBe(
+      'host RAM about 20 GB (inherited from H3-template)',
+    )
+  })
+
+  it('an inherited figure with no source says it came from an example', () => {
+    const [, figure] = describePlan({
+      ...base,
+      estimate: {
+        ...base.estimate,
+        basis: 'inherited',
+        inherited_from: undefined,
+      },
+    })
+    expect(figure.text).toBe('about 42 min, inherited from an example')
+  })
+
   it('a low-confidence figure says so and is a warning', () => {
     const [, figure] = describePlan({
       ...base,
       estimate: { ...base.estimate, basis: 'observed', low_confidence: true },
     })
     expect(figure).toEqual({
-      text: '~42 min on cuda - measured on RTX 3090, low confidence',
+      text: 'about 42 min on cuda - measured on RTX 3090, low confidence',
       tone: 'warn',
     })
   })
@@ -245,7 +277,7 @@ describe('describePlan', () => {
       },
     })
     expect(figure).toEqual({
-      text: '~30 min on cuda - measured on RTX 3090, blended toward the curated 40 min from 2 runs at 20 min',
+      text: 'about 30 min on cuda - measured on RTX 3090, blended toward the curated 40 min from 2 runs at 20 min',
       tone: 'plain',
     })
   })
@@ -259,13 +291,13 @@ describe('describePlan', () => {
       },
     })
     expect(figure.text).toBe(
-      '~42 min on cuda:1 NVIDIA GeForce RTX 3090 - measured on RTX 3090',
+      'about 42 min on cuda:1 NVIDIA GeForce RTX 3090 - measured on RTX 3090',
     )
     const [, same] = describePlan({
       ...base,
       estimate: { ...base.estimate, priced_for: 'cuda' },
     })
-    expect(same.text).toBe('~42 min on cuda - measured on RTX 3090')
+    expect(same.text).toBe('about 42 min on cuda - measured on RTX 3090')
   })
 
   it('a withheld figure says so and names its source', () => {
@@ -295,7 +327,7 @@ describe('describePlan', () => {
     }
     const [, firm] = describePlan({ ...base, estimate: inherited })
     expect(firm).toEqual({
-      text: '~42 min, inherited from templates/text-to-image.json',
+      text: 'about 42 min, inherited from templates/text-to-image.json',
       tone: 'plain',
     })
     const [, thin] = describePlan({
@@ -303,7 +335,7 @@ describe('describePlan', () => {
       estimate: { ...inherited, low_confidence: true },
     })
     expect(thin).toEqual({
-      text: '~42 min, inherited from templates/text-to-image.json, low confidence',
+      text: 'about 42 min, inherited from templates/text-to-image.json, low confidence',
       tone: 'warn',
     })
   })
@@ -319,7 +351,7 @@ describe('describePlan', () => {
     }
     const [, firm] = describePlan({ ...base, estimate: inherited })
     expect(firm).toEqual({
-      text: `~42 min, inherited from templates/text-to-image - for ${card}`,
+      text: `about 42 min, inherited from templates/text-to-image - for ${card}`,
       tone: 'plain',
     })
     const [, thin] = describePlan({
@@ -327,7 +359,7 @@ describe('describePlan', () => {
       estimate: { ...inherited, low_confidence: true },
     })
     expect(thin).toEqual({
-      text: `~42 min, inherited from templates/text-to-image, low confidence - for ${card}`,
+      text: `about 42 min, inherited from templates/text-to-image, low confidence - for ${card}`,
       tone: 'warn',
     })
     const unknown = {
@@ -363,7 +395,9 @@ describe('describePlan', () => {
       ...base,
       estimate: { ...inherited, priced_for: 'mps' },
     })
-    expect(same.text).toBe('~42 min, inherited from templates/text-to-image')
+    expect(same.text).toBe(
+      'about 42 min, inherited from templates/text-to-image',
+    )
   })
 
   it('an unpriced reason replaces the bare no measured cost', () => {
@@ -408,7 +442,7 @@ describe('describePlan', () => {
 describe('describeEstimate', () => {
   it('reads one estimate as the plan figure does', () => {
     expect(describeEstimate(base.estimate)).toEqual({
-      text: '~42 min on cuda - measured on RTX 3090',
+      text: 'about 42 min on cuda - measured on RTX 3090',
       tone: 'plain',
     })
   })
@@ -439,7 +473,7 @@ describe('describeEstimateTotal', () => {
         base.estimate,
         { ...base.estimate, minutes: 0.25 },
       ]),
-    ).toEqual({ text: 'total ~42.3 min', tone: 'plain' })
+    ).toEqual({ text: 'total about 42.3 min', tone: 'plain' })
   })
 
   it('says how many had no figure, so the total does not read as complete', () => {
@@ -449,11 +483,32 @@ describe('describeEstimateTotal', () => {
         null,
         { ...base.estimate, minutes: null, basis: 'unknown' },
       ]),
-    ).toEqual({ text: 'total ~42 min, plus 2 with no figure', tone: 'warn' })
+    ).toEqual({
+      text: 'total about 42 min, plus 2 with no figure',
+      tone: 'warn',
+    })
   })
 
   it('with nothing priced has no figure', () => {
     expect(describeEstimateTotal([null]).text).toBe('total: no figure')
     expect(describeEstimateTotal([]).text).toBe('total: nothing to run')
+  })
+})
+
+describe('planSummary', () => {
+  it('the summary names the estimate and the download size', () => {
+    expect(planSummary(base)).toBe('about 42 min · downloads 41.2 GB first')
+  })
+
+  it('no download, no download half', () => {
+    expect(planSummary({ ...base, downloads_required: [] })).toBe(
+      'about 42 min',
+    )
+    const unsized = [
+      { repo: 'org/m', gb: null, gated: null, access_blocked: null },
+    ]
+    expect(planSummary({ ...base, downloads_required: unsized })).toBe(
+      'about 42 min',
+    )
   })
 })

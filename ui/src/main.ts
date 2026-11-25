@@ -1,21 +1,15 @@
 import { mount } from 'svelte'
 import './app.css'
 import './frames.css'
+import './patterns.css'
 
-// Apply a manual theme choice before first paint; absent = follow the system
-try {
-  const theme = localStorage.getItem('dw-theme')
-  if (theme === 'light' || theme === 'dark') {
-    document.documentElement.dataset.theme = theme
-  }
-} catch {
-  /* storage unavailable - system theme applies */
-}
 import App from './App.svelte'
 import { adoptTokenFromUrl } from './lib/token'
 
 adoptTokenFromUrl()
 
-const app = mount(App, { target: document.getElementById('app')! })
+const target = document.getElementById('app')!
+target.replaceChildren()
+const app = mount(App, { target })
 
 export default app

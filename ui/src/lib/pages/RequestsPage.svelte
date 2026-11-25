@@ -3,17 +3,20 @@
   import { api } from '../api'
   import { resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
+  import PageHeader from '../ui/PageHeader.svelte'
   import ItemProof from '../request/ItemProof.svelte'
   import RequestProgress from '../request/RequestProgress.svelte'
   import StateTag from '../request/StateTag.svelte'
   import {
     attention,
     doneFigure,
+    notesWaiting,
     orderRequests,
     summaryBands,
   } from '../request/attention'
-  import { formatMinutes, formatMtime, formatSpent } from '../format'
-  import { hashQuery, setHashQuery } from '../router.svelte'
+  import { formatExact, formatMinutes, formatSpent } from '../format'
+  import Time from '../ui/Time.svelte'
+  import { hashState } from '../router.svelte'
   import { wsHref } from '../routes'
   import { workspace } from '../workspace.svelte'
 
@@ -21,35 +24,38 @@
 
   // Open requests are what the page is for; `show=all` in the hash's query
   // brings the closed ones back, and survives opening one and coming back
-  let show = $state(hashQuery().show === 'all' ? 'all' : 'open')
-  $effect(() => setHashQuery({ show: show === 'all' ? 'all' : '' }))
-  $effect(() => {
-    const sync = () => (show = hashQuery().show === 'all' ? 'all' : 'open')
-    window.addEventListener('hashchange', sync)
-    return () => window.removeEventListener('hashchange', sync)
+  const show = hashState('show', 'open', {
+    parse: (raw) => (raw === 'all' ? 'all' : 'open'),
+    format: (value) => value,
   })
 
-  // A request an agent writes shows within one feed interval
+  // A request an agent writes shows within one feed interval, marked
   const list = resource(() => api.listRequests(workspace.current), {
     watch: ['requests'],
+    rows: (data) => data.requests.map((req) => [req.id, req]),
   })
   // Why requests.json could not be read, when it is there and is no ledger
   const unreadable = $derived(list.data?.unreadable ?? null)
 
   const ordered = $derived(orderRequests(list.data?.requests ?? []))
   const open = $derived(ordered.filter((req) => req.state === 'open'))
-  const visible = $derived(show === 'all' ? ordered : open)
+  const visible = $derived(show.value === 'all' ? ordered : open)
   const closed = $derived(ordered.length - open.length)
-  const written = (at: string) => formatMtime(Date.parse(at) / 1000)
+  // The row's hover says what its time is, then the time to the second
+  const writtenTitle = (at: number) =>
+    Number.isFinite(at) ? `last written ${formatExact(at)}` : 'last written'
 </script>
 
-<div class="pagehead">
-  <h1>Requests</h1>
-  <select bind:value={show} title="which requests to list" aria-label="show">
-    <option value="open">open</option>
-    <option value="all">all</option>
-  </select>
-</div>
+<PageHeader title="Requests">
+  {#snippet actions()}<select
+      bind:value={show.value}
+      title="which requests to list"
+      aria-label="show"
+    >
+      <option value="open">open</option>
+      <option value="all">all</option>
+    </select>{/snippet}
+</PageHeader>
 
 <LoadState
   of={list}
@@ -66,7 +72,7 @@
   {:else if visible.length === 0}
     <p class="muted">
       No open requests.
-      <button type="button" class="quiet" onclick={() => (show = 'all')}>
+      <button type="button" class="quiet" onclick={() => (show.value = 'all')}>
         show closed ({closed})
       </button>
     </p>
@@ -77,6 +83,7 @@
         <a
           class="row plain"
           class:row-live={line.live}
+          class:row-changed={list.changed.has(req.id)}
           href={wsHref(name, 'requests', req.id)}
         >
           <span class="cover">
@@ -110,13 +117,24 @@
             </span>
           </span>
           <span class="figures num muted">
+            {#if notesWaiting(req) > 0}
+              <span>
+                {notesWaiting(req)}
+                {notesWaiting(req) === 1 ? 'note' : 'notes'} waiting for the agent
+              </span>
+            {/if}
             <span>{formatSpent(req.spent_minutes)} spent</span>
             {#if req.state === 'open' && req.remaining_minutes > 0}
               <span>{formatMinutes(req.remaining_minutes)} left</span>
             {/if}
           </span>
           <span class="updated num muted" title="last written">
-            {req.updated_at ? written(req.updated_at) : ''}
+            {#if req.updated_at}{@const at =
+                Date.parse(req.updated_at) / 1000}<Time
+                {at}
+                label="changed"
+                title={writtenTitle(at)}
+              />{/if}
           </span>
         </a>
       {/each}
@@ -125,16 +143,6 @@
 </LoadState>
 
 <style>
-  .pagehead h1 {
-    margin: 0;
-    flex: 1;
-  }
-  .pagehead select {
-    max-width: 110px;
-  }
-  .list {
-    padding: 0.3rem;
-  }
   /* Fixed tracks past the title, so the columns line up down the list */
   .row {
     display: grid;
@@ -143,22 +151,10 @@
       108px 9.5rem 8.5rem;
     gap: 1rem;
     align-items: center;
-    padding: 0.55rem 0.8rem;
-    border-radius: 6px;
-    color: var(--ink);
-  }
-  .row:hover {
-    background: var(--panel-2);
   }
   .cover {
     display: flex;
     gap: 4px;
-  }
-  .namecol {
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-    min-width: 0;
   }
   /* Written for a person, so not in the mono a workflow's name takes */
   .title {
@@ -185,10 +181,12 @@
     font-weight: 600;
   }
   .attention.idle,
+  .attention.needs,
   .attention.running {
     color: var(--ink);
   }
-  .attention.idle {
+  .attention.idle,
+  .attention.needs {
     font-weight: 600;
   }
   .progress {

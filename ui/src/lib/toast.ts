@@ -32,10 +32,13 @@ export const notify = {
    * full message is one click away for pasting into a report: Copy details
    * keeps the toast up (svelte-sonner closes one whose action does not
    * prevent the default), and when the copy fails the detail moves into
-   * the toast to be selected by hand. */
-  failure(doing: string, e: unknown, id?: string) {
+   * the toast to be selected by hand. `more` is lines of the caller's put
+   * after the error's own detail: which names a bulk action left behind. */
+  failure(doing: string, e: unknown, id?: string, more?: string) {
     const described = describeError(e)
-    const { title, detail } = described
+    const { title } = described
+    const detail =
+      [described.detail, more].filter(Boolean).join('\n') || undefined
     // A load reloads when the server is back; a failed action does not
     const remedy =
       described.kind === 'offline' ? OFFLINE_ACTION_REMEDY : described.remedy

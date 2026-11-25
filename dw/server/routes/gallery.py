@@ -1,7 +1,8 @@
 """The gallery routes: list a workspace's outputs, bundle a selection into a
 zip, delete one output or run directory, and the two marks a person puts on
 one: `PUT /api/notes` (the note on an output, a run, an asset or a workspace;
-dw/notes.py holds the stores) and `PUT /api/stars`.
+dw/notes.py holds the stores; `If-Match` with the etag `GET /api/notes`
+reads refuses a stale write) and `PUT /api/stars`.
 
 Registered after the media router, so the `/metadata`, `/thumbnail` and
 `/download` GETs under `/api/gallery/{name:path}` are matched before the
@@ -14,19 +15,19 @@ import shutil
 from typing import Optional
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from ..api_models import (
     GalleryList,
+    NoteRead,
     NoteSet,
     OutputDeleted,
     StarSet,
 )
 from ...assets import is_asset_reference
 from ...library import ReadOnlyLibraryError
-from ...media import probe_media
 from ...notes import (
     MAX_NOTE_LENGTH,
     NOTES_FILE_NAME,
@@ -35,6 +36,7 @@ from ...notes import (
     drop_file_note,
     effective_note,
     read_notes,
+    read_workspace_note,
     set_file_note,
     set_file_starred,
     set_run_note,
@@ -49,22 +51,27 @@ from ...runs import (
     record_run_versions,
     split_run_path,
 )
-from ...security import (
-    InvalidInputError,
-    SecurityError,
-    validate_asset_reference,
-    validate_ledger_key,
-    validate_path,
-)
+from ...security import SecurityError, validate_asset_reference, validate_path
 from ...workspace import DEFAULT_WORKSPACE_NAME, Workspace, forget_workspace_usage
-from ..changes import GALLERY, changed, changed_assets
+from ..changes import (
+    ASSETS,
+    GALLERY,
+    NO_CHANGE,
+    WORKSPACES,
+    Change,
+    ChangeRoute,
+    pending_change,
+    writes,
+)
 from ..deps import (
     asset_library_missing,
+    check_ledger_filter,
     internal_error,
     selected_workspace,
     workspace_for,
     workspace_root,
 )
+from ..preconditions import check_if_match, content_etag_of
 from ..outputs import (
     ArchiveRequest,
     delete_run_directory,
@@ -72,8 +79,10 @@ from ..outputs import (
     absolute_served_url,
     archive_selection,
     iter_gallery_files,
+    probed_duration,
     resolve_output_file,
     run_directory,
+    run_prompts,
     consumed_in,
     output_annotations,
     served_url,
@@ -85,7 +94,7 @@ from ..outputs import (
 
 logger = logging.getLogger("dw")
 
-router = APIRouter()
+router = APIRouter(route_class=ChangeRoute)
 
 # What a run directory holds besides its outputs - the files a run writes
 # about itself. A run whose directory holds nothing else is an orphan
@@ -215,14 +224,27 @@ def _check_gallery_filters(role, request_id, item):
                 status_code=400,
                 detail=f"unknown role {unknown}; roles are {list(ROLES)}",
             )
-    if item and not request_id:
-        raise HTTPException(status_code=422, detail="item needs request")
-    for value, what in ((request_id, "request"), (item, "item")):
-        if value:
-            try:
-                validate_ledger_key(value, what)
-            except InvalidInputError as e:
-                raise HTTPException(status_code=422, detail=str(e))
+    check_ledger_filter(request_id, item)
+
+
+def _page_extras(request, ws, page, media, prompts):
+    """What the opt-ins add to a gallery page: with `media`, each audio and
+    video entry's `duration_seconds` (set in place); with `prompts`, the
+    listing's `prompts` key, returned. {} when neither is asked for."""
+    if media:
+        for entry in page:
+            if entry["kind"] not in ("audio", "video"):
+                continue
+            probed = probed_duration(
+                os.path.join(ws.outputs, entry["name"]), ws.outputs
+            )
+            if probed is not None:
+                entry["duration_seconds"] = probed.get("duration_seconds")
+    if not prompts:
+        return {}
+    history = request.app.state.job_manager.history
+    runs = {entry["run_id"] for entry in page if entry["run_id"]}
+    return {"prompts": run_prompts(history, ws.name, runs)}
 
 
 @router.get(
@@ -237,6 +259,7 @@ def gallery(
     only_orphans: bool = False,
     version: Optional[int] = None,
     media: bool = False,
+    prompts: bool = False,
     role: Optional[list[str]] = Query(None),
     request_id: Optional[str] = Query(
         default=None,
@@ -283,7 +306,13 @@ def gallery(
     by, since size and mtime are misleading proxies for length (#356).
     Off by default and bounded by `limit`: only the page actually
     returned is probed, not the whole listing, so the cost of asking
-    stays proportional to the page size rather than the library size.
+    stays proportional to the page size rather than the library size. A
+    file's answer is its header's duration, memoised on its mtime and
+    size (`probed_duration`).
+
+    `prompts=true` adds `prompts`: run id -> the `prompt` argument its job
+    was submitted with, for the runs on the page. A run whose job history
+    no longer holds has no entry.
 
     Each entry carries `role`, `final` or `intermediate` (null for a
     flat-layout file or one no manifest lists); a file a later run read
@@ -331,13 +360,7 @@ def gallery(
     offset = max(0, offset)
     limit = max(0, limit)
     page = entries[offset : offset + limit]
-    if media:
-        for entry in page:
-            if entry["kind"] not in ("audio", "video"):
-                continue
-            probed = probe_media(os.path.join(ws.outputs, entry["name"]))
-            if probed is not None:
-                entry["duration_seconds"] = probed.get("duration_seconds")
+    extras = _page_extras(request, ws, page, media, prompts)
     return {
         "files": page,
         "total": len(entries),
@@ -346,10 +369,12 @@ def gallery(
         "folders": folders,
         "subfolders": subfolders,
         "workspace": ws.name,
+        **extras,
     }
 
 
 @router.post("/api/gallery/archive")
+@NO_CHANGE("builds a download or a view; writes nothing a page lists")
 def archive_outputs(
     request: Request, body: ArchiveRequest, ws: Workspace = Depends(selected_workspace)
 ):
@@ -426,6 +451,7 @@ def _prune_empty_run_directory(name, root):
     response_model=OutputDeleted,
     response_model_exclude_unset=True,
 )
+@writes(GALLERY)
 def delete_output(
     request: Request, name: str, ws: Workspace = Depends(selected_workspace)
 ):
@@ -440,7 +466,6 @@ def delete_output(
     run_dir = run_directory(name, ws.outputs)
     if run_dir is not None:
         swept = delete_run_directory(run_dir, ws.outputs)
-        changed(request, ws.name, GALLERY)
         return {"name": name, "deleted": True, "run_swept": swept}
 
     path = resolve_output_file(request.app.state, name, ws.outputs)
@@ -459,7 +484,6 @@ def delete_output(
             logger.warning(f"Could not drop the note for {name}: {e}")
     swept = _prune_empty_run_directory(name, ws.outputs)
     forget_workspace_usage()
-    changed(request, ws.name, GALLERY)
     return {"name": name, "deleted": True, "run_swept": swept}
 
 
@@ -502,7 +526,7 @@ def _workspace_note_target(state, name):
 def _asset_note_target(state, ws, name):
     """(directory, file name, library root) of the asset an `asset:<name>`
     target names - resolved the way the asset delete resolves it, read-only
-    roots refused. The root says which library holds it (`changed_assets`)."""
+    roots refused. The root says which library holds it (`Change.in_library`)."""
     library = workspace_asset_library(state, ws)
     if not library.roots():
         raise asset_library_missing()
@@ -549,9 +573,53 @@ def resolve_note_target(state, ws, target):
     return split[0], split[1], "file", None
 
 
+def _own_note(directory, name, kind):
+    """The note stored on the target itself: a file's or an asset's own,
+    never the run's it falls back to."""
+    if kind == "workspace":
+        return read_workspace_note(directory)
+    notes = read_notes(directory)
+    return notes["run"] if kind == "run" else notes["files"].get(name)
+
+
+def _note_etag(note):
+    """The etag of a note: its text's bytes, "" for none."""
+    return content_etag_of((note or "").encode("utf-8"))
+
+
+@router.get("/api/notes", response_model=NoteRead)
+def get_note(
+    request: Request,
+    response: Response,
+    target: str = Query(description="A target as PUT /api/notes takes it"),
+    ws: Workspace = Depends(selected_workspace),
+):
+    """The target's own note and its etag, for an editor that will replace
+    it only if it is still the note it read: `If-Match` on PUT /api/notes."""
+    directory, name, kind, _root = resolve_note_target(request.app.state, ws, target)
+    note = _own_note(directory, name, kind)
+    response.headers["ETag"] = _note_etag(note)
+    return {"target": target, "note": note, "etag": _note_etag(note)}
+
+
+def _note_expectation(request, target):
+    """What `If-Match` asks of the note, checked under the write's lock; None
+    without the header - the opt-in MCP's set_note never sends."""
+    if request.headers.get("if-match") is None:
+        return None
+    label = f"The note on {target}"
+    return lambda current: check_if_match(
+        request, (current or "").encode("utf-8"), label
+    )
+
+
 @router.put("/api/notes", response_model=NoteSet, response_model_exclude_unset=True)
+@writes(ASSETS, GALLERY, WORKSPACES)
 def put_note(
-    request: Request, body: NoteRequest, ws: Workspace = Depends(selected_workspace)
+    request: Request,
+    body: NoteRequest,
+    ws: Workspace = Depends(selected_workspace),
+    change: Change = Depends(pending_change),
 ):
     """Set or clear the note on a run, a file, an asset or a workspace.
 
@@ -568,23 +636,24 @@ def put_note(
     directory, name, kind, root = resolve_note_target(
         request.app.state, ws, body.target
     )
+    expect = _note_expectation(request, body.target)
     try:
         if kind == "workspace":
-            stored, source = set_workspace_note(directory, note), None
+            stored, source = set_workspace_note(directory, note, expect), None
         elif kind == "run":
-            stored, source = set_run_note(directory, note), "run"
+            stored, source = set_run_note(directory, note, expect), "run"
         else:
-            set_file_note(directory, name, note)
+            set_file_note(directory, name, note, expect)
             stored, source = effective_note(read_notes(directory), name)
     except OSError:
         raise internal_error(f"Could not write the note on {body.target!r}")
     if kind == "workspace":
         # The sidebar lists workspace notes: the server-wide counter
-        request.app.state.changes.bump_workspaces()
+        change.only(WORKSPACES)
     elif kind == "asset":
-        changed_assets(request, ws, root)
+        change.only(ASSETS).in_library(ws, root)
     else:
-        changed(request, ws.name, GALLERY)
+        change.only(GALLERY)
     return {
         "target": body.target,
         "note": stored,
@@ -598,6 +667,7 @@ class StarRequest(BaseModel):
 
 
 @router.put("/api/stars", response_model=StarSet)
+@writes(GALLERY)
 def put_star(
     request: Request, body: StarRequest, ws: Workspace = Depends(selected_workspace)
 ):
@@ -618,5 +688,4 @@ def put_star(
         starred = set_file_starred(directory, name, body.starred)
     except OSError:
         raise internal_error(f"Could not write the star on {body.name!r}")
-    changed(request, ws.name, GALLERY)
     return {"name": body.name, "starred": starred}

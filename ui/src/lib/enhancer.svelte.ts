@@ -4,6 +4,7 @@
 // than in the panel, so switching the editor's view - which unmounts the
 // panel - keeps a download or a job going.
 import { api, fetchOutputText, streamJobEvents } from './api'
+import { describeError } from './apiErrors'
 import { sleep } from './poll'
 import { phaseLabel } from './progress'
 import {
@@ -12,8 +13,6 @@ import {
   presetForIntendedModel,
 } from './prompts'
 import type { EnhancerPreset, ModelRepo, PromptDetail } from './types'
-
-const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 export class Enhancer {
   presets = $state<EnhancerPreset[]>([])
@@ -25,12 +24,28 @@ export class Enhancer {
   downloading = $state(false)
   busy = $state(false)
   status = $state('')
+  /** What went wrong, in plain words */
   error = $state('')
+  /** The server's own text behind `error`, for Details */
+  errorDetail = $state('')
   result = $state('')
   jobId = $state('')
+  /** The workspace the job runs in, which its link names */
+  jobWorkspace = $state('')
   // The server reported no presets, or could not be asked
   down = $state(false)
   #stopStream: (() => void) | null = null
+
+  /** Say what went wrong: our words for it, the engine's kept beside */
+  #say(words: string, detail = '') {
+    this.error = words
+    this.errorDetail = detail
+  }
+  /** A caught failure while `doing`, through describeError */
+  #fail(doing: string, e: unknown) {
+    const described = describeError(e)
+    this.#say(`Couldn't ${doing}: ${described.title}`, described.detail)
+  }
 
   readonly preset = $derived(this.presets.find((p) => p.key === this.presetKey))
   readonly modelCached = $derived(
@@ -86,7 +101,7 @@ export class Enhancer {
   async downloadModel() {
     if (!this.model) return
     this.downloading = true
-    this.error = ''
+    this.#say('')
     try {
       await api.startDownload(this.model)
       // Poll until this repo's download leaves the active list
@@ -96,12 +111,12 @@ export class Enhancer {
         const mine = downloads.find((d) => d.repo_id === this.model)
         if (!mine || mine.status !== 'downloading') {
           if (mine?.status === 'failed')
-            this.error = mine.error ?? 'download failed'
+            this.#say('The model download failed', mine.error ?? '')
           break
         }
       }
     } catch (e) {
-      this.error = message(e)
+      this.#fail('download the model', e)
     } finally {
       this.downloading = false
       this.refreshModels()
@@ -110,11 +125,11 @@ export class Enhancer {
 
   async generate() {
     if (!this.idea.trim()) {
-      this.error = 'Describe the idea to expand first'
+      this.#say('Describe the idea to expand first')
       return
     }
     this.busy = true
-    this.error = ''
+    this.#say('')
     this.result = ''
     this.status = 'queueing…'
     try {
@@ -125,6 +140,7 @@ export class Enhancer {
         device: this.device || undefined,
       })
       this.jobId = job.id
+      this.jobWorkspace = job.workspace
       if (job.queue_position !== undefined) {
         this.status = `queued · #${job.queue_position + 1} in line`
       }
@@ -143,7 +159,7 @@ export class Enhancer {
         () => this.#finish(job.id),
       )
     } catch (e) {
-      this.error = message(e)
+      this.#fail('start the enhancement', e)
       this.busy = false
       this.status = ''
     }
@@ -154,21 +170,22 @@ export class Enhancer {
     try {
       const detail = await api.getJob(jobId)
       if (detail.status !== 'succeeded') {
-        this.error = detail.error ?? `enhancement ${detail.status}`
+        this.#say(`The enhancement ${detail.status}`, detail.error ?? '')
         return
       }
       const file = manifestTextFile(detail.manifest)
       if (!file) {
-        this.error = 'The enhancement produced no text'
+        this.#say('The enhancement produced no text')
         return
       }
       this.result = (await fetchOutputText(file, detail.workspace)).trim()
     } catch (e) {
-      this.error = message(e)
+      this.#fail('read the enhancement', e)
     } finally {
       this.busy = false
       this.status = ''
       this.jobId = ''
+      this.jobWorkspace = ''
     }
   }
 

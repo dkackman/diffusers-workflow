@@ -29,6 +29,10 @@ export interface paths {
          *     `used_by` names the workspace's own workflows that reference an asset
          *     (`asset_users`) - what lets a workspace show the shared assets it
          *     actually uses rather than the whole shared library.
+         *
+         *     `media=true` adds `duration_seconds` to the audio and video assets
+         *     returned (after `limit`), the gallery's probe and its memo; off, the
+         *     payload is unchanged.
          */
         get: operations["list_assets_api_assets_get"];
         put?: never;
@@ -338,7 +342,13 @@ export interface paths {
          *     by, since size and mtime are misleading proxies for length (#356).
          *     Off by default and bounded by `limit`: only the page actually
          *     returned is probed, not the whole listing, so the cost of asking
-         *     stays proportional to the page size rather than the library size.
+         *     stays proportional to the page size rather than the library size. A
+         *     file's answer is its header's duration, memoised on its mtime and
+         *     size (`probed_duration`).
+         *
+         *     `prompts=true` adds `prompts`: run id -> the `prompt` argument its job
+         *     was submitted with, for the runs on the page. A run whose job history
+         *     no longer holds has no entry.
          *
          *     Each entry carries `role`, `final` or `intermediate` (null for a
          *     flat-layout file or one no manifest lists); a file a later run read
@@ -769,7 +779,8 @@ export interface paths {
          *     `limit` keeps the newest N, and `total` always reports how many
          *     matched before the cut, so a caller can tell a bounded answer from a
          *     complete one. The default is still every matching job, oldest first -
-         *     what the web UI polls.
+         *     what the web UI polls. `prompts=true` adds `prompts`: each listed job's
+         *     submitted `prompt` argument by job id.
          */
         get: operations["list_jobs_api_jobs_get"];
         put?: never;
@@ -1251,7 +1262,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Get Note
+         * @description The target's own note and its etag, for an editor that will replace
+         *     it only if it is still the note it read: `If-Match` on PUT /api/notes.
+         */
+        get: operations["get_note_api_notes_get"];
         /**
          * Put Note
          * @description Set or clear the note on a run, a file, an asset or a workspace.
@@ -1405,11 +1421,10 @@ export interface paths {
         };
         /**
          * List Open Requests
-         * @description Every workspace's open requests, without their items, newest change
-         *     first: the one read a notes channel makes when it watches the whole
-         *     server. Marked `X-DW-Notes-Channel: 1`, it counts as a poll of every
-         *     workspace. `unreadable` names a workspace whose requests.json is there
-         *     but is not a ledger, or that could not be resolved while it was listed;
+         * @description Every workspace's open requests, without items, newest change first:
+         *     the one read a notes channel makes to watch the whole server. Marked
+         *     `X-DW-Notes-Channel: 1`, it polls every workspace. `unreadable` names a
+         *     workspace whose requests.json is not a ledger or could not be resolved;
          *     the others still list, and a watcher keeps what it knew of the named
          *     ones rather than taking them for closed.
          */
@@ -1686,8 +1701,9 @@ export interface paths {
          *     `shape`, `traits` (comma-separated, all must match) and `configures`
          *     narrow the listing; `view=compact` is the agent's view - summaries
          *     rather than descriptions, templates rather than model configs
-         *     unless `include_models` asks for them. `workflows` always names
-         *     exactly the entries `details` holds.
+         *     unless `include_models` asks for them; `inputs` adds each media
+         *     input's kind; `times` when each file changed. `workflows` names exactly
+         *     the entries `details` holds.
          */
         get: operations["list_workflows_api_workflows_get"];
         put?: never;
@@ -1802,11 +1818,9 @@ export interface paths {
         };
         /**
          * List Workspaces
-         * @description Every workspace on this server, the default first.
-         *
-         *     A workspace is a namespace, not a security boundary: the API token
-         *     is all-or-nothing, so anything that can list these can reach all of
-         *     them.
+         * @description Every workspace on this server, the default first; `times` adds when
+         *     each last changed. A namespace, not a security boundary: the API token
+         *     is all-or-nothing, so anything that can list these can reach all of them.
          */
         get: operations["list_workspaces_api_workspaces_get"];
         put?: never;
@@ -1940,10 +1954,10 @@ export interface paths {
         /**
          * Add Request Note
          * @description Add one of the user's notes for the agent, on an item or (no `item`)
-         *     on the request itself; answers the note and the request's new revision.
-         *     Each of `refs` names an item (the note's own, for an item note; any live
-         *     item, for a request note) and optionally a job linked to it and one file
-         *     of that job's manifest; the server adds the file's `kind`. 422
+         *     on the request; answers the note and the request's new revision. Each
+         *     of `refs` names an item (the note's own, or any live item for a request
+         *     note), optionally a job linked to it and one file of its manifest; the
+         *     server adds the file's `kind`. 422
          *     `invalid_note_ref` for a ref that does not hold, `too_many_refs`,
          *     `unknown_item`, `item_dropped` or `too_many_notes`; 404
          *     `unknown_request`.
@@ -1969,8 +1983,9 @@ export interface paths {
         };
         /**
          * List Requests
-         * @description A workspace's requests, newest change first, without their items.
-         *     `unreadable` says why when requests.json is there but is not a ledger.
+         * @description A workspace's requests, newest change first, without their items;
+         *     `needs=true` adds each row's `needs`. `unreadable` says why when
+         *     requests.json is there but is not a ledger.
          */
         get: operations["list_requests_api_workspaces__name__requests_get"];
         put?: never;
@@ -1990,17 +2005,18 @@ export interface paths {
         };
         /**
          * Get Request
-         * @description One request: its plan, every item with its derived status, and its
-         *     history. 409 `ledger_unreadable` when requests.json is not a ledger.
+         * @description One request: its plan, items with derived status, and its
+         *     history; `reasons=true` adds a failed take's `reason`. 409
+         *     `ledger_unreadable` when requests.json is no ledger.
          */
         get: operations["get_request_api_workspaces__name__requests__request_id__get"];
         /**
          * Put Request
          * @description Write one request's whole plan. `revision` is the revision it was
-         *     read at, or 0 to create it; a write against any other revision is 409
-         *     `stale_revision`, with `current_revision` in the detail. `prompt` is
-         *     set on create only (a later change is 422 `prompt_is_write_once`). An
-         *     item left out is deleted, or kept as dropped when jobs link to it.
+         *     read at, or 0 to create it; any other is 409 `stale_revision` with
+         *     `current_revision`. `prompt` is set on create only (422
+         *     `prompt_is_write_once`). An item left out is deleted, or kept as dropped
+         *     when jobs link to it. `reasons=true` adds a failed take's `reason`.
          */
         put: operations["put_request_api_workspaces__name__requests__request_id__put"];
         post?: never;
@@ -2139,6 +2155,11 @@ export interface components {
         AssetFile: {
             /** Absolute Url */
             absolute_url?: string;
+            /**
+             * Duration Seconds
+             * @description A/V length with `media=true`.
+             */
+            duration_seconds?: number | null;
             /** Folder */
             folder: string;
             /**
@@ -2214,7 +2235,7 @@ export interface components {
         BuiltinWorkflows: {
             /**
              * Workflows
-             * @description The packaged fragments a sub-workflow step names as `builtin:<name>.json`, each as what follows the prefix.
+             * @description Packaged fragments, each as a step names it after `builtin:`.
              */
             workflows: string[];
         };
@@ -2285,6 +2306,16 @@ export interface components {
              * @description Job queue, start, finish, cancel and move, and a run deleted.
              */
             jobs: number;
+            /**
+             * Loras
+             * @description LoRA catalog saves and deletes. Server-wide.
+             */
+            loras: number;
+            /**
+             * Models
+             * @description Model downloads, cancels and deletes, cache clears, and a diffusers update. Server-wide.
+             */
+            models: number;
             /**
              * Prompts
              * @description Prompt library saves and deletes.
@@ -2592,7 +2623,7 @@ export interface components {
             absolute_url?: string;
             /**
              * Duration Seconds
-             * @description An audio or video file's length, with `media=true`.
+             * @description A/V length with `media=true`.
              */
             duration_seconds?: number | null;
             /** Folder */
@@ -2684,6 +2715,13 @@ export interface components {
             limit: number;
             /** Offset */
             offset: number;
+            /**
+             * Prompts
+             * @description Run id -> prompt, with `prompts=true`.
+             */
+            prompts?: {
+                [key: string]: string;
+            };
             /** Subfolders */
             subfolders: string[];
             /** Total */
@@ -2996,6 +3034,13 @@ export interface components {
              * @description Oldest first.
              */
             jobs: components["schemas"]["JobSummary"][];
+            /**
+             * Prompts
+             * @description Job id -> its prompt, with `prompts=true`.
+             */
+            prompts?: {
+                [key: string]: string;
+            };
             /**
              * Total
              * @description How many matched before `limit` cut the list.
@@ -3314,6 +3359,11 @@ export interface components {
             /** @description The job's first final image or video, else its first sound or text; null when it wrote none or its run is gone. */
             output: components["schemas"]["LedgerOutput"] | null;
             /**
+             * Reason
+             * @description Only with reasons=true: why a failed or cancelled job ended, the first line of its error.
+             */
+            reason?: string;
+            /**
              * Status
              * @enum {string}
              */
@@ -3454,8 +3504,7 @@ export interface components {
         };
         /**
          * LedgerNote
-         * @description One note the user wrote for the agent. Only the request-notes routes
-         *     write one.
+         * @description One note the user wrote for the agent; only request-notes routes write one.
          */
         LedgerNote: {
             /**
@@ -3624,6 +3673,13 @@ export interface components {
             id: string;
             /** Items */
             items: number;
+            /**
+             * Needs
+             * @description Only with needs=true: how many items want the user, by reason - held, ready, failed (can run again), revised, choose, accepted_missing - and notes_waiting.
+             */
+            needs?: {
+                [key: string]: number;
+            };
             /**
              * Ready
              * @description Items a job could be queued for now.
@@ -4068,6 +4124,21 @@ export interface components {
              */
             text: string;
         };
+        /** NoteRead */
+        NoteRead: {
+            /**
+             * Etag
+             * @description What `If-Match` on PUT /api/notes names to replace only this note.
+             */
+            etag: string;
+            /**
+             * Note
+             * @description The target's own note, never the run's a file falls back to.
+             */
+            note: string | null;
+            /** Target */
+            target: string;
+        };
         /**
          * NoteRefWrite
          * @description One reference of a new note. `kind` is the server's to set.
@@ -4165,6 +4236,13 @@ export interface components {
             id: string;
             /** Items */
             items: number;
+            /**
+             * Needs
+             * @description Only with needs=true: how many items want the user, by reason - held, ready, failed (can run again), revised, choose, accepted_missing - and notes_waiting.
+             */
+            needs?: {
+                [key: string]: number;
+            };
             /**
              * Ready
              * @description Items a job could be queued for now.
@@ -4351,7 +4429,7 @@ export interface components {
             unpriced: string[];
             /**
              * Unpriced Reason
-             * @description With basis `unknown` and no `withheld`: why a workflow of task steps alone has no price - it has no pipeline to inherit one from, and its length follows its input media (#948).
+             * @description With basis `unknown` and no `withheld`: why a task-only workflow has no price - no pipeline to inherit one from; its length follows its input media.
              */
             unpriced_reason?: string;
             /**
@@ -4369,6 +4447,11 @@ export interface components {
              */
             basis: "observed" | "fit" | "declared" | "inherited";
             /**
+             * Inherited From
+             * @description With basis `inherited`: the template's name.
+             */
+            inherited_from?: string;
+            /**
              * Projected Mb
              * @description The host RAM, in MB, this run is projected to hold at its peak.
              */
@@ -4381,10 +4464,20 @@ export interface components {
         };
         /** PromptCard */
         PromptCard: {
+            /**
+             * Created
+             * @description Birth time, if the filesystem has it; times=true only.
+             */
+            created?: number;
             /** Description */
             description: string;
             /** Intended Model */
             intended_model: string;
+            /**
+             * Mtime
+             * @description Epoch seconds its file last changed; times=true only.
+             */
+            mtime?: number;
             /**
              * Origin
              * @description Which library the prompt came from, and whether a save can reach it.
@@ -4564,6 +4657,11 @@ export interface components {
             id: string;
             /** Workflow */
             workflow: string | null;
+            /**
+             * Workflow Name
+             * @description The catalog name it ran by.
+             */
+            workflow_name?: string | null;
             /** Workspace */
             workspace: string;
         };
@@ -5041,7 +5139,7 @@ export interface components {
             name: string | null;
             /**
              * Oom Score Adj
-             * @description The worker's kernel oom_score_adj, read from /proc at call time (1000 for the latest dispatch's worker in a pool, else the value it was spawned with); absent where unreadable.
+             * @description The kernel oom_score_adj read from /proc at call time: 1000 for a pool's latest-dispatch worker, else its spawn value; absent where unreadable.
              */
             oom_score_adj?: number;
             /**
@@ -5054,12 +5152,15 @@ export interface components {
              * @description What the card holds, in the GB a catalog cost entry is written in.
              */
             vram_gb: number | null;
+            /**
+             * Workspace
+             * @description The workspace of `current_job`; absent while idle.
+             */
+            workspace?: string;
         };
         /**
          * WorkflowCard
-         * @description One workflow's entry in the full listing (the agent's
-         *     `view=compact` answer is a different, smaller shape outside this
-         *     model).
+         * @description One workflow in the full listing; `view=compact` answers a smaller shape.
          */
         WorkflowCard: {
             /**
@@ -5078,21 +5179,38 @@ export interface components {
             };
             /**
              * Cost
-             * @description Measured runs, one per device the maintainer measured on. Null means unknown - never derived.
+             * @description Measured runs, one per device the maintainer measured on; null means unknown, never derived.
              */
             cost: components["schemas"]["WorkflowCost"][] | null;
             /** Cost Drivers */
             cost_drivers: {
                 [key: string]: unknown;
             };
+            /**
+             * Created
+             * @description Birth time, if the filesystem has it; times=true only.
+             */
+            created?: number;
             /** Description */
             description: string;
+            /**
+             * Inputs
+             * @description Each variable feeding a media argument, and its kind; inputs=true only.
+             */
+            inputs?: {
+                [key: string]: "image" | "video" | "audio" | "file";
+            };
             /** Kinds */
             kinds: string[];
             /** Lists */
             lists: {
                 [key: string]: unknown;
             };
+            /**
+             * Mtime
+             * @description Epoch seconds its file last changed; times=true only.
+             */
+            mtime?: number;
             /**
              * Observed
              * @description This box's own history for it.
@@ -5122,7 +5240,7 @@ export interface components {
             summary: string;
             /**
              * Traits
-             * @description Sorted, independent facts about how the output is made or what it needs.
+             * @description Sorted facts about how the output is made or what it needs.
              */
             traits: ("has-audio" | "chained" | "image-conditioned" | "identity-referenced" | "needs-input-media" | "composes-workflows")[];
             /** Variable Names */
@@ -5242,7 +5360,7 @@ export interface components {
             destination: string;
             /**
              * Renumbered
-             * @description Copied runs whose `vN` changed, keyed `<workflow>/<run id>`: `{from, to}`.
+             * @description Runs whose `vN` changed, `<workflow>/<run id>` to `{from, to}`.
              */
             renumbered: {
                 [key: string]: {
@@ -5253,7 +5371,7 @@ export interface components {
             source: string;
             /**
              * Warnings
-             * @description `unresolved_output_refs`, `absolute_paths` and `no_jobs`, each only when it applies.
+             * @description `unresolved_output_refs`, `absolute_paths`, `no_jobs`: where each applies.
              */
             warnings: {
                 [key: string]: unknown;
@@ -5297,8 +5415,18 @@ export interface components {
             assets: string | null;
             /** Common Assets */
             common_assets: string | null;
+            /**
+             * Created
+             * @description Birth time, if the filesystem has it; times=true only.
+             */
+            created?: number;
             /** Default */
             default: boolean;
+            /**
+             * Mtime
+             * @description The newest mtime of its folders and their direct entries; times=true only.
+             */
+            mtime?: number;
             /** Name */
             name: string;
             /**
@@ -5350,6 +5478,8 @@ export interface operations {
                 limit?: number | null;
                 /** @description Only assets whose name starts with this, e.g. a folder such as 'cast/' */
                 prefix?: string | null;
+                /** @description Add `duration_seconds` to each audio and video asset listed, probed and memoised as the gallery's `media=true` is */
+                media?: boolean;
                 workspace?: string | null;
             };
             header?: never;
@@ -5713,6 +5843,7 @@ export interface operations {
                 only_orphans?: boolean;
                 version?: number | null;
                 media?: boolean;
+                prompts?: boolean;
                 role?: string[] | null;
                 /** @description Only the files of runs whose job is linked to this requests-ledger request in this workspace */
                 request?: string | null;
@@ -6182,6 +6313,7 @@ export interface operations {
                 request?: string | null;
                 /** @description With `request`: only the jobs linked to this item of it */
                 item?: string | null;
+                prompts?: boolean;
             };
             header?: never;
             path?: never;
@@ -6960,6 +7092,39 @@ export interface operations {
             };
         };
     };
+    get_note_api_notes_get: {
+        parameters: {
+            query: {
+                /** @description A target as PUT /api/notes takes it */
+                target: string;
+                workspace?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoteRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     put_note_api_notes_put: {
         parameters: {
             query?: {
@@ -7072,6 +7237,7 @@ export interface operations {
                 tag?: string | null;
                 intended_model?: string | null;
                 include_text?: boolean;
+                times?: boolean;
             };
             header?: never;
             path?: never;
@@ -7529,6 +7695,8 @@ export interface operations {
                 configures?: string | null;
                 include_models?: boolean;
                 view?: string | null;
+                inputs?: boolean;
+                times?: boolean;
                 workspace?: string | null;
             };
             header?: never;
@@ -7768,7 +7936,9 @@ export interface operations {
     };
     list_workspaces_api_workspaces_get: {
         parameters: {
-            query?: never;
+            query?: {
+                times?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -7782,6 +7952,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkspaceList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -8057,7 +8236,9 @@ export interface operations {
     };
     list_requests_api_workspaces__name__requests_get: {
         parameters: {
-            query?: never;
+            query?: {
+                needs?: boolean;
+            };
             header?: never;
             path: {
                 name: string;
@@ -8088,7 +8269,9 @@ export interface operations {
     };
     get_request_api_workspaces__name__requests__request_id__get: {
         parameters: {
-            query?: never;
+            query?: {
+                reasons?: boolean;
+            };
             header?: never;
             path: {
                 name: string;
@@ -8120,7 +8303,9 @@ export interface operations {
     };
     put_request_api_workspaces__name__requests__request_id__put: {
         parameters: {
-            query?: never;
+            query?: {
+                reasons?: boolean;
+            };
             header?: never;
             path: {
                 name: string;

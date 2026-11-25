@@ -1,21 +1,29 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
-  import { ChevronDown, ChevronRight, Plus } from '@lucide/svelte'
-  import { storageGet, storageSet } from './storage'
+  import { Plus } from '@lucide/svelte'
+  import { collapsedState, type Collapsed } from './collapsed.svelte'
+  import GroupHeading from './ui/GroupHeading.svelte'
   import { groupNames, groupOf as defaultGroupOf } from './grouping'
 
   let {
     names,
-    collapseKey,
+    collapseKey = '',
+    collapsed = undefined,
     filterActive,
     newHref = undefined,
     onnewingroup = undefined,
     minColumn = '210px',
     groupOf = defaultGroupOf,
+    rank = undefined,
+    heading = (group: string) => `${group}/`,
     card,
   }: {
     names: string[]
-    collapseKey: string
+    /** Where the shut folders are remembered, unless the page holds them */
+    collapseKey?: string
+    /** The shut folders, held by a page whose own order leaves them out
+     * (the gallery's picks and viewer) */
+    collapsed?: Collapsed
     filterActive: boolean
     newHref?: string
     onnewingroup?: (group: string) => void
@@ -23,38 +31,41 @@
     /** Which folder a name belongs to. The gallery passes its own: its
      * names carry a run id that the server has already folded into `folder`. */
     groupOf?: (name: string) => string
+    /** Where a group sits, when its groups are not folders (the gallery's
+     * dates); folders sort as `groupNames` sorts them */
+    rank?: (group: string) => number
+    /** How a group's heading reads: a folder ends in a slash */
+    heading?: (group: string) => string
     card: Snippet<[string]>
   } = $props()
 
   // svelte-ignore state_referenced_locally
-  let collapsed = $state<Record<string, boolean>>(storageGet(collapseKey, {}))
+  const shut = collapsed ?? collapsedState(collapseKey)
 
-  function toggle(group: string) {
-    collapsed[group] = !collapsed[group]
-    storageSet(collapseKey, $state.snapshot(collapsed))
-  }
-
-  const grouped = $derived(groupNames(names, groupOf))
+  const grouped = $derived(groupNames(names, groupOf, rank))
   const groups = $derived([...grouped.keys()])
   const inGroup = (group: string) => grouped.get(group) ?? []
   // While filtering, everything stays visible - a collapsed folder hiding
   // matches would make the filter look broken
-  const isOpen = (group: string) => filterActive || !collapsed[group]
+  const isOpen = (group: string) => filterActive || !shut.has(group)
+  // ...so the toggle is off then, and says why
+  const toggleTitle = (group: string) =>
+    filterActive
+      ? 'Showing every match while the filter is on'
+      : `${isOpen(group) ? 'collapse' : 'expand'} this ${rank ? 'group' : 'folder'}`
 </script>
 
 {#each groups as group (group)}
   {#if group}
     <div class="grouprow">
-      <button
-        class="group"
-        onclick={() => toggle(group)}
-        title={isOpen(group) ? 'collapse this folder' : 'expand this folder'}
-      >
-        {#if isOpen(group)}<ChevronDown size={14} />{:else}<ChevronRight
-            size={14}
-          />{/if}
-        {group}/ <span class="muted">({inGroup(group).length})</span>
-      </button>
+      <GroupHeading
+        label={heading(group)}
+        count={inGroup(group).length}
+        collapsed={!isOpen(group)}
+        disabled={filterActive}
+        ontoggle={() => shut.toggle(group)}
+        title={toggleTitle(group)}
+      />
       {#if newHref}
         <a
           class="groupnew"
@@ -103,27 +114,6 @@
   .groupnew:hover {
     color: var(--ink);
     border-color: var(--line);
-  }
-  /* A folder name is a path segment the engine resolves, so it is mono
-     like every other name in the app */
-  .group {
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-    background: none;
-    border: none;
-    color: var(--muted);
-    font-family: var(--font-mono);
-    font-weight: 600;
-    font-size: var(--t-sm);
-    letter-spacing: -0.01em;
-    padding: 0;
-    margin: 0;
-    cursor: pointer;
-  }
-  .group:hover {
-    color: var(--ink);
-    filter: none;
   }
   /* Cards are deliberately not equal height - one that has produced
      something carries a picture and one that has not does not - so rows

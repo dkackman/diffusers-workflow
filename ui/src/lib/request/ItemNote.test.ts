@@ -23,10 +23,20 @@ beforeEach(() => {
 afterEach(cleanup)
 
 const AT = '2026-01-02T03:04:05+00:00'
+const SAVED = Date.parse(AT) / 1000
+/** The line noteLine gives, written when the note was */
+const lineOf = (answered: boolean, over = {}) => ({
+  written: SAVED,
+  changed: null,
+  standing: 'Then.',
+  agent: null,
+  answered,
+  ...over,
+})
 const props = (saved: string | null = null, over = {}) => ({
   note: saved ? { id: 'n1', text: saved, created: AT, at: AT } : null,
   about: 'Shot 3',
-  line: saved ? { text: 'Saved then.', answered: false } : null,
+  line: saved ? lineOf(false) : null,
   onsave: vi.fn(),
   ondelete: vi.fn(),
   onreload: vi.fn(),
@@ -51,7 +61,7 @@ async function draft(text: string, saved: string | null = null) {
 
 it('says before a word is written that no agent session is listening', async () => {
   await draft('')
-  expect(screen.getByText(/No agent session is listening/)).toBeTruthy()
+  expect(screen.getByText(/The agent isn't connected\. It reads/)).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Save note' })).toBeTruthy()
   expect(box().maxLength).toBe(4000)
   await waitFor(() => expect(document.activeElement).toBe(box()))
@@ -66,7 +76,7 @@ it('says Send to agent while a session is listening, and saves either way', asyn
   )
   expect(
     screen.getByText(
-      'An agent session is listening; it will see this within about 10 seconds.',
+      'The agent is connected; it will see this within about 10 seconds.',
     ),
   ).toBeTruthy()
   await fireEvent.input(box(), { target: { value: 'warmer' } })
@@ -115,8 +125,44 @@ it('a new note shows what it is about under About, below its words, and a refere
 it('shows a saved note with the line about where it stands', () => {
   render(ItemNote, props('warmer, please'))
   expect(screen.getByText('warmer, please')).toBeTruthy()
-  expect(screen.getByText('Saved then.')).toBeTruthy()
+  expect(document.querySelector('.noteline')?.textContent).toMatch(
+    /^written .+\. Then\.$/,
+  )
   expect(screen.getByRole('button', { name: 'Delete note' })).toBeTruthy()
+})
+
+it('a note says when it was written and changed, and when the agent wrote since', () => {
+  const now = Math.floor(Date.now() / 1000)
+  render(
+    ItemNote,
+    props('warmer, please', {
+      line: lineOf(true, {
+        written: now - 3 * 3600,
+        changed: now - 3600,
+        standing: 'The agent has updated the plan 2 times since',
+        agent: { at: now - 5 * 60, lead: 'latest r14, ' },
+      }),
+    }),
+  )
+  const line = document.querySelector('.noteline')!
+  expect(line.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+    'written 3 h ago · changed 1 h ago. The agent has updated the plan 2 ' +
+      'times since (latest r14, changed 5 min ago by the agent).',
+  )
+  // each time is exact on hover
+  expect(
+    [...line.querySelectorAll('time')].every((t) => t.getAttribute('title')),
+  ).toBe(true)
+})
+
+it('a note whose stored time does not parse says unknown time', () => {
+  render(
+    ItemNote,
+    props('warmer, please', { line: lineOf(false, { written: NaN }) }),
+  )
+  expect(document.querySelector('.noteline')?.textContent).toContain(
+    'unknown time',
+  )
 })
 
 it('saves the draft; a saved note emptied is deleted', async () => {
@@ -295,7 +341,7 @@ it('deletes an answered note at once, and asks before one still waiting', async 
   })
   given.ondelete.mockResolvedValue(undefined)
   render(ItemNote, given)
-  await fireEvent.click(screen.getByRole('button', { name: 'Delete note' }))
+  await fireEvent.click(screen.getByRole('button', { name: 'Clear note' }))
   await waitFor(() => expect(given.ondelete).toHaveBeenCalledTimes(1))
   expect(confirmDialog).not.toHaveBeenCalled()
   cleanup()
@@ -315,7 +361,10 @@ it('a waiting note emptied and saved asks first, and stays when declined', async
   confirmDialog.mockResolvedValue(false)
   await fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
   await waitFor(() => expect(confirmDialog).toHaveBeenCalledTimes(1))
-  expect(confirmDialog.mock.calls[0][0]).toMatch(/^Delete this note\?/)
+  expect(confirmDialog.mock.calls[0][1]).toMatchObject({
+    title: 'Delete this note?',
+    danger: true,
+  })
   expect(given.ondelete).not.toHaveBeenCalled()
   expect(given.onsave).not.toHaveBeenCalled()
   expect(box()).toBeTruthy()
@@ -383,4 +432,93 @@ it('asked to open again while open, keeps what is in the box', async () => {
   await fireEvent.input(box(), { target: { value: 'half' } })
   await note.edit()
   expect(box().value).toBe('half')
+})
+
+it('words typed while the save is out stay in the box and in storage, without the sent ones', async () => {
+  let land!: () => void
+  const given = props(null, {
+    draftKey: 'note-draft:test',
+    onsave: vi.fn(() => new Promise<void>((resolve) => (land = resolve))),
+  })
+  render(ItemNote, given)
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Add a note for the agent' }),
+  )
+  await fireEvent.input(box(), { target: { value: 'warmer' } })
+  await fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
+  expect(given.onsave).toHaveBeenCalledWith('warmer')
+  await fireEvent.input(box(), { target: { value: 'warmer and slower' } })
+  land()
+  await waitFor(() => expect(box().disabled).toBe(false))
+  await new Promise((r) => setTimeout(r, 0))
+  expect(box().value).toBe('and slower')
+  expect(sessionStorage.getItem('note-draft:test')).toBe('and slower')
+})
+
+it('the box warns that saving stops the held items', async () => {
+  render(ItemNote, { ...props(), stops: 2 })
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Add a note for the agent' }),
+  )
+  expect(
+    screen.getByText(
+      'Saving this note stops 2 items waiting for your OK from starting on their own.',
+    ),
+  ).toBeTruthy()
+})
+
+it('no hold, no warning', async () => {
+  await draft('x')
+  expect(screen.queryByText(/Saving this note stops/)).toBeNull()
+})
+
+it('an answered note shows the answer and Clear note', async () => {
+  const given = props('warmer, please', {
+    line: lineOf(true),
+    answer: { revision: 8, why: 'retook shot 3 warmer' },
+  })
+  given.ondelete.mockResolvedValue(undefined)
+  render(ItemNote, given)
+  expect(
+    screen.getByText('The agent answered in r8: retook shot 3 warmer'),
+  ).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Delete note' })).toBeNull()
+  const clear = screen.getByRole('button', { name: 'Clear note' })
+  expect(clear.getAttribute('title')).toBe(
+    'The agent has answered; remove it from the list',
+  )
+  await fireEvent.click(clear)
+  await waitFor(() => expect(given.ondelete).toHaveBeenCalledTimes(1))
+  expect(confirmDialog).not.toHaveBeenCalled()
+})
+
+it('a second save after typing on sends only the new words', async () => {
+  let landed!: () => void
+  const given = props(null)
+  given.onsave.mockReturnValueOnce(new Promise<void>((r) => (landed = r)))
+  given.onsave.mockResolvedValue(undefined)
+  render(ItemNote, given)
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Add a note for the agent' }),
+  )
+  await fireEvent.input(box(), { target: { value: 'warmer' } })
+  await fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
+  await fireEvent.input(box(), { target: { value: 'warmer light' } })
+  landed()
+  await waitFor(() => expect(box().value).toBe('light'))
+  await fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
+  await waitFor(() => expect(given.onsave).toHaveBeenCalledTimes(2))
+  expect(given.onsave.mock.calls[1][0]).toBe('light')
+})
+
+it("Cancel's discard question is danger", async () => {
+  await draft('half a thought')
+  confirmDialog.mockResolvedValue(false)
+  await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  await waitFor(() => expect(confirmDialog).toHaveBeenCalledTimes(1))
+  expect(confirmDialog.mock.calls[0][1]).toMatchObject({
+    confirmLabel: 'Discard',
+    danger: true,
+  })
+  expect(box().value).toBe('half a thought')
 })

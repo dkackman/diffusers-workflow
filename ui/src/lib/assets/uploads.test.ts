@@ -1,11 +1,9 @@
 import { beforeEach, expect, it, vi } from 'vitest'
 import { ApiError } from '../apiErrors'
+import { api } from '../test/apiMock'
 import { isUploadable, reportUploads, uploadAll } from './uploads'
 
-const uploadMedia = vi.hoisted(() => vi.fn())
-vi.mock('../api', () => ({
-  api: { uploadMedia: (...args: unknown[]) => uploadMedia(...args) },
-}))
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
 const chooseDialog = vi.hoisted(() => vi.fn())
 vi.mock('../confirm.svelte', () => ({
   chooseDialog: (...args: unknown[]) => chooseDialog(...args),
@@ -21,11 +19,11 @@ const exists = () => new ApiError('exists', 409, 'exists')
 const ok = (name: string) => ({ reference: `asset:${name}`, url: `/u/${name}` })
 
 beforeEach(() => {
-  uploadMedia.mockReset()
+  api.uploadMedia.mockReset()
   chooseDialog.mockReset()
   notifyError.mockReset()
   notifySuccess.mockReset()
-  uploadMedia.mockImplementation((f: File, name?: string) =>
+  api.uploadMedia.mockImplementation((f: File, name?: string) =>
     Promise.resolve(ok(name ?? f.name)),
   )
 })
@@ -34,10 +32,10 @@ it('sends each file under its own name, create-only', async () => {
   const a = file('a.png')
   const b = file('b.png')
   const result = await uploadAll([a, b], { shared: true, folder: 'cast' })
-  expect(uploadMedia).toHaveBeenCalledWith(a, 'cast/a.png', true, {
+  expect(api.uploadMedia).toHaveBeenCalledWith(a, 'cast/a.png', true, {
     createOnly: true,
   })
-  expect(uploadMedia).toHaveBeenCalledWith(b, 'cast/b.png', true, {
+  expect(api.uploadMedia).toHaveBeenCalledWith(b, 'cast/b.png', true, {
     createOnly: true,
   })
   expect(result.uploaded).toHaveLength(2)
@@ -45,10 +43,11 @@ it('sends each file under its own name, create-only', async () => {
 })
 
 it('asks once for a batch with existing names', async () => {
-  uploadMedia.mockImplementation((f: File, name: string, _s, pre) =>
-    pre?.createOnly && f.name !== 'c.png'
-      ? Promise.reject(exists())
-      : Promise.resolve(ok(name)),
+  api.uploadMedia.mockImplementation(
+    (f: File, name: string | undefined, _s, pre) =>
+      pre?.createOnly && f.name !== 'c.png'
+        ? Promise.reject(exists())
+        : Promise.resolve(ok(name ?? f.name)),
   )
   chooseDialog.mockResolvedValue('replace')
   const result = await uploadAll(
@@ -65,7 +64,7 @@ it('asks once for a batch with existing names', async () => {
   expect(labels).toEqual(['Replace them', 'Keep both', 'Skip them'])
   expect(result.uploaded).toHaveLength(3)
   // Replaced without a precondition
-  expect(uploadMedia).toHaveBeenCalledWith(
+  expect(api.uploadMedia).toHaveBeenCalledWith(
     expect.any(File),
     'a.png',
     false,
@@ -74,17 +73,18 @@ it('asks once for a batch with existing names', async () => {
 })
 
 it('keep both renames with freeName', async () => {
-  uploadMedia.mockImplementation((f: File, name: string, _s, pre) =>
-    pre?.createOnly && name === 'photo.jpg'
-      ? Promise.reject(exists())
-      : Promise.resolve(ok(name)),
+  api.uploadMedia.mockImplementation(
+    (f: File, name: string | undefined, _s, pre) =>
+      pre?.createOnly && name === 'photo.jpg'
+        ? Promise.reject(exists())
+        : Promise.resolve(ok(name ?? f.name)),
   )
   chooseDialog.mockResolvedValue('keep-both')
   const result = await uploadAll([file('photo.jpg')], {
     shared: false,
     taken: new Set(['photo.jpg', 'photo-2.jpg']),
   })
-  expect(uploadMedia).toHaveBeenLastCalledWith(
+  expect(api.uploadMedia).toHaveBeenLastCalledWith(
     expect.any(File),
     'photo-3.jpg',
     false,
@@ -94,10 +94,11 @@ it('keep both renames with freeName', async () => {
 })
 
 it('keep both retries when the chosen name is taken too', async () => {
-  uploadMedia.mockImplementation((f: File, name: string, _s, pre) =>
-    pre?.createOnly && name !== 'p-3.jpg'
-      ? Promise.reject(exists())
-      : Promise.resolve(ok(name)),
+  api.uploadMedia.mockImplementation(
+    (f: File, name: string | undefined, _s, pre) =>
+      pre?.createOnly && name !== 'p-3.jpg'
+        ? Promise.reject(exists())
+        : Promise.resolve(ok(name ?? f.name)),
   )
   chooseDialog.mockResolvedValue('keep-both')
   const result = await uploadAll([file('p.jpg')], { shared: false })
@@ -106,27 +107,27 @@ it('keep both retries when the chosen name is taken too', async () => {
 })
 
 it('skip leaves existing assets untouched', async () => {
-  uploadMedia.mockRejectedValue(exists())
+  api.uploadMedia.mockRejectedValue(exists())
   chooseDialog.mockResolvedValue('skip')
   const result = await uploadAll([file('a.png')], { shared: false })
-  expect(uploadMedia).toHaveBeenCalledTimes(1)
+  expect(api.uploadMedia).toHaveBeenCalledTimes(1)
   expect(result.skipped).toEqual(['a.png'])
   expect(result.uploaded).toEqual([])
 })
 
 it('a dismissed dialog skips', async () => {
-  uploadMedia.mockRejectedValue(exists())
+  api.uploadMedia.mockRejectedValue(exists())
   chooseDialog.mockResolvedValue(null)
   const result = await uploadAll([file('a.png')], { shared: false })
   expect(result.skipped).toEqual(['a.png'])
-  expect(uploadMedia).toHaveBeenCalledTimes(1)
+  expect(api.uploadMedia).toHaveBeenCalledTimes(1)
 })
 
 it('unsupported files are not sent', async () => {
   const result = await uploadAll([file('notes.txt'), file('a.PNG')], {
     shared: false,
   })
-  expect(uploadMedia).toHaveBeenCalledTimes(1)
+  expect(api.uploadMedia).toHaveBeenCalledTimes(1)
   expect(notifyError).toHaveBeenCalledWith(
     'Skipped notes.txt: not an image, video, audio or LUT file',
   )
@@ -136,25 +137,26 @@ it('unsupported files are not sent', async () => {
 })
 
 it('other failures are reported per file', async () => {
-  uploadMedia.mockRejectedValue(new Error('boom'))
+  api.uploadMedia.mockRejectedValue(new Error('boom'))
   const result = await uploadAll([file('a.png')], { shared: false })
   expect(result.failed).toHaveLength(1)
   expect(result.failed[0].name).toBe('a.png')
 })
 
 it('keep both reads listing names (uploads/ prefixed) as taken', async () => {
-  uploadMedia.mockImplementation((f: File, name: string, _s, pre) =>
-    pre?.createOnly && name === 'photo.jpg'
-      ? Promise.reject(exists())
-      : Promise.resolve(ok(name)),
+  api.uploadMedia.mockImplementation(
+    (f: File, name: string | undefined, _s, pre) =>
+      pre?.createOnly && name === 'photo.jpg'
+        ? Promise.reject(exists())
+        : Promise.resolve(ok(name ?? f.name)),
   )
   chooseDialog.mockResolvedValue('keep-both')
   await uploadAll([file('photo.jpg')], {
     shared: false,
     taken: new Set(['uploads/photo.jpg', 'uploads/photo-2.jpg']),
   })
-  expect(uploadMedia).toHaveBeenCalledTimes(2)
-  expect(uploadMedia).toHaveBeenLastCalledWith(
+  expect(api.uploadMedia).toHaveBeenCalledTimes(2)
+  expect(api.uploadMedia).toHaveBeenLastCalledWith(
     expect.any(File),
     'photo-3.jpg',
     false,
@@ -163,14 +165,14 @@ it('keep both reads listing names (uploads/ prefixed) as taken', async () => {
 })
 
 it('keep both gives up after 20 taken names and records a failure', async () => {
-  uploadMedia.mockImplementation(() => Promise.reject(exists()))
+  api.uploadMedia.mockImplementation(() => Promise.reject(exists()))
   chooseDialog.mockResolvedValue('keep-both')
   const result = await uploadAll([file('p.jpg')], { shared: false })
   expect(result.uploaded).toEqual([])
   expect(result.failed).toHaveLength(1)
   expect(result.failed[0].name).toBe('p.jpg')
   // The first create-only send plus 20 keep-both tries
-  expect(uploadMedia).toHaveBeenCalledTimes(21)
+  expect(api.uploadMedia).toHaveBeenCalledTimes(21)
 })
 
 it('reports skipped uploads as news, not an error', () => {

@@ -53,7 +53,7 @@ test('the requests list says what the request wants and shows its latest results
   await expect(row.locator('.tag')).toHaveText('open')
   // nothing of it is running, and one of its two planned items can be run
   await expect(row.locator('.attention')).toHaveText(
-    'idle: 2 planned (1 ready), nothing running',
+    'Needs you: 1 ready to run, 1 take to choose.',
   )
   // one item of the three in the plan is done: the dropped one is not counted
   await expect(row.locator('.progress')).toContainText('1/3')
@@ -90,7 +90,7 @@ test('a request leads with where it stands and what needs you', async ({
   const head = page.locator('.reqhead')
   await expect(head.locator('.tag')).toHaveText('open')
   await expect(head.locator('.standing')).toHaveText(
-    'Nothing is running. 1 ready to run. 1 of 3 done.',
+    'Nothing is running. 1 of 3 done.',
   )
   await expect(head.locator('.needs')).toHaveText(
     'Needs you: 1 ready to run, 1 take to choose.',
@@ -133,10 +133,10 @@ test('each item says its state in words: ready apart from waiting, with what it 
 
   // dropped: out of the plan, in its own closed group, with its failed take
   const group = page.locator('details.droppedgroup')
-  await expect(group.locator('summary')).toHaveText('Dropped (1)')
+  await expect(group.locator(':scope > summary')).toHaveText('Dropped (1)')
   const cut = item(page, 'Cut scene')
   await expect(cut).toBeHidden()
-  await group.locator('summary').click()
+  await group.locator(':scope > summary').click()
   await expect(cut.locator('.row .chip')).toHaveText('dropped')
   await expand(cut, 'Cut scene')
   await expect(cut.locator('.strip .tile')).toHaveCount(1)
@@ -162,7 +162,7 @@ test('a done item shows its takes as pictures, the latest marked as the result',
   await expect(takes).toHaveCount(2)
   await expect(takes.nth(0)).toContainText('take 1')
   await expect(takes.nth(0).locator('.mark')).toHaveCount(0)
-  await expect(takes.nth(1).locator('.mark')).toHaveText('result (latest)')
+  await expect(takes.nth(1).locator('.mark')).toHaveText('latest take')
   await loaded(takes.nth(0).getByRole('img'))
   await expect(takes.nth(0).getByRole('link')).toHaveAttribute(
     'href',
@@ -187,7 +187,7 @@ test('a done item shows its takes as pictures, the latest marked as the result',
   )
 })
 
-test('a note for the agent says whether a session listens, and is in the ledger after a reload', async ({
+test('a note for the agent says whether the agent is connected, and is in the ledger after a reload', async ({
   page,
 }) => {
   const text = `warmer light, please (${Date.now()})`
@@ -201,7 +201,9 @@ test('a note for the agent says whether a session listens, and is in the ledger 
     name: 'Note for the agent on Alternate poster',
   })
   // said before a word is written: no agent session polls this server
-  await expect(alt.getByText(/No agent session is listening/)).toBeVisible()
+  await expect(
+    alt.getByText(/The agent isn't connected\. It reads/),
+  ).toBeVisible()
   await box.fill(text)
   const post = page.waitForResponse(
     (r) =>
@@ -215,7 +217,7 @@ test('a note for the agent says whether a session listens, and is in the ledger 
   // and said again under the saved note: when the agent will see it
   await expect(
     alt.getByText(
-      /^Saved .+\. No agent session is listening\. It reads this the next time it updates the plan\.$/,
+      /^written .+\. The agent isn't connected\. It reads this the next time it updates the plan\.$/,
     ),
   ).toBeVisible()
   await expect(page.locator('.reqhead .figures')).toContainText(
@@ -232,7 +234,7 @@ test('a note for the agent says whether a session listens, and is in the ledger 
   await expect(again.locator('.title')).toHaveAttribute('aria-expanded', 'true')
   await expect(again.getByText(text)).toBeVisible()
   // the other items came back as they were: the dropped one still dropped
-  await expect(page.locator('details.droppedgroup summary')).toHaveText(
+  await expect(page.locator('details.droppedgroup > summary')).toHaveText(
     'Dropped (1)',
   )
   await expect(item(page, 'Hero poster').locator('.row .chip')).toHaveText(
@@ -263,7 +265,7 @@ test("a note on the whole request is saved by an item note's rules", async ({
   await expect(
     page
       .locator('.reqhead')
-      .getByText(/No agent session is listening/)
+      .getByText(/The agent isn't connected\. It reads/)
       .first(),
   ).toBeVisible()
 })
@@ -310,6 +312,41 @@ test("an item's jobs link narrows the Jobs page to that item", async ({
   await expect(page.locator('.chip.failed')).toHaveCount(0)
 })
 
+test("the item menu's widest entry fits inside it", async ({ page }) => {
+  await page.goto(REQUEST)
+  const hero = item(page, 'Hero poster')
+  await hero.getByRole('button', { name: /^More actions for/ }).click()
+  const menu = page.getByRole('dialog')
+  const box = await menu.boundingBox()
+  const entries = menu.locator('.entries > li > :is(a, button)')
+  expect(await entries.count()).toBeGreaterThan(1)
+  for (const entry of await entries.all()) {
+    const own = await entry.boundingBox()
+    // inside the panel's padding, and its words inside its own box
+    expect(own!.x + own!.width).toBeLessThan(box!.x + box!.width - 1)
+    expect(await entry.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(
+      true,
+    )
+  }
+})
+
+test('a row at 1300 px keeps its title on one line', async ({ page }) => {
+  await page.setViewportSize({ width: 1300, height: 900 })
+  // the storyboard has open rows with takes and a held one
+  await page.goto('/#/ws/default/requests/e2e-board')
+  const lines = page.locator('li.item .titleline')
+  await expect(lines.first()).toBeVisible()
+  for (const line of await lines.all()) {
+    const title = (await line.locator('.title').boundingBox())!
+    const key = (await line.locator('.key').boundingBox())!
+    // the key beside the title, not under it, and the title one line
+    expect(key.y).toBeLessThan(title.y + title.height)
+    expect(
+      await line.locator('.name').evaluate((el) => el.getClientRects().length),
+    ).toBe(1)
+  }
+})
+
 // The specs below edit a plan, so they have a request of their own
 // (e2e/serve_fixture.py): `board` is done with two takes and neither
 // accepted, `shot` failed once, `cut` waits on `shot`, `title` has never
@@ -320,9 +357,11 @@ const BOARD = `/#/ws/default/requests/${BOARD_ID}`
 const BOARD_API = `/api/workspaces/default/requests/${BOARD_ID}`
 const boardRow = (page: Page, key: string) =>
   page.locator(`li.item[data-key="${key}"]`)
+// The page asks with `?reasons=true`: match the path, not the whole URL
+const isBoard = (url: string) => new URL(url).pathname === BOARD_API
 const written = (page: Page) =>
   page.waitForResponse(
-    (r) => r.request().method() === 'PUT' && r.url().endsWith(BOARD_API),
+    (r) => r.request().method() === 'PUT' && isBoard(r.url()),
   )
 const order = (page: Page) =>
   page
@@ -401,6 +440,23 @@ test('accepting a take is shown at once, is in the ledger, and the toast takes i
   )
 })
 
+test('Back closes the take viewer', async ({ page }) => {
+  await page.goto(BOARD)
+  const board = boardRow(page, 'board')
+  await board
+    .getByRole('button', { name: 'take 1 of Board sheet', exact: true })
+    .click()
+  const viewer = page.getByRole('dialog')
+  await expect(viewer).toBeVisible()
+  await expect(page).toHaveURL(/open=board/)
+  // Back closes the viewer and stays on the request
+  await page.goBack()
+  await expect(viewer).toHaveCount(0)
+  await expect(page).not.toHaveURL(/open=/)
+  await expect(page).toHaveURL(new RegExp(BOARD_ID))
+  await expect(board.locator('.strip .tile')).toHaveCount(2)
+})
+
 test('dropping an item others wait on says what it does to them, and Restore puts it all back', async ({
   page,
   request,
@@ -432,8 +488,8 @@ test('dropping an item others wait on says what it does to them, and Restore put
 
   // out of the plan, in the dropped group, with the way back
   const group = page.locator('details.droppedgroup')
-  await expect(group.locator('summary')).toHaveText('Dropped (1)')
-  await group.locator('summary').click()
+  await expect(group.locator(':scope > summary')).toHaveText('Dropped (1)')
+  await group.locator(':scope > summary').click()
   put = written(page)
   await shot.getByRole('button', { name: 'Restore' }).click()
   expect((await put).status()).toBe(200)
@@ -461,7 +517,7 @@ test('the handle reorders with the keys, in one write that a reload still shows'
   )
   let puts = 0
   page.on('request', (r) => {
-    if (r.method() === 'PUT' && r.url().endsWith(BOARD_API)) puts++
+    if (r.method() === 'PUT' && isBoard(r.url())) puts++
   })
   const put = written(page)
   await handle.focus()
@@ -496,7 +552,7 @@ test("an edit made over the agent's write goes on top of it, and the page says s
   )
   const answers: number[] = []
   page.on('response', (r) => {
-    if (r.request().method() === 'PUT' && r.url().endsWith(BOARD_API))
+    if (r.request().method() === 'PUT' && isBoard(r.url()))
       answers.push(r.status())
   })
   await choose(page, boardRow(page, 'score'), 'Move to top')
@@ -570,24 +626,35 @@ test('the run dialog prices what is ready, says what will not run, and spends no
       submitted++
   })
   await page.goto(BOARD)
-  const run = page.getByRole('button', { name: 'Run 1 ready…' })
+  const run = page.getByRole('button', { name: 'Run 2…' })
   const priced = page.waitForResponse(
-    (r) => new URL(r.url()).pathname === '/api/validate',
+    (r) =>
+      new URL(r.url()).pathname === '/api/validate' &&
+      r.request().postDataJSON()?.workflow_path === 'e2e-title',
   )
   await run.click()
-  const dialog = page.getByRole('dialog', { name: 'Run what is ready' })
+  const dialog = page.getByRole('dialog', { name: 'Run what can run now' })
   // a dialog that spends starts on Cancel
   await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused()
   expect((await priced).status()).toBe(200)
   const row = dialog.locator('.runrow[data-key="title"]')
   await expect(row).toContainText('Title card')
-  await expect(row.locator('.flow')).toHaveText('e2e-card')
-  // the server's own quote: a task-only workflow has no figure, and says so
-  await expect(row.locator('.quote')).toContainText('no figure')
+  await expect(row.locator('.flow')).toHaveText('e2e-title')
+  // the server's own quote: a task-only workflow that has never run (the
+  // fixture keeps `e2e-title` for this) has no figure, and says so, the engine's reason one click away
+  await expect(row.locator('.quote')).toContainText(
+    'No time estimate for this workflow.',
+  )
+  await expect(row.locator('.quote details summary')).toHaveText(
+    "Why there's no estimate",
+  )
   await expect(dialog.locator('.total')).toHaveText('total: no figure')
-  await expect(dialog.getByRole('button', { name: 'Run 1' })).toBeEnabled()
-  await expect(dialog.locator('.wont li')).toHaveText([
-    'Opening shot: failed: run it again from its row',
+  await expect(
+    dialog.getByRole('button', { name: 'Run 1 job', exact: true }),
+  ).toBeEnabled()
+  // the failed shot is offered again, but its workflow cannot be reached
+  await expect(dialog.locator('.wont li')).toContainText([
+    'Opening shot: would be refused: workflow_path must name a workflow the server can reach',
     'Final cut, tighter: waits on Opening shot (failed)',
   ])
   // Cancel: nothing queued, and focus is back on what opened it
@@ -606,7 +673,9 @@ test('the run dialog prices what is ready, says what will not run, and spends no
     'Opening shot: would be refused: workflow_path must name a workflow the server can reach',
   )
   await expect(single.getByRole('checkbox')).toHaveCount(0)
-  await expect(single.getByRole('button', { name: 'Run 0' })).toBeDisabled()
+  await expect(
+    single.getByRole('button', { name: 'Run 0 jobs', exact: true }),
+  ).toBeDisabled()
   await single.getByRole('button', { name: 'Cancel' }).click()
   expect(submitted).toBe(0)
 })
@@ -623,34 +692,41 @@ test('a held item says so, counts down, runs only when asked, and a note turns i
   // the fixture holds `title` for an hour, and no session listens here
   const banner = page.locator('.reqhead .hold p')
   await expect(banner).toHaveText(
-    /^1 item held for your review\. No session is listening, so nothing will run at .+\. Run it here, or leave a note\.$/,
+    /^1 item waiting for your OK\. The agent isn't connected, so nothing runs at .+ unless it reconnects\. Run it here, or leave a note\.$/,
   )
   const title = boardRow(page, 'title')
   const chip = title.locator('.chip.held')
-  await expect(chip).toHaveText(/^held · \d\d:\d\d$/)
+  await expect(chip).toHaveText(/^waiting for your OK · \d\d:\d\d$/)
   const first = await chip.textContent()
   await expect(chip).not.toHaveText(first ?? '', { timeout: 5000 })
 
   await page.getByRole('button', { name: 'Run now…' }).click()
-  const dialog = page.getByRole('dialog', { name: 'Run what is ready' })
+  const dialog = page.getByRole('dialog', { name: 'Run what can run now' })
   await expect(
     dialog.locator('.runrow[data-key="title"] .held span'),
-  ).toHaveText(/^Held for review until .+\. Running it now is your go-ahead\.$/)
+  ).toHaveText(
+    /^Waiting for your OK until .+\. Running it now is your go-ahead\.$/,
+  )
   await dialog.getByRole('button', { name: 'Cancel' }).click()
   await expect(dialog).toHaveCount(0)
   expect(submitted).toBe(0)
 
   await expand(title, 'Title card')
   await title.getByRole('button', { name: 'Add a note for the agent' }).click()
+  await expect(
+    title.getByText(
+      'Saving this note stops 1 item waiting for your OK from starting on their own.',
+    ),
+  ).toBeVisible()
   await title
     .getByRole('textbox', { name: 'Note for the agent on Title card' })
     .fill('make the title bolder')
   await title.getByRole('button', { name: 'Save note' }).click()
   await expect(banner).toHaveText(
-    'You left a note after these were held: the agent will revise before running.',
+    "You left a note after these were held, so they won't start on their own, and the agent isn't connected. Run them here, or wait for the agent.",
   )
-  await expect(chip).toHaveText('held · note left')
-  await expect(page.getByRole('button', { name: 'Run now…' })).toHaveCount(0)
+  await expect(chip).toHaveText('on hold: note left')
+  await expect(page.getByRole('button', { name: 'Run now…' })).toBeVisible()
   expect(submitted).toBe(0)
 })
 
@@ -661,19 +737,25 @@ test('running a ready item queues a job bound to its quote, and the job appears 
   await page.goto(BOARD)
   const title = boardRow(page, 'title')
   await expect(title.locator('.chipcell .chip')).toHaveText('ready')
-  await page.getByRole('button', { name: 'Run 1 ready…' }).click()
-  const dialog = page.getByRole('dialog', { name: 'Run what is ready' })
+  // the header counts what the dialog offers: the ready title and every
+  // failed item that can run again, however many earlier tests left
+  const header = page.getByRole('button', { name: /^Run \d+…$/ })
+  const offered = Number(/\d+/.exec((await header.textContent()) ?? '')?.[0])
+  await header.click()
+  const dialog = page.getByRole('dialog', { name: 'Run what can run now' })
+  await expect(dialog.locator('.runrow')).toHaveCount(offered)
+  await expect(dialog.locator('.runrow[data-key="title"]')).toHaveCount(1)
   const submit = page.waitForResponse(
     (r) =>
       r.request().method() === 'POST' &&
       new URL(r.url()).pathname === '/api/jobs',
   )
-  await dialog.getByRole('button', { name: 'Run 1' }).click()
+  await dialog.getByRole('button', { name: 'Run 1 job', exact: true }).click()
   const answer = await submit
   expect(answer.status()).toBe(201)
   const sent = answer.request().postDataJSON()
   expect(sent).toMatchObject({
-    workflow_path: 'e2e-card',
+    workflow_path: 'e2e-title',
     arguments: { line: 'The opening' },
     request: BOARD_ID,
     item: 'title',
@@ -693,7 +775,12 @@ test('running a ready item queues a job bound to its quote, and the job appears 
   await expect(title.locator('.chipcell .chip')).toHaveText(
     /queued|running|done/,
   )
-  await expect(page.getByRole('button', { name: /ready…$/ })).toHaveCount(0)
+  // the title is no longer offered: whatever else was, still is
+  if (offered > 1)
+    await expect(
+      page.getByRole('button', { name: `Run ${offered - 1}…` }),
+    ).toBeVisible()
+  else await expect(header).toHaveCount(0)
   const stored = await ledger(request)
   const item = stored.items.find((i: Stored) => i.key === 'title')
   expect(item.attempts.map((a: { job: string }) => a.job)).toEqual([job.id])

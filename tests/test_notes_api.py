@@ -269,6 +269,86 @@ def test_put_note_refuses_traversal_targets(client, studio, make_run, target):
     assert snapshot(os.path.dirname(studio.root)) == before
 
 
+# ------------------------------------------- If-Match on PUT /api/notes (#1597)
+
+
+def _etag(text):
+    from dw.server.preconditions import content_etag_of
+
+    return content_etag_of((text or "").encode("utf-8"))
+
+
+def test_get_note_reads_the_targets_own_note_and_its_etag(
+    client, output_root, make_run
+):
+    run_dir = make_run("wf", ["a.png"])
+    run = run_name(run_dir, output_root)
+    N.set_run_note(run_dir, "the run")
+    r = client.get("/api/notes", params={"target": run})
+    assert r.status_code == 200
+    assert r.json() == {"target": run, "note": "the run", "etag": _etag("the run")}
+    assert r.headers["etag"] == _etag("the run")
+    # A file's own note, never the run's it falls back to
+    r = client.get("/api/notes", params={"target": f"{run}/a.png"})
+    assert r.json() == {"target": f"{run}/a.png", "note": None, "etag": _etag("")}
+    r = client.get("/api/notes", params={"target": "workspace:default"})
+    assert r.json()["note"] is None
+
+
+def test_a_stale_if_match_is_refused_and_writes_nothing(client, output_root, make_run):
+    run_dir = make_run("wf", ["a.png"])
+    run = run_name(run_dir, output_root)
+    read = client.get("/api/notes", params={"target": run}).json()
+    N.set_run_note(run_dir, "an agent's note")
+    r = client.put(
+        "/api/notes",
+        json={"target": run, "note": "mine"},
+        headers={"If-Match": read["etag"]},
+    )
+    assert r.status_code == 409
+    detail = r.json()["detail"]
+    assert detail["code"] == "stale_write"
+    assert detail["etag"] == _etag("an agent's note")
+    assert N.read_notes(run_dir)["run"] == "an agent's note"
+
+
+@pytest.mark.parametrize("kind", ["run", "file", "workspace"])
+def test_a_current_if_match_writes(client, output_root, make_run, kind):
+    run = run_name(make_run("wf", ["a.png"]), output_root)
+    target = {"run": run, "file": f"{run}/a.png", "workspace": "workspace:default"}
+    target = target[kind]
+    for note in ("first", "second", None):
+        etag = client.get("/api/notes", params={"target": target}).json()["etag"]
+        r = client.put(
+            "/api/notes",
+            json={"target": target, "note": note},
+            headers={"If-Match": etag},
+        )
+        assert r.status_code == 200, r.json()
+    assert client.get("/api/notes", params={"target": target}).json()["note"] is None
+
+
+def test_without_if_match_a_write_is_last_writer_wins_as_before(
+    client, output_root, make_run
+):
+    """The header is opt-in: MCP's set_note sends none and overwrites,
+    exactly as it did before PUT /api/notes took If-Match."""
+    run_dir = make_run("wf", ["a.png"])
+    run = run_name(run_dir, output_root)
+    N.set_run_note(run_dir, "an agent's note")
+    r = client.put("/api/notes", json={"target": run, "note": "mine"})
+    assert r.status_code == 200
+    assert r.json() == {"target": run, "note": "mine", "note_source": "run"}
+    assert N.read_notes(run_dir)["run"] == "mine"
+
+
+def test_get_note_refuses_what_put_refuses(client, make_run):
+    make_run("wf", ["a.png"])
+    for target in ("../etc/passwd", "asset:../x.png", "workspace:nope"):
+        r = client.get("/api/notes", params={"target": target})
+        assert r.status_code in (400, 404), target
+
+
 def test_a_flat_layout_file_cannot_hold_a_note(client, output_root):
     with open(os.path.join(output_root, "flat.png"), "wb") as handle:
         handle.write(PNG)

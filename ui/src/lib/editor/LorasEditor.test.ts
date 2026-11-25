@@ -2,26 +2,27 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
 import Harness from './LorasEditorHarness.svelte'
 import type { LoraList, LoraRow } from '../types'
+import { api } from '../test/apiMock'
+import { feed } from '../test/feedMock'
+import { workspace } from '../workspaceState.svelte'
 
-// The spy only records calls: vitest's own tracking of a returned rejected
-// promise would report it as unhandled, so the result comes from `reply`
-const listLoras = vi.hoisted(() =>
-  vi.fn<(q: { model: string; workflow?: string }) => void>(),
-)
+// The result comes from `reply`, not from the mock's own return: vitest's
+// tracking of a returned rejected promise would report it as unhandled
 const reply = vi.hoisted(() => ({
   next: (() =>
     Promise.resolve({ libraries: [], loras: [] })) as () => Promise<unknown>,
 }))
-vi.mock('../api', () => ({
-  api: {
-    listLoras: (q: { model: string; workflow?: string }) => {
-      listLoras(q)
-      return reply.next()
-    },
-  },
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
+const listLoras = api.listLoras
+
+vi.mock('../changes.svelte', async () => ({
+  changes: (await import('../test/feedMock')).feed.changes,
 }))
 
-beforeEach(() => listLoras.mockReset())
+beforeEach(() => {
+  listLoras.mockReset()
+  listLoras.mockImplementation(() => reply.next())
+})
 afterEach(() => cleanup())
 
 const row = (over: Partial<LoraRow> = {}): LoraRow =>
@@ -211,4 +212,40 @@ it('shows an existing row revision read-only', async () => {
   const code = await screen.findByText('deadbeef')
   expect(code.tagName).toBe('CODE')
   expect(screen.queryByDisplayValue('deadbeef')).toBeNull()
+})
+
+it('LorasEditor shows a LoRA saved elsewhere', async () => {
+  respond(row())
+  mount(pipe())
+  await screen.findByText('a-lora')
+  expect(feed.watched(workspace.current)).toContain('loras')
+  respond(row(), row({ name: 'b-saved', model_name: 'org/b-saved' }))
+  feed.move(workspace.current, 'loras')
+  await screen.findByText('b-saved')
+  expect(screen.getByText('a-lora')).toBeTruthy()
+  expect(screen.queryByText('Loading catalog suggestions…')).toBeNull()
+})
+
+it('every LoRA field has a label', async () => {
+  respond()
+  mount(pipe({ model_name: 'org/model' }, [{ model_name: 'org/x', scale: 1 }]))
+  expect(
+    (await screen.findByLabelText('Model')).getAttribute('placeholder'),
+  ).toBe('org/lora-repo or path')
+  expect(screen.getByLabelText('Weight file')).toBeTruthy()
+  expect(screen.getByLabelText('Scale')).toBeTruthy()
+})
+
+it('remove names the LoRA', async () => {
+  respond()
+  mount(
+    pipe({ model_name: 'org/model' }, [
+      { model_name: 'org/x', scale: 1 },
+      { model_name: '', scale: 1 },
+    ]),
+  )
+  expect(
+    await screen.findByRole('button', { name: 'remove org/x' }),
+  ).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'remove this LoRA' })).toBeTruthy()
 })

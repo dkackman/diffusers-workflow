@@ -3,11 +3,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
 import { tick } from 'svelte'
 import WorkflowPage from './WorkflowPage.svelte'
-import { api } from '../api'
+import { streamJobEvents } from '../api'
+import { api } from '../test/apiMock'
 import { notify } from '../toast'
 import { connection } from '../connection.svelte'
 import { ApiError, NetworkError } from '../apiErrors'
 import type { ValidationResult } from '../types'
+import { feed } from '../test/feedMock'
+import { workspace } from '../workspace.svelte'
+import { storageGet } from '../storage'
+import { formatExact, formatMtime } from '../format'
 
 // Monaco cannot boot in jsdom, and this page only mounts it on "show JSON"
 vi.mock('../editor/JsonEditor.svelte', async () => ({
@@ -44,23 +49,22 @@ const valid: ValidationResult = {
   },
 } as unknown as ValidationResult
 
-vi.mock('../api', () => ({
-  api: {
-    getWorkflow: vi.fn(),
-    listWorkflows: vi.fn().mockResolvedValue({
-      workflows: [],
-      details: {},
-      libraries: [],
-      shadowed: [],
-    }),
-    gallery: vi.fn().mockResolvedValue({ files: [] }),
-    listPrompts: vi.fn().mockResolvedValue({ prompts: [], details: {} }),
-    validate: vi.fn(),
-    submitJob: vi.fn(),
-    workflowDownloadUrl: vi.fn().mockReturnValue('/download'),
-    galleryThumbnailUrl: vi.fn().mockReturnValue('/thumb'),
-  },
-}))
+vi.mock('../api', async () =>
+  (await import('../test/apiMock')).apiModule({
+    fetchOutputText: vi.fn().mockResolvedValue('A long, lit prompt'),
+    streamJobEvents: vi.fn(),
+  }),
+)
+api.listWorkflows.mockResolvedValue({
+  workflows: [],
+  details: {},
+  libraries: [],
+  shadowed: [],
+})
+api.gallery.mockResolvedValue({ files: [] })
+api.listPrompts.mockResolvedValue({ prompts: [], details: {} })
+api.workflowDownloadUrl.mockReturnValue('/download')
+api.listModels.mockResolvedValue({ repos: [] })
 
 vi.mock('../changes.svelte', async () => ({
   changes: (await import('../test/feedMock')).feed.changes,
@@ -86,7 +90,7 @@ async function type(name: string, value: string) {
   await fireEvent.input(field(name), { target: { value } })
 }
 
-const validateCalls = () => vi.mocked(api.validate).mock.calls
+const validateCalls = () => api.validate.mock.calls
 
 async function openPage() {
   render(WorkflowPage, { name: 'templates/text-to-image' })
@@ -95,21 +99,124 @@ async function openPage() {
 }
 
 beforeEach(() => {
+  localStorage.clear()
   vi.useFakeTimers()
-  vi.mocked(api.getWorkflow).mockResolvedValue({
+  api.getWorkflow.mockResolvedValue({
     definition,
     origin: 'examples',
     writable: false,
   } as never)
-  vi.mocked(api.validate).mockReset()
-  vi.mocked(api.validate).mockResolvedValue(valid)
-  vi.mocked(api.submitJob).mockReset()
+  api.validate.mockReset()
+  api.validate.mockResolvedValue(valid)
+  api.listWorkflows.mockResolvedValue({
+    workflows: [],
+    details: {},
+    libraries: [],
+    shadowed: [],
+  } as never)
+  api.submitJob.mockReset()
   vi.mocked(notify.error).mockReset()
 })
 
 afterEach(() => {
   cleanup()
   vi.useRealTimers()
+})
+
+it('sets the tab title to the workflow', async () => {
+  await openPage()
+  expect(document.title).toBe('templates/text-to-image · diffusers-workflow')
+})
+
+it('the back link names Workflows here and Examples there', async () => {
+  location.hash = '#/ws/default/workflows/templates%2Ftext-to-image'
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
+  await openPage()
+  expect(screen.getByRole('link', { name: '← Workflows' })).toBeTruthy()
+  cleanup()
+  location.hash = '#/shared/examples/templates%2Ftext-to-image'
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
+  await openPage()
+  expect(screen.getByRole('link', { name: '← Examples' })).toBeTruthy()
+})
+
+it('the inpaint form offers upload and browse for its image and mask', async () => {
+  api.getWorkflow.mockResolvedValue({
+    definition: {
+      id: 'Inpaint',
+      variables: { prompt: 'a cat', image: '', mask: '' },
+      steps: [{ name: 'generate', pipeline: {} }],
+    },
+    origin: 'examples',
+    writable: false,
+  } as never)
+  api.listWorkflows.mockResolvedValue({
+    workflows: [],
+    details: {
+      'templates/text-to-image': { inputs: { image: 'image', mask: 'image' } },
+    },
+    libraries: [],
+    shadowed: [],
+  } as never)
+  await openPage()
+  expect(screen.getAllByRole('button', { name: /^Choose/ })).toHaveLength(2)
+  expect(screen.getAllByRole('button', { name: /^Upload/ })).toHaveLength(2)
+  expect(api.listWorkflows).toHaveBeenCalledWith({ inputs: true })
+  expect(field('prompt').closest('.reference')).toBeNull()
+})
+
+it('a proof opens its file in the gallery', async () => {
+  api.gallery.mockResolvedValueOnce({
+    workspace: 'studio',
+    files: [
+      {
+        name: 'templates/text-to-image/r1/a.mp4',
+        folder: 'templates/text-to-image',
+        subfolder: '',
+        run_id: 'r1',
+        version: 1,
+        url: '/outputs/a.mp4',
+        kind: 'video',
+        size: 1,
+        mtime: 1,
+        label: 'a.mp4',
+      },
+      {
+        name: 'other/r2/b.png',
+        folder: 'other',
+        subfolder: '',
+        run_id: 'r2',
+        version: 1,
+        url: '/outputs/b.png',
+        kind: 'image',
+        size: 1,
+        mtime: 1,
+        label: 'b.png',
+      },
+    ],
+  } as never)
+  await openPage()
+  const tiles = [...document.querySelectorAll('.proofs a.filetile')]
+  expect(tiles.map((a) => a.getAttribute('href'))).toEqual([
+    '#/ws/studio/gallery?open=templates%2Ftext-to-image%2Fr1%2Fa.mp4',
+  ])
+  expect(tiles[0].querySelector('.videobadge')).toBeTruthy()
+  expect(tiles[0].querySelector('img')?.getAttribute('src')).toContain(
+    'workspace=studio',
+  )
+})
+
+it('opens with an output: reference filled in from Use as input', async () => {
+  sessionStorage.setItem(
+    'dw-workflow-prefill',
+    JSON.stringify({
+      workflow: 'templates/text-to-image',
+      arguments: { prompt: 'output:run/cat.png' },
+    }),
+  )
+  await openPage()
+  expect(field('prompt').value).toBe('output:run/cat.png')
+  expect(sessionStorage.getItem('dw-workflow-prefill')).toBeNull()
 })
 
 describe('WorkflowPage run check', () => {
@@ -121,13 +228,13 @@ describe('WorkflowPage run check', () => {
       arguments: {},
       sizes: false,
     })
-    const plan = screen.getByLabelText('what a run will do')
-    expect(plan.textContent).toContain('~2 min on mps')
-    expect(screen.getByText('a run would be admitted')).toBeTruthy()
+    const plan = screen.getByText('What a job will do').closest('details')!
+    expect(plan.textContent).toContain('about 2 min on mps')
+    expect(screen.getByText('Ready to run.')).toBeTruthy()
   })
 
   it('asks about exactly the arguments Run sends, blanks dropped', async () => {
-    vi.mocked(api.submitJob).mockResolvedValue({ id: 'job-1' } as never)
+    api.submitJob.mockResolvedValue({ id: 'job-1' } as never)
     await openPage()
     await type('prompt', 'a dog')
     await type('seed', '')
@@ -137,15 +244,38 @@ describe('WorkflowPage run check', () => {
 
     await fireEvent.click(screen.getByRole('button', { name: /Run/ }))
     await advance()
-    expect(vi.mocked(api.submitJob).mock.calls[0][0]).toEqual({
+    expect(api.submitJob.mock.calls[0][0]).toEqual({
       workflow_path: 'templates/text-to-image',
       arguments: asked.arguments,
     })
   })
 
+  it('Run sends 30 as a number where the default is a number', async () => {
+    api.submitJob.mockResolvedValue({ id: 'job-1' } as never)
+    await openPage()
+    await type('num_images_per_prompt', '30')
+    await fireEvent.click(screen.getByRole('button', { name: /Run/ }))
+    await advance()
+    expect(api.submitJob.mock.calls[0][0]).toEqual({
+      workflow_path: 'templates/text-to-image',
+      arguments: { num_images_per_prompt: 30 },
+    })
+  })
+
+  it('a double click sends one request', async () => {
+    api.submitJob.mockResolvedValue({ id: 'job-1' } as never)
+    await openPage()
+    const runButton = screen.getByRole('button', { name: /Run/ })
+    // Both clicks land before the page renders the first one's busy state
+    runButton.click()
+    runButton.click()
+    await advance()
+    expect(api.submitJob).toHaveBeenCalledTimes(1)
+  })
+
   it('checks once per pause, and asks for sizes only after 3 s idle', async () => {
     await openPage()
-    vi.mocked(api.validate).mockClear()
+    api.validate.mockClear()
     for (const value of ['a', 'a d', 'a do', 'a dog']) {
       await type('prompt', value)
       await advance(200)
@@ -174,7 +304,7 @@ describe('WorkflowPage run check', () => {
     let answerSizes: (result: ValidationResult) => void = () => {}
     await openPage()
     // the sizes check for the load fires, and hangs
-    vi.mocked(api.validate).mockImplementationOnce(
+    api.validate.mockImplementationOnce(
       () => new Promise((resolve) => (answerSizes = resolve)),
     )
     await advance(3000)
@@ -186,7 +316,7 @@ describe('WorkflowPage run check', () => {
     answerSizes(refusal)
     await advance()
     expect(screen.queryByText(/stale refusal/)).toBeNull()
-    expect(screen.getByText('a run would be admitted')).toBeTruthy()
+    expect(screen.getByText('Ready to run.')).toBeTruthy()
     // and the signal it was handed was aborted
     const sizesCall = validateCalls().find(
       (c) => (c[0] as { sizes?: boolean }).sizes === true,
@@ -195,7 +325,7 @@ describe('WorkflowPage run check', () => {
   })
 
   it('puts an arguments.x error under field x and the rest in the general list', async () => {
-    vi.mocked(api.validate).mockResolvedValue({
+    api.validate.mockResolvedValue({
       valid: false,
       error: 'refused',
       errors: [
@@ -223,19 +353,23 @@ describe('WorkflowPage run check', () => {
 
     const general = screen.getByLabelText('findings')
     expect(general.textContent).toContain('model_name: unknown model')
-    expect(general.textContent).toContain(
-      'cost estimate withheld: not priced from templates/x',
-    )
     expect(general.textContent).not.toContain('must be at most 8')
     expect(general.querySelector('.bad')!.textContent).toContain('model_name')
-    expect(general.querySelector('.warn')!.textContent).toContain('withheld')
-    expect(screen.getByText('a run would be refused')).toBeTruthy()
+    // a warning naming no field is the workflow author's, behind its fold
+    expect(general.textContent).not.toContain('withheld')
+    expect(
+      screen.getByText("1 note for the workflow's author").closest('details')!
+        .textContent,
+    ).toContain('cost estimate withheld: not priced from templates/x')
+    expect(
+      screen.getByText('A job would be refused: 2 issues to fix.'),
+    ).toBeTruthy()
   })
 
   it('clears a field error once the value is fixed', async () => {
-    vi.mocked(api.validate).mockResolvedValueOnce(valid)
+    api.validate.mockResolvedValueOnce(valid)
     await openPage()
-    vi.mocked(api.validate).mockResolvedValueOnce({
+    api.validate.mockResolvedValueOnce({
       valid: false,
       error: 'refused',
       errors: [{ path: 'arguments.seed', message: 'not an integer' }],
@@ -251,50 +385,102 @@ describe('WorkflowPage run check', () => {
     expect(document.querySelector('[data-findings-for="seed"]')).toBeNull()
   })
 
-  it('keeps Run enabled with errors present, and a refused Run still toasts', async () => {
-    vi.mocked(api.validate).mockResolvedValue({
+  const refused = (errors: { path: string; message: string }[]) =>
+    ({
       valid: false,
       error: 'refused',
-      errors: [{ path: 'arguments.seed', message: 'not an integer' }],
+      errors,
       warnings: [],
-    } as unknown as ValidationResult)
-    vi.mocked(api.submitJob).mockRejectedValue(
-      new Error('seed: not an integer'),
+    }) as unknown as ValidationResult
+
+  it('a refused check turns Run into Fix 2 issues, which focuses the first field', async () => {
+    api.validate.mockResolvedValue(
+      refused([
+        { path: 'arguments.seed', message: 'not an integer' },
+        { path: 'arguments.prompt', message: 'too long' },
+      ]),
     )
     await openPage()
-    const runButton = screen.getByRole('button', { name: /Run/ })
-    expect((runButton as HTMLButtonElement).disabled).toBe(false)
-    await fireEvent.click(runButton)
+    const fix = screen.getByRole('button', { name: 'Fix 2 issues' })
+    expect(fix.getAttribute('title')).toBe('Shows what would stop this job')
+    await fireEvent.click(fix)
+    expect(document.activeElement).toBe(field('prompt'))
+    expect(api.submitJob).not.toHaveBeenCalled()
+  })
+
+  it('Fix scrolls to the first general issue when no field has one', async () => {
+    api.validate.mockResolvedValue(
+      refused([{ path: 'model_name', message: 'unknown model' }]),
+    )
+    await openPage()
+    const target = document.getElementById('issue-0')!
+    target.scrollIntoView = vi.fn()
+    await fireEvent.click(screen.getByRole('button', { name: 'Fix 1 issue' }))
+    expect(target.scrollIntoView).toHaveBeenCalled()
+  })
+
+  it('Run comes back once the check stops refusing', async () => {
+    api.validate.mockResolvedValueOnce(
+      refused([{ path: 'arguments.seed', message: 'not an integer' }]),
+    )
+    await openPage()
+    expect(screen.getByRole('button', { name: 'Fix 1 issue' })).toBeTruthy()
+    await type('seed', '3')
+    await advance(600)
+    const run = screen.getByRole('button', { name: 'Run' })
+    api.submitJob.mockRejectedValue(new Error('boom'))
+    await fireEvent.click(run)
     await advance()
     expect(notify.failure).toHaveBeenCalledWith(
       expect.stringMatching(/^run /),
-      expect.objectContaining({ message: 'seed: not an integer' }),
+      expect.objectContaining({ message: 'boom' }),
     )
   })
 
-  it('keeps Run enabled while a check is in flight', async () => {
-    vi.mocked(api.validate).mockImplementation(() => new Promise(() => {}))
+  it('a gated verdict keeps Run', async () => {
+    api.validate.mockResolvedValue({
+      ...valid,
+      plan: {
+        ...valid.plan,
+        downloads_required: [
+          { repo: 'a/b', access_blocked: true, not_found: false },
+        ],
+      },
+    } as unknown as ValidationResult)
+    await openPage()
+    expect(
+      screen.getByText('This model needs Hugging Face access.'),
+    ).toBeTruthy()
+    const run = screen.getByRole('button', { name: 'Run' })
+    expect((run as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('a check in flight does not block Run', async () => {
+    api.validate.mockImplementation(() => new Promise(() => {}))
     await openPage()
     const runButton = screen.getByRole('button', { name: /Run/ })
     expect((runButton as HTMLButtonElement).disabled).toBe(false)
   })
 
   it('renders hostile finding text as text', async () => {
-    vi.mocked(api.validate).mockResolvedValue({
+    api.validate.mockResolvedValue({
       ...valid,
       warnings: ['<img src=x onerror="alert(1)"> warned'],
     } as unknown as ValidationResult)
     await openPage()
-    const general = screen.getByLabelText('findings')
-    expect(general.textContent).toContain('<img src=x onerror="alert(1)">')
-    expect(general.querySelector('img')).toBeNull()
+    const notes = screen
+      .getByText("1 note for the workflow's author")
+      .closest('details')!
+    expect(notes.textContent).toContain('<img src=x onerror="alert(1)">')
+    expect(notes.querySelector('img')).toBeNull()
   })
 
   it('names a check the server refused outright in the general list', async () => {
-    vi.mocked(api.validate).mockRejectedValue(new Error('unknown workflow'))
+    api.validate.mockRejectedValue(new ApiError('unknown workflow', 400))
     await openPage()
+    // a refusal's own first line is its title, led by what was being done
     expect(screen.getByLabelText('findings').textContent).toContain(
-      'unknown workflow',
+      "Couldn't check these values: unknown workflow",
     )
   })
 })
@@ -316,7 +502,7 @@ describe('WorkflowPage curated cost', () => {
   })
 
   it("shows the maintainer's figure and its settings above the observed text", async () => {
-    vi.mocked(api.listWorkflows).mockResolvedValueOnce(
+    api.listWorkflows.mockResolvedValueOnce(
       card([{ device: 'mps', name: 'M4 Max', vram_gb: 6.5, minutes: 2 }], {
         warm_minutes: 1.5,
         warm_runs: 2,
@@ -326,17 +512,17 @@ describe('WorkflowPage curated cost', () => {
     await openPage()
     const line = screen.getByLabelText('curated cost')
     expect(line.textContent).toContain(
-      "a maintainer's figure: ~2 min · 6.5 GB VRAM, measured on M4 Max at num_images_per_prompt=4",
+      "a maintainer's figure: about 2 min · 6.5 GB VRAM, measured on M4 Max at num_images_per_prompt=4",
     )
     expect(line.textContent).toContain('other values re-price it in the plan')
-    const seen = screen.getByText('~1.5 min here')
+    const seen = screen.getByText('about 1.5 min here')
     expect(
       line.compareDocumentPosition(seen) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
   })
 
   it('prints no curated line for a null cost', async () => {
-    vi.mocked(api.listWorkflows).mockResolvedValueOnce(card(null) as never)
+    api.listWorkflows.mockResolvedValueOnce(card(null) as never)
     await openPage()
     expect(screen.queryByLabelText('curated cost')).toBeNull()
     expect(document.body.textContent).not.toContain("maintainer's figure")
@@ -345,9 +531,7 @@ describe('WorkflowPage curated cost', () => {
 
 describe('WorkflowPage recovery', () => {
   it('a failed load offers Retry and recovers on reconnect', async () => {
-    vi.mocked(api.getWorkflow).mockRejectedValueOnce(
-      new NetworkError('fetch failed'),
-    )
+    api.getWorkflow.mockRejectedValueOnce(new NetworkError('fetch failed'))
     await openPage()
     expect(
       screen.getByText(
@@ -365,11 +549,11 @@ describe('WorkflowPage recovery', () => {
     await advance()
     await advance()
     expect(screen.queryByText(/Couldn't load/)).toBeNull()
-    expect(screen.getByText('a run would be admitted')).toBeTruthy()
+    expect(screen.getByText('Ready to run.')).toBeTruthy()
   })
 
   it('a missing workflow is named in its 404', async () => {
-    vi.mocked(api.getWorkflow).mockRejectedValueOnce(
+    api.getWorkflow.mockRejectedValueOnce(
       new ApiError('Workflow not found', 404),
     )
     await openPage()
@@ -381,9 +565,7 @@ describe('WorkflowPage recovery', () => {
   })
 
   it('a failed proofs read leaves the form alone', async () => {
-    vi.mocked(api.gallery).mockRejectedValueOnce(
-      new NetworkError('fetch failed'),
-    )
+    api.gallery.mockRejectedValueOnce(new NetworkError('fetch failed'))
     await openPage()
     expect(screen.queryByText(/Couldn't load/)).toBeNull()
     expect(screen.queryByRole('alert')).toBeNull()
@@ -391,9 +573,7 @@ describe('WorkflowPage recovery', () => {
   })
 
   it('Retry reads the definition again', async () => {
-    vi.mocked(api.getWorkflow).mockRejectedValueOnce(
-      new NetworkError('fetch failed'),
-    )
+    api.getWorkflow.mockRejectedValueOnce(new NetworkError('fetch failed'))
     await openPage()
     await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
     await advance()
@@ -401,4 +581,327 @@ describe('WorkflowPage recovery', () => {
     expect(screen.queryByText(/Couldn't load/)).toBeNull()
     expect(document.getElementById('var-prompt')).not.toBeNull()
   })
+})
+
+describe('WorkflowPage remote change', () => {
+  it('a definition changed elsewhere says so', async () => {
+    await openPage()
+    expect(screen.queryByText('Updated by an agent or another tab')).toBeNull()
+    api.getWorkflow.mockResolvedValue({
+      definition: { ...definition, description: 'edited by an agent' },
+      origin: 'examples',
+      writable: false,
+    } as never)
+    feed.move('default', 'workflows')
+    await advance()
+    await advance()
+    expect(screen.getByText('Updated by an agent or another tab')).toBeTruthy()
+  })
+
+  it('a move that leaves the definition alone says nothing', async () => {
+    await openPage()
+    feed.move('default', 'workflows')
+    await advance()
+    await advance()
+    expect(screen.queryByText('Updated by an agent or another tab')).toBeNull()
+  })
+})
+
+describe('WorkflowPage run form', () => {
+  const folded = {
+    id: 'TextToImage',
+    variables: { prompt: 'a cat', dtype: 'bfloat16', seed: null },
+    seed: 'variable:seed',
+    steps: [{ name: 'generate', pipeline: {} }],
+  }
+  const advanced = () => screen.getByRole('button', { name: /^Advanced/ })
+
+  beforeEach(() => {
+    localStorage.clear()
+    sessionStorage.clear()
+    api.getWorkflow.mockResolvedValue({
+      definition: folded,
+      origin: 'examples',
+      writable: false,
+    } as never)
+    api.listWorkflows.mockResolvedValue({
+      workflows: [],
+      details: { 'templates/text-to-image': { inputs: {} } },
+      libraries: [],
+      shadowed: [],
+    } as never)
+  })
+
+  it('advanced variables are folded until one holds a value', async () => {
+    await openPage()
+    expect(advanced().textContent).toContain('(2)')
+    expect(advanced().getAttribute('aria-expanded')).toBe('false')
+    expect(document.getElementById('var-dtype')).toBeNull()
+    await fireEvent.click(advanced())
+    expect(field('dtype')).toBeTruthy()
+    cleanup()
+    sessionStorage.setItem(
+      'dw-workflow-prefill',
+      JSON.stringify({
+        workflow: 'templates/text-to-image',
+        arguments: { dtype: 'float16' },
+      }),
+    )
+    await openPage()
+    expect(advanced().getAttribute('aria-expanded')).toBe('true')
+    expect(field('dtype').value).toBe('float16')
+  })
+
+  it('a field with a finding opens the fold, so Fix focuses it', async () => {
+    api.validate.mockResolvedValue({
+      valid: false,
+      error: null,
+      errors: [{ path: 'arguments.dtype', message: 'unknown dtype' }],
+      warnings: [],
+      plan: null,
+    } as never)
+    await openPage()
+    expect(advanced().getAttribute('aria-expanded')).toBe('true')
+    await fireEvent.click(screen.getByRole('button', { name: 'Fix 1 issue' }))
+    expect(document.activeElement).toBe(field('dtype'))
+  })
+
+  it('a seed with no default says random each job', async () => {
+    await openPage()
+    await fireEvent.click(advanced())
+    expect(field('seed').getAttribute('placeholder')).toBe('random each job')
+  })
+
+  it('values typed here are back on the next visit', async () => {
+    await openPage()
+    await type('prompt', 'a dog')
+    await advance(300)
+    cleanup()
+    await openPage()
+    expect(field('prompt').value).toBe('a dog')
+    expect(screen.getByText(/Restored what you last typed here/)).toBeTruthy()
+  })
+
+  it('a prefill wins over the draft', async () => {
+    await openPage()
+    await type('prompt', 'a dog')
+    await advance(300)
+    cleanup()
+    sessionStorage.setItem(
+      'dw-workflow-prefill',
+      JSON.stringify({
+        workflow: 'templates/text-to-image',
+        arguments: { prompt: 'output:run/cat.png' },
+      }),
+    )
+    await openPage()
+    expect(field('prompt').value).toBe('output:run/cat.png')
+  })
+
+  it('Reset to defaults clears the form and the draft', async () => {
+    await openPage()
+    await type('prompt', 'a dog')
+    await advance(300)
+    cleanup()
+    await openPage()
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Reset to defaults' }),
+    )
+    await advance(300)
+    expect(field('prompt').value).toBe('')
+    expect(screen.queryByText(/Restored what you last typed/)).toBeNull()
+    cleanup()
+    await openPage()
+    expect(field('prompt').value).toBe('')
+    expect(localStorage.length).toBe(0)
+  })
+
+  it('a workspace change reseeds from that workspace, leaving the first draft alone', async () => {
+    const home = workspace.current
+    try {
+      await openPage()
+      await type('prompt', 'a dog')
+      await advance(300)
+      const homeKey = `run-draft:${home}:templates/text-to-image`
+      const before = storageGet(homeKey, null)
+      expect(before).toEqual({ prompt: 'a dog' })
+      workspace.current = 'other'
+      await tick()
+      await advance(300)
+      expect(field('prompt').value).toBe('')
+      expect(storageGet(homeKey, null)).toEqual(before)
+      expect(
+        storageGet('run-draft:other:templates/text-to-image', null),
+      ).toBeNull()
+    } finally {
+      workspace.current = home
+    }
+  })
+
+  it('a Run keeps the draft', async () => {
+    api.submitJob.mockResolvedValue({ id: 'job-1' } as never)
+    await openPage()
+    await type('prompt', 'a dog')
+    await advance(300)
+    await fireEvent.click(screen.getByRole('button', { name: 'Run' }))
+    await advance(300)
+    expect(api.submitJob).toHaveBeenCalledTimes(1)
+    expect(localStorage.length).toBe(1)
+    expect(localStorage.key(0)).toContain('run-draft:')
+  })
+})
+
+it('only free-text fields offer Enhance', async () => {
+  api.getWorkflow.mockResolvedValue({
+    definition: {
+      ...definition,
+      variables: { prompt: 'a cat', dtype: 'float16', seed: 0 },
+    },
+    origin: 'examples',
+    writable: false,
+  } as never)
+  await openPage()
+  expect(screen.getAllByRole('button', { name: 'Enhance…' })).toHaveLength(1)
+})
+
+describe('Enhance from the run form', () => {
+  const stopStream = vi.fn()
+
+  beforeEach(() => {
+    stopStream.mockReset()
+    api.getWorkflow.mockResolvedValue({
+      definition: {
+        ...definition,
+        variables: {
+          prompt: 'a cat',
+          negative_prompt: 'a blurry smear',
+          seed: 0,
+        },
+      },
+      origin: 'examples',
+      writable: false,
+    } as never)
+    api.listEnhancers.mockResolvedValue({
+      presets: [
+        {
+          key: 'p',
+          label: 'Preset',
+          default_model: 'org/m',
+          models: [],
+          placeholder: '',
+        },
+      ],
+    } as never)
+    api.enhance.mockResolvedValue({
+      id: 'j1',
+      workspace: 'w',
+    } as never)
+    api.getJob.mockResolvedValue({
+      status: 'succeeded',
+      workspace: 'w',
+      manifest: [{ files: ['o.txt'] }],
+    } as never)
+    vi.mocked(streamJobEvents).mockReset()
+  })
+
+  async function generate() {
+    await advance()
+    const button = screen.getByRole('button', { name: /Generate/ })
+    await vi.waitFor(() =>
+      expect((button as HTMLButtonElement).disabled).toBe(false),
+    )
+    await fireEvent.click(button)
+    await advance()
+  }
+
+  it('closing the dialog mid-run stops the enhancer', async () => {
+    vi.mocked(streamJobEvents).mockReturnValue(stopStream)
+    await openPage()
+    await fireEvent.click(
+      screen.getAllByRole('button', { name: 'Enhance…' })[0],
+    )
+    await generate()
+    expect(stopStream).not.toHaveBeenCalled()
+    await fireEvent.keyDown(document.body, { key: 'Escape' })
+    await advance()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(stopStream).toHaveBeenCalled()
+  })
+
+  it('a result from one field is never offered to another', async () => {
+    vi.mocked(streamJobEvents).mockImplementation(
+      (_id: string, _from: number, _on: unknown, done: () => void) => {
+        queueMicrotask(done)
+        return stopStream
+      },
+    )
+    await openPage()
+    await fireEvent.click(
+      screen.getAllByRole('button', { name: 'Enhance…' })[0],
+    )
+    await generate()
+    await screen.findByRole('button', { name: 'Use this prompt' })
+    await fireEvent.keyDown(document.body, { key: 'Escape' })
+    await advance()
+    await fireEvent.click(
+      screen.getAllByRole('button', { name: 'Enhance…' })[1],
+    )
+    await advance()
+    expect(screen.queryByRole('button', { name: 'Use this prompt' })).toBeNull()
+  })
+
+  it('Use this prompt writes the field and so the draft', async () => {
+    vi.mocked(streamJobEvents).mockImplementation(
+      (_id: string, _from: number, _on: unknown, done: () => void) => {
+        queueMicrotask(done)
+        return stopStream
+      },
+    )
+    await openPage()
+    await fireEvent.click(
+      screen.getAllByRole('button', { name: 'Enhance…' })[0],
+    )
+    await generate()
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Use this prompt' }),
+    )
+    await advance(300)
+    expect(field('prompt').value).toBe('A long, lit prompt')
+    expect(field('negative_prompt').value).toBe('')
+    expect(localStorage.getItem(localStorage.key(0)!)).toContain(
+      'A long, lit prompt',
+    )
+  })
+})
+
+it('WorkflowPage says when the workflow changed', async () => {
+  const changed = 1_790_000_000
+  const created = 1_780_000_000
+  api.listWorkflows.mockResolvedValue({
+    workflows: ['templates/text-to-image'],
+    details: { 'templates/text-to-image': { mtime: changed, created } },
+    libraries: [],
+    shadowed: [],
+  } as never)
+  await openPage()
+  const times = [...document.querySelectorAll('.stamps time')]
+  expect(times.map((t) => t.textContent?.trim())).toEqual([
+    `Changed ${formatMtime(changed)}`,
+    `Created ${formatMtime(created)}`,
+  ])
+  expect(times[0].getAttribute('title')).toBe(formatExact(changed))
+})
+
+it('WorkflowPage says no created time the listing does not give', async () => {
+  api.listWorkflows.mockResolvedValue({
+    workflows: ['templates/text-to-image'],
+    details: { 'templates/text-to-image': { mtime: 1_790_000_000 } },
+    libraries: [],
+    shadowed: [],
+  } as never)
+  await openPage()
+  const times = [...document.querySelectorAll('.stamps time')]
+  expect(times.map((t) => t.textContent?.trim())).toEqual([
+    `Changed ${formatMtime(1_790_000_000)}`,
+  ])
 })

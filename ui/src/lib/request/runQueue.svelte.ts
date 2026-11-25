@@ -3,8 +3,10 @@
 // dialog closes), and on confirm each is submitted in plan order with a
 // cost acknowledgement bound to the plan it was quoted. Nothing here is
 // optimistic: a row is queued only when the server has said so.
-import { ApiError } from '../apiErrors'
+import { ApiError, describeError } from '../apiErrors'
 import type { JobSubmitBody, ValidateRequest } from '../apiRequest'
+import { placeFindings } from '../findings'
+import { verdictOf, type Verdict } from '../runCheck.svelte'
 import type { JobDetail, Plan, ValidationResult } from '../types'
 import { RUN_REFUSALS, type Candidate } from './runPlan'
 
@@ -42,21 +44,44 @@ export type RunRow = {
   plan: Plan | null
   /** What to resend after a re-price, as the server gave it */
   acknowledge: JobSubmitBody['acknowledged_cost'] | null
+  /** Why it will not run or did not queue, in plain words */
   error: string | null
+  /** The server's own text behind `error`, for Details; null when the
+   * words say all there is */
+  detail: string | null
+  /** A priced row's model it may not reach (gated, or not found): said in
+   * warn tone, the row still tickable - the server is the gate */
+  verdict: Verdict | null
   job: string | null
 }
 
-const message = (error: unknown) =>
-  error instanceof Error ? error.message : String(error)
+/** What an invalid validation tells the row: the verdict the workflow page
+ * shows, and every engine message behind it */
+function refusedBy(result: ValidationResult) {
+  const verdict = verdictOf(result, null, placeFindings(result, []))
+  const engine = [...result.errors.map((e) => e.message), result.error]
+  return {
+    error: `${verdict?.text} Ask the agent to fix the item's workflow or arguments.`,
+    detail: engine.filter(Boolean).join('\n') || null,
+  }
+}
+
+/** A valid answer's verdict when it warns of a model: with nothing placed
+ * under a field, a warn verdict is the gated or not-found one */
+function modelVerdict(result: ValidationResult): Verdict | null {
+  const verdict = verdictOf(result, null, placeFindings(result, []))
+  return verdict?.tone === 'warn' ? verdict : null
+}
 
 /** A submit the server did not take, in words for the row */
 function refusal(error: unknown): string {
-  if (!(error instanceof ApiError)) return message(error)
+  const { title } = describeError(error)
+  if (!(error instanceof ApiError)) return title
   const plain = error.code ? RUN_REFUSALS[error.code] : undefined
   if (plain) return plain
   if (error.status === 400)
-    return `The item's stored workflow or arguments were refused: ${error.message}`
-  return error.message
+    return `The item's stored workflow or arguments were refused: ${title}`
+  return title
 }
 
 /** A validation that did not answer. The server refusing the question
@@ -65,8 +90,12 @@ function refusal(error: unknown): string {
 function unchecked(error: unknown): string {
   const refused =
     error instanceof ApiError && error.status >= 400 && error.status < 500
-  return `${refused ? 'would be refused' : 'could not be checked'}: ${message(error)}`
+  const { title } = describeError(error)
+  return `${refused ? 'would be refused' : 'could not be checked'}: ${title}`
 }
+
+/** The engine text a caught error carries beyond its title */
+const detailOf = (error: unknown) => describeError(error).detail ?? null
 
 /** The current plan a 409 on a bound acknowledgement carries */
 function repriced(error: unknown): Record<string, unknown> | null {
@@ -83,6 +112,7 @@ export class RunQueue {
   #workspace: string
   #request: string
   #abort = new AbortController()
+  #sending: Promise<void> = Promise.resolve()
 
   constructor(
     candidates: Candidate[],
@@ -94,10 +124,12 @@ export class RunQueue {
     this.rows = candidates.map((candidate) => ({
       candidate,
       state: 'pricing',
-      ticked: true,
+      ticked: !candidate.optional,
       plan: null,
       acknowledge: null,
       error: null,
+      detail: null,
+      verdict: null,
       job: null,
     }))
   }
@@ -151,53 +183,79 @@ export class RunQueue {
       if (this.#abort.signal.aborted) return
       if (result.valid) {
         row.plan = result.plan ?? null
+        row.verdict = modelVerdict(result)
         row.state = 'priced'
         return
       }
-      const first = result.error ?? result.errors[0]?.message ?? 'not valid'
-      row.error = `would be refused: ${first}`
+      Object.assign(row, refusedBy(result))
     } catch (error) {
       if (this.#abort.signal.aborted) return
       row.error = unchecked(error)
+      row.detail = detailOf(error)
     }
     row.state = 'refused'
     row.ticked = false
   }
 
-  /** The dialog closed: drop the validations still out. A submit already
-   * sent is the server's now and is not taken back. */
-  close() {
+  /** The dialog closed: drop the validations still out, and send no row
+   * not yet sent. A submit already sent is the server's now and is not
+   * taken back - the answer is how many jobs are queued once it lands. */
+  close(): Promise<number> {
     this.#abort.abort()
+    return this.#sending.then(() => this.queued.length)
   }
 
   /** Queue the chosen rows in plan order, each to its own outcome; a row
-   * that fails or re-prices does not stop the ones after it */
-  async submit(): Promise<void> {
-    if (this.busy || !this.settled) return
+   * that fails or re-prices does not stop the ones after it, and closing
+   * the dialog stops the ones not yet sent */
+  submit(): Promise<void> {
+    if (this.busy || !this.settled) return Promise.resolve()
+    return this.#hold(this.#sendChosen())
+  }
+
+  async #sendChosen() {
     this.busy = true
     try {
-      for (const row of this.chosen) await this.#send(row, row.plan ?? true)
+      for (const row of this.chosen) {
+        if (this.#abort.signal.aborted) return
+        await this.#send(row, row.plan ?? true)
+      }
     } finally {
       this.busy = false
     }
   }
 
   /** Queue a re-priced row at the price it now shows */
-  async accept(key: string): Promise<void> {
+  accept(key: string): Promise<void> {
     const row = this.rows.find((r) => r.candidate.key === key)
-    if (this.busy || row?.state !== 'repriced' || !row.acknowledge) return
+    if (this.busy || row?.state !== 'repriced' || !row.acknowledge)
+      return Promise.resolve()
+    return this.#hold(this.#sendAccepted(row, row.acknowledge))
+  }
+
+  async #sendAccepted(
+    row: RunRow,
+    acknowledged: JobSubmitBody['acknowledged_cost'],
+  ) {
     this.busy = true
     try {
-      await this.#send(row, row.acknowledge)
+      await this.#send(row, acknowledged)
     } finally {
       this.busy = false
     }
+  }
+
+  /** The submit that is out, kept so `close` can wait for it to land */
+  #hold(sending: Promise<void>) {
+    this.#sending = sending
+    return sending
   }
 
   async #send(row: RunRow, acknowledged: JobSubmitBody['acknowledged_cost']) {
     const { key, workflow, arguments: args } = row.candidate
     row.state = 'sending'
     row.error = null
+    row.detail = null
     try {
       const job = await this.#api.submitJob({
         workflow_path: workflow,
@@ -216,6 +274,7 @@ export class RunQueue {
         row.state = 'repriced'
       } else {
         row.error = refusal(error)
+        row.detail = detailOf(error)
         row.state = 'failed'
       }
     }

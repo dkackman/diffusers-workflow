@@ -2,6 +2,9 @@
  * arguments that actually differ between the files. The rest are shared and
  * would only bury the one change the comparison is about. */
 
+import { api } from './api'
+import type { GalleryFile } from './types'
+
 export const COMPARE_MAX = 4
 
 type Meta = Record<string, unknown> | null
@@ -37,4 +40,37 @@ export function valueText(value: unknown): string {
   if (value === undefined || value === null) return '—'
   const text = typeof value === 'string' ? value : JSON.stringify(value)
   return text.length > 200 ? `${text.slice(0, 200)}…` : text
+}
+
+/** One file of a comparison, beside what made it */
+export type Cell = {
+  name: string
+  file: GalleryFile | null
+  meta: Record<string, unknown> | null
+  took: number | null
+}
+
+/** How long the run took, from the job that made the file - unknown when
+ * the job is gone or never finished */
+async function runTime(jobId: string | null | undefined) {
+  const job = jobId ? await api.getJob(jobId).catch(() => null) : null
+  return job?.started_at && job.finished_at
+    ? job.finished_at - job.started_at
+    : null
+}
+
+/** `name`'s cell: its file, the metadata embedded in it and its run time.
+ * A file not in the gallery has neither */
+export async function cellFor(
+  name: string,
+  file: GalleryFile | null,
+): Promise<Cell> {
+  if (!file) return { name, file, meta: null, took: null }
+  const r = await api.galleryMetadata(name).catch(() => null)
+  return {
+    name,
+    file,
+    meta: (r?.metadata as Record<string, unknown> | undefined) ?? null,
+    took: await runTime(r?.job?.id),
+  }
 }

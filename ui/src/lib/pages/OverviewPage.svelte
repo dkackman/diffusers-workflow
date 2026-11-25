@@ -6,23 +6,29 @@
     Images,
     Inbox,
     Layers,
-    Play,
     Plus,
     Trash2,
   } from '@lucide/svelte'
+  import StatusChip from '../ui/StatusChip.svelte'
+  import OutputTile from '../ui/OutputTile.svelte'
+  import ItemProof from '../request/ItemProof.svelte'
+  import { outputMedia } from '../media'
   import { api } from '../api'
-  import { changes } from '../changes.svelte'
   import { attention, doneFigure } from '../request/attention'
-  import { untrack } from 'svelte'
   import { resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
   import NoteEditor from '../ui/NoteEditor.svelte'
+  import PageHeader from '../ui/PageHeader.svelte'
   import Skeleton from '../ui/Skeleton.svelte'
   import { WORKSPACE } from '../references'
   import { formatBytes } from '../format'
+  import Time from '../ui/Time.svelte'
+  import { workflowName } from '../terms'
+  import { compareNames } from '../names'
   import { hiddenWorkspaces, setHidden } from '../hiddenWorkspaces.svelte'
-  import { latestProofs } from '../proofs'
-  import { wsHref } from '../routes'
+  import { latestProofs, proofByRun } from '../proofs'
+  import { fileHref, jobHref, sharedHref, wsHref } from '../routes'
+  import type { JobSummary } from '../types'
   import {
     DEFAULT_WORKSPACE,
     invalidateWorkspaces,
@@ -30,8 +36,16 @@
     workspace,
   } from '../workspace.svelte'
   import { deleteWorkspaceWithConfirm } from '../workspaceActions'
+  import { action } from '../action.svelte'
+  import ActionButton from '../ui/ActionButton.svelte'
+  import FirstRunCard from '../FirstRunCard.svelte'
+  import { firstRunLink } from '../firstRun'
 
   const name = $derived(workspace.current)
+  // It asks first itself: the question needs the server's count
+  const deleting = action(deleteWorkspaceWithConfirm, {
+    doing: (ws: string) => `delete workspace ${ws}`,
+  })
   const RECENT = 8
   const WORKFLOWS = 6
   const JOBS = 5
@@ -42,8 +56,13 @@
   // Each reloads quietly when its own kind moves
   const gallery = resource(
     async () => {
-      const { files } = await api.gallery()
-      return { recent: files.slice(0, RECENT), proofs: latestProofs(files) }
+      const { files, workspace: listed } = await api.gallery()
+      return {
+        workspace: listed,
+        recent: files.slice(0, RECENT),
+        proofs: latestProofs(files),
+        runs: proofByRun(files),
+      }
     },
     { watch: ['gallery'] },
   )
@@ -69,8 +88,13 @@
   // examples have their own page
   const workflows = resource(
     async () => {
-      const r = await api.listWorkflows()
-      return r.workflows.filter((wf) => r.details?.[wf]?.writable !== false)
+      const listing = await api.listWorkflows()
+      return {
+        listing,
+        names: listing.workflows.filter(
+          (wf) => listing.details?.[wf]?.writable !== false,
+        ),
+      }
     },
     { watch: ['workflows'] },
   )
@@ -89,28 +113,27 @@
     (requests.data?.requests ?? []).filter((q) => q.state === 'open'),
   )
 
-  $effect(() => {
-    void workspace.current
-    untrack(() => void loadWorkspaces())
-  })
   // The note box is fed by `workspace.notes` alone, which only the
   // workspaces watch touches, and NoteEditor keeps an open draft when a
-  // newer note arrives
-  $effect(() =>
-    changes(workspace.current).watch(['workspaces'], () => {
-      invalidateWorkspaces()
-      void loadWorkspaces()
-    }),
-  )
+  // newer note arrives. The listing is module state (workspace.svelte.ts):
+  // this is how it stays fresh, not where it is held. The Sidebar, always
+  // mounted, relists on a `workspaces` move; this one only joins that read
+  // (`loadWorkspaces` hands back the one on its way), so a move lists the
+  // workspaces once, and it never reads at first: the shell already has
+  resource(() => loadWorkspaces(), { watch: ['workspaces'], lazy: true })
 
   // The ones that have produced something first - the same order the catalog
   // uses, so the overview and the catalog agree on what is "recent"
   const proofs = $derived(gallery.data?.proofs ?? {})
+  const runs = $derived(gallery.data?.runs ?? {})
+  // The workspace the listing came from: every tile's thumbnail and link
+  // names it, so a switch never asks the new workspace for the old files
+  const listed = $derived(gallery.data?.workspace ?? name)
   const featured = $derived(
-    [...(workflows.data ?? [])]
+    [...(workflows.data?.names ?? [])]
       .sort(
         (l, r) =>
-          (proofs[l] ? 0 : 1) - (proofs[r] ? 0 : 1) || l.localeCompare(r),
+          (proofs[l] ? 0 : 1) - (proofs[r] ? 0 : 1) || compareNames(l, r),
       )
       .slice(0, WORKFLOWS),
   )
@@ -129,13 +152,12 @@
   const leaf = (n: string) => n.split('/').pop() ?? n
 </script>
 
-<div class="head">
-  <h1>{name}</h1>
-  {#if directory}<code class="muted dir">{directory}</code>{/if}
-</div>
+<PageHeader title={name} secondary={directory ?? undefined} baseline />
+<FirstRunCard link={firstRunLink(workflows.data?.listing ?? null, name)} />
 <NoteEditor
   note={workspace.notes[name]}
   target={`${WORKSPACE}${name}`}
+  label="Your note on this workspace"
   onsaved={reloadWorkspaces}
 />
 
@@ -155,32 +177,64 @@
         label="loading recent outputs"
       />{/snippet}
     {#snippet emptyIcon()}<Images size={36} strokeWidth={1.5} />{/snippet}
-    {#snippet emptyText()}Nothing generated yet — run a workflow.{/snippet}
+    {#snippet emptyText()}Nothing generated yet.
+      <a href={wsHref(name, 'workflows')}>Run a workflow</a> and what it makes lands
+      here.{/snippet}
     {#snippet children({ recent })}
       <div class="strip">
         {#each recent as file (file.name)}
-          <a
-            class="plain frame tile"
-            href={wsHref(name, 'gallery')}
+          <OutputTile
+            file={outputMedia(file, listed)}
+            size="strip"
+            caption="none"
+            href={fileHref(listed, 'gallery', file.name)}
+            alt={file.label}
             title={file.label}
-          >
-            {#if file.kind === 'image' || file.kind === 'video'}<img
-                src={api.galleryThumbnailUrl(file.name)}
-                alt={file.label}
-                loading="lazy"
-              />{#if file.kind === 'video'}<span
-                  class="videobadge"
-                  aria-hidden="true"
-                >
-                  <Play size={11} />
-                </span>{/if}
-            {:else}<span class="muted">{file.label}</span>{/if}
-          </a>
+            aria-label={file.label}
+          />
         {/each}
       </div>
     {/snippet}
   </LoadState>
 </section>
+
+<!-- A job as one link: its status, its workflow and its run's proof -->
+{#snippet jobRow(job: JobSummary, live: boolean)}
+  {@const proof = job.run_id ? runs[job.run_id] : undefined}
+  {@const when = job.finished_at ?? job.started_at ?? job.created_at ?? null}
+  <li class:row-live={live}>
+    <a
+      class="plain jobrow"
+      href={jobHref(job.id, job.workspace)}
+      title="job {job.id}"
+    >
+      <!-- The run's proof, or the dashed slot that says why there is none:
+           every row is the same height -->
+      <span class="jobproof">
+        <ItemProof
+          output={proof ? { name: proof.name, kind: proof.kind } : null}
+          state={job.status}
+          workspace={listed}
+          alt=""
+          size="cover"
+        />
+      </span>
+      <span class="jobtext">
+        <span class="line1">
+          <StatusChip status={job.status} />
+          <span class="wf">{workflowName(job)}</span>
+        </span>
+        <span class="when">
+          {#if when !== null}<span class="at">
+              <Time at={when} />
+            </span><span class="sep" aria-hidden="true">
+              &nbsp;·&nbsp;
+            </span>{/if}<span class="jid" title={job.id}>{job.id}</span>
+        </span>
+      </span>
+    </a>
+  </li>
+{/snippet}
 
 {#if openRequests.length}
   <section class="panel">
@@ -193,14 +247,17 @@
     </h2>
     <ul class="jobs">
       {#each openRequests as req (req.id)}
-        <li>
+        <li class="reqrow">
           <a class="plain wf" href={wsHref(name, 'requests', req.id)}>
             {req.title}
           </a>
-          <span class="muted">{attention(req).text}</span>
           <span class="muted num" title="items done, of those in the plan">
             {doneFigure(req)}
           </span>
+          {#if req.updated_at}<span class="muted reqwhen">
+              <Time at={Date.parse(req.updated_at) / 1000} label="changed" />
+            </span>{/if}
+          <span class="muted reqline">{attention(req).text}</span>
         </li>
       {/each}
     </ul>
@@ -218,25 +275,12 @@
         !jobs.data.running}
     >
       {#snippet emptyIcon()}<Inbox size={36} strokeWidth={1.5} />{/snippet}
-      {#snippet emptyText()}No jobs yet.{/snippet}
+      {#snippet emptyText()}No jobs yet.
+        <a href={wsHref(name, 'workflows')}>Run a workflow</a> to start one.{/snippet}
       {#snippet children({ running, finished })}
         <ul class="jobs">
-          {#if running}
-            <li class="runningnow">
-              <span class="chip running">running</span>
-              <span class="wf">{running.workflow}</span>
-              <a class="plain" href={wsHref(name, 'jobs', running.id)}>
-                {running.id}
-              </a>
-            </li>
-          {/if}
-          {#each finished as job (job.id)}
-            <li>
-              <span class="chip {job.status}">{job.status}</span>
-              <span class="wf">{job.workflow}</span>
-              <a class="plain" href={wsHref(name, 'jobs', job.id)}>{job.id}</a>
-            </li>
-          {/each}
+          {#if running}{@render jobRow(running, true)}{/if}
+          {#each finished as job (job.id)}{@render jobRow(job, false)}{/each}
         </ul>
       {/snippet}
     </LoadState>
@@ -248,7 +292,7 @@
         <Layers size={15} /> Workflows
       </a>
       {#if workflows.data}<span class="num muted">
-          {workflows.data.length}
+          {workflows.data.names.length}
         </span>{/if}
       <span class="flex"></span>
       <a
@@ -263,11 +307,12 @@
     <LoadState
       of={workflows}
       label="workflows"
-      empty={workflows.data?.length === 0}
+      empty={workflows.data?.names.length === 0}
     >
       {#snippet emptyIcon()}<Layers size={36} strokeWidth={1.5} />{/snippet}
-      {#snippet emptyText()}No workflows yet — create one in the editor, or run
-        an example.{/snippet}
+      {#snippet emptyText()}No workflows yet.
+        <a href={wsHref(name, 'edit')}>Create one in the editor</a>, or
+        <a href={sharedHref('examples')}>start from an example</a>.{/snippet}
       <div class="cards">
         {#each featured as wf (wf)}
           <a
@@ -275,19 +320,12 @@
             href={wsHref(name, 'workflows', ...wf.split('/'))}
           >
             {#if proofs[wf]}
-              <span class="cardframe">
-                <img
-                  src={api.galleryThumbnailUrl(proofs[wf].name)}
-                  alt=""
-                  loading="lazy"
-                />
-                {#if proofs[wf].kind !== 'image'}<span
-                    class="videobadge"
-                    aria-hidden="true"
-                  >
-                    <Play size={11} />
-                  </span>{/if}
-              </span>
+              <OutputTile
+                file={outputMedia(proofs[wf], listed)}
+                size="card"
+                caption="none"
+                alt=""
+              />
             {/if}
             <span class="cardname">{leaf(wf)}</span>
           </a>
@@ -317,50 +355,35 @@
   </section>
   <section class="panel">
     <h2>Manage</h2>
-    <p class="muted">
-      Deleting removes the workspace's workflows, assets and outputs on the
-      server. The prompt library and the shared asset library are untouched.
-    </p>
-    <button
-      class="quiet withicon"
-      onclick={() => setHidden(name, !hiddenWorkspaces.names.includes(name))}
-      disabled={name === DEFAULT_WORKSPACE}
-      title="a choice for this browser only - the workspace itself is unchanged"
-    >
-      {#if hiddenWorkspaces.names.includes(name)}<Eye size={14} />Show in
-        sidebar{:else}<EyeOff size={14} />Hide from sidebar{/if}
-    </button>
-    <button
-      class="quiet icon danger"
-      onclick={() => deleteWorkspaceWithConfirm(name)}
-      disabled={name === DEFAULT_WORKSPACE}
-      title={name === DEFAULT_WORKSPACE
-        ? 'the default workspace is the root itself and cannot be deleted'
-        : 'delete this workspace and everything in it'}
-      aria-label="delete workspace {name}"
-    >
-      <Trash2 size={14} />
-    </button>
+    {#if name === DEFAULT_WORKSPACE}
+      <p class="muted">
+        The default workspace is the server's own folder, so it can't be hidden
+        or deleted.
+      </p>
+    {:else}
+      <button
+        class="quiet withicon"
+        onclick={() => setHidden(name, !hiddenWorkspaces.names.includes(name))}
+        title="a choice for this browser only - the workspace itself is unchanged"
+      >
+        {#if hiddenWorkspaces.names.includes(name)}<Eye size={14} />Show in
+          sidebar{:else}<EyeOff size={14} />Hide from sidebar{/if}
+      </button>
+      <ActionButton
+        act={deleting}
+        args={[name]}
+        danger
+        title="delete this workspace and everything in it"
+      >
+        <Trash2 size={14} />Delete workspace
+      </ActionButton>
+    {/if}
   </section>
 </div>
 
 <style>
-  .head {
-    display: flex;
-    align-items: baseline;
-    gap: var(--space-3);
-    margin-bottom: var(--space-4);
-  }
-  .dir {
-    font-size: var(--t-xs);
-  }
   section {
     margin-bottom: var(--space-4);
-  }
-  h2 {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
   }
   h2 a {
     display: inline-flex;
@@ -383,11 +406,8 @@
   }
   .strip {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    grid-template-columns: repeat(auto-fill, 96px);
     gap: var(--space-2);
-  }
-  .tile {
-    aspect-ratio: 1;
   }
   .jobs {
     list-style: none;
@@ -397,22 +417,95 @@
     flex-direction: column;
     gap: var(--space-2);
   }
-  .jobs li {
+  .jobs li,
+  .jobrow {
     display: flex;
     align-items: center;
     gap: var(--space-3);
     font-family: var(--font-mono);
     font-size: var(--t-sm);
   }
+  .jobrow {
+    flex: 1;
+    min-width: 0;
+  }
+  .jobproof {
+    flex: none;
+    width: 48px;
+  }
+  .jobs .jobtext {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: var(--space-1);
+  }
+  .jobs .line1 {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-width: 0;
+  }
+  /* The title and the figure on a line, what it needs under them: the
+     sentence is long, and must not push the title out at 390 px */
+  .jobs .reqrow {
+    flex-wrap: wrap;
+    row-gap: 0;
+  }
+  .jobs .reqwhen {
+    font-size: var(--t-xs);
+  }
+  .jobs .reqline {
+    flex: 1 0 100%;
+    font-family: inherit;
+    font-size: var(--t-xs);
+    overflow-wrap: anywhere;
+  }
   .jobs .wf {
     flex: 1;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .jobs .runningnow {
-    box-shadow: inset 2px 0 0 var(--live);
+  /* "<time> · <id>" on its own line: the id tells apart jobs that finish in
+     one minute, so the time gives way first (it ellipsizes, and a phone
+     drops it); an id longer than the row is clipped, and its title holds
+     the whole of it */
+  .jobs .when {
+    display: flex;
+    min-width: 0;
+    color: var(--muted);
+    white-space: pre;
+    font-size: var(--t-xs, var(--t-sm));
+  }
+  .jobs .when .sep {
+    flex: none;
+  }
+  .jobs .when .jid {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .jobs .when .at {
+    flex: 0 1000 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  @media (max-width: 600px) {
+    .jobs .when .at,
+    .jobs .when .sep {
+      display: none;
+    }
+  }
+  .jobs .row-live {
     padding-left: var(--space-2);
+  }
+  .jobrow:hover .wf {
+    text-decoration: underline;
   }
   .cards {
     display: grid;
@@ -436,19 +529,11 @@
   .cardname {
     padding: 0 var(--space-2);
   }
-  .cardframe {
-    display: block;
-    position: relative;
-    aspect-ratio: 4 / 3;
-    background: var(--panel-2);
-    border-bottom: 1px solid var(--line);
-    overflow: hidden;
-  }
-  .cardframe img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
+  /* The proof is a banner across the card's top: the card's border is its
+     frame, so the tile keeps only the rule above the name */
+  .card :global(.filetile) {
+    border-width: 0 0 1px;
+    border-radius: 0;
   }
   dl {
     display: grid;

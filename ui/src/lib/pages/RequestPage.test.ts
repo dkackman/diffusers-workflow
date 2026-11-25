@@ -12,32 +12,22 @@ import { workspace } from '../workspaceState.svelte'
 import { ACTIVE_MS, IDLE_MS } from '../request/refresh'
 import { doneItem, entry, item, request } from '../request/fixtures'
 import type { LedgerRequest } from '../types'
+import { api } from '../test/apiMock'
 import { feed } from '../test/feedMock'
+import { readSnapshot, snapshotOf, writeSnapshot } from '../request/planDiff'
 
 const data = vi.hoisted(() => ({
   request: null as unknown,
   getError: null as { status: number; message: string } | null,
-  putRequest: vi.fn(),
-  addNote: vi.fn(),
-  notesChannel: vi.fn(),
 }))
-vi.mock('../api', async () => ({
-  ApiError: (await import('../apiErrors')).ApiError,
-  api: {
-    getRequest: vi.fn(async () => {
-      if (data.getError) {
-        const { ApiError } = await import('../api')
-        throw new ApiError(data.getError.message, data.getError.status)
-      }
-      return data.request
-    }),
-    galleryThumbnailUrl: (name: string, ws?: string) =>
-      `/thumb/${name}?ws=${ws}`,
-    putRequest: (...args: unknown[]) => data.putRequest(...args),
-    addNote: (...args: unknown[]) => data.addNote(...args),
-    notesChannel: (...args: unknown[]) => data.notesChannel(...args),
-  },
-}))
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
+api.getRequest.mockImplementation(async () => {
+  if (data.getError) {
+    const { ApiError } = await import('../api')
+    throw new ApiError(data.getError.message, data.getError.status)
+  }
+  return data.request
+})
 vi.mock('../changes.svelte', async () => ({
   changes: (await import('../test/feedMock')).feed.changes,
 }))
@@ -89,10 +79,10 @@ beforeEach(() => {
   workspace.current = 'studio'
   data.request = make()
   data.getError = null
-  data.putRequest.mockReset()
-  data.addNote.mockReset()
-  data.notesChannel.mockReset()
-  data.notesChannel.mockResolvedValue({ listening: false, last_seen: null })
+  api.putRequest.mockReset()
+  api.addNote.mockReset()
+  api.notesChannel.mockReset()
+  api.notesChannel.mockResolvedValue({ listening: false, last_seen: null })
   vi.clearAllMocks()
 })
 afterEach(() => {
@@ -133,7 +123,7 @@ it('leads with where the request stands, then the plan, the ask and its changes'
   const { container } = render(RequestPage, { requestId: 'r1' })
   await loaded()
   expect(container.querySelector('.standing')?.textContent).toBe(
-    'Nothing is running. 1 ready to run. 1 of 2 done.',
+    'Nothing is running. 1 of 2 done.',
   )
   expect(container.querySelector('.needs')?.textContent).toBe(
     'Needs you: 1 ready to run.',
@@ -147,19 +137,19 @@ it('leads with where the request stands, then the plan, the ask and its changes'
     [...container.querySelectorAll('ol.items .figure')].map(
       (e) => e.textContent,
     ),
-  ).toEqual(['1.5 min', 'est. ~4 min'])
+  ).toEqual(['1.5 min', 'est. about 4 min'])
   expect(
     container
       .querySelector('.figures')
       ?.textContent?.replace(/\s+/g, ' ')
       .trim(),
-  ).toBe('5 min spent ~7 min left')
+  ).toBe('5 min spent about 7 min left')
   // the proof comes from the ledger's own output: no job is asked for
   expect(
     screen
       .getByRole('img', { name: 'result of First poster' })
       .getAttribute('src'),
-  ).toBe('/thumb/run/a.png?ws=studio')
+  ).toBe('/api/gallery/run/a.png/thumbnail?workspace=studio')
   const rail = container.querySelector('.rail') as HTMLElement
   expect(within(rail).getByText(/three posters/).textContent).toBe(
     'make me\n  three posters',
@@ -173,6 +163,16 @@ it('leads with where the request stands, then the plan, the ask and its changes'
     ),
   ).toEqual(['r3', 'r2', 'r1'])
   expect(rail.querySelector('.now')?.textContent).toBe('now at r3')
+})
+
+it('sets the tab title to the request, with Requests as its back link', async () => {
+  render(RequestPage, { requestId: 'r1' })
+  await loaded()
+  expect(document.title).toBe('Launch posters · diffusers-workflow')
+  expect(
+    screen.getByRole('link', { name: '← Requests' }).getAttribute('href'),
+  ).toMatch(/\/requests$/)
+  expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
 })
 
 it('keeps dropped items in a closed group under the plan', async () => {
@@ -206,16 +206,54 @@ it('says a missing request no longer exists, with the way back', async () => {
     /This request no longer exists\. The agent may have removed it\./,
   )
   expect(
-    screen.getByRole('link', { name: 'See all requests' }).getAttribute('href'),
+    screen.getByRole('link', { name: '← Requests' }).getAttribute('href'),
   ).toBe('#/ws/studio/requests')
+  expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+  expect(screen.getByRole('heading', { level: 1 }).textContent).toContain(
+    'Request',
+  )
+  expect(document.title).toBe('Request · diffusers-workflow')
 })
 
-it('a first load that fails says why, and Retry asks again', async () => {
-  data.getError = { status: 503, message: 'busy' }
-  render(RequestPage, { requestId: 'r1' })
-  expect((await screen.findByRole('alert')).textContent).toContain(
-    'Could not load this request: busy',
+it('names itself and links back while the request loads', async () => {
+  let land: (reply: unknown) => void = () => {}
+  api.getRequest.mockImplementationOnce(
+    () => new Promise((resolve) => (land = resolve)) as never,
   )
+  render(RequestPage, { requestId: 'r1' })
+  expect(screen.getByLabelText('loading request')).toBeTruthy()
+  expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+  expect(
+    screen.getByRole('link', { name: '← Requests' }).getAttribute('href'),
+  ).toBe('#/ws/studio/requests')
+  expect(document.title).toBe('Request · diffusers-workflow')
+  land(make())
+  await loaded()
+  expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+})
+
+// The engine's own words, which only the folded Details may show
+const RAW = 'ledger read failed: sqlite3.OperationalError database is locked'
+const outsideDetails = (el: Element) => {
+  const copy = el.cloneNode(true) as Element
+  copy.querySelectorAll('details').forEach((d) => d.remove())
+  return copy.textContent ?? ''
+}
+
+it('a first load that fails says why, and Retry asks again', async () => {
+  data.getError = { status: 503, message: RAW }
+  render(RequestPage, { requestId: 'r1' })
+  const alert = await screen.findByRole('alert')
+  expect(alert.textContent).toContain(
+    "Couldn't load this request: The server hit an error",
+  )
+  expect(outsideDetails(alert)).not.toContain(RAW)
+  expect(alert.querySelector('details pre')?.textContent).toBe(RAW)
+  expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+  expect(
+    screen.getByRole('link', { name: '← Requests' }).getAttribute('href'),
+  ).toBe('#/ws/studio/requests')
+  expect(document.title).toBe('Request · diffusers-workflow')
   data.getError = null
   await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
   await loaded()
@@ -248,29 +286,28 @@ function noted(key: string | null, text: string, revision = 4): LedgerRequest {
 const AT = '2026-01-04T00:00:00+00:00'
 
 it('saves a note through the note route, never the plan, and reads the plan again', async () => {
-  const { api } = await import('../api')
-  data.addNote.mockImplementation(async () => {
+  api.addNote.mockImplementation(async () => {
     data.request = noted('b', 'needs more red')
     return { revision: 4 }
   })
   render(RequestPage, { requestId: 'r1' })
   const box = await openNote('Second poster')
   await fireEvent.input(box, { target: { value: 'needs more red' } })
-  const reads = vi.mocked(api.getRequest).mock.calls.length
+  const reads = api.getRequest.mock.calls.length
   await saveNote('Second poster')
   await atRevision(4)
-  expect(data.addNote).toHaveBeenCalledWith('studio', {
+  expect(api.addNote).toHaveBeenCalledWith('studio', {
     request: 'r1',
     item: 'b',
     text: 'needs more red',
   })
-  expect(data.putRequest).not.toHaveBeenCalled()
-  expect(vi.mocked(api.getRequest).mock.calls.length).toBe(reads + 1)
+  expect(api.putRequest).not.toHaveBeenCalled()
+  expect(api.getRequest.mock.calls.length).toBe(reads + 1)
   await within(row('Second poster')).findByText('needs more red')
 })
 
 it("saves the request's own note with no item", async () => {
-  data.addNote.mockImplementation(async () => {
+  api.addNote.mockImplementation(async () => {
     data.request = noted(null, 'make it all warmer')
     return { revision: 4 }
   })
@@ -291,17 +328,19 @@ it("saves the request's own note with no item", async () => {
       screen.queryByLabelText('Note for the agent on this request'),
     ).toBeNull(),
   )
-  expect(data.addNote.mock.calls[0][1]).toEqual({
+  expect(api.addNote.mock.calls[0][1]).toEqual({
     request: 'r1',
     text: 'make it all warmer',
   })
-  expect(data.putRequest).not.toHaveBeenCalled()
-  expect(within(head).getByText(/No agent session is listening/)).toBeTruthy()
+  expect(api.putRequest).not.toHaveBeenCalled()
+  expect(
+    within(head).getByText(/The agent isn't connected\. It reads/),
+  ).toBeTruthy()
 })
 
 it('a note the server refuses says why beside the draft, with a reload', async () => {
   const { ApiError } = await import('../api')
-  data.addNote.mockRejectedValue(
+  api.addNote.mockRejectedValue(
     new ApiError("item 'b' of request 'r1' was dropped", 422, 'item_dropped'),
   )
   render(RequestPage, { requestId: 'r1' })
@@ -328,9 +367,8 @@ it('links to its jobs and outputs through the req filter', async () => {
 })
 
 it('drops a request that lands after the page moved to another', async () => {
-  const { api } = await import('../api')
   let land: (reply: unknown) => void = () => {}
-  vi.mocked(api.getRequest).mockImplementationOnce(
+  api.getRequest.mockImplementationOnce(
     () => new Promise((resolve) => (land = resolve)) as never,
   )
   const view = render(RequestPage, { requestId: 'r1' })
@@ -362,16 +400,15 @@ function queued(): LedgerRequest {
 
 it('refreshes an idle open request, and a note draft survives it', async () => {
   fakeInterval()
-  const { api } = await import('../api')
   render(RequestPage, { requestId: 'r1' })
   const box = await openNote('Second poster')
   await fireEvent.input(box, { target: { value: 'half a thought' } })
   const next = queued()
   data.request = next
-  const calls = vi.mocked(api.getRequest).mock.calls.length
+  const calls = api.getRequest.mock.calls.length
   vi.advanceTimersByTime(IDLE_MS)
   await atRevision(4)
-  expect(vi.mocked(api.getRequest).mock.calls.length).toBe(calls + 1)
+  expect(api.getRequest.mock.calls.length).toBe(calls + 1)
   await waitFor(() => expect(chips()).toEqual(['done', 'queued']))
   expect(
     within(row('Second poster'))
@@ -393,43 +430,68 @@ it('tells a screen reader what a refresh changed, and nothing on first load', as
   vi.advanceTimersByTime(IDLE_MS)
   await waitFor(() => expect(live()).toBe('Second poster was queued.'))
   const done = queued()
-  done.items[1] = doneItem('b', { title: 'Second poster', depends_on: ['a'] })
+  done.items[1] = doneItem('b', {
+    title: 'Second poster',
+    depends_on: ['a'],
+    workflow: 'poster',
+  })
   data.request = done
   vi.advanceTimersByTime(ACTIVE_MS)
   await waitFor(() => expect(live()).toBe('Second poster finished.'))
 })
 
-it('a closed request with nothing in flight keeps no timer: it watches the feed', async () => {
+// One resource reads the request: the feed's `requests` kind always, and a
+// timer beside it while the request can change on its own (refreshInterval)
+it('an open request refreshes on its interval and a closed one on the feed', async () => {
   fakeInterval()
-  const { api } = await import('../api')
-  data.request = { ...make(), state: 'done' }
-  render(RequestPage, { requestId: 'r1' })
-  await loaded()
-  const calls = vi.mocked(api.getRequest).mock.calls.length
-  vi.advanceTimersByTime(IDLE_MS * 3)
-  expect(vi.mocked(api.getRequest).mock.calls.length).toBe(calls)
-  await waitFor(() => expect(feed.watched('studio')).toEqual(['requests']))
-})
-
-it('a closed request an agent reopens shows open when the feed says requests moved', async () => {
-  fakeInterval()
-  const { api } = await import('../api')
+  const reads = () => api.getRequest.mock.calls.length
   data.request = { ...make(), state: 'done', revision: 4 }
   render(RequestPage, { requestId: 'r1' })
   await loaded()
   await waitFor(() => expect(feed.watched('studio')).toEqual(['requests']))
+  // closed with nothing in flight: no timer
+  let calls = reads()
+  vi.advanceTimersByTime(IDLE_MS * 3)
+  expect(reads()).toBe(calls)
   // another kind moving asks nothing
-  const calls = vi.mocked(api.getRequest).mock.calls.length
   feed.move('studio', 'gallery')
-  expect(vi.mocked(api.getRequest).mock.calls.length).toBe(calls)
+  expect(reads()).toBe(calls)
+  // an agent reopens it: the feed says requests moved
   data.request = { ...make(), state: 'open', revision: 5 }
   feed.move('studio', 'requests')
   await atRevision(5)
-  // open again, it is back on its own idle timer and off the feed
-  await waitFor(() => expect(feed.watched('studio')).toEqual([]))
-  const reads = vi.mocked(api.getRequest).mock.calls.length
+  // open again, it is on its idle timer, and still on the feed
+  calls = reads()
   vi.advanceTimersByTime(IDLE_MS)
-  expect(vi.mocked(api.getRequest).mock.calls.length).toBe(reads + 1)
+  expect(reads()).toBe(calls + 1)
+  expect(feed.watched('studio')).toEqual(['requests'])
+  // a job in flight: the active interval
+  data.request = { ...queued(), revision: 6 }
+  feed.move('studio', 'requests')
+  await atRevision(6)
+  calls = reads()
+  vi.advanceTimersByTime(ACTIVE_MS)
+  expect(reads()).toBe(calls + 1)
+})
+
+it('a read that keeps the interval does not re-arm the poll', async () => {
+  // Only the refresh timer: waitFor's 50 ms and a mark's own are faked too
+  const isTimer = (ms: unknown) => ms === ACTIVE_MS || ms === IDLE_MS
+  fakeInterval()
+  render(RequestPage, { requestId: 'r1' })
+  await loaded()
+  const armed = vi.spyOn(globalThis, 'setInterval')
+  // a newer revision, still open and idle: the same interval
+  data.request = { ...make(), revision: 5 }
+  feed.move('studio', 'requests')
+  await atRevision(5)
+  expect(armed.mock.calls.map((c) => c[1]).filter(isTimer)).toEqual([])
+  // a job in flight changes it: the timer is re-armed, once
+  data.request = { ...queued(), revision: 6 }
+  feed.move('studio', 'requests')
+  await atRevision(6)
+  expect(armed.mock.calls.map((c) => c[1]).filter(isTimer)).toEqual([ACTIVE_MS])
+  armed.mockRestore()
 })
 
 it('a feed read of a closed request at an older revision does not replace it', async () => {
@@ -444,26 +506,102 @@ it('a feed read of a closed request at an older revision does not replace it', a
   expect(revision()).toBe('now at r6')
 })
 
-it('an open request keeps its own timer and does not watch the feed', async () => {
-  fakeInterval()
+it('a refresh answered after a save does not put the old revision back', async () => {
+  render(RequestPage, { requestId: 'r1' })
+  const box = await openNote('Second poster')
+  // The feed's read goes out and hangs
+  let land: (reply: unknown) => void = () => {}
+  api.getRequest.mockImplementationOnce(
+    () => new Promise((resolve) => (land = resolve)) as never,
+  )
+  feed.move('studio', 'requests')
+  // The save lands first, and the read after it is at revision 4
+  api.addNote.mockImplementation(async () => {
+    data.request = noted('b', 'more red')
+    return { revision: 4 }
+  })
+  await fireEvent.input(box, { target: { value: 'more red' } })
+  await saveNote('Second poster')
+  await atRevision(4)
+  // then the feed's read, still carrying revision 3 and no note
+  land(make())
+  await new Promise((r) => setTimeout(r, 10))
+  expect(revision()).toBe('now at r4')
+  expect(within(row('Second poster')).getByText('more red')).toBeTruthy()
+})
+
+it('an item an agent edited is marked', async () => {
   render(RequestPage, { requestId: 'r1' })
   await loaded()
-  expect(feed.watched('studio')).toEqual([])
+  // nothing is marked on the first read
+  expect(document.querySelector('li.row-changed')).toBeNull()
+  const next = make()
+  next.revision = 4
+  next.items[1] = { ...next.items[1], title: 'Second poster, in red' }
+  data.request = next
+  feed.move('studio', 'requests')
+  await atRevision(4)
+  await waitFor(() =>
+    expect(row('Second poster, in red').classList).toContain('row-changed'),
+  )
+  expect(row('First poster').classList).not.toContain('row-changed')
+  // the mark's clearing after CHANGED_MARK_MS is pinned in resource.svelte.test.ts
+})
+
+it('a switch to another request marks against that request, never the one left', async () => {
+  const first = make()
+  first.revision = 6
+  data.request = first
+  const view = render(RequestPage, { requestId: 'r1' })
+  await atRevision(6)
+  // another request, younger: its revision is below the one left
+  const second = { ...make(), id: 'r2', title: 'Second ask', revision: 1 }
+  data.request = second
+  await view.rerender({ requestId: 'r2' })
+  await screen.findByText('Second ask')
+  await atRevision(1)
+  // nothing is marked by the switch itself
+  expect(document.querySelector('li.row-changed')).toBeNull()
+  const edited = structuredClone(second)
+  edited.revision = 2
+  edited.items[1] = { ...edited.items[1], title: 'Second poster, in red' }
+  data.request = edited
+  feed.move('studio', 'requests')
+  await atRevision(2)
+  await waitFor(() =>
+    expect(row('Second poster, in red').classList).toContain('row-changed'),
+  )
+  expect(document.querySelectorAll('li.row-changed')).toHaveLength(1)
+})
+
+it('a switch away from a request that failed shows the skeleton, not its failure', async () => {
+  data.getError = { status: 404, message: 'no such request' }
+  const view = render(RequestPage, { requestId: 'gone' })
+  await screen.findByText(/This request no longer exists/)
+  data.getError = null
+  let land: (reply: unknown) => void = () => {}
+  api.getRequest.mockImplementationOnce(
+    () => new Promise((resolve) => (land = resolve)) as never,
+  )
+  await view.rerender({ requestId: 'r1' })
+  expect(screen.queryByText(/This request no longer exists/)).toBeNull()
+  expect(screen.getByLabelText('loading request')).toBeTruthy()
+  land(make())
+  await loaded()
 })
 
 it('a refresh sent before a save and answered after it does not undo the save', async () => {
   fakeInterval()
-  const { api } = await import('../api')
   render(RequestPage, { requestId: 'r1' })
   const box = await openNote('Second poster')
   // The refresh goes out and hangs
   let land: (reply: unknown) => void = () => {}
-  vi.mocked(api.getRequest).mockImplementationOnce(
+  api.getRequest.mockImplementationOnce(
     () => new Promise((resolve) => (land = resolve)) as never,
   )
   vi.advanceTimersByTime(IDLE_MS)
   // The save lands first, and the read after it is at revision 4
-  data.addNote.mockImplementation(async () => {
+  api.addNote.mockImplementation(async () => {
     data.request = noted('b', 'more red')
     return { revision: 4 }
   })
@@ -483,12 +621,14 @@ it('a refresh that fails keeps the plan and the draft, and says how old it is', 
   render(RequestPage, { requestId: 'r1' })
   const box = await openNote('Second poster')
   await fireEvent.input(box, { target: { value: 'my draft' } })
-  data.getError = { status: 503, message: 'busy' }
+  data.getError = { status: 503, message: RAW }
   vi.advanceTimersByTime(IDLE_MS)
   const line = await screen.findByRole('status')
   expect(line.textContent).toMatch(
-    /Showing the plan as of .+\. Could not refresh: busy/,
+    /Showing the plan as of .+\. Couldn't refresh: The server hit an error/,
   )
+  expect(outsideDetails(line)).not.toContain(RAW)
+  expect(line.querySelector('details pre')?.textContent).toBe(RAW)
   expect(notify.error).not.toHaveBeenCalled()
   expect(box.value).toBe('my draft')
   expect(screen.getByRole('heading', { name: 'Launch posters' })).toBeTruthy()
@@ -529,7 +669,9 @@ it('says once when the agent answers a waiting note, and the toast goes to it', 
   expect(text).toBe(
     'The agent updated Launch posters after your note: “retook b with more red”',
   )
-  // a later read says nothing more
+  // a later read says nothing more. The poll is not re-armed by the read,
+  // so its tick waits until the read before it has settled
+  await new Promise((r) => setTimeout(r, 0))
   data.request = { ...answered, revision: 5 }
   vi.advanceTimersByTime(IDLE_MS)
   await atRevision(5)
@@ -588,7 +730,7 @@ it('tells again for the same note id on another request, and never on its first 
 
 it('a save that fails for the network says so, and keeps the draft', async () => {
   const { notify } = await import('../toast')
-  data.addNote.mockRejectedValue(new TypeError('Failed to fetch'))
+  api.addNote.mockRejectedValue(new TypeError('Failed to fetch'))
   render(RequestPage, { requestId: 'r1' })
   const box = await openNote('Second poster')
   await fireEvent.input(box, { target: { value: 'my draft' } })
@@ -602,4 +744,160 @@ it('a save that fails for the network says so, and keeps the draft', async () =>
   expect(box.value).toBe('my draft')
   expect(document.body.contains(box)).toBe(true)
   expect(screen.getByRole('heading', { name: 'Launch posters' })).toBeTruthy()
+})
+
+// What the agent changed: under its write while the page is open, and
+// since this browser last looked, from a snapshot per workspace and id
+const diffOf = (revision: number) =>
+  [...document.querySelectorAll(`#plan-change-r${revision} .diff li`)].map(
+    (e) => e.textContent,
+  )
+const sinceLines = () =>
+  [...document.querySelectorAll('.since li')].map((e) => e.textContent)
+/** An agent write at r4 that renames `key`'s item */
+function agentRename(index: number, title: string): LedgerRequest {
+  const next = make()
+  next.revision = 4
+  next.items[index] = { ...next.items[index], title }
+  next.history = [...next.history, entry(4, 'agent', 'a clearer name')]
+  return next
+}
+/** The request as an earlier visit saw it, at r1, its second item seeded */
+function seenAtR1(ws = 'studio', revision = 1) {
+  const earlier = make()
+  earlier.revision = revision
+  earlier.items[1] = { ...earlier.items[1], arguments: { seed: 1 } }
+  writeSnapshot(ws, 'r1', snapshotOf(earlier))
+}
+
+it('a write read while open lists its changes under it', async () => {
+  localStorage.clear()
+  render(RequestPage, { requestId: 'r1' })
+  await loaded()
+  expect(document.querySelector('.diff')).toBeNull()
+  data.request = agentRename(1, 'Second poster, in red')
+  feed.move('studio', 'requests')
+  await atRevision(4)
+  await waitFor(() =>
+    expect(diffOf(4)).toEqual([
+      'Renamed Second poster to Second poster, in red',
+    ]),
+  )
+  // the user's own write brings no lines
+  expect(diffOf(3)).toEqual([])
+})
+
+it('since you last looked lists the changes from the snapshot', async () => {
+  localStorage.clear()
+  seenAtR1()
+  render(RequestPage, { requestId: 'r1' })
+  await loaded()
+  expect(
+    await screen.findByText('Since you last looked (r1 to r3)'),
+  ).toBeTruthy()
+  expect(sinceLines()).toEqual(['Changed Second poster: its arguments (seed)'])
+  // the read was taken as the new snapshot
+  expect(readSnapshot('studio', 'r1')?.revision).toBe(3)
+  await fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
+  expect(document.querySelector('.since')).toBeNull()
+  expect(readSnapshot('studio', 'r1')?.revision).toBe(3)
+})
+
+it('a stored revision above the current one is discarded', async () => {
+  localStorage.clear()
+  seenAtR1('studio', 9)
+  render(RequestPage, { requestId: 'r1' })
+  await loaded()
+  await atRevision(3)
+  expect(document.querySelector('.since')).toBeNull()
+  expect(readSnapshot('studio', 'r1')?.revision).toBe(3)
+})
+
+it('storage that throws shows no diff', async () => {
+  const get = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+    throw new Error('forbidden')
+  })
+  const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    throw new Error('forbidden')
+  })
+  try {
+    render(RequestPage, { requestId: 'r1' })
+    await loaded()
+    await atRevision(3)
+    expect(document.querySelector('.since')).toBeNull()
+    // and what the agent writes while the page is open is still listed
+    data.request = agentRename(0, 'Poster one')
+    feed.move('studio', 'requests')
+    await atRevision(4)
+    await waitFor(() =>
+      expect(diffOf(4)).toEqual(['Renamed First poster to Poster one']),
+    )
+  } finally {
+    get.mockRestore()
+    set.mockRestore()
+  }
+})
+
+it('snapshots are per workspace', async () => {
+  localStorage.clear()
+  seenAtR1('other')
+  render(RequestPage, { requestId: 'r1' })
+  await loaded()
+  await atRevision(3)
+  expect(document.querySelector('.since')).toBeNull()
+  expect(readSnapshot('other', 'r1')?.revision).toBe(1)
+  expect(readSnapshot('studio', 'r1')?.revision).toBe(3)
+})
+
+it('a diff is taken against the read the page held, not the snapshot', async () => {
+  localStorage.clear()
+  seenAtR1()
+  render(RequestPage, { requestId: 'r1' })
+  await screen.findByText('Since you last looked (r1 to r3)')
+  data.request = agentRename(0, 'Poster one')
+  feed.move('studio', 'requests')
+  await atRevision(4)
+  await waitFor(() =>
+    expect(diffOf(4)).toEqual(['Renamed First poster to Poster one']),
+  )
+  // the panel still says what it said: the visit's own snapshot is r3
+  expect(sinceLines()).toEqual(['Changed Second poster: its arguments (seed)'])
+})
+
+it('a change seen live is not listed again on the next visit', async () => {
+  localStorage.clear()
+  render(RequestPage, { requestId: 'r1' })
+  await loaded()
+  data.request = agentRename(1, 'Second poster, in red')
+  feed.move('studio', 'requests')
+  await atRevision(4)
+  cleanup()
+  render(RequestPage, { requestId: 'r1' })
+  await loaded()
+  await atRevision(4)
+  expect(document.querySelector('.since')).toBeNull()
+  expect(readSnapshot('studio', 'r1')?.revision).toBe(4)
+})
+
+it('a read that does not move the revision writes nothing', async () => {
+  localStorage.clear()
+  seenAtR1('studio', 3)
+  const set = vi.spyOn(Storage.prototype, 'setItem')
+  const seenWrites = () =>
+    set.mock.calls.filter(([key]) => key.includes('request-seen')).length
+  try {
+    render(RequestPage, { requestId: 'r1' })
+    await loaded()
+    const reads = api.getRequest.mock.calls.length
+    data.request = make()
+    feed.move('studio', 'requests')
+    await waitFor(() =>
+      expect(api.getRequest.mock.calls.length).toBe(reads + 1),
+    )
+    await new Promise((r) => setTimeout(r, 20))
+    expect(seenWrites()).toBe(0)
+    expect(document.querySelector('.since')).toBeNull()
+  } finally {
+    set.mockRestore()
+  }
 })

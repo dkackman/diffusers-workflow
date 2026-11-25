@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte'
   import Suggest from '../ui/Suggest.svelte'
+  import Segmented from '../ui/Segmented.svelte'
   import { editorLists } from '../editorLists.svelte'
   import {
     ChevronDown,
@@ -12,7 +14,10 @@
   import PipelineOptions from './PipelineOptions.svelte'
   import StepDigestList from './StepDigestList.svelte'
   import MappingEditor from './MappingEditor.svelte'
-  import { api } from '../api'
+  import { latestOnly } from '../latest'
+  import { sleep } from '../poll'
+  import { resource } from '../resource.svelte'
+  import { subWorkflowPath, workflowVariables } from './workflowFile'
   import { stepDigest } from '../digest'
   import {
     contentTypeOptions,
@@ -22,11 +27,14 @@
   } from '../editor'
   import type { StepFlow } from '../flow'
   import { BUILTIN, reference } from '../references'
+  import { earlierResults } from '../referenceField'
+  import { stepNameProblem } from '../stepRename'
 
   let {
     step = $bindable(),
     index,
     count,
+    workflow = {},
     references = [],
     baseFolder = '',
     mode = 'full',
@@ -36,10 +44,14 @@
     onhover = undefined,
     onremove,
     onmove,
+    onrename = undefined,
   }: {
     step: Record<string, any>
     index: number
     count: number
+    // The document the step belongs to: what its media arguments take
+    // from the steps before it
+    workflow?: Record<string, any>
     references?: string[]
     baseFolder?: string
     mode?: 'collapsed' | 'compact' | 'full'
@@ -49,7 +61,23 @@
     onhover?: (stepName: string | null) => void
     onremove: () => void
     onmove: (delta: number) => void
+    // A name the step may take: free, and nothing a reference misreads
+    onrename?: (to: string) => void
   } = $props()
+
+  // The name field commits on change; a name it refuses is said under the
+  // bar and the field goes back to the name the step keeps
+  let nameProblem = $state<string | null>(null)
+  function rename(field: HTMLInputElement) {
+    const to = field.value
+    if (to === step.name) return
+    const others = (workflow.steps ?? [])
+      .filter((s: Record<string, any>) => s !== step && s?.name !== step.name)
+      .map((s: Record<string, any>) => s?.name)
+    nameProblem = stepNameProblem(to, others)
+    if (nameProblem) field.value = step.name
+    else onrename?.(to)
+  }
 
   // What a sub-workflow step's path can name: the library's workflows, then
   // the packaged fragments as builtin: names
@@ -111,6 +139,8 @@
       step[kind] = JSON.parse(rawDraft)
       rawError = ''
     } catch (e) {
+      // JSON.parse's own syntax feedback on the author's draft, not engine text
+      // eslint-disable-next-line no-restricted-syntax
       rawError = e instanceof Error ? e.message : String(e)
     }
   }
@@ -119,37 +149,26 @@
     if (kind !== 'pipeline' && kind !== 'task' && kind !== 'workflow') openRaw()
   })
 
-  // A sub-workflow's argument suggestions are the target's own variables
-  let workflowVariables = $state<Array<{ name: string; hint?: string }>>([])
-  $effect(() => {
-    workflowVariables = []
-    const path = step.workflow?.path
-    if (
-      typeof path !== 'string' ||
-      !path.endsWith('.json') ||
-      path.includes(':')
-    ) {
-      return
-    }
-    // The engine resolves a step's relative path against the PARENT
-    // workflow's directory, so the hint fetch must do the same
-    const resolved =
-      baseFolder && !path.startsWith('/') ? `${baseFolder}/${path}` : path
-    const timer = setTimeout(() => {
-      api
-        .getWorkflow(resolved.slice(0, -'.json'.length))
-        .then((fetched) => {
-          workflowVariables = Object.entries(
-            fetched.definition.variables ?? {},
-          ).map(([name, value]) => ({
-            name,
-            hint: typeof value === 'string' ? value : JSON.stringify(value),
-          }))
-        })
-        .catch(() => {})
-    }, 300)
-    return () => clearTimeout(timer)
-  })
+  // A sub-workflow's argument suggestions are the target's own variables,
+  // asked 300 ms after its path stops changing and again when a workflow is
+  // saved (workflowFile.ts)
+  const typing = latestOnly()
+  // A step removed during the pause asks nothing: its editor is gone
+  let destroyed = false
+  onDestroy(() => (destroyed = true))
+  const target = resource(
+    async () => {
+      const [path, folder] = [step.workflow?.path, baseFolder]
+      const current = typing()
+      if (!subWorkflowPath(path)) return []
+      await sleep(300)
+      return current() && !destroyed ? workflowVariables(path, folder) : []
+    },
+    { watch: ['workflows'] },
+  )
+  const targetVariables = $derived(
+    target.status === 'ready' ? (target.data ?? []) : [],
+  )
 
   const configuration = $derived(step.pipeline?.configuration ?? {})
   const pretrained = $derived(step.pipeline?.from_pretrained_arguments ?? {})
@@ -171,7 +190,11 @@
     </button>
     <input
       class="name"
-      bind:value={step.name}
+      value={step.name}
+      onchange={(e) => rename(e.currentTarget)}
+      oninput={() => (nameProblem = null)}
+      aria-invalid={nameProblem ? true : undefined}
+      aria-describedby={nameProblem ? `stepname-${index}` : undefined}
       title="step name - how later steps reference this one"
     />
     <span class="kind muted">{kind}</span>
@@ -202,24 +225,20 @@
     {/if}
     <span class="flex"></span>
     {#if mode !== 'collapsed'}
-      <div class="modeswitch" role="group" aria-label="step detail level">
-        <button
-          class="quiet"
-          class:activebtn={mode === 'compact'}
-          onclick={() => setModeInternal('compact')}
-          title="one-line-per-area digest of what this step sets"
-        >
-          compact
-        </button>
-        <button
-          class="quiet"
-          class:activebtn={mode === 'full'}
-          onclick={() => setModeInternal('full')}
-          title="every field, editable"
-        >
-          full
-        </button>
-      </div>
+      <Segmented
+        size="sm"
+        label="step detail level"
+        value={mode}
+        options={[
+          {
+            value: 'compact',
+            label: 'compact',
+            title: 'one-line-per-area digest of what this step sets',
+          },
+          { value: 'full', label: 'full', title: 'every field, editable' },
+        ]}
+        onselect={(picked) => setModeInternal(picked as 'compact' | 'full')}
+      />
     {/if}
     <button
       class="quiet icon"
@@ -249,6 +268,11 @@
     </button>
   </div>
 
+  {#if nameProblem}
+    <p id={`stepname-${index}`} class="error nameproblem" role="alert">
+      {nameProblem}
+    </p>
+  {/if}
   {#each problems as problem (problem)}
     <div class="stepwarn"><TriangleAlert size={13} /> {problem}</div>
   {/each}
@@ -263,7 +287,7 @@
     <StepDigestList lines={digest.lines} onopen={openFull} />
   {:else if mode === 'full'}
     {#if kind === 'pipeline'}
-      <div class="grid">
+      <div class="formgrid grid">
         <label for={'ct-' + index}>pipeline</label>
         <Suggest
           id={'ct-' + index}
@@ -335,6 +359,7 @@
         bind:args={step.pipeline.arguments}
         componentType={configuration.component_type ?? ''}
         suggestions={references}
+        earlier={(kind) => earlierResults(workflow, index, kind)}
       />
 
       <PipelineOptions
@@ -344,7 +369,7 @@
         {references}
       />
     {:else if kind === 'task'}
-      <div class="grid">
+      <div class="formgrid grid">
         <label for={'task-' + index}>command</label>
         <Suggest
           id={'task-' + index}
@@ -359,9 +384,10 @@
         componentType={step.task.command}
         target="task"
         suggestions={references}
+        earlier={(kind) => earlierResults(workflow, index, kind)}
       />
     {:else if kind === 'workflow'}
-      <div class="grid">
+      <div class="formgrid grid">
         <label for={'wfpath-' + index}>path</label>
         <Suggest
           id={'wfpath-' + index}
@@ -373,7 +399,7 @@
       <h3>arguments</h3>
       <MappingEditor
         bind:args={step.workflow.arguments}
-        suggestions={workflowVariables}
+        suggestions={targetVariables}
         valueSuggestions={references}
       />
       <div class="muted hint">
@@ -400,38 +426,20 @@
     gap: 0.4rem 0.5rem;
   }
   .name {
-    max-width: 220px;
+    max-width: 480px;
     font-weight: 600;
   }
   .kind {
     font-size: 0.75rem;
   }
   .grid {
-    display: grid;
-    grid-template-columns: 170px minmax(0, 480px);
-    gap: 0.5rem 0.7rem;
     margin-top: 0.8rem;
-    align-items: center;
-  }
-  @container (max-width: 400px) {
-    .grid {
-      grid-template-columns: minmax(0, 1fr);
-      gap: 0.2rem;
-    }
-  }
-  .grid label {
-    font-weight: 600;
-    color: var(--muted);
   }
   h3 {
     font-size: 0.8rem;
     text-transform: none;
     color: var(--muted);
     margin: 1rem 0 0.5rem;
-  }
-  .error {
-    color: var(--bad);
-    font-size: 0.8rem;
   }
   .raw {
     margin-top: 0.8rem;
@@ -441,12 +449,10 @@
     font-size: 0.82rem;
   }
   .error {
-    color: var(--bad);
     font-size: 0.8rem;
     margin-top: 0.3rem;
   }
   .hint {
-    font-size: 0.75rem;
     margin-top: 0.3rem;
   }
   .summary {
@@ -456,27 +462,6 @@
     white-space: nowrap;
     min-width: 0;
     flex: 1;
-  }
-  .modeswitch {
-    display: inline-flex;
-  }
-  .modeswitch button {
-    border-radius: 0;
-    padding: 0.2rem 0.55rem;
-    font-size: 0.75rem;
-  }
-  .modeswitch button:first-child {
-    border-radius: var(--radius-1) 0 0 var(--radius-1);
-  }
-  .modeswitch button:last-child {
-    border-radius: 0 var(--radius-1) var(--radius-1) 0;
-    margin-left: -1px;
-  }
-  .activebtn {
-    border-color: var(--accent);
-    color: var(--accent);
-    position: relative;
-    z-index: 1;
   }
   .flowchip {
     font-family: var(--font-mono);
@@ -496,6 +481,9 @@
     color: var(--good);
     border-color: color-mix(in srgb, var(--good) 45%, transparent);
     background: color-mix(in srgb, var(--good) 12%, transparent);
+  }
+  .nameproblem {
+    margin: var(--space-2) 0 0;
   }
   .stepwarn {
     display: flex;

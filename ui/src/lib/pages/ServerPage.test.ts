@@ -1,10 +1,11 @@
-import { render } from '@testing-library/svelte'
+import { render, screen, waitFor } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 // Hoisted above the component import so its static (hoisted) import sees an
 // initialized mock - the same shape the other page tests use
 import ServerPage from './ServerPage.svelte'
 import { connection } from '../connection.svelte'
-import { ApiError } from '../apiErrors'
+import { ApiError, NetworkError } from '../apiErrors'
+import { api } from '../test/apiMock'
 import type { HealthInfo, MemoryInfo, ServerInfo } from '../types'
 
 const SECRET = 'super-secret-token-value'
@@ -41,17 +42,6 @@ const state = vi.hoisted(() => ({
   fail: '' as string,
   status: 0,
 }))
-const server = vi.hoisted(() =>
-  vi.fn(() =>
-    state.fail
-      ? Promise.reject(
-          state.status
-            ? new ApiError(state.fail, state.status)
-            : new Error(state.fail),
-        )
-      : Promise.resolve(state.info),
-  ),
-)
 const TRITON_COST =
   'The next first step of each SDNQ or compiled shape re-autotunes. ' +
   'This directory is shared with any other Triton user on this machine.'
@@ -83,32 +73,40 @@ const cacheList = () => ({
     },
   ] as Record<string, unknown>[],
 })
-const listCaches = vi.hoisted(() =>
-  vi.fn((): Promise<unknown> => Promise.resolve({ caches: [] })),
-)
-const clearCache = vi.hoisted(() =>
-  vi.fn((name: string): Promise<unknown> =>
-    Promise.resolve({ name, cleared: true, freed: 0, files: 0 }),
-  ),
-)
 const confirmDialog = vi.hoisted(() =>
   vi.fn((...args: [message: string, options?: unknown]): Promise<boolean> =>
     Promise.resolve(args.length > 0),
   ),
 )
-const deleteCacheEntry = vi.hoisted(() =>
-  vi.fn((name: string, entry: string): Promise<unknown> =>
-    Promise.resolve({ name, entry, deleted: true, freed: 0 }),
-  ),
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
+api.server.mockImplementation(() =>
+  state.fail
+    ? Promise.reject(
+        state.status
+          ? new ApiError(state.fail, state.status)
+          : new Error(state.fail),
+      )
+    : Promise.resolve(state.info),
 )
-vi.mock('../api', () => ({
-  api: {
-    server: () => server(),
-    listCaches: () => listCaches(),
-    clearCache: (name: string) => clearCache(name),
-    deleteCacheEntry: (name: string, entry: string) =>
-      deleteCacheEntry(name, entry),
-  },
+api.listCaches.mockImplementation((): Promise<unknown> =>
+  Promise.resolve({ caches: [] }),
+)
+api.clearCache.mockImplementation((name: string): Promise<unknown> =>
+  Promise.resolve({ name, cleared: true, freed: 0, files: 0 }),
+)
+api.deleteCacheEntry.mockImplementation(
+  (name: string, entry: string): Promise<unknown> =>
+    Promise.resolve({ name, entry, deleted: true, freed: 0 }),
+)
+// The page's own location: jsdom serves every test from localhost, so a
+// proxied or tunnelled reader is the origin this returns instead
+const page = vi.hoisted(() => ({ origin: null as string | null }))
+vi.mock('../serverinfo', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../serverinfo')>()),
+  reachedOrigin: () => page.origin,
+}))
+vi.mock('../changes.svelte', async () => ({
+  changes: (await import('../test/feedMock')).feed.changes,
 }))
 vi.mock('../confirm.svelte', () => ({
   confirmDialog: (message: string, options?: unknown) =>
@@ -138,15 +136,27 @@ beforeEach(() => {
   localStorage.setItem('dw-api-token', JSON.stringify(SECRET))
 })
 afterEach(() => {
-  server.mockClear()
+  api.server.mockClear()
   connection.health = null
   connection.memory = null
-  listCaches.mockReset()
-  listCaches.mockResolvedValue({ caches: [] })
-  clearCache.mockClear()
-  deleteCacheEntry.mockClear()
+  api.listCaches.mockReset()
+  api.listCaches.mockResolvedValue({ caches: [] })
+  api.clearCache.mockClear()
+  api.deleteCacheEntry.mockClear()
   confirmDialog.mockClear()
   localStorage.clear()
+  page.origin = null
+})
+
+it('sets the tab title to Status, with the host and version beside it', async () => {
+  await show()
+  expect(document.title).toBe('Status · diffusers-workflow')
+  expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Status')
+  expect(
+    screen.getByText(`${base.hostname} · v${base.version}`, {
+      selector: '.secondary',
+    }),
+  ).toBeTruthy()
 })
 
 it('composes the browser URL and the MCP command from the address', async () => {
@@ -167,10 +177,121 @@ it('never renders a real token, only the placeholder', async () => {
   expect(text).toContain('yes')
 })
 
-it('explains that MCP needs --mcp when it is not mounted', async () => {
+it('an unmounted MCP says python -m dw.serve --mcp', async () => {
   const text = await show({ mcp: { mounted: false, path: '/mcp' } })
-  expect(text).toContain('dw-serve --mcp')
+  expect(text).toContain(
+    'Not mounted. Restart the server with --mcp (python -m dw.serve --mcp) to serve the MCP tools at /mcp.',
+  )
+  expect(text).toContain(
+    'The MCP endpoint is not mounted, so there is no command to run yet. Restart the server with --mcp.',
+  )
+  expect(text).not.toContain('dw-serve')
   expect(text).not.toContain('claude mcp add')
+})
+
+it('a loopback bind offers no network URL', async () => {
+  const text = await show({ bind_host: '127.0.0.1', wildcard_bind: false })
+  expect(text).toContain(
+    'This server is bound to 127.0.0.1, so only this machine can reach it.',
+  )
+  expect(text).toContain(
+    'Only this machine can reach this server. To use it from another, restart it bound to the network, with a token:',
+  )
+  expect(text).toContain(
+    'DW_API_TOKEN=<token> python -m dw.serve --host 0.0.0.0',
+  )
+  expect(text).toContain('How to use dw from another machine')
+  expect(text).not.toContain('192.168.1.50')
+  expect(text).not.toContain('claude mcp add')
+})
+
+it('a loopback bind read on this machine keeps the restart advice', async () => {
+  const text = await show({ bind_host: '127.0.0.1', wildcard_bind: false })
+  expect(text).toContain('A loopback bind is reachable only from this machine.')
+  expect(text).not.toContain('through a proxy or tunnel')
+  expect(text).not.toContain('Endpoint')
+})
+
+it('a loopback bind reached through a proxy builds on the page origin', async () => {
+  page.origin = 'https://dw.example.com'
+  const text = await show({ bind_host: '127.0.0.1', wildcard_bind: false })
+  expect(text).toContain(
+    'You reached this server at https://dw.example.com, through a proxy or tunnel.',
+  )
+  expect(text).toContain('https://dw.example.com/mcp')
+  expect(text).toContain(
+    'claude mcp add --transport http dw https://dw.example.com/mcp ' +
+      '--header "Authorization: Bearer <token>"',
+  )
+  expect(text).toContain("Replace <token> with the server's API token.")
+  expect(text).toContain('Paste the token once')
+  expect(text).not.toContain('only this machine')
+  expect(text).not.toContain('--host 0.0.0.0')
+  expect(text).not.toContain('192.168.1.50')
+})
+
+it('a tunnel to a tokenless loopback server needs no token header', async () => {
+  page.origin = 'http://gpu-tunnel:9000'
+  const text = await show({
+    bind_host: '127.0.0.1',
+    wildcard_bind: false,
+    auth_required: false,
+  })
+  expect(text).toContain(
+    'claude mcp add --transport http dw http://gpu-tunnel:9000/mcp',
+  )
+  expect(text).not.toContain('Authorization: Bearer')
+  expect(text).not.toContain('--host 0.0.0.0')
+})
+
+it('a wildcard bind lists its addresses', async () => {
+  const text = await show()
+  expect(text).toContain('http://192.168.1.50:8765')
+  expect(text).toContain(
+    'claude mcp add --transport http dw http://192.168.1.50:8765/mcp',
+  )
+  expect(text).not.toContain('Only this machine can reach this server')
+})
+
+it('a bind to one address offers that address only', async () => {
+  const text = await show({
+    bind_host: '10.0.0.7',
+    wildcard_bind: false,
+    addresses: [
+      { address: '192.168.1.50', family: 'IPv4', interface: 'enp6s0' },
+      { address: '10.0.0.7', family: 'IPv4', interface: 'eth1' },
+    ],
+  })
+  expect(text).toContain('http://10.0.0.7:8765')
+  expect(text).toContain(
+    'claude mcp add --transport http dw http://10.0.0.7:8765/mcp',
+  )
+  expect(text).not.toContain('192.168.1.50')
+})
+
+it('a bind to an address no interface lists still offers it', async () => {
+  const text = await show({ bind_host: '10.9.9.9', wildcard_bind: false })
+  expect(text).toContain('http://10.9.9.9:8765')
+  expect(text).not.toContain('192.168.1.50')
+})
+
+it('no token required, no token note', async () => {
+  const text = await show({ auth_required: false })
+  expect(text).toContain(
+    'claude mcp add --transport http dw http://192.168.1.50:8765/mcp',
+  )
+  expect(text).not.toContain('Authorization: Bearer')
+  expect(text).not.toContain("Replace <token> with the server's API token.")
+  expect(text).not.toContain('Paste the token once')
+})
+
+it('one heading says Status', async () => {
+  const { container } = render(ServerPage)
+  for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0))
+  const headings = [...container.querySelectorAll('h1, h2')].filter(
+    (h) => h.textContent?.trim() === 'Status',
+  )
+  expect(headings).toHaveLength(1)
 })
 
 it('says so when there is no non-loopback address', async () => {
@@ -245,7 +366,7 @@ it('lists each worker with its card, VRAM and a link to its job', async () => {
   const hrefs = [...container.querySelectorAll('li a')].map((a) =>
     a.getAttribute('href'),
   )
-  expect(hrefs).toEqual(['#/jobs/job-a', '#/jobs/job-b'])
+  expect(hrefs).toEqual(['#/ws/default/jobs/job-a', '#/ws/default/jobs/job-b'])
 })
 
 it('shows memory for every card, not just the first', async () => {
@@ -327,7 +448,7 @@ it('shows each worker pid and per-card free and reserved memory', async () => {
 
 /** Render with the cache list given, returning the container. */
 async function showCaches(list = cacheList()) {
-  listCaches.mockResolvedValue(list)
+  api.listCaches.mockResolvedValue(list)
   state.info = base
   state.fail = ''
   const { container } = render(ServerPage)
@@ -366,14 +487,19 @@ it('asks before clearing, quoting the cost and the shared-cache warning', async 
   clearButton(container, 'triton').click()
   await settle()
   expect(confirmDialog).toHaveBeenCalledOnce()
-  const message = confirmDialog.mock.calls[0][0]
-  expect(message).toContain('triton')
-  expect(message).toContain('7.10 GB')
+  const [message, spec] = confirmDialog.mock.calls[0] as [
+    string,
+    { title: string },
+  ]
+  // the title names the cache; the message does not say it again
+  expect(spec.title).toContain('triton')
+  expect(message).not.toContain('triton')
+  expect(message).toContain('7.10 GB, 19683 files.')
   expect(message).toContain('re-autotunes')
   expect(message).toContain('shared with any other Triton user')
-  expect(clearCache).toHaveBeenCalledWith('triton')
+  expect(api.clearCache).toHaveBeenCalledWith('triton')
   // the list is read again after the clear, so the size shown drops
-  expect(listCaches).toHaveBeenCalledTimes(2)
+  expect(api.listCaches).toHaveBeenCalledTimes(2)
 })
 
 it('names an empty cache as 0 bytes in the confirm, not 1 KB', async () => {
@@ -383,7 +509,7 @@ it('names an empty cache as 0 bytes in the confirm, not 1 KB', async () => {
   clearButton(container, 'inductor').click()
   await settle()
   const message = confirmDialog.mock.calls[0][0]
-  expect(message).toContain('(0 bytes, 0 files)')
+  expect(message).toMatch(/^0 bytes, 0 files\. /)
   expect(message).not.toContain('1 KB')
 })
 
@@ -393,7 +519,7 @@ it('does not clear when the confirm is declined', async () => {
   clearButton(container, 'inductor').click()
   await settle()
   expect(confirmDialog).toHaveBeenCalledOnce()
-  expect(clearCache).not.toHaveBeenCalled()
+  expect(api.clearCache).not.toHaveBeenCalled()
 })
 
 it('disables Clear with the reason when a cache is not clearable', async () => {
@@ -417,7 +543,7 @@ it("shows the server's text when a clear is refused as busy", async () => {
   const busy =
     'A job is running or queued - clearing a cache it may be writing ' +
     'would leave it a truncated artifact'
-  clearCache.mockRejectedValueOnce(
+  api.clearCache.mockRejectedValueOnce(
     Object.assign(new Error(busy), { status: 409 }),
   )
   const container = await showCaches()
@@ -502,18 +628,23 @@ it('deletes an entry after the confirm, then re-reads the caches', async () => {
   await settle()
   entryDelete(container, 0).click()
   await settle()
-  const message = confirmDialog.mock.calls[0][0]
-  expect(message).toContain('transformer')
-  expect(message).toContain('org/flux')
-  expect(message).toContain('3.00 GB')
+  const [message, spec] = confirmDialog.mock.calls[0] as [
+    string,
+    { title: string },
+  ]
+  // the title names the entry; the message says its size and cost
+  expect(spec.title).toBe(
+    'Delete transformer of org/flux from the quantized cache?',
+  )
+  expect(message).toMatch(/^3\.00 GB\. /)
   expect(message).toContain('re-quantizes')
-  expect(deleteCacheEntry).toHaveBeenCalledWith('quantized', ID_A)
-  expect(listCaches).toHaveBeenCalledTimes(2)
+  expect(api.deleteCacheEntry).toHaveBeenCalledWith('quantized', ID_A)
+  expect(api.listCaches).toHaveBeenCalledTimes(2)
 })
 
 it("shows the server's text when an entry delete is refused", async () => {
   const busy = 'A model download is active - try again when it finishes'
-  deleteCacheEntry.mockRejectedValueOnce(
+  api.deleteCacheEntry.mockRejectedValueOnce(
     Object.assign(new Error(busy), { status: 409 }),
   )
   const container = await showCaches(quantizedList())
@@ -539,4 +670,21 @@ it('warns when the volume is under the free-space floor', async () => {
   expect(flat(container)).toContain('free-space floor')
   const ok = await showCaches(quantizedList())
   expect(flat(ok.querySelector('.caches')!)).not.toContain('free-space floor')
+})
+
+it('ServerPage recovers after the server comes back', async () => {
+  api.server.mockImplementationOnce(() =>
+    Promise.reject(new NetworkError('fetch failed')),
+  )
+  state.info = base
+  state.fail = ''
+  const { container } = render(ServerPage)
+  const text = () => (container.textContent ?? '').replace(/\s+/g, ' ')
+  await waitFor(() => expect(text()).toContain("Can't reach the server"))
+  expect(text()).not.toContain('fetch failed')
+  expect(text()).not.toContain('192.168.1.50')
+  // The server answering again raises the epoch; the page reads again
+  connection.epoch++
+  await waitFor(() => expect(text()).toContain('http://192.168.1.50:8765'))
+  expect(text()).not.toContain("Can't reach the server")
 })

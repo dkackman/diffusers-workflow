@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { api } from '../test/apiMock'
 import { LISTENING_POLL_MS, NotesChannel, listening } from './listening.svelte'
 
-const notesChannel = vi.hoisted(() => vi.fn())
-vi.mock('../api', () => ({ api: { notesChannel } }))
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
 
 let hidden = false
 beforeEach(() => {
@@ -11,8 +11,8 @@ beforeEach(() => {
   vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() =>
     hidden ? 'hidden' : 'visible',
   )
-  notesChannel.mockReset()
-  notesChannel.mockResolvedValue({ listening: true, last_seen: 'now' })
+  api.notesChannel.mockReset()
+  api.notesChannel.mockResolvedValue({ listening: true, last_seen: 'now' })
 })
 afterEach(() => {
   vi.useRealTimers()
@@ -32,17 +32,17 @@ it('asks while held, every poll, and stops when the last holder lets go', async 
   const second = channel.hold()
   await settle()
   expect(channel.listening).toBe(true)
-  expect(notesChannel).toHaveBeenCalledTimes(1)
-  expect(notesChannel).toHaveBeenCalledWith('studio')
+  expect(api.notesChannel).toHaveBeenCalledTimes(1)
+  expect(api.notesChannel).toHaveBeenCalledWith('studio')
   await vi.advanceTimersByTimeAsync(LISTENING_POLL_MS)
-  expect(notesChannel).toHaveBeenCalledTimes(2)
+  expect(api.notesChannel).toHaveBeenCalledTimes(2)
   first()
   first() // a second release of the same hold counts once
   await vi.advanceTimersByTimeAsync(LISTENING_POLL_MS)
-  expect(notesChannel).toHaveBeenCalledTimes(3)
+  expect(api.notesChannel).toHaveBeenCalledTimes(3)
   second()
   await vi.advanceTimersByTimeAsync(LISTENING_POLL_MS * 3)
-  expect(notesChannel).toHaveBeenCalledTimes(3)
+  expect(api.notesChannel).toHaveBeenCalledTimes(3)
 })
 
 it('pauses while the tab is hidden and asks again when it is shown', async () => {
@@ -52,20 +52,20 @@ it('pauses while the tab is hidden and asks again when it is shown', async () =>
   hidden = true
   document.dispatchEvent(new Event('visibilitychange'))
   await vi.advanceTimersByTimeAsync(LISTENING_POLL_MS * 3)
-  expect(notesChannel).toHaveBeenCalledTimes(1)
+  expect(api.notesChannel).toHaveBeenCalledTimes(1)
   hidden = false
   document.dispatchEvent(new Event('visibilitychange'))
   await settle()
-  expect(notesChannel).toHaveBeenCalledTimes(2)
+  expect(api.notesChannel).toHaveBeenCalledTimes(2)
   await vi.advanceTimersByTimeAsync(LISTENING_POLL_MS)
-  expect(notesChannel).toHaveBeenCalledTimes(3)
+  expect(api.notesChannel).toHaveBeenCalledTimes(3)
   release()
 })
 
 it('a failed read counts as no session listening', async () => {
   const channel = new NotesChannel('studio')
   expect(await channel.refresh()).toBe(true)
-  notesChannel.mockRejectedValue(new TypeError('Failed to fetch'))
+  api.notesChannel.mockRejectedValue(new TypeError('Failed to fetch'))
   expect(await channel.refresh()).toBe(false)
   expect(channel.listening).toBe(false)
 })

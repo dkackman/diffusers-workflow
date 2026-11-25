@@ -38,6 +38,11 @@ describe('leafOf', () => {
 })
 
 describe('groupNames', () => {
+  it('orders folder headings as a person reads them: take2 before take10', () => {
+    const grouped = groupNames(['take10/a', 'take2/a', 'Take3/a'])
+    expect([...grouped.keys()]).toEqual(['take2', 'Take3', 'take10'])
+  })
+
   it('buckets names by their group in one pass, groups sorted', () => {
     const grouped = groupNames(['b/two', 'a/one', 'root', 'a/three'])
     expect([...grouped.keys()]).toEqual(['', 'a', 'b'])
