@@ -1,6 +1,7 @@
 import { untrack } from 'svelte'
 import {
   legacyRedirect,
+  queryString,
   resolveView,
   type RouteView,
   type WsSection,
@@ -52,19 +53,15 @@ export function hashQuery(): Record<string, string> {
   return query
 }
 
-// A comma is left as typed: it is legal in a fragment, and a list reads
-// `roles=final,intermediate` rather than `final%2Cintermediate`
-const encodeValue = (value: string) =>
-  encodeURIComponent(value).replace(/%2C/gi, ',')
+/** The hash's query, reactive: setHashQuery's replaceState raises no event,
+ * so a link built from the query (the sidebar's) reads it here. */
+export const liveQuery = $state({ now: hashQuery() })
+window.addEventListener('hashchange', () => (liveQuery.now = hashQuery()))
 
 /** The current path with `values` as its query, empty values dropped: what
  * setHashQuery writes in place, and what a push of a query names. */
 export function queryHash(values: Record<string, string>): string {
-  const query = Object.entries(values)
-    .filter(([, value]) => value)
-    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeValue(value)}`)
-    .join('&')
-  return '#/' + hashParts()[0] + (query ? '?' + query : '')
+  return '#/' + hashParts()[0] + queryString(values)
 }
 
 /** Replace the hash's query in place: no history entry and no hashchange,
@@ -74,6 +71,7 @@ export function setHashQuery(values: Record<string, string>) {
   const hash = queryHash(values)
   if (hash !== location.hash) history.replaceState(history.state, '', hash)
   committed = location.hash
+  liveQuery.now = hashQuery()
 }
 
 /** How a box's value is written into the hash's query and read back. */

@@ -240,6 +240,23 @@ describe('switchHref', () => {
       '#/ws/other/gallery',
     )
   })
+  it('switching keeps the filters the section reads', () => {
+    const query = { q: 'a b', status: 'failed', req: 'r1', ws: 'x', open: 'f' }
+    expect(switchHref('other', ws('jobs'), query)).toBe(
+      '#/ws/other/jobs?q=a%20b&status=failed',
+    )
+    expect(
+      switchHref('other', ws('gallery'), {
+        roles: 'final,intermediate',
+        starred: '1',
+        open: 'a.png',
+        req: 'r1',
+      }),
+    ).toBe('#/ws/other/gallery?roles=final,intermediate&starred=1')
+    expect(
+      switchHref('other', ws('compare', 'a'), { back: '{}', open: 'a' }),
+    ).toBe('#/ws/other/gallery')
+  })
   it('a shared page switches to the overview', () => {
     const overview = '#/ws/other/overview'
     expect(

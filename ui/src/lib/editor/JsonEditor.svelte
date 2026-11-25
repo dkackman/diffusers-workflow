@@ -157,7 +157,8 @@
   {@const described = describeError(failed)}
   <div class="failed" role="alert">
     <p>
-      The JSON editor couldn't load. Reload the page to get the current version.
+      The JSON editor couldn't load. Reload the page; if that doesn't help,
+      check that the server is running.
     </p>
     <Details
       summary="What failed"

@@ -22,7 +22,7 @@
   } from '@lucide/svelte'
   import { slide } from 'svelte/transition'
   import { prefersReducedMotion } from 'svelte/motion'
-  import { route } from './router.svelte'
+  import { liveQuery, route } from './router.svelte'
   import {
     SECTION_LABELS,
     serverHref,
@@ -238,7 +238,7 @@
   {:else if collapsed}
     <a
       class="plain dotlink"
-      href={switchHref(name, route.view)}
+      href={switchHref(name, route.view, liveQuery.now)}
       title={name}
       aria-label="{name} workspace"
       style:--ws-dot={wsColor(name)}
@@ -248,7 +248,7 @@
   {:else}
     <a
       class="plain ws shut"
-      href={switchHref(name, route.view)}
+      href={switchHref(name, route.view, liveQuery.now)}
       title={name}
       style:--ws-dot={wsColor(name)}
     >
@@ -270,7 +270,10 @@
     <a class="brand plain" href={wsHref(workspace.current, 'overview')}>dw</a>
     <button
       class="bare icon"
-      onclick={onToggle}
+      onclick={(e) => {
+        e.currentTarget.focus() // re-expanding leaves the keyboard here
+        onToggle()
+      }}
       title={collapsed ? 'expand sidebar' : 'collapse sidebar'}
       aria-label={collapsed ? 'expand sidebar' : 'collapse sidebar'}
     >

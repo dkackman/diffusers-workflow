@@ -319,6 +319,12 @@ it('repoIdHint is null for an empty value', () => {
   expect(repoIdHint('  ')).toBeNull()
 })
 
+it.each(['gpt2-', 'a/b/c'])('the hint for %j allows a bare id', (value) => {
+  expect(repoIdHint(value)).toBe(
+    'A repo id is a name or org/name, like gpt2 or black-forest-labs/FLUX.1-dev.',
+  )
+})
+
 it('the download field is labelled', () => {
   render(ModelsPage)
   const field = screen.getByLabelText('Hugging Face repo to download')
@@ -333,7 +339,7 @@ it('a value that is not org/name says so and cannot be sent', async () => {
   await fireEvent.input(field, { target: { value: 'a/b/c' } })
   expect(
     screen.getByText(
-      'A repo id is org/name, like black-forest-labs/FLUX.1-dev.',
+      'A repo id is a name or org/name, like gpt2 or black-forest-labs/FLUX.1-dev.',
     ),
   ).toBeTruthy()
   const send = screen.getByRole('button', { name: /Download/ })
@@ -346,7 +352,7 @@ it('a repo id can be sent', async () => {
   render(ModelsPage)
   const field = screen.getByLabelText('Hugging Face repo to download')
   await fireEvent.input(field, { target: { value: ' org/name ' } })
-  expect(screen.queryByText(/A repo id is org\/name/)).toBeNull()
+  expect(screen.queryByText(/A repo id is a name/)).toBeNull()
   const send = screen.getByRole('button', { name: /Download/ })
   expect((send as HTMLButtonElement).disabled).toBe(false)
   await fireEvent.click(send)

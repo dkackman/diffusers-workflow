@@ -4,10 +4,12 @@ transport (event streams, ranges, media, zips, /mcp). Transport only:
 every gzipped body decodes to the body the client gets without it."""
 
 import json
+import threading
 
 import pytest
 from fastapi.testclient import TestClient
 
+from dw.server import app as app_module
 from dw.server.app import create_app
 from dw.server.jobs import JobManager
 from dw.trust import TRUST_WORKFLOWS_ENV_VAR
@@ -193,3 +195,55 @@ def test_an_uncompressed_download_keeps_its_length(client):
     response = client.get("/outputs/run.png", headers=GZIP)
     assert "content-encoding" not in response.headers
     assert response.headers["content-length"] == str(len(response.content))
+
+
+def test_a_large_body_is_gzipped(client):
+    for index in range(8):
+        job = client.post(
+            "/api/jobs", json={"workflow": valid_workflow(f"seed{index}")}
+        ).json()
+        wait_for_status(client, job["id"], {"succeeded", "failed"})
+    plain = client.get("/api/jobs", headers=IDENTITY)
+    assert len(plain.content) > 1000
+    packed = client.get("/api/jobs", headers=GZIP)
+    assert packed.headers["content-encoding"] == "gzip"
+    assert packed.json() == plain.json()
+
+
+def test_a_live_event_stream_is_not_compressed(tree, monkeypatch):
+    monkeypatch.setenv(TRUST_WORKFLOWS_ENV_VAR, "0")
+    application = build(tree)
+    # No terminal message: the job runs until the cancel below
+    application.state.job_manager.worker_manager.script = lambda command: []
+    with TestClient(application, base_url="http://localhost") as live:
+        job = live.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        wait_for_status(live, job["id"], {"running"})
+        cancel = threading.Timer(0.5, live.post, [f"/api/jobs/{job['id']}/cancel"])
+        cancel.start()
+        url = f"/api/jobs/{job['id']}/events"
+        with live.stream("GET", url, headers=GZIP) as r:
+            assert r.headers["content-type"].startswith("text/event-stream")
+            assert "content-encoding" not in r.headers
+            assert "data: " in "".join(r.iter_lines())
+        cancel.join()
+
+
+def test_the_exclusions_are_explicit(tree, monkeypatch):
+    seen = {}
+
+    class Spy(app_module.GZipMiddleware):
+        def __init__(self, inner, **kwargs):
+            seen.update(kwargs)
+            super().__init__(inner, **kwargs)
+
+    monkeypatch.setattr(app_module, "GZipMiddleware", Spy)
+    monkeypatch.setenv(TRUST_WORKFLOWS_ENV_VAR, "0")
+    with TestClient(build(tree), base_url="http://localhost") as spied:
+        spied.get("/api/health")
+    assert {
+        "text/event-stream",
+        "video/*",
+        "audio/*",
+        "image/png",
+        "application/zip",
+    } <= set(seen["exclude_content_types"])
