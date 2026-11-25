@@ -219,6 +219,28 @@ it('closing drops the validations still out, and prices no more', async () => {
   expect(queue.rows.every((row) => row.error === null)).toBe(true)
 })
 
+it('closing mid-submit sends no row not yet sent, and answers once the one out lands', async () => {
+  const land: (() => void)[] = []
+  const { api, queue } = setup(['a', 'b', 'c'], {
+    submitJob: vi.fn(async (body: { item?: string }) => {
+      await new Promise<void>((resolve) => land.push(resolve))
+      return job(`job-${body.item}`)
+    }),
+  })
+  await queue.price()
+  const submitting = queue.submit()
+  await vi.waitFor(() => expect(api.submitJob).toHaveBeenCalledTimes(1))
+  const landing = queue.close()
+  expect(queue.queued).toHaveLength(0)
+  land[0]()
+  await submitting
+  // the one already sent is the server's; the rest were never sent
+  expect(await landing).toBe(1)
+  expect(api.submitJob).toHaveBeenCalledTimes(1)
+  expect(states(queue)).toEqual(['queued', 'priced', 'priced'])
+  expect(queue.busy).toBe(false)
+})
+
 it('queues the ticked rows in plan order, each bound to the plan it was quoted', async () => {
   const { api, queue } = setup(['a', 'b', 'c'])
   await queue.price()

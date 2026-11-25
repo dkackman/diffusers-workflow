@@ -435,6 +435,27 @@ it('another take of a done item says what stands as the result meanwhile', async
   ).toBeTruthy()
 })
 
+it('closing while the first job is being sent sends no more, and says when that one lands', async () => {
+  let land = () => {}
+  world.submitJob.mockImplementation(
+    (body: { item: string }) =>
+      new Promise((resolve) => {
+        land = () => resolve({ id: `job-${body.item}` })
+      }),
+  )
+  const { onclose } = open()
+  await within(runRow('title')).findByText(/about 5.5 min/)
+  await fireEvent.click(runButton())
+  await waitFor(() => expect(world.submitJob).toHaveBeenCalledTimes(1))
+  await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  await waitFor(() => expect(onclose).toHaveBeenCalled())
+  const [queued, landing] = onclose.mock.calls[0]
+  expect(queued).toBe(0)
+  land()
+  expect(await landing).toBe(1)
+  expect(world.submitJob).toHaveBeenCalledTimes(1)
+})
+
 it('cancelling queues nothing and drops the pricing still out', async () => {
   let signal: AbortSignal | undefined
   world.validate.mockImplementation(

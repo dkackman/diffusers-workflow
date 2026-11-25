@@ -38,8 +38,10 @@
     plan: PlanState
     workspace: string
     requestId: string
-    /** The dialog has closed; `queued` jobs were queued from it */
-    onclose: (queued: number) => void
+    /** The dialog has closed; `queued` jobs were queued from it. Closed
+     * while a job was still being sent, `landing` answers with the count
+     * once that one has landed. */
+    onclose: (queued: number, landing?: Promise<number>) => void
   } = $props()
 
   // svelte-ignore state_referenced_locally
@@ -52,8 +54,10 @@
   function closed() {
     if (told) return
     told = true
-    queue.close()
-    onclose(queue.queued.length)
+    const sending = queue.busy
+    const landing = queue.close()
+    if (sending) onclose(queue.queued.length, landing)
+    else onclose(queue.queued.length)
   }
   $effect(() => {
     if (!open) closed()

@@ -112,6 +112,7 @@ export class RunQueue {
   #workspace: string
   #request: string
   #abort = new AbortController()
+  #sending: Promise<void> = Promise.resolve()
 
   constructor(
     candidates: Candidate[],
@@ -196,34 +197,58 @@ export class RunQueue {
     row.ticked = false
   }
 
-  /** The dialog closed: drop the validations still out. A submit already
-   * sent is the server's now and is not taken back. */
-  close() {
+  /** The dialog closed: drop the validations still out, and send no row
+   * not yet sent. A submit already sent is the server's now and is not
+   * taken back - the answer is how many jobs are queued once it lands. */
+  close(): Promise<number> {
     this.#abort.abort()
+    return this.#sending.then(() => this.queued.length)
   }
 
   /** Queue the chosen rows in plan order, each to its own outcome; a row
-   * that fails or re-prices does not stop the ones after it */
-  async submit(): Promise<void> {
-    if (this.busy || !this.settled) return
+   * that fails or re-prices does not stop the ones after it, and closing
+   * the dialog stops the ones not yet sent */
+  submit(): Promise<void> {
+    if (this.busy || !this.settled) return Promise.resolve()
+    return this.#hold(this.#sendChosen())
+  }
+
+  async #sendChosen() {
     this.busy = true
     try {
-      for (const row of this.chosen) await this.#send(row, row.plan ?? true)
+      for (const row of this.chosen) {
+        if (this.#abort.signal.aborted) return
+        await this.#send(row, row.plan ?? true)
+      }
     } finally {
       this.busy = false
     }
   }
 
   /** Queue a re-priced row at the price it now shows */
-  async accept(key: string): Promise<void> {
+  accept(key: string): Promise<void> {
     const row = this.rows.find((r) => r.candidate.key === key)
-    if (this.busy || row?.state !== 'repriced' || !row.acknowledge) return
+    if (this.busy || row?.state !== 'repriced' || !row.acknowledge)
+      return Promise.resolve()
+    return this.#hold(this.#sendAccepted(row, row.acknowledge))
+  }
+
+  async #sendAccepted(
+    row: RunRow,
+    acknowledged: JobSubmitBody['acknowledged_cost'],
+  ) {
     this.busy = true
     try {
-      await this.#send(row, row.acknowledge)
+      await this.#send(row, acknowledged)
     } finally {
       this.busy = false
     }
+  }
+
+  /** The submit that is out, kept so `close` can wait for it to land */
+  #hold(sending: Promise<void>) {
+    this.#sending = sending
+    return sending
   }
 
   async #send(row: RunRow, acknowledged: JobSubmitBody['acknowledged_cost']) {

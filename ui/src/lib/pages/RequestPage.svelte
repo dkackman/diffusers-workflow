@@ -148,10 +148,15 @@
   const offered = $derived(
     request?.state === 'open' && plan ? readyPlan(plan).candidates.length : 0,
   )
-  /** Jobs were queued: show them at once, not at the next refresh */
-  function ran(queued: number) {
+  /** Jobs were queued: show them at once, not at the next refresh - and
+   * again for one still being sent as the dialog closed, which would
+   * otherwise read as ready and invite a second run */
+  function ran(queued: number, landing?: Promise<number>) {
     running = null
     if (queued) void load()
+    void landing?.then((landed) => {
+      if (landed > queued) void load()
+    })
   }
 
   /** Show one write among the plan's changes: the notice's "See changes" */
