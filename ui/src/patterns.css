@@ -364,8 +364,10 @@ button.filetile:hover {
 
 /* A flattened list's entry (a search, Newest) keeps its leaf as the name and
    carries its folder here: Workflows, Prompts and Assets */
+/* Its own weight: a Prompts card's text is bold */
 .cardfolder {
   display: block;
+  font-weight: 400;
   font-family: var(--font-mono);
   font-size: var(--t-xs);
   overflow: hidden;

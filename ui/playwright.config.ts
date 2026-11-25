@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -18,8 +18,14 @@ function e2ePython(): string {
 }
 
 /** The fixture's scratch directory, made here once (workers re-read this
- * file, and inherit the variable) so a spec can reach what the fixture seeds. */
-process.env.DW_E2E_SCRATCH ??= mkdtempSync(join(tmpdir(), 'dw-e2e-'))
+ * file, and inherit the variable) so a spec can reach what the fixture seeds.
+ * The process that made it removes it on exit, after the fixture server has
+ * stopped; one the caller named is left alone. */
+if (!process.env.DW_E2E_SCRATCH) {
+  const scratch = mkdtempSync(join(tmpdir(), 'dw-e2e-'))
+  process.env.DW_E2E_SCRATCH = scratch
+  process.on('exit', () => rmSync(scratch, { recursive: true, force: true }))
+}
 
 /** E2E smoke: real server, real browser, no GPU jobs. The server runs
  * against a scratch copy of the example workflows and prompts (see

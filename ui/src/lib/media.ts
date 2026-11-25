@@ -62,6 +62,14 @@ export function outputMedia(file: GalleryFile, workspace: string): MediaFile {
   }
 }
 
+/** A `media=true` listing's probed lengths by name, which a grid's tiles
+ * take theirs from */
+export function durationsByName(
+  rows: readonly { name: string; duration_seconds?: number | null }[],
+): Map<string, number | null | undefined> {
+  return new Map(rows.map((row) => [row.name, row.duration_seconds]))
+}
+
 /** Each file's label in a view of `names`: the tail that tells same-leaf
  * files apart (distinctLeaves), where its leaf alone would not. `key` is
  * what is compared, when part of a name is told apart another way (the

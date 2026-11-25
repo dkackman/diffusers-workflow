@@ -277,7 +277,12 @@ test("a request's jobs link narrows the Jobs page to it, with a chip", async ({
   await page.locator('.reqhead').getByRole('link', { name: 'its jobs' }).click()
   await expect(page).toHaveURL(new RegExp(`#/ws/default/jobs\\?req=${ID}$`))
   const chip = page.getByTestId('req-filter')
-  await expect(chip).toContainText(ID)
+  // the link's title, not its text: the request's own title replaces the id
+  // there once the chip's listing lands
+  await expect(chip.getByRole('link')).toHaveAttribute(
+    'title',
+    `${ID} - open this request`,
+  )
   // only the three linked jobs: the restart tombstones are another matter
   await expect(
     page.locator('.wschip', { hasText: `${ID} › hero` }),
@@ -307,7 +312,12 @@ test("an item's jobs link narrows the Jobs page to that item", async ({
   // the item's menu holds its jobs and outputs, not the take strip
   await hero.getByRole('button', { name: /^More actions for/ }).click()
   await page.getByRole('dialog').getByRole('link', { name: 'Its jobs' }).click()
-  await expect(page.getByTestId('req-filter')).toContainText(`${ID} › hero`)
+  const chip = page.getByTestId('req-filter')
+  await expect(chip.getByRole('link')).toHaveAttribute(
+    'title',
+    `${ID} - open this request`,
+  )
+  await expect(chip).toContainText('› hero')
   await expect(page.locator('.chip.succeeded')).toHaveCount(2)
   await expect(page.locator('.chip.failed')).toHaveCount(0)
 })

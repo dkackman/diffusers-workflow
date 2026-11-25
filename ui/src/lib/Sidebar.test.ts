@@ -376,6 +376,37 @@ it('one feed poll that moves the workspaces and a content kind lists them once',
   expect(api.listWorkspaces.mock.calls.length).toBe(calls + 1)
 })
 
+it('a content move does not join a listing read started before it', async () => {
+  render(Sidebar, { collapsed: false, onToggle: () => {} })
+  await waitFor(() => expect(screen.getByText('default')).toBeTruthy())
+  const calls = api.listWorkspaces.mock.calls.length
+  // the workspaces read leaves, and is still on its way when assets move
+  const original = api.listWorkspaces.getMockImplementation()!
+  let land = () => {}
+  api.listWorkspaces.mockImplementationOnce(
+    () => new Promise((resolve) => (land = () => resolve(original()))),
+  )
+  feed.move(workspace.current, 'workspaces')
+  await new Promise((r) => setTimeout(r, 10))
+  feed.move(workspace.current, 'assets')
+  await new Promise((r) => setTimeout(r, 10))
+  expect(api.listWorkspaces.mock.calls.length).toBe(calls + 2)
+  land()
+})
+
+it("the open workspace's time follows the route's feed", async () => {
+  render(Sidebar, { collapsed: false, onToggle: () => {} })
+  await waitFor(() => expect(screen.getByText('default')).toBeTruthy())
+  // `current` moved off the route's workspace (studio)
+  workspace.current = 'default'
+  await new Promise((r) => setTimeout(r, 10))
+  const calls = api.listWorkspaces.mock.calls.length
+  feed.move('studio', 'assets')
+  await waitFor(() =>
+    expect(api.listWorkspaces.mock.calls.length).toBe(calls + 1),
+  )
+})
+
 it('a folded group while collapsed shows each of its workspaces', async () => {
   api.listWorkspaces.mockResolvedValueOnce({
     workspace_root: '/ws',
