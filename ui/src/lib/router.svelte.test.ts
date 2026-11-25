@@ -12,11 +12,12 @@ const listeners: Array<[string, EventListenerOrEventListenerObject]> = []
 const addListener = window.addEventListener.bind(window)
 beforeEach(() => {
   localStorage.clear()
+  sessionStorage.clear()
   // replaceState moves no hash event into the next test, as `location.hash = ''` does
   history.replaceState(null, '', location.pathname + location.search)
   vi.spyOn(window, 'addEventListener').mockImplementation(
     (type: string, listener: EventListenerOrEventListenerObject, options) => {
-      if (type === 'hashchange' || type === 'popstate')
+      if (type === 'hashchange' || type === 'popstate' || type === 'pagehide')
         listeners.push([type, listener])
       addListener(type, listener, options)
     },
@@ -742,4 +743,40 @@ it('Back and Forward between two queries on the same path restore each entry', a
   await nav(() => history.forward())
   placeScroll()
   expect(scrollTo).toHaveBeenLastCalledWith(0, 300)
+})
+
+it("a reload restores the entry's scroll", async () => {
+  const first = await loadRouter()
+  await go('#/ws/studio/jobs')
+  first.placeScroll()
+  scrolled(700)
+  // the page goes away: the entry keeps its index in history.state
+  window.dispatchEvent(new Event('pagehide'))
+  vi.resetModules()
+  const scrollTo = spyScroll()
+  pageHeight(innerHeight + 5000)
+  const { placeScroll } = await loadRouter()
+  placeScroll()
+  expect(scrollTo).toHaveBeenLastCalledWith(0, 700)
+})
+
+it('storage that throws keeps scrolls in memory', async () => {
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    throw new Error('blocked')
+  })
+  vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+    throw new Error('blocked')
+  })
+  const { placeScroll } = await loadRouter()
+  const scrollTo = spyScroll()
+  pageHeight(innerHeight + 5000)
+  await go('#/ws/studio/jobs')
+  placeScroll()
+  scrolled(400)
+  await go('#/ws/studio/jobs/j1')
+  placeScroll()
+  scrolled(0)
+  await nav(() => history.back())
+  placeScroll()
+  expect(scrollTo).toHaveBeenLastCalledWith(0, 400)
 })

@@ -310,6 +310,21 @@ def test_a_running_job_carries_the_workers_device_and_a_queued_one_does_not(
         wait_for_status(client, running["id"], ["cancelled"])
 
 
+def test_worker_info_names_the_jobs_workspace(server):
+    with server(hanging_script) as client:
+        running = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        wait_for_status(client, running["id"], ["running"])
+
+        workers = client.get("/api/health").json()["workers"]
+        busy = [w for w in workers if w["current_job"] == running["id"]]
+        assert busy and busy[0]["workspace"]
+
+        client.post(f"/api/jobs/{running['id']}/cancel")
+        wait_for_status(client, running["id"], ["cancelled"])
+        idle = client.get("/api/health").json()["workers"]
+        assert all("workspace" not in w for w in idle)
+
+
 def test_a_finished_jobs_device_is_remembered_in_history(server, monkeypatch):
     label = "cuda:1 NVIDIA GeForce RTX 3090"
     monkeypatch.setattr(

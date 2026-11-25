@@ -22,6 +22,7 @@
     percent,
     proof,
     onmove,
+    busyId = null,
   }: {
     job: JobSummary
     queueSize: number
@@ -33,6 +34,9 @@
     /** The run's proof, listed in this job's workspace */
     proof: GalleryFile | null
     onmove: (e: MouseEvent, id: string, way: 'up' | 'down' | 'front') => void
+    /** The job whose move is in flight: it is busy, and no move starts
+     * until it ends (a click is dropped), so every move button says so */
+    busyId?: string | null
   } = $props()
 
   const requestLabel = $derived(
@@ -135,6 +139,8 @@
                 class="quiet icon"
                 onclick={(e) => onmove(e, job.id, 'front')}
                 title="run this job next"
+                aria-busy={busyId === job.id}
+                aria-disabled={busyId !== null}
                 aria-label="move {job.id} to the front of the queue"
               >
                 <ChevronsUp size={13} />
@@ -143,6 +149,8 @@
                 class="quiet icon"
                 onclick={(e) => onmove(e, job.id, 'up')}
                 title="move up one place"
+                aria-busy={busyId === job.id}
+                aria-disabled={busyId !== null}
                 aria-label="move {job.id} up one place"
               >
                 <ChevronUp size={13} />
@@ -153,6 +161,8 @@
                 class="quiet icon"
                 onclick={(e) => onmove(e, job.id, 'down')}
                 title="move down one place"
+                aria-busy={busyId === job.id}
+                aria-disabled={busyId !== null}
                 aria-label="move {job.id} down one place"
               >
                 <ChevronDown size={13} />

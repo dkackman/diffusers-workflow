@@ -88,8 +88,7 @@ function hostMemory(memory: PlanHostMemory): PlanLine {
     observed: 'observed',
     fit: `fit to ${memory.runs} run${memory.runs === 1 ? '' : 's'}`,
     declared: 'declared',
-    // the server names no source for a host-RAM figure
-    inherited: 'inherited from an example',
+    inherited: `inherited from ${memory.inherited_from ?? 'an example'}`,
   }[memory.basis]
   return { text: `host RAM about ${gb} GB (${basis})`, tone: 'plain' }
 }

@@ -176,5 +176,8 @@ def host_memory_block(need):
     """`need` as validate's `plan.host_memory`, or None for no figure."""
     if not need:
         return None
-    mb, basis, runs = need
-    return {"projected_mb": round(mb), "basis": basis, "runs": runs}
+    mb, basis, runs, *source = need
+    block = {"projected_mb": round(mb), "basis": basis, "runs": runs}
+    if source:
+        block["inherited_from"] = source[0]
+    return block

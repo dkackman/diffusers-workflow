@@ -217,6 +217,7 @@ function stamp(at: number) {
   history.replaceState({ ...kept, dwIndex: at }, '')
 }
 
+const hadIndex = indexOf() !== undefined
 let committedIndex = indexOf() ?? 0
 stamp(committedIndex)
 /** The index of the entry the browser was last seen on. */
@@ -224,10 +225,38 @@ let lastSeenIndex = committedIndex
 
 // Where each entry was left, by its index, for Back and Forward to go back
 // to; the newest 50. The browser's own restore is off: it would land before
-// the page it restores into has rendered
+// the page it restores into has rendered. Mirrored to sessionStorage so a
+// reload - which keeps the entry's index in history.state - finds its place
 const SCROLLS_KEPT = 50
+const SCROLLS_KEY = 'dw-scrolls'
+function loadScrolls(fresh: boolean): [number, number][] {
+  // an entry with no index is a new tab or a hand-typed address: none of the
+  // saved places belong to it
+  if (fresh) return []
+  try {
+    const saved: unknown = JSON.parse(sessionStorage.getItem(SCROLLS_KEY) ?? '')
+    if (!Array.isArray(saved)) return []
+    return saved
+      .filter(
+        (e): e is [number, number] =>
+          Array.isArray(e) &&
+          typeof e[0] === 'number' &&
+          typeof e[1] === 'number',
+      )
+      .slice(-SCROLLS_KEPT)
+  } catch {
+    return []
+  }
+}
+function saveScrolls() {
+  try {
+    sessionStorage.setItem(SCROLLS_KEY, JSON.stringify([...scrolls]))
+  } catch {
+    // storage refused: the places stay in memory
+  }
+}
 // eslint-disable-next-line svelte/prefer-svelte-reactivity -- not reactive state
-const scrolls = new Map<number, number>()
+const scrolls = new Map<number, number>(loadScrolls(!hadIndex))
 history.scrollRestoration = 'manual'
 function keepScroll(at: number) {
   scrolls.delete(at)
@@ -235,7 +264,10 @@ function keepScroll(at: number) {
   const oldest = scrolls.keys().next().value
   if (scrolls.size > SCROLLS_KEPT && oldest !== undefined)
     scrolls.delete(oldest)
+  saveScrolls()
 }
+// A reload or a close leaves the entry the page is on: keep its place too
+window.addEventListener('pagehide', () => keepScroll(committedIndex))
 
 // What the user does to scroll the page: any of these ends a restore
 const USER_SCROLLS = ['wheel', 'touchstart', 'keydown', 'pointerdown']
@@ -331,7 +363,10 @@ function arrive() {
   const fresh = indexOf() === undefined
   const at = indexOf() ?? (replacing ? lastSeenIndex : lastSeenIndex + 1)
   // a new entry reuses the index of one Back left behind: not its scroll
-  if (fresh) scrolls.delete(at)
+  if (fresh) {
+    scrolls.delete(at)
+    saveScrolls()
+  }
   replacing = false
   stamp(at)
   lastSeenIndex = at

@@ -5412,7 +5412,7 @@
             "type": "array"
           },
           "unpriced_reason": {
-            "description": "With basis `unknown` and no `withheld`: why a workflow of task steps alone has no price - it has no pipeline to inherit one from, and its length follows its input media (#948).",
+            "description": "With basis `unknown` and no `withheld`: why a task-only workflow has no price - no pipeline to inherit one from; its length follows its input media.",
             "title": "Unpriced Reason",
             "type": "string"
           },
@@ -5447,6 +5447,11 @@
               "inherited"
             ],
             "title": "Basis",
+            "type": "string"
+          },
+          "inherited_from": {
+            "description": "With basis `inherited`: the template's name.",
+            "title": "Inherited From",
             "type": "string"
           },
           "projected_mb": {
@@ -6998,7 +7003,7 @@
             "title": "Name"
           },
           "oom_score_adj": {
-            "description": "The worker's kernel oom_score_adj, read from /proc at call time (1000 for the latest dispatch's worker in a pool, else the value it was spawned with); absent where unreadable.",
+            "description": "The worker's kernel oom_score_adj, read from /proc at call time (1000 for the latest dispatch's worker in a pool); absent where unreadable.",
             "title": "Oom Score Adj",
             "type": "integer"
           },
@@ -7018,6 +7023,11 @@
             ],
             "description": "What the card holds, in the GB a catalog cost entry is written in.",
             "title": "Vram Gb"
+          },
+          "workspace": {
+            "description": "The workspace of `current_job`; absent while idle.",
+            "title": "Workspace",
+            "type": "string"
           }
         },
         "required": [

@@ -49,10 +49,13 @@
     label="shadowed/"
     count={entries.length}
     collapsed={shut}
+    disabled={filterActive}
     ontoggle={() => collapsed.toggle(library)}
-    title={shut
-      ? 'expand the shadowed entries'
-      : 'collapse the shadowed entries'}
+    title={filterActive
+      ? 'Showing every match while the filter is on'
+      : shut
+        ? 'expand the shadowed entries'
+        : 'collapse the shadowed entries'}
   />
 </div>
 {#if !shut}

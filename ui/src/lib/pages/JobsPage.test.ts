@@ -440,6 +440,27 @@ it('previews on click with {} once, and the poll never calls the route', async (
   }
 })
 
+it("one batch's rerun leaves the other banners", async () => {
+  data.jobs = [tombstone('t1', 'dead-a', 2), tombstone('t2', 'dead-b', 1)]
+  data.rerunRestartBatch.mockResolvedValue(preview)
+  let answer: (ok: boolean) => void = () => {}
+  data.confirm.mockReturnValue(new Promise<boolean>((r) => (answer = r)))
+  const { container } = render(JobsPage)
+  await waitFor(() => expect(banners(container)).toHaveLength(2))
+  const buttons = () =>
+    banners(container).map((b) => b.querySelector('button') as HTMLElement)
+  await fireEvent.click(buttons()[0])
+  await waitFor(() =>
+    expect(buttons()[0].getAttribute('aria-busy')).toBe('true'),
+  )
+  expect(buttons()[1].getAttribute('aria-busy')).toBe('false')
+  expect((buttons()[1] as HTMLButtonElement).disabled).toBe(false)
+  answer(false)
+  await waitFor(() =>
+    expect(buttons()[0].getAttribute('aria-busy')).toBe('false'),
+  )
+})
+
 it('confirming sends acknowledged_cost: true; cancelling sends nothing more', async () => {
   data.jobs = [tombstone('t1', 'dead-a'), tombstone('t2', 'dead-a')]
   data.rerunRestartBatch.mockResolvedValue(preview)
@@ -649,6 +670,26 @@ it('a double click on a move sends one request', async () => {
   await new Promise((r) => setTimeout(r, 20))
   expect(data.moveJob).toHaveBeenCalledTimes(1)
   expect(data.moveJob).toHaveBeenCalledWith('q2', 'up')
+})
+
+it("a moving job's buttons are busy", async () => {
+  location.hash = '#/ws/default/jobs'
+  data.queued = 2
+  let finish = () => {}
+  data.moveJob.mockReturnValue(new Promise<void>((r) => (finish = r)))
+  data.jobs = [
+    summary({ id: 'q1', status: 'queued', queue_position: 0 }),
+    summary({ id: 'q2', status: 'queued', queue_position: 1 }),
+  ]
+  render(JobsPage)
+  await waitFor(() => expect(moves('q2')).toEqual(['front', 'up']))
+  const up = screen.getByLabelText('move q2 up one place')
+  expect(up.getAttribute('aria-busy')).toBe('false')
+  await fireEvent.click(up)
+  await waitFor(() => expect(up.getAttribute('aria-busy')).toBe('true'))
+  expect(up.getAttribute('aria-disabled')).toBe('true')
+  finish()
+  await waitFor(() => expect(up.getAttribute('aria-busy')).toBe('false'))
 })
 
 it('the last job of the whole queue offers no down', async () => {

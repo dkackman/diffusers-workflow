@@ -242,7 +242,7 @@ def clear_slot(slot, lock, timeout):
     return {"device": device, "cleared": True, "info": slot.last_memory}
 
 
-def describe_workers(slots, lock):
+def describe_workers(slots, lock, workspace_of=lambda job_id: None):
     """One /api/health entry per card (`JobManager.workers`)."""
     with lock:
         running = [(slot, slot.current_job_id) for slot in slots]
@@ -264,5 +264,7 @@ def describe_workers(slots, lock):
             adj = read_oom_score_adj(pid)
             if adj is not None:
                 entry["oom_score_adj"] = adj
+        if job_id and (workspace := workspace_of(job_id)):
+            entry["workspace"] = workspace
         described.append(entry)
     return described

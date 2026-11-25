@@ -4430,7 +4430,7 @@ export interface components {
             unpriced: string[];
             /**
              * Unpriced Reason
-             * @description With basis `unknown` and no `withheld`: why a workflow of task steps alone has no price - it has no pipeline to inherit one from, and its length follows its input media (#948).
+             * @description With basis `unknown` and no `withheld`: why a task-only workflow has no price - no pipeline to inherit one from; its length follows its input media.
              */
             unpriced_reason?: string;
             /**
@@ -4447,6 +4447,11 @@ export interface components {
              * @enum {string}
              */
             basis: "observed" | "fit" | "declared" | "inherited";
+            /**
+             * Inherited From
+             * @description With basis `inherited`: the template's name.
+             */
+            inherited_from?: string;
             /**
              * Projected Mb
              * @description The host RAM, in MB, this run is projected to hold at its peak.
@@ -5125,7 +5130,7 @@ export interface components {
             name: string | null;
             /**
              * Oom Score Adj
-             * @description The worker's kernel oom_score_adj, read from /proc at call time (1000 for the latest dispatch's worker in a pool, else the value it was spawned with); absent where unreadable.
+             * @description The worker's kernel oom_score_adj, read from /proc at call time (1000 for the latest dispatch's worker in a pool); absent where unreadable.
              */
             oom_score_adj?: number;
             /**
@@ -5138,6 +5143,11 @@ export interface components {
              * @description What the card holds, in the GB a catalog cost entry is written in.
              */
             vram_gb: number | null;
+            /**
+             * Workspace
+             * @description The workspace of `current_job`; absent while idle.
+             */
+            workspace?: string;
         };
         /**
          * WorkflowCard

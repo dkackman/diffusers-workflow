@@ -14,7 +14,7 @@
   // group / section, each a link; the section's rest (a workflow or job
   // name) is the page's own h1, not the crumb's
   const crumbs = $derived.by(
-    (): { label: string; href: string; dot?: string }[] => {
+    (): { label: string; href?: string; dot?: string }[] => {
       const view = route.view
       if (view.kind === 'ws')
         return [
@@ -38,7 +38,8 @@
           { label: SECTION_LABELS.groups.server, href: serverHref('status') },
           { label: sectionLabel(view), href: serverHref(view.section) },
         ]
-      return [{ label: sectionLabel(view), href: '#' + view.path }]
+      // a page that is not there has nowhere to link to
+      return [{ label: sectionLabel(view) }]
     },
   )
 </script>
@@ -51,14 +52,23 @@
          shows up here as well as in the sidebar; in only, so the row never
          holds two labels at once -->
     {#key crumb.label}
-      <a
-        class="plain"
-        href={crumb.href}
-        in:fade={{ duration: prefersReducedMotion.current ? 0 : 150 }}
-      >
-        {#if crumb.dot}<span class="dot" style:background={crumb.dot}
-          ></span>{/if}{crumb.label}
-      </a>
+      {#if crumb.href}
+        <a
+          class="plain"
+          href={crumb.href}
+          in:fade={{ duration: prefersReducedMotion.current ? 0 : 150 }}
+        >
+          {#if crumb.dot}<span class="dot" style:background={crumb.dot}
+            ></span>{/if}{crumb.label}
+        </a>
+      {:else}
+        <span
+          class="here"
+          in:fade={{ duration: prefersReducedMotion.current ? 0 : 150 }}
+        >
+          {crumb.label}
+        </span>
+      {/if}
     {/key}
   {/each}
 </nav>
@@ -85,7 +95,8 @@
     height: 8px;
     border-radius: 50%;
   }
-  .crumbs a:last-child {
+  .crumbs a:last-child,
+  .here {
     color: var(--ink);
   }
 </style>

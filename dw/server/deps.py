@@ -549,7 +549,7 @@ def inherited_observed(state, ws, definition, arguments=None, *, card=None):
 
 
 def inherited_host_ram(state, ws, definition, history):
-    """(mb, "inherited", runs) for an inline workflow whose own memory key has
+    """(mb, "inherited", runs, template) for an inline workflow whose own memory key has
     no run, read from this machine's runs of the catalog templates that load
     the same pipeline identity (#1436), or None. The larger peak of the
     matching templates wins: under-projecting is the failure the host-RAM
@@ -560,7 +560,7 @@ def inherited_host_ram(state, ws, definition, history):
     if identity is None or history is None:
         return None
     best = None
-    for _name, template, _writable in _catalog_listing(state, ws):
+    for name, template, _writable in _catalog_listing(state, ws):
         if not isinstance(template, dict) or template_identity(template) != identity:
             continue
         key = memory_key(template)
@@ -568,7 +568,7 @@ def inherited_host_ram(state, ws, definition, history):
             continue
         peaks = history.peaks_for_key(key)
         if peaks and (best is None or max(peaks) > best[0]):
-            best = (max(peaks), "inherited", len(peaks))
+            best = (max(peaks), "inherited", len(peaks), name)
     return best
 
 

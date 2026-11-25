@@ -178,8 +178,12 @@
   // Only a click previews: the preview prices every member of the batch,
   // which the 3 s poll must never pay for. Its question and its failures
   // are rerunRestartBatchWithConfirm's
+  // Which banner's rerun is in flight: the action's one flag is every
+  // banner's, but only that banner is busy
+  let busyBatch = $state<string | null>(null)
   const rerunning = action(
     async (banner: RestartBanner) => {
+      busyBatch = banner.batch
       const outcome = await rerunRestartBatchWithConfirm(banner.id)
       if (outcome === 'empty')
         dismissedBatches = new Set([...dismissedBatches, banner.batch])
@@ -188,8 +192,11 @@
     { doing: 'rerun the jobs' },
   )
 
+  // The job being moved, for its buttons' busy cue
+  let movingId = $state<string | null>(null)
   const moving = action(
     async (id: string, direction: 'up' | 'down' | 'front') => {
+      movingId = id
       await api.moveJob(id, direction)
       // Same listing the poll asks for - refreshing without its filters
       // would flash every workspace's jobs into a view the user had
@@ -257,8 +264,8 @@
     </span>
     <button
       onclick={() => void rerunning.run(banner)}
-      disabled={rerunning.busy}
-      aria-busy={rerunning.busy}
+      disabled={rerunning.busy && busyBatch === banner.batch}
+      aria-busy={rerunning.busy && busyBatch === banner.batch}
       title="preview what a rerun would queue, with its cost, before anything is queued"
     >
       Rerun…
@@ -303,6 +310,7 @@
           percent={progress[job.id] ?? null}
           proof={proof && job.workspace === listedGallery ? proof : null}
           onmove={move}
+          busyId={moving.busy ? movingId : null}
         />
       {/each}
     </div>
