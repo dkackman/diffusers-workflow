@@ -630,7 +630,7 @@ test('the run dialog prices what is ready, says what will not run, and spends no
   const priced = page.waitForResponse(
     (r) =>
       new URL(r.url()).pathname === '/api/validate' &&
-      r.request().postDataJSON()?.workflow_path === 'e2e-card',
+      r.request().postDataJSON()?.workflow_path === 'e2e-title',
   )
   await run.click()
   const dialog = page.getByRole('dialog', { name: 'Run what can run now' })
@@ -639,9 +639,9 @@ test('the run dialog prices what is ready, says what will not run, and spends no
   expect((await priced).status()).toBe(200)
   const row = dialog.locator('.runrow[data-key="title"]')
   await expect(row).toContainText('Title card')
-  await expect(row.locator('.flow')).toHaveText('e2e-card')
-  // the server's own quote: a task-only workflow has no figure, and says
-  // so, the engine's reason one click away
+  await expect(row.locator('.flow')).toHaveText('e2e-title')
+  // the server's own quote: a task-only workflow that has never run (the
+  // fixture keeps `e2e-title` for this) has no figure, and says so, the engine's reason one click away
   await expect(row.locator('.quote')).toContainText(
     'No time estimate for this workflow.',
   )
@@ -755,7 +755,7 @@ test('running a ready item queues a job bound to its quote, and the job appears 
   expect(answer.status()).toBe(201)
   const sent = answer.request().postDataJSON()
   expect(sent).toMatchObject({
-    workflow_path: 'e2e-card',
+    workflow_path: 'e2e-title',
     arguments: { line: 'The opening' },
     request: BOARD_ID,
     item: 'title',

@@ -337,28 +337,34 @@ ledger.put_request(
 # done with two succeeded takes and neither accepted; `shot` failed once;
 # `cut` waits on `shot`; `title` has never run and waits on nothing, so it
 # is ready; `score` failed once and nothing depends on it. `title` runs
-# `e2e-card`, a workflow of one text task - no model, nothing to download,
+# `e2e-title`, a workflow of one text task - no model, nothing to download,
 # done in a second or two - so the run dialog's job can really be queued.
 EDIT_ID = "e2e-board"
-with open(os.path.join(scratch, "workflows", "e2e-card.json"), "w") as handle:
-    json.dump(
-        {
-            "id": "E2ECard",
-            "description": "A title card as one line of text.",
-            "variables": {"line": "Title card"},
-            "steps": [
-                {
-                    "name": "card",
-                    "task": {
-                        "command": "compose_text",
-                        "arguments": {"parts": ["variable:line"]},
-                    },
-                    "result": {"content_type": "text/plain"},
-                }
-            ],
-        },
-        handle,
-    )
+# The `title` items run `e2e-title`, the same workflow under a name of its
+# own. A task-only workflow that has run is quoted from its history, and
+# other specs queue `e2e-card` on this one server - so a quote read off
+# `e2e-card` depends on which specs ran first. Nothing queues `e2e-title`
+# before the run dialog's own submit, so until then it has no figure.
+for card_name, card_id in (("e2e-card", "E2ECard"), ("e2e-title", "E2ETitle")):
+    with open(os.path.join(scratch, "workflows", f"{card_name}.json"), "w") as handle:
+        json.dump(
+            {
+                "id": card_id,
+                "description": "A title card as one line of text.",
+                "variables": {"line": "Title card"},
+                "steps": [
+                    {
+                        "name": "card",
+                        "task": {
+                            "command": "compose_text",
+                            "arguments": {"parts": ["variable:line"]},
+                        },
+                        "result": {"content_type": "text/plain"},
+                    }
+                ],
+            },
+            handle,
+        )
 edit_linked = {
     "board": [
         {
@@ -392,7 +398,7 @@ ledger.put_request(
             plan_item("cut", "Final cut", depends_on=["shot"]),
             {
                 **plan_item("title", "Title card", estimate_minutes=3),
-                "workflow": "e2e-card",
+                "workflow": "e2e-title",
                 "arguments": {"line": "The opening"},
                 # held for review for the next hour, for the hold's specs
                 "review_until": (
@@ -410,7 +416,7 @@ ledger.put_request(
 # every kind from the person: `hero` is done with two succeeded takes and
 # neither accepted; `plate` failed once on a long CUDA error, its workflow
 # `e2e-card` so it can run again; `comp` failed once and waits on `plate`;
-# `title` on `e2e-card` is held for the next hour. Its takes are under a
+# `title` on `e2e-title` is held for the next hour. Its takes are under a
 # folder and name the gallery specs' searches (`e2e`, `still`) do not find.
 REVIEW_ID = "e2e-review"
 review_linked = {
@@ -465,7 +471,7 @@ ledger.put_request(
             plan_item("comp", "Composite", depends_on=["plate"]),
             {
                 **plan_item("title", "Title card"),
-                "workflow": "e2e-card",
+                "workflow": "e2e-title",
                 "arguments": {"line": "The review"},
                 "review_until": (
                     datetime.now(timezone.utc) + timedelta(hours=1)

@@ -21,6 +21,11 @@ const BASE = {
   ],
 }
 
+// Monaco's Format Document chord is the platform's own: Shift+Alt+F on
+// macOS and Windows, Ctrl+Shift+I on Linux - where CI runs
+const FORMAT =
+  process.platform === 'linux' ? 'Control+Shift+KeyI' : 'Shift+Alt+KeyF'
+
 type Request = Page['request']
 
 /** A scratch workflow of its own for one test, removed in `finally` */
@@ -91,7 +96,7 @@ const flat = (doc: object) => JSON.stringify(doc)
 /** Open `name` with `doc` typed flat, then formatted over several lines */
 async function editPretty(page: Page, name: string, doc: object) {
   const editor = await editJson(page, name, flat(doc))
-  await page.keyboard.press('Shift+Alt+KeyF')
+  await page.keyboard.press(FORMAT)
   await expect
     .poll(() => editor.locator('.view-line').count())
     .toBeGreaterThan(5)
@@ -247,12 +252,15 @@ test('Ctrl+S saves the JSON edit', async ({ page, request }) => {
 
 // Beyond the eight: what else the whole-package editor gave the JSON view
 
-test('Shift+Alt+F formats the document', async ({ page, request }) => {
+test('the Format Document chord formats the document', async ({
+  page,
+  request,
+}) => {
   await withWorkflow(request, async (name) => {
     const editor = await editJson(page, name, JSON.stringify(BASE))
     await expect(editor.locator('.view-line')).not.toHaveCount(0)
     const before = await editor.locator('.view-line').count()
-    await page.keyboard.press('Shift+Alt+KeyF')
+    await page.keyboard.press(FORMAT)
     await expect
       .poll(() => editor.locator('.view-line').count())
       .toBeGreaterThan(before + 5)
