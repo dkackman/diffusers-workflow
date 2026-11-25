@@ -128,6 +128,46 @@ test('editor: an unedited document reloads with a toast; an edited one asks', as
   }
 })
 
+// The JSON editor leaves its text alone while it has the caret. A reload
+// still reaches it because the re-read's flush blurs the focused field first
+// (DocumentEditor.flush), and only Monaco itself can show that (#1655)
+test('editor: a reload replaces the JSON text under an idle caret', async ({
+  page,
+  request,
+}) => {
+  const name = `${AGENT}-json`
+  await putWorkflow(request, name, workflow())
+  try {
+    await page.goto(`/#/ws/default/edit/${name}`)
+    await page.getByRole('button', { name: 'JSON', exact: true }).click()
+    const editor = page.locator('.monaco-editor').first()
+    await expect(editor).toBeVisible({ timeout: 20_000 })
+    const lines = editor.locator('.view-lines')
+    await lines.click()
+    await expect(
+      editor.getByRole('textbox', { name: 'Editor content' }),
+    ).toBeFocused()
+
+    const patched = await request.patch(`/api/workflows/${name}`, {
+      data: { variables: { line: 'FromTheAgent' } },
+    })
+    expect(patched.status()).toBe(200)
+    await expect(page.getByText(REMOTE)).toBeVisible(FEED)
+    await expect(lines).toContainText('FromTheAgent')
+
+    // typing goes onto their text: whitespace alone leaves nothing unsaved,
+    // where the text from before the reload would undo their change
+    await page.keyboard.press('End')
+    await page.keyboard.type(' ')
+    await page.waitForTimeout(600)
+    await expect(page.locator('.chip.unsaved')).toHaveCount(0)
+    await page.getByRole('button', { name: 'form', exact: true }).click()
+    await expect(page.locator('#wfvar-line')).toHaveValue('FromTheAgent')
+  } finally {
+    await request.delete(`/api/workflows/${name}`)
+  }
+})
+
 test('prompts: a prompt an agent saves appears as a changed card', async ({
   page,
   request,
