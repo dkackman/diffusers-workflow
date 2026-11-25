@@ -90,6 +90,9 @@ const isStale = (error: unknown) =>
   error instanceof ApiError &&
   error.status === 409 &&
   error.code === 'stale_revision'
+/** A refusal wrote nothing; any other failure may have */
+const isRefusal = (error: unknown) =>
+  error instanceof ApiError && error.status >= 400 && error.status < 500
 const keyOf = (intent: Intent) => ('key' in intent ? intent.key : null)
 /** A drop or an accept is a decision about the item as it looked: the
  * rest (a move, a restore) mean the same whatever it now holds */
@@ -238,11 +241,9 @@ export class PlanStore {
       if (outcome.status !== 'saved') this.#forget(key)
       return outcome
     } catch (error) {
-      // A refusal wrote nothing. Anything else may have been applied with
-      // its reply lost: remembered until a read shows the item live
-      const refused =
-        error instanceof ApiError && error.status >= 400 && error.status < 500
-      if (refused) this.#forget(key)
+      // What is not a refusal may have been applied with its reply lost:
+      // remembered until a read shows the item live
+      if (isRefusal(error)) this.#forget(key)
       throw error
     }
   }
@@ -410,14 +411,15 @@ export class PlanStore {
     if (epoch !== this.#epoch) return
     this.take(saved)
     if (!this.#left) this.#io.onsaved?.(this.read ?? saved)
-    if (
-      entry.tries > 0 &&
-      !onlyNotes(saved.history, entry.since, saved.revision)
-    )
-      this.notice = {
-        entry: culprit(saved.history, entry.since, saved.revision),
-      }
+    this.#noticeOver(entry, saved)
     this.#finish(entry, done('saved', applied.stripped))
+  }
+
+  /** Say that a retried write went on top of someone else's change */
+  #noticeOver(entry: Pending, saved: LedgerRequest) {
+    const { tries, since } = entry
+    if (!tries || onlyNotes(saved.history, since, saved.revision)) return
+    this.notice = { entry: culprit(saved.history, since, saved.revision) }
   }
 
   /** A write the server did not take. Stale: read again and leave the
