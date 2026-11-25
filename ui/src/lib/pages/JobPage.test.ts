@@ -705,7 +705,7 @@ it("a finished job's progress is one line until opened", async () => {
   expect(details.open).toBe(false)
   const summary = details.querySelector('summary')!
   expect(summary.textContent?.replace(/\s+/g, ' ').trim()).toBe(
-    'Progress 1 of 2 steps · 1m 12s',
+    '1 of 2 steps · 1m 12s',
   )
   // the list is behind the disclosure
   expect(details.querySelectorAll('.step')).toHaveLength(2)
@@ -1660,6 +1660,25 @@ it('a failed job leads with what failed and the remedy, the traceback folded', a
   expect((folded as HTMLDetailsElement).open).toBe(false)
   expect(folded.textContent).toContain('CUDA out of memory')
   expect(folded.textContent).toContain('boom')
+})
+
+it('the Error panel sits above Results', async () => {
+  ran.definition = { steps: [{ name: 'generate', pipeline: {} }] }
+  detail.job = {
+    ...failedJob(),
+    manifest: [{ step: 'generate', files: ['a.png'] }],
+    output_kinds: { 'a.png': 'image' },
+    run_dir: 'wf/run-1',
+  }
+  render(JobPage, { jobId: 'j1' })
+  const failed = await screen.findByText('Failed in step', { exact: false })
+  const results = await screen.findByRole('heading', {
+    level: 2,
+    name: 'Results',
+  })
+  expect(
+    failed.compareDocumentPosition(results) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy()
 })
 
 it('a failed job with nothing to change does not offer a rerun form', async () => {

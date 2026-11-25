@@ -138,6 +138,9 @@ describe('EventLog live reads', () => {
     expect(seqs(container)).toEqual(['0', '1', '2'])
   })
 
+  // Pins the spacer's cancel and the in-flight guard: a waiting beat and a
+  // read already out start no further read once the log is gone. The
+  // `destroyed` guard in readAgain is isolated by the next-but-one test.
   it('starts no read after unmount, in flight or waiting', async () => {
     const view = await opened({ live: true })
     hold = true
@@ -173,7 +176,7 @@ describe('EventLog live reads', () => {
     expect(calls()).toBe(before)
   })
 
-  it('an unmount during a read with another asked for starts none', async () => {
+  it('a destroyed log does not read again', async () => {
     const view = await opened({ live: true })
     hold = true
     add(1)
@@ -189,6 +192,30 @@ describe('EventLog live reads', () => {
     await flush()
     await vi.advanceTimersByTimeAsync(5000)
     expect(calls()).toBe(during)
+  })
+
+  it('a failed read shows Refresh while the job runs', async () => {
+    const view = await opened({ live: true })
+    expect(
+      screen.getByRole('button', { name: 'Refresh event log' }),
+    ).toBeTruthy()
+    api.eventLog.mockRejectedValueOnce(new Error('network down'))
+    await view.rerender({ live: true, pulse: 1 })
+    await vi.advanceTimersByTimeAsync(1000)
+    await flush()
+    expect(
+      screen.getByRole('button', { name: 'Refresh event log' }),
+    ).toBeTruthy()
+  })
+
+  it('leaves the kind column blank for a row with no sentence of its own', async () => {
+    served.push({ seq: 1, event: 'mystery_event' })
+    const view = await opened({ live: true })
+    const row = [...view.container.querySelectorAll('tbody tr')].find((r) =>
+      r.textContent?.includes('mystery_event'),
+    )!
+    expect(row.querySelector('td.kind')?.textContent?.trim()).toBe('')
+    expect(row.querySelectorAll('td')[3].textContent).toContain('mystery_event')
   })
 
   it('collects the closing events when the job ends during the first load', async () => {

@@ -238,7 +238,7 @@
         Follow new events
       </button>
     {/if}
-    {#if open && live && loaded && !missing}
+    {#if open && loaded && !missing && (live || error)}
       <button
         class="quiet icon"
         onclick={() => load(lastSeq)}
@@ -278,7 +278,10 @@
                       ? '+' + formatDuration(event.at)
                       : ''}
                   </td>
-                  <td class="kind">{eventKind(event)}</td>
+                  <!-- A row with no sentence of its own already says its event name as its text -->
+                  <td class="kind">
+                    {said.text === event.event ? '' : eventKind(event)}
+                  </td>
                   <td class="body">
                     <span class="text" title={said.text}>{said.text}</span>
                     {#if said.data}
