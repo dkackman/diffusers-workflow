@@ -355,7 +355,7 @@ it('a starred clip shows as starred once its recipe is read', async () => {
     pressed: true,
   })
   expect(star.getAttribute('aria-pressed')).toBe('true')
-  expect((star as HTMLButtonElement).disabled).toBe(false)
+  expect(star.getAttribute('aria-disabled')).toBe('false')
 })
 
 it('the star waits for the read that says whether the file is starred', async () => {
@@ -363,7 +363,7 @@ it('the star waits for the read that says whether the file is starred', async ()
   render(JobResults, clips)
   const sheet = await openOutput('run1/s3.mp4')
   const star = within(sheet).getByRole('button', { name: 'Star' })
-  expect((star as HTMLButtonElement).disabled).toBe(true)
+  expect(star.getAttribute('aria-disabled')).toBe('true')
   expect(star.title).toBe('Reading whether this file is starred')
   expect(star.hasAttribute('aria-pressed')).toBe(false)
   await fireEvent.click(star)
@@ -386,7 +386,7 @@ it('the star is enabled from the listing when the recipe read fails', async () =
     name: 'Star',
     pressed: true,
   })
-  expect((star as HTMLButtonElement).disabled).toBe(false)
+  expect(star.getAttribute('aria-disabled')).toBe('false')
 })
 
 // The route names `starred` only for a starred file, so a listing read
@@ -405,7 +405,7 @@ it('the star of an unstarred file is enabled from the listing when the recipe re
     name: 'Star',
     pressed: false,
   })
-  expect((star as HTMLButtonElement).disabled).toBe(false)
+  expect(star.getAttribute('aria-disabled')).toBe('false')
   await fireEvent.click(star)
   await waitFor(() =>
     expect(api.setStarred).toHaveBeenCalledWith('run1/a.png', true),
@@ -422,7 +422,7 @@ it('a video-only run stars its first file from the listing when the recipe read 
     name: 'Star',
     pressed: false,
   })
-  expect((star as HTMLButtonElement).disabled).toBe(false)
+  expect(star.getAttribute('aria-disabled')).toBe('false')
 })
 
 // The listing is read once: it must not take back a star set since

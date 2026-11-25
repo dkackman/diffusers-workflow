@@ -131,7 +131,8 @@
     const res = await fetch(file.url, { method: 'HEAD' }).catch(() => null)
     if (res?.status === 404 && open === name) ongone(name)
   }
-  // Previous and Next at an end are aria-disabled, not disabled: a
+  // A button in the bar that cannot act (here, and in a page's actions) is
+  // aria-disabled with a press that does nothing, never disabled: a
   // disabled button drops its focus to <body>, outside the sheet's keys
   function step(to: string | null) {
     if (to) open = to
@@ -226,7 +227,9 @@
     const list = moreList
     if (!list) return
     const chosen = (e: Event) => {
-      if (e.target instanceof Element && e.target.closest('button, a'))
+      if (!(e.target instanceof Element)) return
+      const pressed = e.target.closest('button, a')
+      if (pressed && pressed.getAttribute('aria-disabled') !== 'true')
         moreOpen = false
     }
     list.addEventListener('click', chosen)
@@ -375,8 +378,8 @@
           class="quiet icon"
           aria-label="Zoom out"
           title="Zoom out"
-          disabled={!zoomable || fitted}
-          onclick={() => zoomBy(-1)}
+          aria-disabled={!zoomable || fitted}
+          onclick={ACTS.zoomOut}
         >
           <ZoomOut size={16} />
         </button>
@@ -385,8 +388,8 @@
           class="quiet icon"
           aria-label="Zoom in"
           title="Zoom in"
-          disabled={!zoomable}
-          onclick={() => zoomBy(1)}
+          aria-disabled={!zoomable}
+          onclick={ACTS.zoomIn}
         >
           <ZoomIn size={16} />
         </button>
@@ -395,8 +398,8 @@
           class="quiet viewer-size"
           aria-label={sizeLabel}
           title={sizeLabel}
-          disabled={!zoomable}
-          onclick={fitted ? actualSize : fitToWindow}
+          aria-disabled={!zoomable}
+          onclick={fitted ? ACTS.actual : fitToWindow}
         >
           {fitted ? '100%' : 'Fit'}
         </button>

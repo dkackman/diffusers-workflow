@@ -49,8 +49,8 @@
     <button
       type="button"
       class="quiet icon danger"
-      onclick={() => onremove(asset)}
-      disabled={busy}
+      onclick={() => !busy && onremove(asset)}
+      aria-disabled={busy}
       aria-label="Delete"
       title="Delete this asset from the library"
     >

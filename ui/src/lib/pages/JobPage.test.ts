@@ -224,7 +224,7 @@ it('a bare S stars the open file, as its star says, and S again unstars it', asy
   await fireEvent.click(await screen.findByLabelText('Open a.png'))
   const sheet = await screen.findByRole('dialog', { name: 'a.png' })
   const star = await within(sheet).findByRole('button', { name: 'Star' })
-  await waitFor(() => expect(star).not.toBeDisabled())
+  await waitFor(() => expect(star).toHaveAttribute('aria-disabled', 'false'))
   api.setStarred.mockClear()
   // a modified S is the browser's or the page's own
   await fireEvent.keyDown(sheet, { key: 'S', shiftKey: true })
@@ -252,7 +252,7 @@ it('a star Undo leaves a star another writer changed', async () => {
   await fireEvent.click(await screen.findByLabelText('Open a.png'))
   const sheet = await screen.findByRole('dialog', { name: 'a.png' })
   const star = await within(sheet).findByRole('button', { name: 'Star' })
-  await waitFor(() => expect(star).not.toBeDisabled())
+  await waitFor(() => expect(star).toHaveAttribute('aria-disabled', 'false'))
   api.setStarred.mockClear()
   await fireEvent.keyDown(sheet, { key: 's' })
   await waitFor(() => expect(notify.undo).toHaveBeenCalledTimes(1))

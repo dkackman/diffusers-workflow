@@ -447,8 +447,11 @@
     <button
       type="button"
       class="quiet withicon"
-      onclick={() => assessCache.run(assessKey(file.name), file.name)}
-      disabled={!assessable(file.kind) || assessed?.running}
+      onclick={() =>
+        assessable(file.kind) &&
+        !assessed?.running &&
+        assessCache.run(assessKey(file.name), file.name)}
+      aria-disabled={!assessable(file.kind) || !!assessed?.running}
       title={assessTitle(file.kind)}
     >
       <Gauge size={14} />{assessed?.running ? 'Assessing…' : 'Assess'}
