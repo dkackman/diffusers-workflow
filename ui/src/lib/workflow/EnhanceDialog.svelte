@@ -35,6 +35,14 @@
 
   onDestroy(() => enhancer.stop())
 
+  // Close stops the server job as well as the page's following of it
+  $effect(() => {
+    if (open) return
+    untrack(() => {
+      if (enhancer.busy) void enhancer.cancel()
+    })
+  })
+
   function use() {
     onuse(enhancer.takeResult().text)
     open = false

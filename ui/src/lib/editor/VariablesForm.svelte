@@ -40,6 +40,7 @@
     kinds = {},
     advanced = new Set<string>(),
     seed = null,
+    locked = new Set<string>(),
     onenhance = undefined,
   }: {
     /** define: edit the workflow's own defaults (add/remove/coerce).
@@ -75,6 +76,9 @@
     /** The variable the workflow's seed names: with no default it says the
      * seed is drawn for each job */
     seed?: string | null
+    /** Variables that cannot be edited now (the seed, while a new one is
+     * to be drawn): shown, but not typed in */
+    locked?: Set<string>
     /** Override mode: a free-text variable offers Enhance…, which asks the
      * page to open the enhancer for this key */
     onenhance?: (key: string) => void
@@ -83,9 +87,13 @@
   const keys = $derived(Object.keys(variables ?? {}))
   const main = $derived(keys.filter((k) => !advanced.has(k)))
   const folded = $derived(keys.filter((k) => advanced.has(k)))
-  let foldOpen = $state(false)
+  /** The folded variables holding a value of their own */
+  const foldedSet = $derived(folded.filter((k) => overrides[k]).length)
+  /** What the person chose for the fold; until they do, it is open while a
+   * folded field holds a value or a finding */
+  let foldChoice = $state<boolean | null>(null)
   const foldShown = $derived(
-    foldOpen || folded.some((k) => overrides[k] || findings[k]?.length),
+    foldChoice ?? folded.some((k) => overrides[k] || findings[k]?.length),
   )
 
   const presetDefinition = $derived({ variables, presets })
@@ -120,12 +128,36 @@
    * the declared default, never what is being typed, so typing a reference
    * does not swap the input out from under the cursor. */
   function isFileField(key: string): boolean {
+    const first = firstKind.get(key)
+    // a text field that is still empty may become a file field when the
+    // catalog arrives; one holding text is not swapped under it
+    if (first !== undefined && (first || overrides[key])) return first
+    const is = computeFileField(key)
+    firstKind.set(key, is)
+    return is
+  }
+  function computeFileField(key: string): boolean {
     if (mode === 'override' && Object.hasOwn(kinds, key)) return true
     const value = variables[key]
     return (
       referenceName(value, ASSET) !== null ||
       referenceName(value, OUTPUT) !== null
     )
+  }
+  /** Each field's first-rendered kind, kept until its value is committed:
+   * a catalog that loads late must not swap the input out (and the text in
+   * it) under a person who is already reading or typing */
+  // Not reactive on purpose: it is written while rendering
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity
+  const firstKind = new Map<string, boolean>()
+
+  /** The default file reference a field would use while it holds nothing,
+   * for its tile */
+  function defaultFile(key: string): string | undefined {
+    const declared = variables[key]
+    return mode === 'override' && typeof declared === 'string'
+      ? declared
+      : undefined
   }
 
   /** Added and not yet given a value: its first commit infers the type */
@@ -166,6 +198,7 @@
   }
 
   function commit(key: string, raw: string) {
+    firstKind.delete(key)
     if (mode === 'override') {
       overrides[key] = raw
       return
@@ -237,79 +270,82 @@
       <span class="required">required</span>{/if}
   </label>
   <div class="field">
-    {#if isPresetSelect(key)}
-      {@const current = shown(key)}
-      <select
-        id={idPrefix + key}
-        value={current}
-        onchange={(e) => commit(key, e.currentTarget.value)}
-      >
-        <option value="">
-          default ({displayValue(variables[key]) || 'none'})
-        </option>
-        {#if current && !selectors[key].bundles.includes(current)}
-          <option value={current}>{current} (not a preset)</option>
-        {/if}
-        {#each selectors[key].bundles as bundle (bundle)}
-          <option value={bundle}>{bundle}</option>
-        {/each}
-      </select>
-    {:else if isBackendSelect(key)}
-      {@const current = shown(key)}
-      <select
-        id={idPrefix + key}
-        value={current}
-        onchange={(e) => commitBackend(key, e.currentTarget.value)}
-      >
-        <option value="">
-          {mode === 'override'
-            ? `default (${displayValue(variables[key]) || 'none'})`
-            : 'default (none)'}
-        </option>
-        {#if current && !attentionBackends.list.includes(current)}
-          <option value={current}>
-            {current} (not available on this server)
+    <fieldset class="lock" disabled={locked.has(key)}>
+      {#if isPresetSelect(key)}
+        {@const current = shown(key)}
+        <select
+          id={idPrefix + key}
+          value={current}
+          onchange={(e) => commit(key, e.currentTarget.value)}
+        >
+          <option value="">
+            default ({displayValue(variables[key]) || 'none'})
           </option>
-        {/if}
-        {#each attentionBackends.list as backend (backend)}
-          <option value={backend}>{backend}</option>
-        {/each}
-      </select>
-    {:else if isFileField(key)}
-      <ReferenceField
-        id={idPrefix + key}
-        value={shown(key)}
-        kind={mode === 'override' ? (kinds[key] ?? 'file') : undefined}
-        placeholder={placeholderFor(key) || undefined}
-        oninput={(raw) => draft(key, raw)}
-        onchange={(raw) => commit(key, raw)}
-      >
+          {#if current && !selectors[key].bundles.includes(current)}
+            <option value={current}>{current} (not a preset)</option>
+          {/if}
+          {#each selectors[key].bundles as bundle (bundle)}
+            <option value={bundle}>{bundle}</option>
+          {/each}
+        </select>
+      {:else if isBackendSelect(key)}
+        {@const current = shown(key)}
+        <select
+          id={idPrefix + key}
+          value={current}
+          onchange={(e) => commitBackend(key, e.currentTarget.value)}
+        >
+          <option value="">
+            {mode === 'override'
+              ? `default (${displayValue(variables[key]) || 'none'})`
+              : 'default (none)'}
+          </option>
+          {#if current && !attentionBackends.list.includes(current)}
+            <option value={current}>
+              {current} (not available on this server)
+            </option>
+          {/if}
+          {#each attentionBackends.list as backend (backend)}
+            <option value={backend}>{backend}</option>
+          {/each}
+        </select>
+      {:else if isFileField(key)}
+        <ReferenceField
+          id={idPrefix + key}
+          value={shown(key)}
+          kind={mode === 'override' ? (kinds[key] ?? 'file') : undefined}
+          placeholder={placeholderFor(key) || undefined}
+          fallback={defaultFile(key)}
+          oninput={(raw) => draft(key, raw)}
+          onchange={(raw) => commit(key, raw)}
+        >
+          {@render enhance(key)}
+        </ReferenceField>
+      {:else}
+        <ExpandingText
+          id={idPrefix + key}
+          value={shown(key)}
+          placeholder={placeholderFor(key)}
+          refStyle={isReference(effective(key))}
+          complete={(text) => referenceCompletions(text)}
+          title={promptTooltip(effective(key), promptLibrary.texts)}
+          oninput={(raw) => draft(key, raw)}
+          onchange={(raw) => commit(key, raw)}
+          onpromptpick={(name) => commit(key, reference(PROMPT, name))}
+        />
         {@render enhance(key)}
-      </ReferenceField>
-    {:else}
-      <ExpandingText
-        id={idPrefix + key}
-        value={shown(key)}
-        placeholder={placeholderFor(key)}
-        refStyle={isReference(effective(key))}
-        complete={(text) => referenceCompletions(text)}
-        title={promptTooltip(effective(key), promptLibrary.texts)}
-        oninput={(raw) => draft(key, raw)}
-        onchange={(raw) => commit(key, raw)}
-        onpromptpick={(name) => commit(key, reference(PROMPT, name))}
-      />
-      {@render enhance(key)}
-    {/if}
-    {#if mode === 'define'}
-      <select
-        class="vartype"
-        aria-label="type of {key}"
-        value={typeOf(variables[key])}
-        onchange={(e) => retype(key, e.currentTarget.value)}
-      >
-        {#each VARIABLE_TYPES as type (type)}<option>{type}</option>{/each}
-      </select>
-    {/if}
+      {/if}
+      {#if mode === 'define'}
+        <select
+          class="vartype"
+          aria-label="type of {key}"
+          value={typeOf(variables[key])}
+          onchange={(e) => retype(key, e.currentTarget.value)}
+        >
+          {#each VARIABLE_TYPES as type (type)}<option>{type}</option>{/each}
+        </select>
+      {/if}
+    </fieldset>
   </div>
   {#if mode === 'define'}
     <button
@@ -338,8 +374,11 @@
         label="Advanced"
         count={folded.length}
         collapsed={!foldShown}
-        ontoggle={() => (foldOpen = !foldShown)}
-      />
+        ontoggle={() => (foldChoice = !foldShown)}
+      >
+        {#if !foldShown && foldedSet}<span class="muted">{foldedSet} set</span
+          >{/if}
+      </GroupHeading>
     </div>
     {#if foldShown}
       {#each folded as key (key)}{@render row(key)}{/each}
@@ -352,6 +391,12 @@
 
 <style>
   /* The field: */
+  .lock {
+    display: contents;
+    border: 0;
+    padding: 0;
+    margin: 0;
+  }
   .field {
     display: flex;
     gap: var(--space-1);

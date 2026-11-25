@@ -120,21 +120,61 @@ export function previewOf(
   value: string,
   kind: FieldKind | undefined,
 ): MediaFile | null {
+  const media = mediaKindOf(kind)
+  // A file of another kind than the field takes is not shown as its value
+  const fits = (file: { kind: string } | undefined) =>
+    !!file && (!media || file.kind === media)
   const assetName = referenceName(value, ASSET)
   if (assetName !== null) {
     const asset = assetNamed(assetName)
-    return asset
+    return asset && fits(asset)
       ? assetMedia(asset, assetLibrary.workspace ?? workspace.current)
       : null
   }
   const outputName = referenceName(value, OUTPUT)
   if (outputName !== null) {
     const file = outputNamed(outputName)
-    return file
+    return file && fits(file)
       ? outputMedia(file, outputLibrary.workspace ?? workspace.current)
       : null
   }
   return urlMedia(value, kind)
+}
+
+const EXTENSION_KINDS: Record<string, MediaKind> = {
+  '.jpg': 'image',
+  '.jpeg': 'image',
+  '.png': 'image',
+  '.gif': 'image',
+  '.bmp': 'image',
+  '.webp': 'image',
+  '.mp4': 'video',
+  '.avi': 'video',
+  '.mkv': 'video',
+  '.mov': 'video',
+  '.webm': 'video',
+  '.wav': 'audio',
+  '.mp3': 'audio',
+  '.flac': 'audio',
+  '.ogg': 'audio',
+}
+
+/** The media kind a file is: its MIME type's, else - when the system gave
+ * none (`.mkv` on some) - its extension's. undefined when neither says. */
+export function pickedKind(file: {
+  name: string
+  type: string
+}): MediaKind | undefined {
+  if (file.type) {
+    const fromType = file.type.split('/', 1)[0]
+    return fromType === 'image' || fromType === 'video' || fromType === 'audio'
+      ? fromType
+      : undefined
+  }
+  const dot = file.name.lastIndexOf('.')
+  return dot < 0
+    ? undefined
+    : EXTENSION_KINDS[file.name.slice(dot).toLowerCase()]
 }
 
 /** What stands in for a library reference the listing does not hold - a
@@ -147,6 +187,10 @@ export function missingOf(
   const media = mediaKindOf(kind)
   const name = referenceName(value, ASSET) ?? referenceName(value, OUTPUT)
   if (!media || !name) return null
+  // A listed file of another kind is not missing: it shows nothing
+  const listed =
+    referenceName(value, ASSET) !== null ? assetNamed(name) : outputNamed(name)
+  if (listed) return null
   return {
     name: value,
     kind: media,

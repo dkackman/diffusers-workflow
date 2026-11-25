@@ -109,6 +109,11 @@
   let enhancing = $state('') // the variable whose Enhance dialog is open
   let seeded = '' // the draft key (workspace and name) held in `overrides`
   const saver = new form.DraftSaver()
+  // What the form opened with, to tell a prefill from what was typed
+  let opened: Pick<
+    ReturnType<typeof form.openingValues>,
+    'draft' | 'prefill'
+  > = { draft: {}, prefill: {} }
 
   $effect(() => {
     void name
@@ -124,15 +129,16 @@
     seeded = key
     untrack(() => {
       saver.flush()
-      const opened = form.openingValues(workspace.current, name, workflow)
-      ;({ restored, overrides } = opened)
+      const first = form.openingValues(workspace.current, name, workflow)
+      opened = first
+      ;({ restored, overrides } = first)
     })
   })
 
   $effect(() => {
     const values = $state.snapshot(overrides)
     const key = form.draftKey(workspace.current, name)
-    if (seeded === key) saver.schedule(key, values)
+    if (seeded === key) saver.schedule(key, form.draftValues(values, opened))
   })
 
   onDestroy(saver.flush)

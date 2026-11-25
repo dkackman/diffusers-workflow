@@ -254,5 +254,8 @@ export function planSummary(plan: Plan): string {
       : formatApprox(minutes * 60)
   const gb = plan.downloads_required.reduce((n, d) => n + (d.gb ?? 0), 0)
   const sized = plan.downloads_required.some((d) => d.gb !== null)
-  return sized ? `${time} · downloads ${Number(gb.toFixed(1))} GB first` : time
+  if (!sized) return time
+  const unsized = plan.downloads_required.some((d) => d.gb === null)
+  const size = `${Number(gb.toFixed(1))} GB${unsized ? ' + unsized' : ''}`
+  return `${time} · downloads ${size} first`
 }

@@ -75,3 +75,23 @@ it('Use this prompt writes the result back and closes', async () => {
   expect(onuse).toHaveBeenCalledWith('A long, lit prompt')
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
 })
+
+it('Close cancels a job that is still running on the server', async () => {
+  const { streamJobEvents } = await import('../api')
+  vi.mocked(streamJobEvents).mockImplementationOnce(() => () => {})
+  api.cancelJob.mockResolvedValue({} as never)
+  render(EnhanceDialog, {
+    props: { open: true, idea: 'a cat', onuse: vi.fn() },
+  })
+  await screen.findByRole('dialog', { name: 'Enhance the prompt' })
+  const generate = await screen.findByRole('button', { name: /Generate/ })
+  await waitFor(() =>
+    expect((generate as HTMLButtonElement).disabled).toBe(false),
+  )
+  await fireEvent.click(generate)
+  await waitFor(() => expect(api.enhance).toHaveBeenCalled())
+  await fireEvent.keyDown(document.activeElement ?? document.body, {
+    key: 'Escape',
+  })
+  await waitFor(() => expect(api.cancelJob).toHaveBeenCalledWith('j1'))
+})

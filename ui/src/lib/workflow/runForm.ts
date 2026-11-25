@@ -146,16 +146,40 @@ export function takePrefill(name: string): Record<string, string> {
   }
 }
 
-/** What a run form opens with: what was typed here last, then a prefill */
+/** What a run form opens with: what was typed here last, then a prefill.
+ * `draft` and `prefill` are the two parts, kept to tell them apart. */
 export function openingValues(
   workspace: string,
   name: string,
   workflow: WorkflowDefinition,
-): { restored: boolean; overrides: Record<string, string> } {
+): {
+  restored: boolean
+  overrides: Record<string, string>
+  draft: Record<string, string>
+  prefill: Record<string, string>
+} {
   const names = Object.keys(workflow.variables ?? {})
   const draft = readDraft(draftKey(workspace, name), names)
+  const prefill = takePrefill(name)
   return {
     restored: Object.keys(draft).length > 0,
-    overrides: { ...draft, ...takePrefill(name) },
+    overrides: { ...draft, ...prefill },
+    draft,
+    prefill,
   }
+}
+
+/** What of the form is the person's own to remember: a value still equal
+ * to the prefill is the other page's word, not typed here, so it is not
+ * stored - the draft it replaced, if any, stays. */
+export function draftValues(
+  overrides: Record<string, string>,
+  opened: { draft: Record<string, string>; prefill: Record<string, string> },
+): Record<string, string> {
+  const kept: Record<string, string> = {}
+  for (const [key, value] of Object.entries(overrides)) {
+    if (opened.prefill[key] !== value) kept[key] = value
+    else if (opened.draft[key] !== undefined) kept[key] = opened.draft[key]
+  }
+  return kept
 }

@@ -500,6 +500,16 @@ describe('planSummary', () => {
     expect(planSummary(base)).toBe('about 42 min · downloads 41.2 GB first')
   })
 
+  it('some downloads unsized: the size is a floor and says so', () => {
+    const mixed = [
+      ...base.downloads_required,
+      { repo: 'org/m', gb: null, gated: null, access_blocked: null },
+    ]
+    expect(planSummary({ ...base, downloads_required: mixed })).toBe(
+      'about 42 min · downloads 41.2 GB + unsized first',
+    )
+  })
+
   it('no download, no download half', () => {
     expect(planSummary({ ...base, downloads_required: [] })).toBe(
       'about 42 min',

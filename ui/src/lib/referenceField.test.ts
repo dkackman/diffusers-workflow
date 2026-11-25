@@ -12,6 +12,7 @@ import {
   kindWithArticle,
   missingOf,
   previewOf,
+  pickedKind,
 } from './referenceField'
 import type { AssetFile, GalleryFile } from './types'
 import { api } from './test/apiMock'
@@ -150,6 +151,19 @@ describe('previewOf', () => {
     expect(previewOf('asset:gone.png', 'image')).toBeNull()
     expect(previewOf('output:gone.png', 'image')).toBeNull()
     expect(previewOf('cat.png', 'image')).toBeNull()
+  })
+
+  it('draws nothing for an asset or output of another kind', () => {
+    expect(previewOf('asset:clips/walk.mp4', 'image')).toBeNull()
+    expect(previewOf('output:shots/r1/a.png', 'video')).toBeNull()
+  })
+
+  it('names the kind of a picked file by its type, else its extension', () => {
+    expect(pickedKind({ name: 'a.bin', type: 'image/png' })).toBe('image')
+    expect(pickedKind({ name: 'cat.PNG', type: '' })).toBe('image')
+    expect(pickedKind({ name: 'walk.mp4', type: '' })).toBe('video')
+    expect(pickedKind({ name: 'song.wav', type: '' })).toBe('audio')
+    expect(pickedKind({ name: 'notes', type: '' })).toBeUndefined()
   })
 })
 

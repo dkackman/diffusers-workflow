@@ -29,6 +29,7 @@
     kindWithArticle,
     mediaKindOf,
     missingOf,
+    pickedKind,
     previewOf,
     type FieldKind,
   } from '../referenceField'
@@ -40,6 +41,7 @@
   let {
     id,
     value,
+    fallback = undefined,
     kind = undefined,
     earlier = undefined,
     placeholder = undefined,
@@ -52,6 +54,9 @@
     id: string
     /** The file path, URL or reference the field holds */
     value: string
+    /** The reference the field stands for while it is empty (a default),
+     * drawn as its tile; never written */
+    fallback?: string
     kind?: FieldKind
     /** The earlier steps' results this field can take, offered first */
     earlier?: string[]
@@ -86,6 +91,8 @@
    * it uploads, and after, until the field holds something else */
   let local = $state<{ for: string; file: MediaFile } | null>(null)
   let destroyed = false
+  /** The blob URL of the picture an upload in flight replaced */
+  let replaced = ''
   /** What the person has typed and not yet committed, for the value it was
    * typed over: Suggest keeps it until change or blur */
   let typed = $state<{ over: string; text: string } | null>(null)
@@ -97,14 +104,15 @@
   }
 
   // A library reference previews once the listing that holds it has loaded
+  const shown = $derived(value || fallback || '')
   $effect(() => {
-    if (referenceName(value, ASSET) !== null) ensureAssetLibrary()
-    if (referenceName(value, OUTPUT) !== null) ensureOutputLibrary()
+    if (referenceName(shown, ASSET) !== null) ensureAssetLibrary()
+    if (referenceName(shown, OUTPUT) !== null) ensureOutputLibrary()
   })
   const preview = $derived(
     (local?.for === value ? local.file : null) ??
-      previewOf(value, kind) ??
-      missingOf(value, kind),
+      previewOf(shown, kind) ??
+      missingOf(shown, kind),
   )
 
   function setLocal(next: typeof local) {
@@ -119,6 +127,8 @@
   onDestroy(() => {
     destroyed = true
     setLocal(null)
+    // The picture an upload in flight replaced is held until it lands
+    if (replaced.startsWith('blob:')) URL.revokeObjectURL(replaced)
   })
 
   function commit(next: string) {
@@ -130,11 +140,10 @@
 
   /** The file as the field shows it while it uploads */
   function pickedMedia(file: File, url: string): MediaFile {
-    const kindOf = file.type.split('/', 1)[0]
-    const shown = kindOf === 'video' || kindOf === 'audio' ? kindOf : 'image'
+    const kindOf = pickedKind(file)
     return {
       name: file.name,
-      kind: shown,
+      kind: kindOf ?? 'image',
       url,
       label: file.name,
       workspace: '',
@@ -144,7 +153,7 @@
 
   function take(file: File | undefined) {
     if (!file) return
-    if (media && !file.type.startsWith(`${media}/`)) {
+    if (media && pickedKind(file) !== media) {
       failure = null
       error = `That isn't ${named} file.`
       return
@@ -166,6 +175,7 @@
     failure = null
     const from = live()
     const previous = local
+    replaced = previous?.file.url ?? ''
     local = { for: value, file: pickedMedia(file, URL.createObjectURL(file)) }
     try {
       // This uploads to the workspace library, so only its names are taken
@@ -181,10 +191,17 @@
       setLocal(previous)
       failure = err
     }
-    // A picture the field no longer shows lets go of its bytes
+    releasePrevious(previous)
+  }
+
+  /** A picture the field no longer shows lets go of its bytes - all of
+   * them, when the field itself is gone */
+  function releasePrevious(previous: typeof local) {
+    if (destroyed) setLocal(null)
     const old = previous?.file.url ?? ''
     if (old.startsWith('blob:') && local?.file.url !== old)
       URL.revokeObjectURL(old)
+    replaced = ''
   }
 
   /** Where a finished upload goes: into the field when it still holds the
@@ -200,7 +217,7 @@
       if (skipped.length) reportUploads(result)
       else
         error =
-          'unsupported file type - the path above can still be typed by hand'
+          'Unsupported file type - the path above can still be typed by hand'
       return
     }
     // So the upload is among what an asset: completion offers next
@@ -209,7 +226,7 @@
     if (destroyed || live() !== from) {
       setLocal(null)
       notify.success(
-        `Uploaded as ${next}. The field changed meanwhile, so it was left as it is.`,
+        `The upload finished after the field ${destroyed ? 'closed' : 'changed'}; nothing was written.`,
       )
       return
     }

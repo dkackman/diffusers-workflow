@@ -2,6 +2,8 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
   draftKey,
+  draftValues,
+  openingValues,
   essentials,
   isFreeText,
   readDraft,
@@ -86,5 +88,32 @@ describe('drafts', () => {
     writeDraft(key, { prompt: 'cat' })
     writeDraft(key, { prompt: '' })
     expect(localStorage.getItem('dw-' + key)).toBeNull()
+  })
+})
+
+describe('a prefill is not a draft', () => {
+  it('opening reports the prefill apart from the draft', () => {
+    writeDraft(draftKey('w', 'x'), { a: 'typed' })
+    sessionStorage.setItem(
+      'dw-workflow-prefill',
+      JSON.stringify({ workflow: 'x', arguments: { b: 2 } }),
+    )
+    const wf = { id: 'x', variables: { a: '', b: 0 } } as WorkflowDefinition
+    const opened = openingValues('w', 'x', wf)
+    expect(opened.restored).toBe(true)
+    expect(opened.draft).toEqual({ a: 'typed' })
+    expect(opened.prefill).toEqual({ b: '2' })
+    expect(opened.overrides).toEqual({ a: 'typed', b: '2' })
+  })
+
+  it('only what was typed beyond the prefill is kept for a draft', () => {
+    const opened = { draft: { a: 'old' }, prefill: { a: 'p', b: '2' } }
+    // untouched: the prefill is dropped, the draft it replaced stays
+    expect(draftValues({ a: 'p', b: '2' }, opened)).toEqual({ a: 'old' })
+    // edited: the person's text is stored
+    expect(draftValues({ a: 'p', b: '3' }, opened)).toEqual({
+      a: 'old',
+      b: '3',
+    })
   })
 })

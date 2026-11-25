@@ -507,3 +507,59 @@ describe('VariablesForm adding a variable', () => {
     expect(variables.steps).toBeNull()
   })
 })
+
+describe('VariablesForm folds and kinds', () => {
+  const base = (over: Record<string, unknown> = {}) => ({
+    mode: 'override' as const,
+    variables: { note: 'x', steps: 30 } as Record<string, unknown>,
+    idPrefix: 'v-',
+    advanced: new Set(['steps']),
+    ...over,
+  })
+
+  it('Advanced folds while nothing in it is set', () => {
+    render(VariablesForm, base({ overrides: {} }))
+    expect(document.getElementById('v-steps')).toBeNull()
+  })
+
+  it('Advanced folds while a folded field has a value, and says how many are set', () => {
+    render(VariablesForm, base({ overrides: { steps: '20' } }))
+    // a value of its own opens the fold
+    expect(document.getElementById('v-steps')).not.toBeNull()
+  })
+
+  it('a locked field is shown but not typed in', () => {
+    render(
+      VariablesForm,
+      base({ overrides: {}, locked: new Set(['note']), advanced: new Set() }),
+    )
+    const field = document.getElementById('v-note')!
+    expect(field.closest('fieldset')?.disabled).toBe(true)
+  })
+
+  it('a field holding text is not swapped for a file field when the catalog arrives', async () => {
+    const { rerender } = render(
+      VariablesForm,
+      base({ overrides: { note: 'typed' }, advanced: new Set(), kinds: {} }),
+    )
+    expect(document.querySelector('input[type="file"]')).toBeNull()
+    await rerender(
+      base({
+        overrides: { note: 'typed' },
+        advanced: new Set(),
+        kinds: { note: 'image' },
+      }),
+    )
+    expect(document.querySelector('input[type="file"]')).toBeNull()
+  })
+  it('an empty field becomes a file field when the catalog arrives', async () => {
+    const { rerender } = render(
+      VariablesForm,
+      base({ overrides: {}, advanced: new Set(), kinds: {} }),
+    )
+    await rerender(
+      base({ overrides: {}, advanced: new Set(), kinds: { note: 'image' } }),
+    )
+    expect(document.querySelector('input[type="file"]')).not.toBeNull()
+  })
+})

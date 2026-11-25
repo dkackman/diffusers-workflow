@@ -325,7 +325,12 @@
             <Dices size={14} />New seed
           </ActionButton>
         {/if}
-        <RerunWithChanges {job} {declared} bind:open={rerunOpen} />
+        <RerunWithChanges
+          {job}
+          {declared}
+          {seedVariable}
+          bind:open={rerunOpen}
+        />
         <ActionButton
           act={exportJob}
           title="bundle this job - its realized workflow, manifest, the media it used and made - into the workspace's exports/ on the server, and download it as a zip"

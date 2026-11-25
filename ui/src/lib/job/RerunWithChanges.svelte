@@ -21,12 +21,16 @@
   let {
     job,
     declared,
+    seedVariable = null,
     open = $bindable(false),
   }: {
     job: JobDetail
     /** The run's definition's declared variables, or null when the job's
      * definition is not on file - the form then lists its arguments only */
     declared: Record<string, unknown> | null
+    /** The variable a new seed is drawn into: its field is locked while
+     * New seed is checked, as the server refuses both */
+    seedVariable?: string | null
     /** Whether the form is open: the job page's error panel opens it too */
     open?: boolean
   } = $props()
@@ -46,15 +50,44 @@
   // exactly as sent, so retyping a value the run already used (30 over 30)
   // would otherwise be named as a change it never was
   const started = (key: string) => displayValue(values[key]).trim()
+  // JSON is compared parsed: the same list or object spaced differently is
+  // not a change
+  const parsed = (text: string): unknown => {
+    try {
+      return JSON.parse(text)
+    } catch {
+      return undefined
+    }
+  }
+  const same = (a: string, b: string) => {
+    if (a === b) return true
+    const [pa, pb] = [parsed(a), parsed(b)]
+    return (
+      pa !== undefined &&
+      typeof pa === 'object' &&
+      JSON.stringify(pa) === JSON.stringify(pb)
+    )
+  }
   const changed = $derived(
     Object.fromEntries(
-      Object.entries(overrides).filter(([key, raw]) => {
-        const text = raw.trim()
-        return text !== '' && text !== started(key)
-      }),
+      Object.entries(overrides).filter(
+        ([key, raw]) =>
+          !same(raw.trim(), started(key)) &&
+          // a blank over a value that was blank is no change
+          !(raw.trim() === '' && started(key) === ''),
+      ),
     ),
   )
   const changedCount = $derived(Object.keys(changed).length)
+  // A blank over a value clears it: the server takes null as "unset"
+  const sent = $derived({
+    ...typedArguments(changed, values),
+    ...Object.fromEntries(
+      Object.entries(changed)
+        .filter(([, raw]) => raw.trim() === '')
+        .map(([key]) => [key, null]),
+    ),
+  })
 
   // Opened from here or from outside, the form holds the job's values
   $effect(() => {
@@ -78,7 +111,7 @@
       try {
         next = await api.rerunJob(job.id, {
           newSeed,
-          arguments: typedArguments(changed, values),
+          arguments: sent,
         })
       } catch (e) {
         // A refused value is the user's to fix: the modal stays open on it
@@ -127,7 +160,7 @@
   <button
     class="quiet withicon"
     onclick={() => (open = true)}
-    title="queue this job again with some of its variables changed - what you leave blank keeps this job's value"
+    title="queue this job again with some of its variables changed - a blank field clears that value"
   >
     <SlidersHorizontal size={14} />Run again with changes…
   </button>
@@ -148,7 +181,8 @@
 <Modal bind:open label="Run again with changes" wide>
   <h2>Run again with changes</h2>
   <p class="hint muted">
-    Each field holds what this job used. Change what should differ.
+    Each field holds what this job used. Change what should differ; a blank
+    field clears its value.
   </p>
   <VariablesForm
     mode="override"
@@ -156,6 +190,7 @@
     bind:overrides
     idPrefix="rerun-var-"
     {kinds}
+    locked={newSeed && seedVariable ? new Set([seedVariable]) : new Set()}
   />
   <label class="newseed">
     <input type="checkbox" bind:checked={newSeed} />New seed
