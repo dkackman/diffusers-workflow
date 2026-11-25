@@ -728,8 +728,14 @@ it('Compare takes opens the newest four', () => {
 })
 
 it('a take with no file stays a slot and does not open', () => {
-  render(RequestItem, props([filedTakes()]))
+  const { container } = render(RequestItem, props([filedTakes()]))
   expect(screen.queryByRole('button', { name: 'take 2 of Shot 3' })).toBeNull()
+  // The slot is the link to its job and nothing else: nothing in it opens
+  const second = container.querySelectorAll('ul.strip > li')[1]
+  const slot = second.querySelector('.slot')!
+  expect(slot.getAttribute('href')).toBe('#/ws/studio/jobs/j2')
+  expect(slot.querySelector('button, a')).toBeNull()
+  expect(second.querySelector('.tilewrap')).toBeNull()
   expect(
     screen.getAllByRole('button', { name: /^take \d of Shot 3$/ }),
   ).toHaveLength(2)

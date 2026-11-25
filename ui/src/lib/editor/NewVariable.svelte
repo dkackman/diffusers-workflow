@@ -43,7 +43,9 @@
   <Plus size={14} />
 </button>
 <span></span>
-{#if problem}<p id={problemId} class="error problem" role="alert">{problem}</p>{/if}
+{#if problem}<p id={problemId} class="error problem" role="alert">
+    {problem}
+  </p>{/if}
 
 <style>
   .problem {

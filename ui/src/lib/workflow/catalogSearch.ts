@@ -15,7 +15,10 @@ const STOP_WORDS = new Set([
 /** The words of a text: lower-cased and cut at anything that is not a letter
  * or digit, so punctuation never rides along on a word. */
 const wordsOf = (text: string): string[] =>
-  text.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean)
+  text
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean)
 
 /** The words a query asks for: lower-cased, split at punctuation and
  * whitespace, with the words that carry no meaning dropped. */
@@ -25,15 +28,16 @@ export function queryWords(query: string): string[] {
 
 /** Every word a card says about itself, to look query words up in. */
 function textOf(name: string, card: WorkflowCard | undefined): string[] {
-  return wordsOf([
-    name,
-    card?.description,
-    card?.summary,
-    card?.shape,
-    ...(card?.kinds ?? []),
-    ...(card?.traits ?? []),
-  ]
-    .join(' '))
+  return wordsOf(
+    [
+      name,
+      card?.description,
+      card?.summary,
+      card?.shape,
+      ...(card?.kinds ?? []),
+      ...(card?.traits ?? []),
+    ].join(' '),
+  )
 }
 
 /** Whether `held` holds every word, each after the one before. */

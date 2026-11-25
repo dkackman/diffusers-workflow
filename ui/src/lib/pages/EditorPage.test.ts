@@ -577,7 +577,9 @@ describe('EditorPage new workflow origin', () => {
     await waitFor(() => expect(startFrom().value).toBe('templates/tti'))
     await fireEvent.click(screen.getByRole('button', { name: /^Save/ }))
     await waitFor(() => expect(api.saveWorkflow).toHaveBeenCalled())
-    await waitFor(() => expect(screen.queryByLabelText('start from')).toBeNull())
+    await waitFor(() =>
+      expect(screen.queryByLabelText('start from')).toBeNull(),
+    )
   })
 
   it('a draft started from an example is checked at once', async () => {

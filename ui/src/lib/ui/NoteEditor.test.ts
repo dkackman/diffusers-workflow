@@ -5,6 +5,7 @@ import {
   screen,
   waitFor,
 } from '@testing-library/svelte'
+import { tick } from 'svelte'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as api from '../api'
 import { ApiError } from '../apiErrors'
@@ -272,7 +273,7 @@ describe('NoteEditor', () => {
       expect(spy).not.toHaveBeenCalled()
     })
 
-    it('a second Save while the first asks sends one write', async () => {
+    it('a second Ctrl+Enter while the first asks sends one write', async () => {
       const spy = vi.spyOn(api, 'setNote').mockResolvedValue(stored)
       let answer!: (yes: boolean) => void
       vi.mocked(confirmDialog).mockReturnValue(
@@ -285,6 +286,24 @@ describe('NoteEditor', () => {
         key: 'Enter',
         ctrlKey: true,
       })
+      expect(save).toHaveProperty('disabled', true)
+      answer(true)
+      await waitFor(() => expect(spy).toHaveBeenCalledTimes(1))
+      expect(confirmDialog).toHaveBeenCalledTimes(1)
+    })
+
+    it('a second click while the first asks sends one write', async () => {
+      const spy = vi.spyOn(api, 'setNote').mockResolvedValue(stored)
+      let answer!: (yes: boolean) => void
+      vi.mocked(confirmDialog).mockReturnValue(
+        new Promise((resolve) => (answer = resolve)),
+      )
+      await overtaken()
+      const save = screen.getByRole('button', { name: /^save/i })
+      // both before the button is redrawn disabled: the guard is what holds
+      save.click()
+      save.click()
+      await tick()
       expect(save).toHaveProperty('disabled', true)
       answer(true)
       await waitFor(() => expect(spy).toHaveBeenCalledTimes(1))
