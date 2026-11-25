@@ -6,21 +6,18 @@
   let {
     open = $bindable(false),
     label,
-    wide = false,
-    large = false,
-    fill = false,
+    size,
     onkeydowncapture,
     onopenfocus,
     children,
   }: {
     open?: boolean
     label: string
-    wide?: boolean
-    /** Most of the viewport, for a browsing grid rather than a message */
-    large?: boolean
-    /** The whole window, for one file shown large (MediaViewer); its look
-     * is `.ui-sheet-fill` in patterns.css, app.css being full */
-    fill?: boolean
+    /** `wide` for a longer message; `large`, most of the viewport, for a
+     * browsing grid; `fill`, the whole window, for one file shown large
+     * (MediaViewer; its look is `.ui-sheet-fill` in patterns.css, app.css
+     * being full). A message's width when unset */
+    size?: 'wide' | 'large' | 'fill'
     /** Every key pressed inside the sheet, before its target sees it */
     onkeydowncapture?: (event: KeyboardEvent) => void
     /** Where focus goes on open, when not the first control: call
@@ -48,12 +45,7 @@
   <Dialog.Portal>
     <Dialog.Overlay class="ui-overlay" />
     <Dialog.Content
-      class={[
-        'ui-sheet panel',
-        wide && 'ui-sheet-wide',
-        large && 'ui-sheet-large',
-        fill && 'ui-sheet-fill',
-      ]
+      class={['ui-sheet panel', size && `ui-sheet-${size}`]
         .filter(Boolean)
         .join(' ')}
       aria-label={label}

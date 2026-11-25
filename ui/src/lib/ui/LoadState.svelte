@@ -12,6 +12,7 @@
   import { describeError } from '../apiErrors'
   import type { Resource } from '../resource.svelte'
   import Empty from '../Empty.svelte'
+  import LoadFailed from './LoadFailed.svelte'
   import Skeleton from './Skeleton.svelte'
 
   let {
@@ -65,11 +66,7 @@
       label="loading {label}"
     />{/if}
 {:else if of.status === 'error' && !held}
-  <div class="panel loadstate-failed" role="alert">
-    <p>Couldn't load {label}: {described?.title}</p>
-    {#if described?.remedy}<p>{described.remedy}</p>{/if}
-    <button onclick={retry}>Retry</button>
-  </div>
+  <LoadFailed verb="load" {label} {what} error={of.error} onretry={retry} />
 {:else if filtered && empty}
   <div class="filtered muted">
     <p>Nothing matches those filters.</p>
@@ -90,13 +87,6 @@
 {/if}
 
 <style>
-  .loadstate-failed {
-    margin: 1rem 0;
-  }
-  .loadstate-failed p {
-    margin: 0 0 0.6rem;
-    overflow-wrap: anywhere;
-  }
   .filtered {
     display: flex;
     flex-direction: column;

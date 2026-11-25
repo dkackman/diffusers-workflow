@@ -247,7 +247,7 @@
 <Modal
   bind:open
   label={heading}
-  large
+  size="large"
   onopenfocus={(event) => {
     event.preventDefault()
     cancel?.focus()

@@ -9,10 +9,9 @@
   // is `.filetile` in patterns.css; the glyphs are media.ts's.
   import type { Snippet } from 'svelte'
   import { Film, Image, Pencil, Play, Star } from '@lucide/svelte'
-  import { api } from '../api'
   import { formatDuration } from '../format'
   import { hasPicture, kindGlyph, type MediaFile } from '../media'
-  import { resource } from '../resource.svelte'
+  import TextExcerpt from './TextExcerpt.svelte'
 
   let {
     file,
@@ -48,9 +47,6 @@
     'aria-current'?: 'true'
   } = $props()
 
-  /** How many of a text file's lines the tile shows */
-  const EXCERPT_LINES = 3
-
   // A thumbnail the server could not make: the kind's glyph stands in, until
   // the tile is given another
   let broken = $state<string | null>(null)
@@ -64,49 +60,7 @@
   )
   const noteLine = $derived(file.note ? file.note.split('\n')[0] : '')
 
-  // A text file's first lines, read when the tile first scrolls into view
-  // (a grid of hundreds never reads the ones nobody scrolls to), and again
-  // only when the file's stamp moves - a Replace, a rewrite - never because
-  // a listing was read again. Deriveds, so a new object for the same file
-  // is no new question
-  let seen = $state(false)
-  const url = $derived(file.url)
-  const stamp = $derived(file.stamp ?? '')
-  const home = $derived(file.workspace)
   let face = $state<HTMLElement | null>(null)
-  const excerpt = textExcerpt()
-
-  function textExcerpt() {
-    // A row is a glyph; it reads nothing
-    if (file.kind !== 'text' || size === 'row') return null
-    return resource(
-      async () => {
-        // The stamp is part of the question, though the read needs only the URL
-        const question = { url, stamp }
-        if (!seen) return null
-        const text = await api.fileText(question.url)
-        if (!text.trim()) return '(empty)'
-        return text.split('\n').slice(0, EXCERPT_LINES).join('\n')
-      },
-      { watch: [], workspace: () => home },
-    )
-  }
-
-  $effect(() => {
-    if (!excerpt || seen || !face) return
-    if (typeof IntersectionObserver === 'undefined') {
-      seen = true
-      return
-    }
-    const observer = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) {
-        seen = true
-        observer.disconnect()
-      }
-    })
-    observer.observe(face)
-    return () => observer.disconnect()
-  })
 
   const classes = $derived([
     'filetile',
@@ -153,10 +107,8 @@
     {:else if file.kind === 'text'}
       <span class="tile-text">
         {@render glyph()}
-        {#if typeof excerpt?.data === 'string'}
-          <!-- The file's lines are not its name: hidden from the name -->
-          <span class="tile-excerpt" aria-hidden="true">{excerpt.data}</span>
-        {/if}
+        <!-- A row is a glyph; it reads nothing -->
+        {#if size !== 'row'}<TextExcerpt {file} {face} />{/if}
       </span>
     {:else}
       {@render glyph()}

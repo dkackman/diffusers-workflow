@@ -6,7 +6,6 @@
     EDITOR_VIEWS,
     NEW_FOLDER,
     editorKeys,
-    type EditorView,
   } from '../editorShell.svelte'
   import Segmented from '../ui/Segmented.svelte'
   import EditorBody from '../editor/EditorBody.svelte'
@@ -344,7 +343,7 @@
           label="editor view"
           value={ed.view}
           options={EDITOR_VIEWS}
-          onselect={(view) => ed.setView(view as EditorView)}
+          onselect={(view) => ed.setView(view)}
         />
         <button
           class="quiet withicon"
@@ -377,6 +376,7 @@
 
   {#if ed.loadState === 'failed'}
     <LoadFailed
+      detail
       label={name}
       error={ed.loadError}
       onretry={() => place.retry()}

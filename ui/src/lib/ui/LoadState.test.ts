@@ -163,3 +163,11 @@ it('quiet: a failed refresh keeps the data without a line', () => {
   expect(queryByRole('alert')).toBeNull()
   expect(container.querySelectorAll('li')).toHaveLength(1)
 })
+
+it('a failed load never shows the raw message', () => {
+  const { container, queryByText } = show(
+    fake({ status: 'error', error: new NetworkError('fetch failed') }),
+  )
+  expect(queryByText('Engine detail')).toBeNull()
+  expect(container.textContent).not.toContain('fetch failed')
+})

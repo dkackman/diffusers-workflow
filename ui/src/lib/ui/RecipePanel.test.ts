@@ -201,3 +201,19 @@ it('children can read the file again: the fresh read, or null when it failed', a
   galleryMetadata.mockImplementationOnce(() => Promise.reject(new Error('x')))
   expect(await again()).toBeNull()
 })
+
+it("never shows the last file's recipe while another name loads", async () => {
+  reply.meta = meta({
+    metadata: { workflow: { id: 'portrait' }, arguments: { prompt: 'a fox' } },
+  })
+  const { rerender, container } = panel()
+  await screen.findByText('a fox')
+  galleryMetadata.mockImplementationOnce(() => new Promise(() => {}))
+  await rerender({
+    name: 'demo/r2/b.png',
+    source: 'output',
+    workspace: 'studio',
+  })
+  await waitFor(() => expect(container.textContent).not.toContain('a fox'))
+  expect(screen.getByRole('status')).not.toBeNull()
+})

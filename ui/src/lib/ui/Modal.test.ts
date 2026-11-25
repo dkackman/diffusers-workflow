@@ -36,3 +36,14 @@ it('closes on Escape and releases its layer', async () => {
   )
   await waitFor(() => expect(overlayOpen()).toBe(false))
 })
+
+it("a dialog's size is one class on its panel", async () => {
+  render(KeyboardHelp, { open: true })
+  const dialog = await screen.findByRole('dialog', {
+    name: 'keyboard shortcuts',
+  })
+  const sized = document.querySelectorAll('[class*="ui-sheet-"]')
+  expect(sized).toHaveLength(1)
+  expect(sized[0].classList).toContain('ui-sheet-wide')
+  expect(dialog).not.toBeNull()
+})

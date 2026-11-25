@@ -40,5 +40,5 @@
     { value: 'newest', label: 'Newest', title: 'most recently changed first' },
   ]}
   value={sort.value}
-  onselect={(v) => (sort.value = v as ListSortValue)}
+  onselect={(v) => (sort.value = v)}
 />

@@ -263,7 +263,7 @@
           },
           { value: 'full', label: 'full', title: 'every field, editable' },
         ]}
-        onselect={(picked) => setModeInternal(picked as 'compact' | 'full')}
+        onselect={(picked) => setModeInternal(picked)}
       />
     {/if}
     <button
@@ -302,9 +302,9 @@
   {#each problems as problem (problem)}
     <div class="stepwarn"><TriangleAlert size={13} /> {problem}</div>
   {/each}
-  {#if (flow?.resolvedRefs ?? 0) > 1}
+  {#if flow && flow.resolvedRefs > 1}
     <div class="muted hint cartesian">
-      {flow!.resolvedRefs} previous_result inputs - iterations multiply (every combination
+      {flow.resolvedRefs} previous_result inputs - iterations multiply (every combination
       runs)
     </div>
   {/if}

@@ -5,7 +5,8 @@
 // trigger goes through one `run`:
 //   - its dependencies changed (what `load` reads before its first await,
 //     and the workspace): a new question, a loud reload, `status`
-//     'loading', `data` kept unless the workspace changed - and dropped if
+//     'loading', `data` kept unless the workspace (or the `subject`)
+//     changed - and dropped if
 //     the new question's load fails, so the old answer never stands in for
 //     it (unless the failure is an outage or a lock, the banner's to say);
 //   - a watched kind moved, `connection.epoch` rose, a timer ticked: a
@@ -54,6 +55,10 @@ export type Freshness =
 export type ResourceOptions<T> = Freshness & {
   /** Which workspace the data belongs to; `workspace.current` by default */
   workspace?: () => string
+  /** What the data is about, within a workspace: when it changes, what is
+   * held is another thing's answer and is forgotten, not shown while the
+   * new one loads */
+  subject?: () => string
   /** What is held when a reply lands; the reply by default */
   merge?: (held: T | undefined, incoming: T) => T
   /** The data as keyed rows, for `changed`: a request's id, a file's name */
@@ -277,10 +282,11 @@ class Held<T> {
     this.marks.clear()
   }
 
-  /** A new question: the workspace's data is forgotten when it changed, and
-   * every question's marks are, so its first read is the baseline */
-  asking(workspaceChanged: boolean) {
-    untrack(() => (workspaceChanged ? this.forget() : this.marks.clear()))
+  /** A new question: the data is forgotten when it is about something else
+   * (the workspace or the subject changed), and every question's marks are,
+   * so its first read is the baseline */
+  asking(another: boolean) {
+    untrack(() => (another ? this.forget() : this.marks.clear()))
   }
 }
 
@@ -327,8 +333,9 @@ export function resource<T>(
   let loadedIn: string | undefined
   $effect(() => {
     const ws = workspaceOf()
-    held.asking(loadedIn !== undefined && ws !== loadedIn)
-    loadedIn = ws
+    const about = JSON.stringify([ws, options.subject?.() ?? ''])
+    held.asking(loadedIn !== undefined && about !== loadedIn)
+    loadedIn = about
     asked++
     release()
     if (!options.lazy) void run(false)

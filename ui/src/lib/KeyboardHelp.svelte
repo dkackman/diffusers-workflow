@@ -4,7 +4,7 @@
   let { open = $bindable(false) }: { open?: boolean } = $props()
 </script>
 
-<Modal bind:open label="keyboard shortcuts" wide>
+<Modal bind:open label="keyboard shortcuts" size="wide">
   <h2>Keyboard shortcuts</h2>
   <dl>
     <dt><kbd>Ctrl/⌘</kbd> + <kbd>S</kbd></dt>

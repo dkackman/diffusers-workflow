@@ -41,7 +41,10 @@
   const shape = hashState(
     'shape',
     '',
-    codec.oneOf<string>(['', ...WORKFLOW_SHAPES]),
+    codec.oneOf<'' | (typeof WORKFLOW_SHAPES)[number]>([
+      '',
+      ...WORKFLOW_SHAPES,
+    ]),
   )
   const traits = hashState<WorkflowTrait[]>(
     'traits',

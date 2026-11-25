@@ -606,3 +606,20 @@ describe('switching a text row to boolean', () => {
     ).toBeNull()
   })
 })
+
+it('shows the type the value has when a retype does not take', async () => {
+  render(VariablesForm, props({ variables: { motto: 'carpe diem' } }))
+  const select = screen
+    .getAllByRole('combobox')
+    .find((el) =>
+      Array.from(el.querySelectorAll('option')).some(
+        (o) => o.textContent?.trim() === 'boolean',
+      ),
+    ) as HTMLSelectElement
+  const held = select.value
+  for (const picked of ['boolean', 'number']) {
+    await fireEvent.change(select, { target: { value: picked } })
+    await tick()
+    expect(select.value).toBe(held)
+  }
+})
