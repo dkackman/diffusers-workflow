@@ -11,6 +11,9 @@ import { setHashQuery } from './router.svelte'
 import { invalidateWorkspaces, workspace } from './workspace.svelte'
 import { api } from './test/apiMock'
 import { feed } from './test/feedMock'
+import { quiet, useQuietClock } from './test/quiet'
+
+useQuietClock()
 
 vi.mock('./api', async () => (await import('./test/apiMock')).apiModule())
 api.listWorkspaces.mockImplementation(() =>
@@ -304,7 +307,7 @@ it('one feed poll that moves the workspaces and a content kind lists them once',
   // watcher called in turn (changes.svelte.ts)
   feed.move(workspace.current, 'workspaces')
   feed.move(workspace.current, 'assets')
-  await new Promise((r) => setTimeout(r, 10))
+  await quiet()
   // only the workspaces move lists them; a content move reads nothing
   expect(api.listWorkspaces.mock.calls.length).toBe(calls + 1)
 })

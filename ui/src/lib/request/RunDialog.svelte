@@ -144,7 +144,7 @@
   {@const item = row.candidate}
   {@const stale = queue.staleOf(row)}
   {@const hold = stale ? null : held(item.key)}
-  <li class="runrow" data-key={item.key}>
+  <li class="runrow" data-testid="run-row" data-key={item.key}>
     <div class="who">
       {#if !run.single}
         <input

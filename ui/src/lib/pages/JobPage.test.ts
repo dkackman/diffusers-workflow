@@ -15,6 +15,9 @@ import { ApiError, NetworkError } from '../apiErrors'
 import { connection } from '../connection.svelte'
 import type { JobDetail, JobEvent } from '../types'
 import { feed } from '../test/feedMock'
+import { quiet, useQuietClock } from '../test/quiet'
+
+useQuietClock()
 
 const detail = vi.hoisted(() => ({ job: null as JobDetail | null }))
 // The live stream's callback, captured so a test can push step_end events
@@ -1583,7 +1586,7 @@ describe('after an outage', () => {
       // EventSource retries every few seconds while the server is down
       stream.onDrop!()
       stream.onDrop!()
-      await new Promise((r) => setTimeout(r, 20))
+      await quiet()
       expect(api.getJob.mock.calls.length).toBe(before)
       expect(screen.queryByText(/Couldn't refresh job/)).toBeNull()
       connection.state = 'ok'
@@ -1628,7 +1631,7 @@ describe('after an outage', () => {
       () => new Promise<JobDetail>((r) => (answer = r)),
     )
     await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
-    await new Promise((r) => setTimeout(r, 20))
+    await quiet()
     expect(screen.queryByText('Event log')).toBeNull()
     answer(running())
     await screen.findByText('Event log')
@@ -1803,7 +1806,7 @@ it('a saved run note survives a record reload begun before the save', async () =
   land(before)
 
   await waitFor(() => expect(api.getJob).toHaveBeenCalledTimes(2))
-  await new Promise((r) => setTimeout(r, 10))
+  await quiet()
   expect(screen.getByText('new note')).toBeTruthy()
   expect(screen.queryByText('old note')).toBeNull()
   expect(screen.queryByText(/updated by an agent/i)).toBeNull()

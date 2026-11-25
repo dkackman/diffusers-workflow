@@ -4,8 +4,11 @@ import { api } from '../test/apiMock'
 import { VARIABLE } from '../references'
 import StepEditor from './StepEditor.svelte'
 import type { PipelineDescription, WorkflowStep } from '../types'
+import { quiet, useQuietClock } from '../test/quiet'
 
 // The LoRA editor asks the catalog about a literal base repo; keep it offline
+useQuietClock()
+
 vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
 api.listLoras.mockResolvedValue({ libraries: [], loras: [] })
 
@@ -114,7 +117,7 @@ it('leaves a step with no torch_dtype unchanged on opening full', async () => {
     onremove: () => {},
     onmove: () => {},
   })
-  await new Promise((r) => setTimeout(r, 50))
+  await quiet()
   expect(JSON.stringify(s)).toBe(before)
 })
 
@@ -194,7 +197,7 @@ it('opens full on a step with no arguments, and writes nothing', async () => {
   }
   const before = JSON.stringify(s)
   full(s)
-  await new Promise((r) => setTimeout(r, 50))
+  await quiet()
   expect(screen.getByLabelText('model')).toBeInTheDocument()
   expect(JSON.stringify(s)).toBe(before)
 })
@@ -249,7 +252,7 @@ it.each<[string, WorkflowStep]>([
   api.getWorkflow.mockResolvedValue({ definition: {} })
   const before = JSON.stringify(s)
   full(s)
-  await new Promise((r) => setTimeout(r, 400))
+  await quiet()
   expect(screen.getByText('arguments')).toBeInTheDocument()
   expect(JSON.stringify(s)).toBe(before)
 })

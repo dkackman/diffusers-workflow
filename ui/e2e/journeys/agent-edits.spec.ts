@@ -23,6 +23,17 @@ const REMOTE = 'Updated by an agent or another tab'
 
 type Request = Page['request']
 
+/** Wait out `count` reads of the change feed made from here on. What a read
+ * found moved is reread before the next one is due, so after two the page has
+ * shown whatever the write before them was going to show. */
+async function feedReads(page: Page, count: number) {
+  for (let i = 0; i < count; i++)
+    await page.waitForResponse(
+      (r) => new URL(r.url()).pathname.endsWith('/changes'),
+      FEED,
+    )
+}
+
 /** Count the page's navigations from here on: a reload would be one */
 function countNavigations(page: Page) {
   const seen = { count: 0 }
@@ -270,7 +281,7 @@ test("job page: an agent's note shows, and says it was updated; the user's own d
     await page.getByLabel('Your note on this job').fill('A note of my own')
     await page.getByRole('button', { name: 'Save', exact: true }).click()
     await expect(page.getByText('A note of my own')).toBeVisible()
-    await page.waitForTimeout(6_000)
+    await feedReads(page, 2)
     await expect(notice).toHaveCount(0)
     await expect(page.locator('.row-changed')).toHaveCount(0)
 

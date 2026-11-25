@@ -12,6 +12,9 @@ import { formatExact, formatRelative } from '../format'
 import { DEFAULT_WORKSPACE, workspace } from '../workspaceState.svelte'
 import type { JobSummary } from '../types'
 import { api } from '../test/apiMock'
+import { quiet, useQuietClock } from '../test/quiet'
+
+useQuietClock()
 
 const data = vi.hoisted(() => ({
   jobs: [] as unknown[],
@@ -674,7 +677,7 @@ it('a double click on a move sends one request', async () => {
   up.click()
   up.click()
   await waitFor(() => expect(api.moveJob).toHaveBeenCalled())
-  await new Promise((r) => setTimeout(r, 20))
+  await quiet()
   expect(api.moveJob).toHaveBeenCalledTimes(1)
   expect(api.moveJob).toHaveBeenCalledWith('q2', 'up')
 })
@@ -1136,7 +1139,8 @@ it('another workspace after Show older reads its first page once', async () => {
   const before = data.listed.length
   workspace.current = 'other'
   await screen.findByRole('button', { name: 'Show 50 older' })
-  await new Promise((r) => setTimeout(r, 30))
+  // past any follow-up read, short of the 3 s poll, which asks again by right
+  await vi.advanceTimersByTimeAsync(1000)
   const asked = data.listed
     .slice(before)
     .filter((l) => l[0] === 'other' && l[2] === 'succeeded,failed,cancelled')

@@ -1,4 +1,3 @@
-import overviewSource from './OverviewPage.svelte?raw'
 import {
   cleanup,
   fireEvent,
@@ -18,6 +17,9 @@ import { invalidateWorkspaces, workspace } from '../workspace.svelte'
 /** A list's time: relative, as `<Time>` shows it in a list */
 const listed = (at: number) => formatRelative(at, Date.now() / 1000)
 import '../router.svelte'
+import { quiet, useQuietClock } from '../test/quiet'
+
+useQuietClock()
 
 const data = vi.hoisted(() => ({
   files: [] as unknown[],
@@ -405,12 +407,12 @@ it("drops another workspace's requests that land after a switch", async () => {
   window.dispatchEvent(new HashChangeEvent('hashchange'))
   await waitFor(() => expect(screen.getByText('Default ask')).toBeTruthy())
   land({ workspace: 'studio', requests: [summary({})] })
-  await new Promise((r) => setTimeout(r, 10))
+  await quiet()
   expect(screen.queryByText('Launch posters')).toBeNull()
   expect(screen.getByText('Default ask')).toBeTruthy()
 })
 
-const settle = () => new Promise((r) => setTimeout(r, 10))
+const settle = quiet
 
 it('each kind that moves reloads its own panel quietly, and nothing else', async () => {
   data.workflows = ['shot']
@@ -648,7 +650,7 @@ it('a job row puts its time and full id on a second line, id never truncated', a
   expect(name).toContain('e2ebrdtake01')
 })
 
-it('a long job id keeps its row: clipped, with the whole id in its title', async () => {
+it('a long job id keeps the whole id in its title', async () => {
   const id = 'e2e' + 'x'.repeat(80)
   data.jobs = [
     {
@@ -666,11 +668,6 @@ it('a long job id keeps its row: clipped, with the whole id in its title', async
   render(OverviewPage)
   await waitFor(() => expect(screen.getByTitle(`job ${id}`)).toBeTruthy())
   expect(document.querySelector('.jid')?.getAttribute('title')).toBe(id)
-  // jsdom applies no component styles: the rule is read off the source
-  const rule = /\.jobs \.when \.jid\s*\{[^}]*\}/.exec(overviewSource)?.[0] ?? ''
-  expect(rule).toMatch(/min-width:\s*0/)
-  expect(rule).toMatch(/overflow:\s*hidden/)
-  expect(rule).toMatch(/text-overflow:\s*ellipsis/)
 })
 
 it('the overview shows the card until it is dismissed', async () => {

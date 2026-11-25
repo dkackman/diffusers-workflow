@@ -11,6 +11,9 @@ import NoteList from './NoteList.svelte'
 import { api, resetApi } from '../test/apiMock'
 import { attempt, entry, item, request } from './fixtures'
 import type { LedgerNote, LedgerNoteRef } from '../types'
+import { quiet, useQuietClock } from '../test/quiet'
+
+useQuietClock()
 
 vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
 vi.mock('../confirm.svelte', () => ({ confirmDialog: vi.fn() }))
@@ -138,7 +141,7 @@ it('a double click sends one request', async () => {
   save.click()
   save.click()
   await waitFor(() => expect(given.onchanged).toHaveBeenCalledTimes(1))
-  await new Promise((r) => setTimeout(r, 20))
+  await quiet()
   expect(api.addNote).toHaveBeenCalledTimes(1)
 })
 

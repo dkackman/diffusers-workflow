@@ -158,12 +158,19 @@ test('a double-clicked Run again queues exactly one new job', async ({
   await page.goto(`/#/ws/default/jobs/${id}`)
   const again = page.getByRole('button', { name: 'Run again', exact: true })
   await expect(again).toBeVisible()
+  let posts = 0
+  page.on('request', (r) => {
+    if (r.method() === 'POST' && r.url().endsWith('/rerun')) posts++
+  })
   await again.dblclick()
   await expect
     .poll(
       async () => (await jobIds(request)).filter((j) => !known.has(j)).length,
     )
     .toBeGreaterThanOrEqual(1)
-  await page.waitForTimeout(1_500)
+  // The page has moved on to the new job: both clicks have been handled, and
+  // a second POST would have left by now
+  await expect(page).not.toHaveURL(new RegExp(`/jobs/${id}$`))
+  expect(posts).toBe(1)
   expect((await jobIds(request)).filter((j) => !known.has(j))).toHaveLength(1)
 })

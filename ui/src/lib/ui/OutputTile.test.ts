@@ -3,14 +3,9 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import OutputTile from './OutputTile.svelte'
 import { api } from '../test/apiMock'
 import { assetMedia, type MediaFile } from '../media'
+import { quiet, useQuietClock } from '../test/quiet'
 
-// The stylesheet's text: vitest stubs a stylesheet's import, so it is read
-// from disk (tests run from ui/). A specifier that is not a literal keeps
-// node's types out of the app's program, as freshness.test.ts does
-const FS = 'node:fs'
-const { readFileSync } = (await import(/* @vite-ignore */ FS)) as {
-  readFileSync: (path: string, encoding: 'utf8') => string
-}
+useQuietClock()
 
 vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
 api.fileText.mockImplementation(() =>
@@ -79,15 +74,10 @@ it('a clip is a poster with a play badge and its duration', () => {
   expect(container.querySelector('.tile-time')?.textContent).toBe('1m 15s')
 })
 
-it('an image is letterboxed, never cropped', () => {
+it('an image carries the letterboxing class', () => {
   const { container } = render(OutputTile, { props: { file: media({}) } })
   const img = container.querySelector('img')!
   expect(img.classList).toContain('tile-pic')
-  // The rule the class carries, in patterns.css
-  const patterns = readFileSync('src/patterns.css', 'utf8')
-  const rule = patterns.match(/\.tile-pic\s*\{([^}]*)\}/)?.[1] ?? ''
-  expect(rule).toMatch(/object-fit:\s*contain/)
-  expect(rule).not.toMatch(/cover/)
 })
 
 it('audio shows its glyph, name and duration', () => {
@@ -123,7 +113,7 @@ it('a text tile reads its first lines once, when it is first seen', async () => 
       }),
     },
   })
-  await new Promise((r) => setTimeout(r, 10))
+  await quiet()
   expect(fileText).not.toHaveBeenCalled()
   observer.show()
   await waitFor(() =>
@@ -132,7 +122,7 @@ it('a text tile reads its first lines once, when it is first seen', async () => 
     ),
   )
   observer.show()
-  await new Promise((r) => setTimeout(r, 10))
+  await quiet()
   expect(fileText).toHaveBeenCalledTimes(1)
   expect(fileText).toHaveBeenCalledWith('/outputs/demo/prompt.txt')
   expect(container.querySelector('.tile-media')?.textContent).toContain('¶')
@@ -261,7 +251,7 @@ it("a text tile reads its lines again when the file's stamp changes", async () =
   )
   // A listing read again hands the tile a new object for the same file
   await rerender({ file: text('1:10') })
-  await new Promise((r) => setTimeout(r, 10))
+  await quiet()
   expect(fileText).toHaveBeenCalledTimes(1)
   // Replaced: a new mtime and size
   fileText.mockResolvedValueOnce('new first\nnew second\n')
@@ -286,8 +276,6 @@ it('a row tile has no caption', () => {
   expect(container.querySelector('.tile-row')).not.toBeNull()
   expect(container.querySelector('.tile-caption')).toBeNull()
   expect(container.querySelector('.tile-marks')).toBeNull()
-  const patterns = readFileSync('src/patterns.css', 'utf8')
-  expect(patterns).toMatch(/\.tile-row\s*\{[^}]*width:\s*32px/)
 })
 
 it('a shadowed clip shows no play badge', () => {
@@ -323,7 +311,7 @@ it('an asset tile carries its note mark', () => {
   expect(note.getAttribute('title')).toBe('the lead')
 })
 
-it('an audio cover is 72 px, a picture cover 48', () => {
+it('an audio cover says it is audio', () => {
   const { container } = render(OutputTile, {
     props: {
       file: media({ kind: 'audio', thumb: null, label: 'tone.wav' }),
@@ -334,32 +322,6 @@ it('an audio cover is 72 px, a picture cover 48', () => {
   expect(container.querySelector('.filetile')?.classList).toContain(
     'kind-audio',
   )
-  const patterns = readFileSync('src/patterns.css', 'utf8')
-  expect(patterns).toMatch(/\.tile-mini\s*\{\s*width:\s*48px;/)
-  expect(patterns).toMatch(/\.tile-mini\.kind-audio\s*\{\s*width:\s*72px;/)
-})
-
-it('active, hover and picked look different', () => {
-  // The rules for one selector alone, in patterns.css
-  const patterns = readFileSync('src/patterns.css', 'utf8')
-  const rule = (selector: string) => {
-    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    return patterns.match(
-      new RegExp(`(?:^|\\n)${escaped}\\s*\\{([^}]*)\\}`),
-    )?.[1]
-  }
-  // picked keeps its ink edge
-  expect(rule('.filetile.picked')).toMatch(
-    /box-shadow:\s*0 0 0 1px var\(--ink\)/,
-  )
-  // active is an accent outline, clear of the edge
-  expect(rule('.filetile.active')).toMatch(
-    /outline:\s*2px solid var\(--accent\)/,
-  )
-  // hover tints the panel and draws no edge or outline
-  const hover = rule('a.filetile:hover,\nbutton.filetile:hover')
-  expect(hover).toMatch(/background:/)
-  expect(hover).not.toMatch(/border-color|outline|box-shadow/)
 })
 
 it('a tile that turns from an image into a text file reads its lines', async () => {

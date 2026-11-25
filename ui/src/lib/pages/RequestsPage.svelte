@@ -82,6 +82,7 @@
         {@const line = attention(req)}
         <a
           class="row plain"
+          data-testid="request-row"
           class:row-live={line.live}
           class:row-changed={list.changed.has(req.id)}
           href={wsHref(name, 'requests', req.id)}

@@ -16,6 +16,9 @@ import { DEFAULT_WORKSPACE, workspace } from '../workspace.svelte'
 import { api } from '../test/apiMock'
 import { feed } from '../test/feedMock'
 import { formatExact, formatMtime } from '../format'
+import { quiet, useQuietClock } from '../test/quiet'
+
+useQuietClock()
 
 const asset = (
   name: string,
@@ -224,7 +227,7 @@ async function answerConfirm(accept: boolean) {
 
 it('fetches the asset library once on mount, and again when assets move, without blanking', async () => {
   await renderAssets()
-  for (let i = 0; i < 3; i++) await new Promise((r) => setTimeout(r, 10))
+  await quiet()
   expect(listAssets).toHaveBeenCalledTimes(1)
 
   listing.assets = [
@@ -243,7 +246,7 @@ it('reloads nothing when another kind moves, or assets move in another workspace
   await renderAssets()
   feed.move('default', 'prompts')
   feed.move('other', 'assets')
-  for (let i = 0; i < 3; i++) await new Promise((r) => setTimeout(r, 10))
+  await quiet()
   expect(listAssets).toHaveBeenCalledTimes(1)
 })
 
@@ -252,7 +255,7 @@ it('a quiet reload that fails keeps the list and shows no error', async () => {
   listAssets.mockImplementationOnce(() => Promise.reject(new Error('boom')))
   feed.move('default', 'assets')
   await waitFor(() => expect(listAssets).toHaveBeenCalledTimes(2))
-  for (let i = 0; i < 3; i++) await new Promise((r) => setTimeout(r, 10))
+  await quiet()
   expect(screen.getByText('iris.png')).toBeTruthy()
   expect(screen.queryByText(/boom/)).toBeNull()
 })
@@ -633,7 +636,7 @@ it('deletes nothing when the confirmation is declined', async () => {
 
   await answerConfirm(false)
 
-  await new Promise((r) => setTimeout(r, 10))
+  await quiet()
   expect(api.deleteAsset).not.toHaveBeenCalled()
 })
 
@@ -672,7 +675,7 @@ it('refetches when the workspace changes, and watches only the new one', async (
 
   await waitFor(() => expect(listAssets).toHaveBeenCalledTimes(2))
   feed.move('default', 'assets')
-  for (let i = 0; i < 3; i++) await new Promise((r) => setTimeout(r, 10))
+  await quiet()
   expect(listAssets).toHaveBeenCalledTimes(2)
   feed.move('other', 'assets')
   await waitFor(() => expect(listAssets).toHaveBeenCalledTimes(3))
@@ -726,7 +729,7 @@ it('a double click on Download sends one request', async () => {
   download.click()
 
   await waitFor(() => expect(api.archiveAssets).toHaveBeenCalled())
-  await new Promise((r) => setTimeout(r, 20))
+  await quiet()
   expect(api.archiveAssets).toHaveBeenCalledTimes(1)
 })
 
@@ -761,7 +764,7 @@ it('a double press deletes the picked once', async () => {
   await answerConfirm(true)
 
   await waitFor(() => expect(api.deleteAsset).toHaveBeenCalled())
-  for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 10))
+  await quiet()
   expect(api.deleteAsset.mock.calls.map((c) => c[0])).toEqual([
     'iris.png',
     'cast/priya.jpg',
@@ -1154,7 +1157,7 @@ it('saving a note does not read the recipe again', async () => {
   await screen.findByText('Saved from paint')
   const reads = galleryMetadata.mock.calls.length
   await saveIrisNote('hero shot')
-  for (let i = 0; i < 3; i++) await new Promise((r) => setTimeout(r, 10))
+  await quiet()
   expect(galleryMetadata.mock.calls.length).toBe(reads)
 })
 
@@ -1178,7 +1181,7 @@ it('a listing asked for before a note save cannot drop the note', async () => {
   // The held reply lands carrying the note from before the save
   answer(before)
   await waitFor(() => expect(listAssets).toHaveBeenCalledTimes(3))
-  for (let i = 0; i < 3; i++) await new Promise((r) => setTimeout(r, 10))
+  await quiet()
   await step('Next file', 'cast/priya.jpg')
   await waitFor(() => expect(screen.queryByText('hero shot')).toBeNull())
   await step('Previous file', 'iris.png')
@@ -1195,7 +1198,7 @@ it('a listing asked for after a note save shows a note changed elsewhere', async
   ]
   feed.move('default', 'assets')
   await waitFor(() => expect(listAssets).toHaveBeenCalledTimes(2))
-  for (let i = 0; i < 3; i++) await new Promise((r) => setTimeout(r, 10))
+  await quiet()
   await step('Next file', 'cast/priya.jpg')
   await waitFor(() => expect(screen.queryByText('hero shot')).toBeNull())
   await step('Previous file', 'iris.png')
@@ -1294,7 +1297,7 @@ it("an upload marks nothing and keeps an agent's fresh mark", async () => {
   // The feed's echo of that write reads the same listing: still unmarked
   feed.move('default', 'assets')
   await waitFor(() => expect(listAssets).toHaveBeenCalledTimes(4))
-  await new Promise((r) => setTimeout(r, 10))
+  await quiet()
   expect(tileOf('uploads/kept.png').classList).not.toContain('row-changed')
 })
 
@@ -1311,7 +1314,7 @@ it('a bulk delete adopts', async () => {
   await waitFor(() => expect(screen.queryByText('iris.png')).toBeNull())
   expect(screen.queryByText('priya.jpg')).toBeNull()
   // The held list lost what went; no listing was read for it
-  await new Promise((r) => setTimeout(r, 10))
+  await quiet()
   expect(listAssets.mock.calls.length).toBe(reads)
 })
 
@@ -1396,6 +1399,6 @@ it('a deleted asset stays gone when a reload begun before the delete lands', asy
   land(before)
 
   await waitFor(() => expect(listAssets).toHaveBeenCalledTimes(3))
-  await new Promise((r) => setTimeout(r, 10))
+  await quiet()
   expect(screen.queryByText('iris.png')).toBeNull()
 })
