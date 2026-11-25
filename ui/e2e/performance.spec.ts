@@ -263,3 +263,36 @@ test('a normal load never shows the did-not-load line', async ({ page }) => {
   await expect(page.locator('#boot')).toHaveCount(0)
   await expect(page.getByText("dw didn't load.")).toHaveCount(0)
 })
+
+test("the shell's failed line shows after its delay", async ({ page }) => {
+  await page.route(ENTRY_JS, () => {})
+  await page.goto(OVERVIEW, { waitUntil: 'commit' })
+  const failed = page.locator('#boot .failed')
+  await expect(page.locator('#boot .loading')).toBeVisible()
+  await expect(failed).toBeHidden()
+  // The delay is the animation's, which page.clock does not drive: seek the
+  // animations to their end instead of waiting 10 s
+  await page.evaluate(() =>
+    document.getAnimations().forEach((animation) => animation.finish()),
+  )
+  await expect(failed).toBeVisible()
+  // the max-height keyframe opened it: a real box, not a zero-height one
+  expect((await failed.boundingBox())!.height).toBeGreaterThan(0)
+  await expect(page.locator('#boot .loading')).toBeHidden()
+})
+
+test('with script off the shell shows only its one line', async ({
+  browser,
+  baseURL,
+}) => {
+  const context = await browser.newContext({
+    javaScriptEnabled: false,
+    baseURL,
+  })
+  const page = await context.newPage()
+  await page.goto(OVERVIEW)
+  await expect(page.getByText('dw needs JavaScript.')).toBeVisible()
+  await expect(page.locator('#boot .loading')).toBeHidden()
+  await expect(page.locator('#boot .failed')).toBeHidden()
+  await context.close()
+})

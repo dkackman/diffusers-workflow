@@ -512,8 +512,10 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   browser URL and the `claude mcp add` line (its token header only when a
   token is required) for a chosen address (on a loopback bind: built from
   the page's own address when it was reached through a reverse proxy or a
-  tunnel, with no rebind advice; read on the box itself, the command that
-  restarts it bound to the network, with a token, in their place), the
+  tunnel, with no rebind advice, only to keep the bind it has; read on the
+  box itself - which a plain `ssh -L` to `localhost` also looks like - the
+  command that restarts it bound to the network, with a token, in their
+  place, and `ssh -L` named as the safer way), the
   resolved directories, and the Caches panel (below) - then the queue and
   history across every workspace, with a workspace filter. A request filter
   there (`req=`) is read in one workspace - the one picked, else the current

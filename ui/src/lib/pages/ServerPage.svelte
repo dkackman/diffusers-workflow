@@ -126,7 +126,7 @@
       {#if info.wildcard_bind}
         A wildcard bind is reachable on every address listed below.
       {:else if proxied}
-        A loopback bind: you reached it through a proxy or tunnel.
+        You reach this server through a tunnel or proxy; keep it bound to {info.bind_host}.
       {:else if loopback}
         A loopback bind is reachable only from this machine.
       {:else}
@@ -255,6 +255,7 @@
         <CopyButton text={bindSnippet()} title="copy the restart command" />
       </div>
       <p class="muted note">
+        Reaching it through ssh -L is the safer way: see
         <a href={REMOTE_GUIDE} target="_blank" rel="noopener noreferrer">
           How to use dw from another machine
         </a>

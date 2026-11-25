@@ -153,7 +153,9 @@
 </script>
 
 <PageHeader title={name} secondary={directory ?? undefined} baseline />
-<FirstRunCard link={firstRunLink(workflows.data?.listing ?? null, name)} />
+{#if workflows.status !== 'loading'}
+  <FirstRunCard link={firstRunLink(workflows.data?.listing ?? null, name)} />
+{/if}
 <NoteEditor
   note={workspace.notes[name]}
   target={`${WORKSPACE}${name}`}
