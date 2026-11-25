@@ -306,7 +306,7 @@ test('a Monaco chunk that cannot load says so, and the form view still works', a
     await expect(
       page.getByRole('alert').filter({ hasText: "The JSON editor couldn't" }),
     ).toContainText(
-      "The JSON editor couldn't load. Reload the page to get the current version.",
+      "The JSON editor couldn't load. Reload the page; if that doesn't help, check that the server is running.",
     )
     await expect(page.getByText('What failed')).toBeVisible()
     await page.getByRole('button', { name: 'form', exact: true }).click()
