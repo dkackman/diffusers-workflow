@@ -66,8 +66,11 @@ export function queryHash(values: Record<string, string>): string {
 
 /** Replace the hash's query in place: no history entry and no hashchange,
  * so typing in a filter neither floods Back nor re-runs the route. Empty
- * values are dropped, so a cleared filter leaves a clean link. */
+ * values are dropped, so a cleared filter leaves a clean link. Nothing
+ * while a leave guard is asking or its decline is walking back: the browser
+ * is on another page's entry, and writing there would commit its URL. */
 export function setHashQuery(values: Record<string, string>) {
+  if (asking || undoing) return
   const hash = queryHash(values)
   if (hash !== location.hash) history.replaceState(history.state, '', hash)
   committed = location.hash
@@ -123,6 +126,16 @@ const boxes = new Set<{ key: string; written: () => string }>()
  * the box replaces the query in place (no history entry); a hashchange
  * re-reads it, and a hash without the key (a bare nav link) puts it back to
  * `initial`, which the hash never spells out. Call it in component init. */
+export function hashState(
+  key: string,
+  initial: string,
+  codec?: HashCodec<string>,
+): { value: string }
+export function hashState<T>(
+  key: string,
+  initial: T,
+  codec: HashCodec<T>,
+): { value: T }
 export function hashState<T>(
   key: string,
   initial: T,

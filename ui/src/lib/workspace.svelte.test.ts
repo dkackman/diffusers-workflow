@@ -121,9 +121,10 @@ it('an unknown workspace in the route redirects to default and says so', async (
   location.hash = '#/ws/gone/gallery'
   // The router is what applies the hash to `workspace.current`
   await import('./router.svelte')
-  const { loadWorkspaces } = await import('./workspace.svelte')
+  const { loadWorkspaces, workspace } = await import('./workspace.svelte')
   await loadWorkspaces()
   expect(location.hash).toBe('#/ws/default/overview')
+  await vi.waitFor(() => expect(workspace.current).toBe('default'))
   expect(errorToast).toHaveBeenCalledWith(expect.stringContaining('gone'))
 })
 
@@ -223,7 +224,8 @@ it('a refetch that fails keeps the listing and still redirects the missing name'
   await loadWorkspaces()
   expect(workspace.names).toEqual(['default', 'studio'])
   expect(replace).toHaveBeenCalledWith('#/ws/default/overview')
-  expect(workspace.current).toBe('default')
+  // `current` is the route's to set, and the spy lands none
+  expect(workspace.current).toBe('typo')
   expect(errorToast).toHaveBeenCalledWith(expect.stringContaining('typo'))
 })
 

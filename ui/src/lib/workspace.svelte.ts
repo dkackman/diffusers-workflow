@@ -64,7 +64,9 @@ export function applyRouteWorkspace(view: RouteView | null): void {
  * 404. Run on every route change and again when the listing lands, so a
  * name typed after the listing is caught as well as one it arrived to. On
  * a `ws` route the URL named the workspace, so it is said out loud and the
- * route replaced; off one (a shared or server page) `current` is only the
+ * route replaced - `current` follows only if that replace lands: a declined
+ * one keeps the editor on screen, and its requests must keep naming the
+ * missing workspace (a 404) rather than write into the default one. Off one (a shared or server page) `current` is only the
  * remembered fallback, which the URL never mentioned - quietly reset, no
  * toast, no navigation. Nothing until a listing has landed, and nothing on
  * the fallback a failed listing leaves. */
@@ -79,13 +81,14 @@ export function checkWorkspaceExists(view: RouteView | null): void {
     void loadWorkspaces().finally(() => (refetching = false))
     return
   }
-  const missing = workspace.current
+  if (view?.kind === 'ws') {
+    notify.error(`No workspace named ${workspace.current} - showing default`)
+    // The route that lands sets `current` (applyRouteWorkspace)
+    replaceRoute(wsHref(DEFAULT_WORKSPACE, 'overview'))
+    return
+  }
   workspace.current = DEFAULT_WORKSPACE
   rememberWorkspace(DEFAULT_WORKSPACE)
-  if (view?.kind === 'ws') {
-    notify.error(`No workspace named ${missing} - showing default`)
-    replaceRoute(wsHref(DEFAULT_WORKSPACE, 'overview'))
-  }
 }
 
 /** The check with `names` counted as fetched for it - a name it lacks is

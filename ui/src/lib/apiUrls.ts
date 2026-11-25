@@ -6,6 +6,14 @@ import { ASSET, reference } from './references'
 export const encodePath = (name: string) =>
   name.split('/').map(encodeURIComponent).join('/')
 
+/** Encode a value as exactly one path segment: no `/`, `?` or `#` of its
+ * own reaches the URL. A `.` or `..` is a dot segment the URL parser walks
+ * even when percent-encoded, so its dots are encoded twice. */
+export const segment = (value: string) =>
+  value === '.' || value === '..'
+    ? value.replaceAll('.', '%252E')
+    : encodeURIComponent(value)
+
 /** Append one query parameter to a URL, keeping whatever query it already
  * has. Shared by every place that tacks a selector onto a path - the
  * workspace scope, the download token - so there is one rule for `?` vs
