@@ -1414,7 +1414,8 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
   its `asset:` reference, which survives the run's outputs being pruned. The
   copy stays inside the workspace and is a hard link where the filesystem
   allows one. Refuses an
-  existing name unless `overwrite`. `asset_name` may name a folder and takes
+  existing name unless `overwrite`: an existing name without `overwrite` is a
+  409 whose `detail` is `{code: "exists", message}`. `asset_name` may name a folder and takes
   the kept file's extension when it carries none (a contradicting one is a
   400) — the same rule the upload route follows, and what keeps a kept asset
   from landing under an extensionless name the library listing never shows.
