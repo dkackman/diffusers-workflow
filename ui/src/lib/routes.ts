@@ -202,8 +202,35 @@ export function switchHref(name: string, view: RouteView): string {
 /** A comparison of `names`: the one builder, each name one path segment
  * (so a name holding a slash survives the round trip through `parseView`,
  * which takes `rest` as the decoded array). */
-export function compareHref(workspace: string, names: string[]): string {
-  return wsHref(workspace, 'compare', ...names)
+export function compareHref(
+  workspace: string,
+  names: string[],
+  from?: BackLink,
+): string {
+  const hash = wsHref(workspace, 'compare', ...names)
+  return from
+    ? `${hash}?back=${encodeURIComponent(JSON.stringify(from))}`
+    : hash
+}
+
+/** Where a page was entered from: its back link */
+export type BackLink = { href: string; label: string }
+
+/** The `back=` a comparison carries, read back: only an in-app hash link
+ * with a label is taken, so a hand-written value cannot point elsewhere. */
+export function backFrom(value: string | undefined): BackLink | null {
+  if (!value) return null
+  try {
+    const from = JSON.parse(value) as Partial<BackLink> | null
+    return typeof from?.href === 'string' &&
+      from.href.startsWith('#/') &&
+      typeof from.label === 'string' &&
+      from.label
+      ? { href: from.href, label: from.label }
+      : null
+  } catch {
+    return null
+  }
 }
 
 /** A file opened in the Gallery or the Assets viewer: the section's

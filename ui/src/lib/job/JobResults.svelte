@@ -151,7 +151,12 @@
 </script>
 
 {#if fileGroups.length || unsaved.length}
-  <ResultsHead files={ordered} {items} workspace={job.workspace} />
+  <ResultsHead
+    files={ordered}
+    {items}
+    workspace={job.workspace}
+    jobId={job.id}
+  />
 {/if}
 <MissingFile leaf={stray.missing} ondismiss={stray.dismiss} />
 {#if allReused}

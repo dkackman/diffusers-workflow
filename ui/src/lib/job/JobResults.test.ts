@@ -277,7 +277,13 @@ it('Compare takes the first four pictures, finals first', async () => {
   const compare = screen.getByRole('button', { name: 'Compare' })
   expect(compare.getAttribute('title')).toBe('Compares the first 4')
   await hashEvent(() => void fireEvent.click(compare))
-  expect(location.hash).toBe('#/ws/w/compare/f1.mp4/f2.mp4/b1.png/b2.png')
+  const [path, query] = location.hash.split('?')
+  expect(path).toBe('#/ws/w/compare/f1.mp4/f2.mp4/b1.png/b2.png')
+  // the link carries the job, so Compare's back link returns to it
+  expect(JSON.parse(new URLSearchParams(query).get('back') ?? '')).toEqual({
+    href: '#/ws/w/jobs/j1',
+    label: 'Job',
+  })
 })
 
 it('offers no Compare for fewer than two pictures or clips', () => {
