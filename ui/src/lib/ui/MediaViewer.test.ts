@@ -312,7 +312,10 @@ it('a text file shows its contents, audio its native controls', async () => {
     await screen.findByRole('dialog', { name: 'tone.wav' })
   ).querySelector('audio')!
   expect(audio).toHaveAttribute('controls')
-  expect(screen.getByRole('button', { name: 'Zoom in' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Zoom in' })).toHaveAttribute(
+    'aria-disabled',
+    'true',
+  )
 })
 
 // A quick flat stroke: a swipe when it lands on the stage or the picture
@@ -591,6 +594,68 @@ it('closing Use as input on a phone focuses the viewer', async () => {
       expect(sheet.contains(document.activeElement)).toBe(true),
     )
     expect(document.activeElement).not.toBe(document.body)
+  } finally {
+    widthOf(1024)
+  }
+})
+
+// A disabled button drops its focus to <body>, outside the sheet's keys.
+// jsdom keeps focus on one, so the attribute itself is what is held
+it.each(['Zoom in', 'Zoom out', 'Actual size'])(
+  '%s keeps focus and the arrows on a file it cannot zoom',
+  async (name) => {
+    const listed = [file('run/a.png', 'image'), file('run/tone.wav', 'audio')]
+    history.replaceState({}, '', '#/ws/studio/gallery?open=run%2Fa.png')
+    viewer({ items: listed, open: 'run/a.png' })
+    await screen.findByRole('dialog', { name: 'a.png' })
+    await fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }))
+    const button = await screen.findByRole('button', {
+      name: name === 'Actual size' ? 'Fit to window' : name,
+    })
+    button.focus()
+    await press(button, { key: 'ArrowRight' })
+    const sheet = await screen.findByRole('dialog', { name: 'tone.wav' })
+    expect(button).not.toHaveAttribute('disabled')
+    expect(button).toHaveAttribute('aria-disabled', 'true')
+    expect(document.activeElement).toBe(button)
+    // pressing it does nothing
+    await fireEvent.click(button)
+    expect(sheet.querySelector('.viewer-stage')).not.toHaveClass('zoomed')
+    await press(button, { key: 'ArrowLeft' })
+    expect(await screen.findByRole('dialog', { name: 'a.png' })).toBeTruthy()
+  },
+)
+
+it('Zoom out keeps its focus when it reaches fit', async () => {
+  viewer()
+  const sheet = await dialog()
+  const out = screen.getByRole('button', { name: 'Zoom out' })
+  await fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }))
+  out.focus()
+  for (let i = 0; i < 8; i++) await fireEvent.click(out)
+  expect(sheet.querySelector('.viewer-stage')).not.toHaveClass('zoomed')
+  expect(out).not.toHaveAttribute('disabled')
+  expect(out).toHaveAttribute('aria-disabled', 'true')
+  expect(document.activeElement).toBe(out)
+})
+
+it("a press on a page's action that cannot act leaves More open", async () => {
+  widthOf(390)
+  try {
+    viewer({
+      actions: createRawSnippet(() => ({
+        render: () =>
+          '<button type="button" aria-label="Star" aria-disabled="true">*</button>',
+      })),
+    })
+    await dialog()
+    const more = screen.getByRole('button', { name: 'More' })
+    await fireEvent.click(more)
+    const menu = await screen.findByRole('dialog', { name: 'More' })
+    await fireEvent.click(within(menu).getByRole('button', { name: 'Star' }))
+    await flush()
+    // jsdom hides the floating menu once placed, so the trigger is asked
+    expect(more).toHaveAttribute('aria-expanded', 'true')
   } finally {
     widthOf(1024)
   }

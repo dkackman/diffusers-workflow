@@ -1672,7 +1672,7 @@ it("disables an image's Assess and says why", async () => {
   await renderGallery()
   await openFile('a.png')
   const button = screen.getByRole('button', { name: 'Assess' })
-  expect((button as HTMLButtonElement).disabled).toBe(true)
+  expect(button.getAttribute('aria-disabled')).toBe('true')
   expect(button.getAttribute('title')).toBe(
     'a still has no shots, seams or soundtrack to measure',
   )
@@ -1708,7 +1708,7 @@ it('shows Assessing… while the request runs', async () => {
   await openFile('demo/clip.mp4')
   await fireEvent.click(screen.getByRole('button', { name: 'Assess' }))
   const busy = await screen.findByRole('button', { name: /Assessing/ })
-  expect((busy as HTMLButtonElement).disabled).toBe(true)
+  expect(busy.getAttribute('aria-disabled')).toBe('true')
 })
 
 it('a failed Assess keeps the earlier list and says why in plain words', async () => {

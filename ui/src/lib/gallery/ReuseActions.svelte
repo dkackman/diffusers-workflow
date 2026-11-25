@@ -30,8 +30,8 @@
 <button
   type="button"
   class="quiet icon"
-  onclick={onstar}
-  disabled={starred === null}
+  onclick={() => starred !== null && onstar()}
+  aria-disabled={starred === null}
   aria-pressed={starred ?? undefined}
   aria-label="Star"
   title={starred === null
@@ -45,8 +45,8 @@
 <button
   type="button"
   class="quiet withicon"
-  onclick={onsave}
-  disabled={saving}
+  onclick={() => !saving && onsave()}
+  aria-disabled={saving}
   title="Save this file to the asset library, under a name later workflows can use"
 >
   <Bookmark size={14} />Save as asset
