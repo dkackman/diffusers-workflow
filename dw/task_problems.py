@@ -6,7 +6,8 @@ video model's frame grid, gate_zero above gate_full; analyze_beats' tempo range
 and anchors that are one kind and in time order; plan_cuts' transcript shape
 and render grid; analyze_face_drift's threshold and sample count;
 analyze_phrases' `centre` as a real boolean; apply_lut's one-of-two source and its palette; check_script's
-`lines` and `shots`; ingredients_grid's choices and image count. Each family's
+`lines` and `shots`; ingredients_grid's choices and image count; export_timeline's
+stored-file arguments. Each family's
 `*_problems` function is the rule, and both sides call it - its `*_errors`
 static check (registered as the command's `static_check`, run by
 `task_argument_errors` at validate) for the literal values a workflow carries,
@@ -24,7 +25,7 @@ in task_domains.py, beside the comment that explains why they have one home.
 
 import re
 
-from .references import DEFERRED, GATHER, is_ref
+from .references import DEFERRED, GATHER, PREVIOUS_RESULT, is_ref
 from .script_lines import parse_lines, parse_shots, shot_names_error
 from .task_domains import (
     as_number,
@@ -975,4 +976,33 @@ def script_lines_errors(arguments):
         refusal = shot_names_error(parsed_lines, parsed_shots)
         if refusal:
             errors.append(("lines", refusal))
+    return errors
+
+
+def export_timeline_errors(arguments):
+    """[(argument, message)] for a `previous_result:` where export_timeline
+    needs a stored file (#1613). That reference hands the task the earlier
+    step's clip in memory, never the file the step saved, so the run's own
+    refusal (`timeline_export._stored_file`) is certain: say it before the
+    GPU work in front of it is spent."""
+    sources = arguments.get("sources")
+    entries = sources if isinstance(sources, list) else [sources]
+    named = [("video", arguments.get("video"))]
+    named += [("sources", entry) for entry in entries]
+    errors = []
+    for argument, value in named:
+        if isinstance(value, dict):
+            value = value.get("location")
+        if is_ref(PREVIOUS_RESULT, value):
+            errors.append(
+                (
+                    argument,
+                    f"export_timeline needs '{argument}' as a stored file, and "
+                    f"'{value}' hands it the earlier step's result in memory, "
+                    f"even when that step saved it. Export in a second job: run "
+                    f"this one without the export_timeline step, then run "
+                    f"export_timeline with an output: reference to the file it "
+                    f"saved (output:<identity>/latest/final/<file>.mp4)",
+                )
+            )
     return errors

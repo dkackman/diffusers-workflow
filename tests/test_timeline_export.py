@@ -18,6 +18,7 @@ from dw.security import InvalidInputError, SecurityError
 from dw.shots import shot_record
 from dw.tasks.task import task_command_info
 from dw.trust import TRUST_WORKFLOWS_ENV_VAR
+from dw.workflow import Workflow
 
 NTSC = 24000 / 1001
 
@@ -478,3 +479,58 @@ def test_a_bundle_without_clip_metadata_summarizes_with_no_source(tmp_path):
     path = _bundle(tmp_path, json.dumps(content))
     item = te.summarize_bundle(str(path))["tracks"][0]["items"][0]
     assert item["source"] is None
+
+
+def cut_then_export(arguments):
+    """The #1613 shape: a step that saves a cut, then its export."""
+    return {
+        "id": "cut-and-export",
+        "variables": {"cut": "previous_result:cut"},
+        "steps": [
+            {
+                "name": "cut",
+                "task": {
+                    "command": "concat_videos",
+                    "arguments": {"videos": ["output:a.mp4", "output:b.mp4"]},
+                },
+                "result": {"content_type": "video/mp4"},
+            },
+            {
+                "name": "timeline",
+                "task": {"command": "export_timeline", "arguments": arguments},
+                "result": {"content_type": "application/x-otioz"},
+            },
+        ],
+    }
+
+
+def previous_result_errors(arguments):
+    errors = Workflow(cut_then_export(arguments), ".", ".").validation_errors()
+    return [e for e in errors if "second job" in e["message"]]
+
+
+@pytest.mark.parametrize(
+    "arguments, argument",
+    [
+        ({"video": "previous_result:cut"}, "video"),
+        ({"video": "variable:cut"}, "video"),
+        ({"video": {"location": "previous_result:cut"}}, "video"),
+        ({"video": "output:a.mp4", "sources": "previous_result:cut"}, "sources"),
+        (
+            {"video": "output:a.mp4", "sources": ["output:a.mp4", "variable:cut"]},
+            "sources",
+        ),
+    ],
+)
+def test_validate_refuses_a_previous_result_as_a_stored_file(arguments, argument):
+    """A saved step's previous_result: is still a clip in memory, which the
+    run refuses after the GPU work: validate says so first (#1613)."""
+    [error] = previous_result_errors(arguments)
+    assert error["path"] == f"steps[1].task.arguments.{argument}"
+    assert "previous_result:cut" in error["message"]
+    assert "output:" in error["message"]
+
+
+def test_validate_passes_a_stored_file_and_shots_from_an_earlier_step():
+    arguments = {"video": "output:a.mp4", "shots": "previous_result:cut"}
+    assert previous_result_errors(arguments) == []
