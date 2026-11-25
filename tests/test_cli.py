@@ -135,8 +135,17 @@ def _bridge(app, calls=None):
             content=request.content,
             headers=headers,
         )
+        # `response.content` is already decoded, so the server's
+        # Content-Encoding (GZip, for a body over its minimum size) and the
+        # compressed Content-Length no longer describe it: passed on, the
+        # outer client would gunzip plain bytes and report a lost connection
+        stale = {"content-encoding", "content-length"}
         return httpx.Response(
-            response.status_code, headers=response.headers, content=response.content
+            response.status_code,
+            headers={
+                k: v for k, v in response.headers.items() if k.lower() not in stale
+            },
+            content=response.content,
         )
 
     # TestClient's own host, so host-checking middleware sees what it expects
