@@ -291,7 +291,10 @@ test('with script off the shell shows only its one line', async ({
   })
   const page = await context.newPage()
   await page.goto(OVERVIEW)
-  await expect(page.getByText('dw needs JavaScript.')).toBeVisible()
+  // a CSS locator: Playwright's text matching skips what <noscript> holds
+  const line = page.locator('#boot noscript span')
+  await expect(line).toBeVisible()
+  await expect(line).toContainText('dw needs JavaScript.')
   await expect(page.locator('#boot .loading')).toBeHidden()
   await expect(page.locator('#boot .failed')).toBeHidden()
   await context.close()
