@@ -456,3 +456,119 @@ it('a lock or an outage on a new question keeps the rows: the banner says it', a
   await vi.waitFor(() => expect(r.status).toBe('error'))
   expect(r.data).toBe('a:rows')
 })
+
+it('a second change re-marks the row', async () => {
+  vi.useFakeTimers()
+  const load = vi
+    .fn<() => Promise<Row[]>>()
+    .mockResolvedValueOnce([{ id: 'a', v: 1 }])
+    .mockResolvedValueOnce([{ id: 'a', v: 2 }])
+    .mockResolvedValueOnce([{ id: 'a', v: 3 }])
+  const seen: string[][] = []
+  let made!: Resource<Row[]>
+  teardown = $effect.root(() => {
+    made = resource(load, { watch: ['jobs'], rows: byId })
+    $effect(() => void seen.push([...made.changed]))
+  })
+  flushSync()
+  await vi.advanceTimersByTimeAsync(0)
+  feed.move('default', 'jobs')
+  await vi.advanceTimersByTimeAsync(0)
+  expect([...made.changed]).toEqual(['a'])
+  await vi.advanceTimersByTimeAsync(CHANGED_MARK_MS - 100)
+  feed.move('default', 'jobs')
+  await vi.advanceTimersByTimeAsync(0)
+  // cleared, then set again: the row's class goes off and on
+  expect(seen.slice(-3)).toEqual([['a'], [], ['a']])
+  // and the timer started over
+  await vi.advanceTimersByTimeAsync(CHANGED_MARK_MS - 1)
+  expect(made.changed.size).toBe(1)
+  await vi.advanceTimersByTimeAsync(1)
+  expect(made.changed.size).toBe(0)
+})
+
+it('marks clear after CHANGED_MARK_MS', async () => {
+  vi.useFakeTimers()
+  const load = vi
+    .fn<() => Promise<Row[]>>()
+    .mockResolvedValueOnce([{ id: 'a', v: 1 }])
+    .mockResolvedValueOnce([{ id: 'a', v: 2 }])
+  const r = mount(load, { watch: ['jobs'], rows: byId })
+  await vi.advanceTimersByTimeAsync(0)
+  feed.move('default', 'jobs')
+  await vi.advanceTimersByTimeAsync(CHANGED_MARK_MS - 1)
+  expect(r.changed.size).toBe(1)
+  await vi.advanceTimersByTimeAsync(1)
+  expect(r.changed.size).toBe(0)
+})
+
+it('the mark timer waits while the tab is hidden', async () => {
+  vi.useFakeTimers()
+  const load = vi
+    .fn<() => Promise<Row[]>>()
+    .mockResolvedValueOnce([{ id: 'a', v: 1 }])
+    .mockResolvedValueOnce([{ id: 'a', v: 2 }])
+  const r = mount(load, { watch: ['jobs'], rows: byId })
+  await vi.advanceTimersByTimeAsync(0)
+  feed.move('default', 'jobs')
+  await vi.advanceTimersByTimeAsync(0)
+  expect(r.changed.size).toBe(1)
+  setHidden(true)
+  await vi.advanceTimersByTimeAsync(CHANGED_MARK_MS * 3)
+  expect(r.changed.size).toBe(1)
+  // back: the mark is seen for its whole time
+  setHidden(false)
+  expect(r.changed.size).toBe(1)
+  await vi.advanceTimersByTimeAsync(CHANGED_MARK_MS - 1)
+  expect(r.changed.size).toBe(1)
+  await vi.advanceTimersByTimeAsync(1)
+  expect(r.changed.size).toBe(0)
+})
+
+it("a question change between two quiet reads drops the old question's marks", async () => {
+  vi.useFakeTimers()
+  const filter = $state({ q: 'x' })
+  const load = vi
+    .fn<() => Promise<Row[]>>()
+    .mockResolvedValueOnce([{ id: 'a', v: 1 }])
+    .mockResolvedValueOnce([{ id: 'a', v: 2 }])
+    .mockResolvedValueOnce([{ id: 'a', v: 9 }])
+    .mockResolvedValueOnce([{ id: 'a', v: 10 }])
+  const r = mount(
+    () => {
+      void filter.q
+      return load()
+    },
+    { watch: ['jobs'], rows: byId },
+  )
+  await vi.advanceTimersByTimeAsync(0)
+  feed.move('default', 'jobs')
+  await vi.advanceTimersByTimeAsync(0)
+  expect([...r.changed]).toEqual(['a'])
+  filter.q = 'y'
+  flushSync()
+  await vi.advanceTimersByTimeAsync(0)
+  expect(r.changed.size).toBe(0)
+  // the next quiet read marks against the new question's baseline only
+  feed.move('default', 'jobs')
+  await vi.advanceTimersByTimeAsync(0)
+  expect([...r.changed]).toEqual(['a'])
+  await vi.advanceTimersByTimeAsync(CHANGED_MARK_MS)
+  expect(r.changed.size).toBe(0)
+})
+
+it('adopt with mark marks what another writer changed against what is held', async () => {
+  const load = vi
+    .fn<() => Promise<Row[]>>()
+    .mockResolvedValue([{ id: 'a', v: 1 }])
+  const r = mount(load, { watch: ['jobs'], rows: byId })
+  await vi.waitFor(() => expect(r.status).toBe('ready'))
+  r.adopt(
+    [
+      { id: 'a', v: 2 },
+      { id: 'b', v: 1 },
+    ],
+    { mark: true },
+  )
+  expect([...r.changed].sort()).toEqual(['a', 'b'])
+})

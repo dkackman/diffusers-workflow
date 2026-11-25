@@ -9,6 +9,7 @@ import {
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import RequestPage from './RequestPage.svelte'
 import { workspace } from '../workspaceState.svelte'
+import { CHANGED_MARK_MS } from '../resource.svelte'
 import { ACTIVE_MS, IDLE_MS } from '../request/refresh'
 import { doneItem, entry, item, request } from '../request/fixtures'
 import type { LedgerRequest } from '../types'
@@ -525,7 +526,7 @@ it('a refresh answered after a save does not put the old revision back', async (
   expect(within(row('Second poster')).getByText('more red')).toBeTruthy()
 })
 
-it('an item an agent edited is marked', async () => {
+it('an item an agent edited is marked, and the mark clears', async () => {
   render(RequestPage, { requestId: 'r1' })
   await loaded()
   // nothing is marked on the first read
@@ -540,7 +541,12 @@ it('an item an agent edited is marked', async () => {
     expect(row('Second poster, in red').classList).toContain('row-changed'),
   )
   expect(row('First poster').classList).not.toContain('row-changed')
-})
+  // and the mark clears after CHANGED_MARK_MS
+  await waitFor(
+    () => expect(document.querySelector('li.row-changed')).toBeNull(),
+    { timeout: CHANGED_MARK_MS + 2000 },
+  )
+}, 10000)
 
 it('a switch to another request marks against that request, never the one left', async () => {
   const first = make()

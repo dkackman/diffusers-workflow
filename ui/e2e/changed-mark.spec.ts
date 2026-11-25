@@ -62,18 +62,37 @@ test('a changed workflow card shows the bar over its picture', async ({
   })
 })
 
-test("a changed request item shows the row's inset bar, uncovered", async ({
+test('a changed request item shows the mark over its row, uncovered', async ({
   page,
 }) => {
   await page.goto('/#/ws/default/requests/e2e-launch')
   const item = page.locator('li.item').first()
   await expect(item).toBeVisible()
-  await item.evaluate((node) => node.classList.add('row-changed'))
-  const seen = await item.evaluate((li) => ({
-    shadow: getComputedStyle(li).boxShadow,
-    // the row inside it paints nothing over the bar
-    row: getComputedStyle(li.querySelector('.row')!).backgroundColor,
-  }))
-  expect(seen.shadow).toMatch(/3px 0px 0px 0px inset/)
-  expect(seen.row).toBe('rgba(0, 0, 0, 0)')
+  expectVisible(await bar(item))
+  // the row inside it paints nothing over the bar
+  expect(
+    await item
+      .locator('.row')
+      .evaluate((row) => getComputedStyle(row).backgroundColor),
+  ).toBe('rgba(0, 0, 0, 0)')
+})
+
+test('a live row keeps its bar while marked', async ({ page }) => {
+  await page.goto('/#/ws/default/requests/e2e-launch')
+  const row = page.locator('li.item .row').first()
+  await expect(row).toBeVisible()
+  await row.evaluate((node) => node.classList.add('row-live'))
+  const marked = await bar(row)
+  expectVisible(marked)
+  const shadow = await row.evaluate((node) => getComputedStyle(node).boxShadow)
+  expect(shadow).toMatch(/2px 0px 0px 0px inset/)
+})
+
+test("a tile's mark is one bar", async ({ page }) => {
+  await page.goto('/#/gallery')
+  const tile = page.locator('.cellwrap').first()
+  await expect(tile).toBeVisible()
+  expectVisible(await bar(tile))
+  const shadow = await tile.evaluate((node) => getComputedStyle(node).boxShadow)
+  expect(shadow).toBe('none')
 })

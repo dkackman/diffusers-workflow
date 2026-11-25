@@ -197,8 +197,7 @@ textarea,
   animation: dw-pulse 1.6s ease-in-out infinite;
 }
 @media (prefers-reduced-motion: reduce) {
-  .pulse-dot,
-  .row-changed {
+  .pulse-dot {
     animation: none;
   }
 }
@@ -468,8 +467,8 @@ a.danger:hover {
 
 /* Machine state on a list row, here so a page's own file needs no --live:
    the row the machine is on now (a running job, an item being rendered),
-   the one you came to find; and a row a quiet reload changed, its bar
-   fading over CHANGED_MARK_MS. The tripled class outranks a page's
+   the one you came to find; and a row a quiet reload changed (`.row-changed`,
+   frames.css). The tripled class outranks a page's
    scoped `.row:hover`, which sits at (0,3,0) */
 .row-live {
   background: color-mix(in srgb, var(--live) 10%, transparent);
@@ -477,15 +476,6 @@ a.danger:hover {
 }
 a.row-live.row-live.row-live:hover {
   background: color-mix(in srgb, var(--live) 16%, transparent);
-}
-.row-changed {
-  box-shadow: inset 3px 0 0 var(--live);
-  animation: dw-changed 4s ease-in forwards;
-}
-@keyframes dw-changed {
-  to {
-    box-shadow: inset 3px 0 0 transparent;
-  }
 }
 
 /* Words for a screen reader only: a live region's announcement, the name

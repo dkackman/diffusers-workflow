@@ -68,6 +68,8 @@
     // The user's own edit is never marked as an agent's: the next quiet
     // read diffs against what the save read back
     onsaved: (held) => reads.adopt(held),
+    // A stale retry's fresh read is another writer's change: marked
+    onquiet: (read) => reads.adopt(read, { mark: true }),
   })
 
   // The agent wrote after one of the user's waiting notes: said once per

@@ -66,8 +66,11 @@ export interface Resource<T> {
   /** A loud reload: Retry */
   reload(): Promise<void>
   /** Hold `data`, what the page's own write read back, marking nothing:
-   * the next quiet reload diffs against it (above) */
-  adopt(data: T): void
+   * the next quiet reload diffs against it (above). With `mark`, it is a
+   * read the page made that the resource did not - a stale write's retry
+   * found another writer's change - held as a quiet reload's would be, and
+   * marking what it changed */
+  adopt(data: T, options?: { mark: true }): void
 }
 
 /** How long a changed row stays marked; `.row-changed` fades over it */
@@ -98,11 +101,31 @@ export function changedKeys<T>(
 
 const NONE: ReadonlySet<string> = new Set()
 
-/** `changed`, and the timer that clears it */
+/** `changed`, and the timer that clears it. A row that changes again while
+ * marked is cleared and set again a microtask later, so its mark's
+ * animation starts over. The timer waits while the tab is hidden */
 function changeMarks() {
   let changed = $state.raw(NONE)
-  let timer: ReturnType<typeof setTimeout> | undefined
-  $effect(() => () => clearTimeout(timer))
+  let stop: (() => void) | undefined
+  // Which `mark` or `clear` is the latest: a re-mark waiting its microtask
+  // gives way to a clear or another mark
+  let latest = 0
+  const set = (keys: ReadonlySet<string>) => {
+    changed = keys
+    stop = poll(() => (changed = NONE), CHANGED_MARK_MS, {
+      immediate: false,
+      once: true,
+    })
+  }
+  const clear = () => {
+    latest++
+    stop?.()
+    if (changed.size) changed = NONE
+  }
+  $effect(() => () => {
+    latest++
+    stop?.()
+  })
   return {
     get changed() {
       return changed
@@ -110,14 +133,16 @@ function changeMarks() {
     /** Mark `keys`; a reload that changed nothing leaves the marks fading */
     mark(keys: ReadonlySet<string>) {
       if (!keys.size) return
-      changed = keys
-      clearTimeout(timer)
-      timer = setTimeout(() => (changed = NONE), CHANGED_MARK_MS)
+      const marking = changed.size > 0
+      clear()
+      const mine = latest
+      if (!marking) set(keys)
+      else
+        queueMicrotask(() => {
+          if (mine === latest) set(keys)
+        })
     },
-    clear() {
-      clearTimeout(timer)
-      if (changed.size) changed = NONE
-    },
+    clear,
   }
 }
 
@@ -267,6 +292,9 @@ export function resource<T>(
       return held.marks.changed
     },
     reload: () => untrack(() => run(false)),
-    adopt: (data) => void (held.data = data),
+    adopt: (data, options) =>
+      options?.mark
+        ? untrack(() => held.landed(data, true, asked))
+        : void (held.data = data),
   }
 }

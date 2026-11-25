@@ -80,21 +80,23 @@ button.frame:hover {
 /* Ticked (`.picked` here) is the user's own state: the tile inside draws
    it, as OutputTile's ink edge (`.filetile.picked`, patterns.css). */
 
-/* A tile or card a quiet reload changed (`.row-changed`, app.css). A row's
-   inset shadow paints under its children, so a tile's picture and a card's
-   frame would cover it: here the bar is an overlay that sits over them, and
-   a ticked tile keeps its own edge beside it. */
-.cellwrap.row-changed,
-a.card.row-changed {
+/* A row, tile or card a quiet reload changed (`.row-changed`): the bar is an
+   overlay that sits over the host's children, so a tile's picture or a
+   card's frame cannot cover it, and never a box-shadow, so `.row-live`'s
+   inset bar (app.css) stays beside it. A ticked tile keeps its own edge.
+   `--live` over a 1px `--bg` edge reads over a bright picture. The
+   resource clears the class and sets it again when a row changes twice,
+   which restarts the fade. */
+.row-changed {
   position: relative;
 }
-.cellwrap.row-changed::after,
-a.card.row-changed::after {
+.row-changed::after {
   content: '';
   position: absolute;
   inset: 0 auto 0 0;
   width: 3px;
   background: var(--live);
+  box-shadow: 1px 0 0 var(--bg);
   pointer-events: none;
   animation: dw-changed-fade 4s ease-in forwards;
 }
@@ -104,8 +106,7 @@ a.card.row-changed::after {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .cellwrap.row-changed::after,
-  a.card.row-changed::after {
+  .row-changed::after {
     animation: none;
   }
 }

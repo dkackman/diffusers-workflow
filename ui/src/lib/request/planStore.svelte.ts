@@ -56,6 +56,10 @@ export type PlanIo = {
   /** A write of the user's was saved: what is held after it, for a
    * resource to `adopt` so the edit is never marked as someone else's */
   onsaved?: (held: LedgerRequest) => void
+  /** A read made to retry a stale write, after `onread`: the agent's
+   * change it found, for a resource to `observe` as a quiet read so it is
+   * marked, and not lost to the save's `adopt` */
+  onquiet?: (read: LedgerRequest) => void
 }
 
 /** The two calls a store makes for request `id` of workspace `ws` */
@@ -372,7 +376,10 @@ export class PlanStore {
       return this.#reject(entry, error)
     try {
       const fresh = await this.#io.get()
-      if (epoch === this.#epoch) this.take(fresh)
+      if (epoch === this.#epoch) {
+        this.take(fresh)
+        this.#io.onquiet?.(fresh)
+      }
     } catch (failure) {
       if (epoch === this.#epoch) this.#reject(entry, failure)
     }

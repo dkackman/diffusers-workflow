@@ -115,3 +115,16 @@ it('a call that rejects or throws does not stop the timer', async () => {
   expect(throws).toHaveBeenCalledTimes(4)
   stops.forEach((stop) => stop())
 })
+
+it('once stops after its first call, and waits out a hidden tab', () => {
+  vi.useFakeTimers()
+  const fn = vi.fn()
+  const stop = poll(fn, 1000, { immediate: false, once: true })
+  vi.advanceTimersByTime(999)
+  expect(fn).not.toHaveBeenCalled()
+  vi.advanceTimersByTime(1)
+  expect(fn).toHaveBeenCalledTimes(1)
+  vi.advanceTimersByTime(5000)
+  expect(fn).toHaveBeenCalledTimes(1)
+  stop()
+})
