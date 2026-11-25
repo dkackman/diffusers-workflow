@@ -9,6 +9,7 @@ const candidate = (key: string, over: Partial<Candidate> = {}): Candidate => ({
   title: `Item ${key}`,
   workflow: `flow-${key}`,
   arguments: { seed: 1 },
+  jobs: [],
   planMinutes: null,
   ...over,
 })
@@ -392,5 +393,28 @@ it('with nothing ticked there is nothing to run, and it is not finished', async 
   queue.rows[0].ticked = false
   await queue.submit()
   expect(api.submitJob).not.toHaveBeenCalled()
+  expect(queue.finished).toBe(false)
+})
+
+it('does not send a row the plan moved past while the rows before it were sent', async () => {
+  const gone = new Set<string>()
+  const api = {
+    validate: vi.fn(async () => valid('a')),
+    submitJob: vi.fn(async (body: { item?: string }) => {
+      gone.add('b')
+      return job(`job-${body.item}`)
+    }),
+  }
+  const queue = new RunQueue([candidate('a'), candidate('b')], {
+    workspace: 'studio',
+    requestId: 'r1',
+    api: api as unknown as RunApi,
+    stale: (c) => (gone.has(c.key) ? 'moved' : null),
+  })
+  await queue.price()
+  await queue.submit()
+  expect(api.submitJob).toHaveBeenCalledTimes(1)
+  expect(states(queue)).toEqual(['queued', 'priced'])
+  expect(queue.chosen).toHaveLength(0)
   expect(queue.finished).toBe(false)
 })

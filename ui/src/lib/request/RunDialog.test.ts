@@ -517,3 +517,79 @@ it('has no held line on a row that is not held', async () => {
   await screen.findByRole('dialog', { name: 'Run what can run now' })
   expect(runRow('s4').querySelector('.held')).toBeNull()
 })
+
+it('unticks a row the live plan has moved past, says why, and never sends it', async () => {
+  const items = (over: Parameters<typeof item>[1] = {}) =>
+    planState(
+      request([
+        item('s4', { title: 'Shot 4', ready: true, workflow: 'shot', ...over }),
+        item('title', { title: 'Title card', ready: true, workflow: 'card' }),
+      ]),
+    )
+  const state = items()
+  const props = {
+    run: readyPlan(state),
+    plan: state,
+    workspace: 'studio',
+    requestId: 'r1',
+    onclose: vi.fn(),
+  }
+  const view = render(RunDialog, props)
+  await within(runRow('title')).findByText(/about 5.5 min/)
+  expect(runButton().textContent).toBe('Run 2 jobs')
+
+  // a poll: the agent queued Shot 4 meanwhile
+  await view.rerender({
+    ...props,
+    plan: items({
+      ready: false,
+      status: 'queued',
+      attempts: [attempt('agent', 'queued')],
+    }),
+  })
+  const box = screen.getByRole('checkbox', {
+    name: 'Run Shot 4',
+  }) as HTMLInputElement
+  expect(box.checked).toBe(false)
+  expect(box.disabled).toBe(true)
+  expect(runRow('s4').querySelector('.stale')?.textContent?.trim()).toBe(
+    'A job was queued for it after this opened.',
+  )
+  expect(runButton().textContent).toBe('Run 1 job')
+  expect(document.querySelector('.total')?.textContent).toBe(
+    'total about 5.5 min',
+  )
+  await fireEvent.click(runButton())
+  await waitFor(() => expect(api.submitJob).toHaveBeenCalledTimes(1))
+  expect(api.submitJob.mock.calls[0][0]).toMatchObject({ item: 'title' })
+})
+
+it('a single item rewritten while its dialog is open cannot be run', async () => {
+  const items = (seed: number) =>
+    planState(
+      request([
+        item('s4', {
+          title: 'Shot 4',
+          ready: true,
+          workflow: 'shot',
+          arguments: { seed },
+        }),
+      ]),
+    )
+  const state = items(1)
+  const props = {
+    run: itemPlan(state, 's4'),
+    plan: state,
+    workspace: 'studio',
+    requestId: 'r1',
+    onclose: vi.fn(),
+  }
+  const view = render(RunDialog, props)
+  await within(runRow('s4')).findByText(/about 9 min/)
+  expect(runButton().disabled).toBe(false)
+  await view.rerender({ ...props, plan: items(2) })
+  expect(runRow('s4').querySelector('.stale')?.textContent).toContain(
+    'Its workflow or arguments changed after this opened.',
+  )
+  expect(runButton().disabled).toBe(true)
+})
