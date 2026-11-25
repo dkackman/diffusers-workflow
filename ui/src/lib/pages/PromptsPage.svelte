@@ -1,60 +1,37 @@
 <script lang="ts">
   import { MessageSquareText, Plus } from '@lucide/svelte'
   import { api } from '../api'
-  import { changes } from '../changes.svelte'
-  import { latestOnly } from '../latest'
-  import { workspace } from '../workspace.svelte'
-  import Empty from '../Empty.svelte'
+  import { resource } from '../resource.svelte'
+  import LoadState from '../ui/LoadState.svelte'
+  import PageHeader from '../ui/PageHeader.svelte'
   import FolderGroups from '../FolderGroups.svelte'
-  import { leafOf } from '../grouping'
+  import { groupOf, leafOf } from '../grouping'
   import HintBar from '../HintBar.svelte'
   import { sharedHref } from '../routes'
   import { writableRoot } from '../libraries'
   import type { PromptDetail } from '../types'
+  import { hashState } from '../router.svelte'
+  import ListSort, { listSort, newestFirst } from '../ui/ListSort.svelte'
+  import Time from '../ui/Time.svelte'
 
-  let prompts = $state<string[]>([])
-  let details = $state<Record<string, PromptDetail>>({})
-  let promptDir = $state('')
-  let filter = $state('')
-  let error = $state('')
-  let loaded = $state(false)
+  // In the hash, so Back from a prompt - or a shared link - keeps it
+  const filter = hashState('q', '')
+  const sort = listSort()
 
-  // A reply overtaken by a later load (a switch, a newer reload) is dropped
-  const beginList = latestOnly()
-  /** Read the prompts of the current workspace. A quiet load is the change
-   * feed's: it keeps the list on screen, and a failed one keeps it too */
-  function load({ quiet = false } = {}) {
-    const current = beginList()
-    if (!quiet) error = ''
-    api
-      .listPrompts()
-      .then((result) => {
-        if (!current()) return
-        prompts = result.prompts
-        details = result.details ?? {}
-        promptDir = writableRoot(result.libraries)
-        error = ''
-        loaded = true
-      })
-      .catch((e) => {
-        if (!current() || quiet) return
-        error = e.message
-      })
-  }
-  $effect(() => {
-    // Read so a workspace switch reloads; the api scopes itself to it
-    void workspace.current
-    load()
+  // A prompt an agent saves shows within one feed interval, marked
+  const list = resource(() => api.listPrompts(), {
+    watch: ['prompts'],
+    rows: (data) => data.prompts.map((name) => [name, data.details[name]]),
   })
-  // A prompt an agent saves shows within one feed interval
-  $effect(() => {
-    const ws = workspace.current
-    return changes(ws).watch(['prompts'], () => load({ quiet: true }))
-  })
+  const prompts = $derived(list.data?.prompts ?? [])
+  const details = $derived<Record<string, PromptDetail>>(
+    list.data?.details ?? {},
+  )
+  const promptDir = $derived(writableRoot(list.data?.libraries ?? []))
 
-  const visible = $derived(
+  const matching = $derived(
     prompts.filter((name) => {
-      const needle = filter.toLowerCase()
+      const needle = filter.value.toLowerCase()
       const detail = details[name]
       return (
         name.toLowerCase().includes(needle) ||
@@ -64,101 +41,128 @@
       )
     }),
   )
+  // Newest first is one list across the folders
+  const newest = $derived(sort.value === 'newest')
+  const visible = $derived(
+    newest ? newestFirst(matching, (name) => details[name]?.mtime) : matching,
+  )
 
   const href = (name: string) => sharedHref('prompt-edit', ...name.split('/'))
 </script>
 
-<div class="pagehead">
-  <h1>Prompts</h1>
-  <span class="flex"></span>
-  <input placeholder="filter…" bind:value={filter} class="filter" />
-  <a
-    class="quiet icon plain"
-    href={sharedHref('prompt-edit')}
-    title="new prompt"
-    aria-label="new prompt"
-  >
-    <Plus size={15} />
-  </a>
-</div>
-
-{#if error}
-  <p class="muted">Could not load prompts: {error}</p>
-{/if}
+{#snippet search()}
+  <input placeholder="filter…" bind:value={filter.value} class="filter" />
+{/snippet}
+<PageHeader title="Prompts" filter={search}>
+  {#snippet actions()}<ListSort {sort} /><a
+      class="quiet icon plain"
+      href={sharedHref('prompt-edit')}
+      title="new prompt"
+      aria-label="new prompt"
+    >
+      <Plus size={15} />
+    </a>{/snippet}
+</PageHeader>
 
 <HintBar storageKey="prompt-hint-dismissed">
   Write a prompt once, reuse it anywhere: a workflow argument set to prompt:name
   loads its text at run time.
 </HintBar>
 
-<FolderGroups
-  names={visible}
-  collapseKey="collapsed-prompt-folders"
-  filterActive={filter !== ''}
-  newHref="#/prompt-edit"
-  onnewingroup={(group) =>
-    sessionStorage.setItem('dw-prompt-editor-folder', group)}
+<LoadState
+  of={list}
+  label="prompts"
+  empty={visible.length === 0}
+  filtered={filter.value !== '' && prompts.length > 0}
+  onclear={() => (filter.value = '')}
 >
-  {#snippet card(name)}
-    {@const detail = details[name]}
-    <!-- The link is an overlay rather than a wrapper: buttons may not
+  {#snippet emptyIcon()}<MessageSquareText
+      size={36}
+      strokeWidth={1.5}
+    />{/snippet}
+  {#snippet emptyText()}No prompts yet — the + above creates the first one.{/snippet}
+  <FolderGroups
+    names={visible}
+    collapseKey="collapsed-prompt-folders"
+    filterActive={filter.value !== ''}
+    groupOf={newest ? () => '' : undefined}
+    newHref="#/prompt-edit"
+    onnewingroup={(group) =>
+      sessionStorage.setItem('dw-prompt-editor-folder', group)}
+  >
+    {#snippet card(name)}
+      {@const detail = details[name]}
+      <!-- The link is an overlay rather than a wrapper: buttons may not
          nest inside an anchor, and the chips are real buttons -->
-    <div class="card panel">
-      <a
-        class="cardcover"
-        href={href(name)}
-        aria-label="edit {name}"
-        title={detail?.description || detail?.text || undefined}
-      ></a>
-      <span class="cardtop">
-        <span class="cardname">{leafOf(name)}</span>
-        {#if details[name]?.origin && details[name].origin !== 'workspace'}
-          <span
-            class="origin muted"
-            title="read-only: from the {details[name].origin} library"
-          >
-            {details[name].origin}
+      <div class="card panel" class:row-changed={list.changed.has(name)}>
+        <a
+          class="cardcover"
+          href={href(name)}
+          aria-label="edit {name}"
+          title={detail?.description || detail?.text || undefined}
+        ></a>
+        <span class="cardtop">
+          <span class="cardname" title={name}>{leafOf(name)}</span>
+          {#if details[name]?.origin && details[name].origin !== 'workspace'}
+            <span
+              class="origin muted"
+              title="read-only: from the {details[name].origin} library"
+            >
+              {details[name].origin}
+            </span>
+          {/if}
+        </span>
+        <!-- One list across the folders moves the folder onto the card, as
+           the Workflows page does -->
+        {#if newest && groupOf(name)}
+          <span class="cardfolder muted">{groupOf(name)}</span>
+        {/if}
+        {#if detail?.description || detail?.text}
+          <span class="carddesc muted">
+            {detail.description || detail.text}
           </span>
         {/if}
-        {#if detail?.intended_model}
-          <button
-            class="chip modelchip"
-            onclick={() => (filter = detail.intended_model)}
-            title="written for {detail.intended_model} - click to filter"
-          >
-            {detail.intended_model}
-          </button>
+        {#if detail?.mtime}
+          <span class="stamp muted">
+            <Time at={detail.mtime} label="changed" />
+          </span>
         {/if}
-      </span>
-      {#if detail?.description || detail?.text}
-        <span class="carddesc muted">{detail.description || detail.text}</span>
-      {/if}
-      {#if detail?.tags?.length}
-        <span class="cardtags">
-          {#each detail.tags as tag (tag)}
-            <button
-              class="chip"
-              onclick={() => (filter = tag)}
-              title="click to filter by this tag"
-            >
-              {tag}
-            </button>
-          {/each}
-        </span>
-      {/if}
-    </div>
-  {/snippet}
-</FolderGroups>
+        {#if detail?.intended_model || detail?.tags?.length}
+          <span class="cardtags">
+            {#if detail?.intended_model}
+              <button
+                class="togglechip modelchip"
+                class:on={filter.value === detail.intended_model}
+                aria-pressed={filter.value === detail.intended_model}
+                onclick={() =>
+                  (filter.value =
+                    filter.value === detail.intended_model
+                      ? ''
+                      : detail.intended_model)}
+                title="written for {detail.intended_model} - click to filter"
+              >
+                {detail.intended_model}
+              </button>
+            {/if}
+            {#each detail?.tags ?? [] as tag (tag)}
+              <button
+                class="togglechip"
+                class:on={filter.value === tag}
+                aria-pressed={filter.value === tag}
+                onclick={() => (filter.value = filter.value === tag ? '' : tag)}
+                title="click to filter by this tag"
+              >
+                {tag}
+              </button>
+            {/each}
+          </span>
+        {/if}
+      </div>
+    {/snippet}
+  </FolderGroups>
+</LoadState>
 
-{#if loaded && prompts.length === 0}
-  <Empty>
-    {#snippet icon()}<MessageSquareText size={36} strokeWidth={1.5} />{/snippet}
-    No prompts yet — the + above creates the first one.
-  </Empty>
-{:else if loaded && visible.length === 0}
-  <p class="muted">Nothing matches "{filter}".</p>
-{/if}
-
+<!-- Outside LoadState, so an empty, filtered or failed page still says it -->
 {#if promptDir}
   <p class="dir muted">
     read from <span class="path">{promptDir}</span>
@@ -168,9 +172,6 @@
 <style>
   .origin {
     font-size: 0.75rem;
-  }
-  .pagehead .flex {
-    flex: 1;
   }
   /* An absolute path is worth knowing and not worth the slot beside the
      title - and as one unbreakable token it was pushing the page sideways
@@ -182,10 +183,6 @@
   .path {
     font-family: var(--font-mono);
     word-break: break-all;
-  }
-  .filter {
-    max-width: 220px;
-    margin-left: auto;
   }
   .card {
     position: relative;
@@ -204,7 +201,7 @@
     inset: 0;
     border-radius: inherit;
   }
-  .chip {
+  .togglechip {
     position: relative;
   }
   .cardtop {
@@ -215,9 +212,13 @@
   }
   .cardname {
     flex: 1;
+    min-width: 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
   }
   .carddesc {
     font-weight: 400;
@@ -234,20 +235,9 @@
     flex-wrap: wrap;
     gap: 0.3rem;
   }
-  /* A tag is a button, and the global button rule would paint it accent-ink
-     on the panel - invisible in either theme - so the text colour is set here */
-  .chip {
-    cursor: pointer;
-    border: 1px solid var(--line);
-    background: var(--panel-2);
-    color: var(--muted);
-    font-size: 0.7rem;
-    font-weight: 500;
-    padding: 0.05rem 0.45rem;
-  }
-  .chip:hover {
-    border-color: var(--accent);
-    color: var(--accent);
+  .stamp {
+    font-weight: 400;
+    font-size: var(--t-xs);
   }
   .modelchip {
     flex-shrink: 0;

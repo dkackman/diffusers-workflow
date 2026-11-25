@@ -7,6 +7,23 @@
  * sound after the person has interacted with it, so the chime is unlocked on
  * the click that turns alerts on, and again on the first click after a
  * reload. */
+import { api, TERMINAL_STATUSES } from './api'
+import { ApiError } from './apiErrors'
+import {
+  adoptJob,
+  adoptedIds,
+  clearAdopted,
+  dropAdopted,
+  endedTitle,
+  finishedText,
+  nextWatch,
+  tabTitle,
+} from './jobWatch'
+import { go } from './router.svelte'
+import { notify } from './toast'
+import { wsHref } from './routes'
+import type { HealthInfo, JobDetail } from './types'
+
 export type AlertMode = 'notification' | 'chime'
 
 export function alertMode(): AlertMode {
@@ -60,4 +77,112 @@ export function alertFinished(text: string, href: string): void {
     return
   }
   chime()
+}
+
+// The tab title and the finish alert: what a poll means for the watched
+// jobs is nextWatch's to decide, this holds the state it leaves.
+/** `alertsOn` is passed in because alerts.svelte.ts imports this module. */
+export type FollowContext = {
+  onItsPage: (id: string) => boolean
+  alertsOn: () => boolean
+}
+
+let watched: string[] | null = null
+let endedMark: string | null = null
+let titleJob: JobDetail | null = null
+let others = 0
+
+/** The one writer of `document.title`: the ended mark, else the running
+ * job in front of the page's title. `PageHeader` calls it when the page's
+ * title changes. */
+export function refreshTitle(): void {
+  document.title = endedMark ?? tabTitle(titleJob, others)
+}
+
+/** The tab is back in front: the ended mark has been seen. */
+export function clearEndedMark(): void {
+  if (document.hidden) return
+  endedMark = null
+  refreshTitle()
+}
+
+export function resetFollow(): void {
+  watched = null
+  endedMark = titleJob = null
+  others = 0
+  readings = 0
+  clearAdopted()
+}
+
+function announce(job: JobDetail, ctx: FollowContext): void {
+  const text = finishedText(job)
+  if (document.hidden) endedMark = endedTitle(job)
+  // The job's own page already shows its outcome
+  if (!ctx.onItsPage(job.id)) {
+    const open = {
+      label: 'Open',
+      onClick: () => go('ws', job.workspace, 'jobs', job.id),
+    }
+    if (job.status === 'succeeded') notify.news(text, open)
+    else notify.error(text, undefined, open)
+  }
+  if (ctx.alertsOn() && document.hidden)
+    alertFinished(text, wsHref(job.workspace, 'jobs', job.id))
+}
+
+/** Reads one ended job and announces it. The caller has already taken an
+ * adopted id out of the set (before any await, so an overlapping reading
+ * cannot see it again); it goes back only when the read failed transiently
+ * or the job is not finished yet. A 404 means the job is gone: it stays
+ * dropped. */
+async function settle(
+  id: string,
+  ctx: FollowContext,
+  wasAdopted: boolean,
+): Promise<void> {
+  let job: JobDetail
+  try {
+    job = await api.getJob(id)
+  } catch (e) {
+    if (wasAdopted && !(e instanceof ApiError && e.status === 404)) adoptJob(id)
+    return
+  }
+  if (!TERMINAL_STATUSES.includes(job.status)) {
+    if (wasAdopted) adoptJob(id)
+    return
+  }
+  announce(job, ctx)
+}
+
+/** Every RECHECK_EVERY-th reading re-reads the adopted ids a queue holds, so
+ * a short job that ran between two polls on a busy box is announced within
+ * half a minute, not only once the queue drains. */
+const RECHECK_EVERY = 6
+let readings = 0
+
+/** One health reading's worth of watching: the title, and a finish toast
+ * (and alert) for each watched job that ended. */
+export async function followJobs(
+  info: HealthInfo | null,
+  ctx: FollowContext,
+): Promise<void> {
+  readings += 1
+  const recheck = readings % RECHECK_EVERY === 0
+  const next = nextWatch(watched, info, adoptedIds(), recheck)
+  watched = next.watched
+  // Claimed now, before any await: a reading that overlaps this one (the
+  // title read below can outlast a poll) must not see these ids again
+  const claimed = next.ended.map((id) => [id, adoptedIds().has(id)] as const)
+  for (const [id] of claimed) dropAdopted(id)
+  // A failed poll leaves the title showing what it last knew
+  if (info) {
+    for (const id of next.running) dropAdopted(id)
+    others = Math.max(0, next.running.length - 1)
+    titleJob = next.running[0]
+      ? await api.getJob(next.running[0]).catch(() => null)
+      : null
+    refreshTitle()
+  }
+  for (const [id, wasAdopted] of claimed) await settle(id, ctx, wasAdopted)
+  refreshTitle()
 }

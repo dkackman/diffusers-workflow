@@ -3,110 +3,98 @@
   // pair, the 12 vs 30 steps - with the arguments that differ called out
   // and every video on one transport, so a difference in motion is seen at
   // the same frame rather than remembered across two players
-  import { Pause, Play } from '@lucide/svelte'
+  import { Columns2, Pause, Play, X } from '@lucide/svelte'
   import { api } from '../api'
-  import { changes } from '../changes.svelte'
-  import { latestOnly } from '../latest'
-  import { differingArguments, argumentOf, valueText } from '../compare'
+  import { untrack } from 'svelte'
+  import { hasPicture, outputMedia, viewLabels, withoutRun } from '../media'
+  import { openInHash } from '../mediaViewer'
+  import { replaceRoute } from '../router.svelte'
+  import { resource, type Resource } from '../resource.svelte'
+  import LoadState from '../ui/LoadState.svelte'
+  import PageHeader from '../ui/PageHeader.svelte'
+  import {
+    argumentOf,
+    cellFor,
+    differingArguments,
+    valueText,
+    type Cell,
+  } from '../compare'
   import { formatDuration } from '../format'
-  import { wsHref } from '../routes'
-  import type { GalleryFile } from '../types'
+  import { versionTitle } from '../terms'
+  import { SECTION_LABELS, compareHref, wsHref } from '../routes'
   import { workspace } from '../workspace.svelte'
   import Markdown from '../ui/Markdown.svelte'
+  import MediaBody from '../ui/MediaBody.svelte'
+  import MediaViewer from '../ui/MediaViewer.svelte'
+  import MissingFile from '../ui/MissingFile.svelte'
+  import { missingFile } from '../missingFile.svelte'
   import Skeleton from '../ui/Skeleton.svelte'
 
   let { names }: { names: string[] } = $props()
 
-  type Cell = {
-    name: string
-    file: GalleryFile | null
-    meta: Record<string, unknown> | null
-    took: number | null
-  }
-  let cells = $state<Cell[]>([])
-  let loaded = $state(false)
-
-  // How long the run took, from the job that made the file - unknown when
-  // the job is gone or never finished
-  async function runTime(jobId: string | null | undefined) {
-    const job = jobId ? await api.getJob(jobId).catch(() => null) : null
-    return job?.started_at && job.finished_at
-      ? job.finished_at - job.started_at
-      : null
-  }
-
-  async function cellFor(
-    name: string,
-    file: GalleryFile | null,
-  ): Promise<Cell> {
-    if (!file) return { name, file, meta: null, took: null }
-    const r = await api.galleryMetadata(name).catch(() => null)
-    return {
-      name,
-      file,
-      meta: (r?.metadata as Record<string, unknown> | undefined) ?? null,
-      took: await runTime(r?.job?.id),
-    }
-  }
-
-  // A read overtaken by a newer one (new names, a feed reload) is dropped
-  const beginLoad = latestOnly()
-  /** Read the gallery for `wanted`. A quiet load is the change feed's: the
-   * transport and the cells on screen stay, and a cell that already had its
-   * file keeps the metadata and run time it has - only a cell that was
-   * missing its file, or is new, asks for them */
-  async function load(wanted: string[], { quiet = false } = {}) {
-    const current = beginLoad()
-    const before = quiet ? new Map(cells.map((c) => [c.name, c])) : new Map()
-    if (!quiet) {
-      length = 0
-      time = 0
-      playing = false
-      loaded = false
-    }
-    try {
+  // A file's note or a new run shows within one feed interval. A cell that
+  // already had its file keeps the metadata and run time it has - only a
+  // cell that was missing its file, or is new, asks for them. `names` is read
+  // before the first await, so new names reload loudly
+  const comparison: Resource<Cell[]> = resource(
+    async () => {
+      const wanted = [...names]
+      // Under two there is nothing to compare, so nothing is read
+      if (wanted.length < 2) return []
+      const held = new Map(
+        untrack(() => comparison.data ?? []).map((c) => [c.name, c]),
+      )
       const { files } = await api.gallery()
       const byName = new Map(files.map((f) => [f.name, f]))
-      const next = await Promise.all(
+      return Promise.all(
         wanted.map((name) => {
           const file = byName.get(name) ?? null
-          const had: Cell | undefined = before.get(name)
-          return had?.file && file
+          const had = held.get(name)
+          return had?.file && had.meta && file
             ? Promise.resolve({ ...had, file })
             : cellFor(name, file)
         }),
       )
-      if (!current()) return
-      cells = next
-    } catch {
-      if (!current() || quiet) return
-      cells = []
-    }
-    if (current()) loaded = true
-  }
-
+    },
+    { watch: ['gallery'] },
+  )
+  const cells = $derived(comparison.data ?? [])
+  // New names start the transport over
   $effect(() => {
-    const wanted = [...names]
-    void load(wanted)
-  })
-  // A file's note or a new run shows within one feed interval
-  $effect(() => {
-    const ws = workspace.current
-    return changes(ws).watch(['gallery'], () =>
-      load([...names], { quiet: true }),
-    )
+    void names.join('\n')
+    length = 0
+    time = 0
+    playing = false
   })
 
   const differing = $derived(differingArguments(cells.map((c) => c.meta)))
 
-  // One transport for every video
-  let videos = $state<HTMLVideoElement[]>([])
+  // One transport for every video, kept by cell name
+  let videos: Record<string, HTMLVideoElement> = {}
   let playing = $state(false)
   let time = $state(0)
   let length = $state(0)
   // The first video is the clock the slider reads, whatever cells precede it
-  const clock = $derived(cells.findIndex((c) => c.file?.kind === 'video'))
-  const present = () => videos.filter(Boolean)
+  const clock = $derived(cells.find((c) => c.file?.kind === 'video')?.name)
+  const present = () => Object.values(videos)
+  // A quiet reload hands the same element over again: listen once per element
+  const listening = new WeakSet<HTMLVideoElement>()
+  function track(name: string, el: HTMLVideoElement | null) {
+    if (!el) {
+      delete videos[name]
+      return
+    }
+    videos[name] = el
+    const measure = () => (length = Math.max(length, el.duration))
+    if (!listening.has(el)) {
+      listening.add(el)
+      el.addEventListener('timeupdate', () => {
+        if (name === clock) time = el.currentTime
+      })
+      el.addEventListener('loadedmetadata', measure)
+    }
+    if (el.readyState >= 1) measure()
+  }
   function playPause() {
     playing = !playing
     for (const v of present()) {
@@ -114,22 +102,65 @@
       else void Promise.resolve(v.play()).catch(() => (playing = false))
     }
   }
+  const galleryHref = $derived(wsHref(workspace.current, 'gallery'))
   function seek(to: number) {
     time = to
     for (const v of present()) v.currentTime = to
   }
+
+  // The viewer steps through the pictures and clips compared, as the
+  // Gallery's does: the open file is `open=` in the hash (mediaViewer.ts)
+  // Two same-leaf files compared are told apart as the Gallery tells them
+  const labelled = $derived.by(() => {
+    const files = cells.flatMap((c) => (c.file ? [c.file] : []))
+    return viewLabels(
+      files.map((f) => f.name),
+      withoutRun(files),
+    )
+  })
+  const shown = (cell: Cell) =>
+    cell.file ? labelled(outputMedia(cell.file, workspace.current)) : null
+  const items = $derived(
+    cells.flatMap((c) => {
+      const tile = shown(c)
+      return tile && hasPicture(tile.kind) ? [tile] : []
+    }),
+  )
+  let open = $state<string | null>(openInHash())
+  // An open= naming no file compared is said and cleared (missingFile.svelte.ts)
+  const stray = missingFile({
+    open: () => open,
+    known: () => comparison.status === 'ready',
+    names: () => items.map((item) => item.name),
+  })
+  $effect(() => void (stray.missing && untrack(() => (open = null))))
+
+  const without = (name: string) =>
+    replaceRoute(
+      compareHref(
+        workspace.current,
+        names.filter((n) => n !== name),
+      ),
+    )
 </script>
 
-<div class="pagehead baseline">
-  <h1>Compare</h1>
-  <a class="plain muted" href={wsHref(workspace.current, 'gallery')}>
-    back to the gallery
-  </a>
-</div>
+<PageHeader
+  title="Compare"
+  baseline
+  back={{ href: galleryHref, label: SECTION_LABELS.ws.gallery }}
+/>
 
-{#if !loaded}
-  <Skeleton tiles={names.length} label="loading the comparison" />
-{:else}
+<MissingFile leaf={stray.missing} ondismiss={stray.dismiss} />
+
+<LoadState of={comparison} label="the comparison" empty={names.length < 2}>
+  {#snippet emptyIcon()}<Columns2 size={36} strokeWidth={1.5} />{/snippet}
+  {#snippet emptyText()}<span>Nothing to compare yet.</span><br /><span>
+      Tick two or more files in the Gallery, then press Compare.
+    </span><br /><a href={galleryHref}>Open the Gallery</a>{/snippet}
+  {#snippet skeleton()}{#if names.length >= 2}<Skeleton
+        tiles={names.length}
+        label="loading the comparison"
+      />{/if}{/snippet}
   {#if cells.some((c) => c.file?.kind === 'video')}
     <div class="transport">
       <button
@@ -153,33 +184,46 @@
   {/if}
 
   <div class="grid" style:--cols={cells.length}>
-    {#each cells as cell, i (cell.name)}
+    {#each cells as cell (cell.name)}
+      {@const tile = shown(cell)}
       <figure class="cell">
-        {#if !cell.file}
+        {#if !tile}
           <p class="muted">{cell.name} is no longer in the gallery.</p>
-        {:else if cell.file.kind === 'video'}
-          <video
-            bind:this={videos[i]}
-            src={cell.file.url}
-            loop
-            muted
-            playsinline
-            ontimeupdate={(e) => {
-              if (i === clock) time = e.currentTarget.currentTime
-            }}
-            onloadedmetadata={(e) => {
-              length = Math.max(length, e.currentTarget.duration)
-            }}
-          ></video>
-        {:else if cell.file.kind === 'image'}
-          <img src={cell.file.url} alt={cell.name} />
+        {:else if hasPicture(tile.kind)}
+          <button
+            type="button"
+            class="thumb"
+            aria-label="Open {tile.label}"
+            title="open this file large"
+            onclick={() => (open = cell.name)}
+          >
+            <MediaBody
+              file={tile}
+              fit={false}
+              controls={false}
+              muted
+              onvideo={(el) => track(cell.name, el)}
+            />
+          </button>
         {:else}
-          <p class="muted">{cell.file.label}</p>
+          <p class="muted">{tile.label}</p>
         {/if}
+        <button
+          type="button"
+          class="quiet icon remove"
+          aria-label="Remove from comparison"
+          title="Remove from comparison"
+          onclick={() => without(cell.name)}
+        >
+          <X size={14} />
+        </button>
         {#if cell.file}
           <figcaption>
-            <span class="mono">{cell.file.label}</span>
-            {#if cell.file.version}<span class="num muted">
+            <span class="mono">{tile?.label}</span>
+            {#if cell.file.version}<span
+                class="num muted"
+                title={versionTitle(cell.file.version)}
+              >
                 v{cell.file.version}
               </span>{/if}
             <span class="num muted">
@@ -199,7 +243,7 @@
   {#if differing.length}
     <section class="panel">
       <h2>What differs</h2>
-      <table>
+      <table class="datatable">
         <tbody>
           {#each differing as key (key)}
             <tr>
@@ -214,11 +258,13 @@
     </section>
   {:else if cells.filter((c) => c.meta).length > 1}
     <p class="muted">
-      Same model, seed and arguments - the files differ only in what the run
+      Same model, seed and arguments - the files differ only in what the job
       did.
     </p>
   {/if}
-{/if}
+</LoadState>
+
+<MediaViewer {items} bind:open />
 
 <style>
   .grid {
@@ -238,8 +284,23 @@
     flex-direction: column;
     gap: var(--space-2);
   }
-  .cell img,
-  .cell video {
+  .cell {
+    position: relative;
+  }
+  .remove {
+    position: absolute;
+    top: var(--space-1);
+    right: var(--space-1);
+  }
+  .thumb {
+    display: block;
+    padding: 0;
+    border: 0;
+    background: none;
+    cursor: zoom-in;
+  }
+  .cell :global(.media-body) {
+    display: block;
     width: 100%;
     background: var(--panel-2);
     border: 1px solid var(--line);
@@ -266,20 +327,14 @@
     flex: 1;
   }
   table {
-    border-collapse: collapse;
-    width: 100%;
     font-size: var(--t-sm);
   }
   th {
-    text-align: left;
     font-family: var(--font-mono);
-    color: var(--muted);
-    padding-right: var(--space-3);
+    font-size: inherit;
     white-space: nowrap;
   }
   td {
-    padding: var(--space-1) var(--space-2);
-    border-top: 1px solid var(--line);
     overflow-wrap: anywhere;
   }
 </style>

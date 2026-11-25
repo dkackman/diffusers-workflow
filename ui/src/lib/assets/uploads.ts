@@ -6,6 +6,7 @@ import { api } from '../api'
 import { UPLOAD_EXTENSIONS } from '../assetlib.svelte'
 import { chooseDialog } from '../confirm.svelte'
 import { freeName } from '../documentSave'
+import { describeError } from '../apiErrors'
 import { notify } from '../toast'
 import type { Uploaded } from '../types'
 
@@ -37,6 +38,10 @@ function isExists(error: unknown): boolean {
     (error as { code?: unknown }).code === 'exists'
   )
 }
+
+/** The listing read once more after the page's own write, for the page to
+ * hold as read (resource's `adopt`) rather than reload loudly */
+export const readListingAfterWrite = () => api.listAssets()
 
 type Entry = { file: File; name: string }
 
@@ -158,10 +163,7 @@ export function reportUploads(result: UploadResult): void {
   if (failed.length)
     notify.error(
       failed
-        .map(
-          (f) =>
-            `${f.name}: ${f.error instanceof Error ? f.error.message : String(f.error)}`,
-        )
+        .map((f) => `${f.name}: ${describeError(f.error).title}`)
         .join('\n'),
     )
 }

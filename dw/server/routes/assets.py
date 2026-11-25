@@ -46,7 +46,14 @@ from ...security import (
 from ...library import ReadOnlyLibraryError, shadowed_listing
 from ...workspace import Workspace, forget_workspace_usage
 from ..preconditions import check_write_preconditions
-from ..changes import ASSETS, changed, changed_assets, changed_everywhere
+from ..changes import (
+    ASSETS,
+    NO_CHANGE,
+    Change,
+    ChangeRoute,
+    pending_change,
+    writes,
+)
 from ..deps import (
     asset_library_missing,
     asset_users,
@@ -61,6 +68,7 @@ from ..outputs import (
     workspace_asset_library,
     iter_gallery_files,
     job_provenance,
+    probed_duration,
     resolution_library,
     resolve_output_file,
     served_url,
@@ -71,7 +79,7 @@ from ..outputs import (
 
 logger = logging.getLogger("dw")
 
-router = APIRouter()
+router = APIRouter(route_class=ChangeRoute)
 
 
 def _write_bytes(path, data):
@@ -143,6 +151,7 @@ MAX_UPLOAD_BYTES = 200 * 1024 * 1024  # 200MB - covers a short video clip
     response_model=Uploaded,
     response_model_exclude_unset=True,
 )
+@writes(ASSETS)
 async def upload_media(
     request: Request,
     filename: str,
@@ -153,6 +162,7 @@ async def upload_media(
         description=f"A note on the asset, at most {MAX_NOTE_LENGTH} characters",
     ),
     ws: Workspace = Depends(selected_workspace),
+    change: Change = Depends(pending_change),
 ):
     """Save a browser-picked image, video or audio file into the asset library's
     uploads/ subfolder and hand back the reference a workflow argument
@@ -270,10 +280,39 @@ async def upload_media(
     if absolute_url is not None:
         result["absolute_url"] = absolute_url
     if shared:
-        changed_everywhere(request, ASSETS)
-    else:
-        changed(request, ws.name, ASSETS)
+        change.everywhere()
     return result
+
+
+def _media_names(root, found):
+    """The names of the media files under `root`, each recorded in `found`
+    as (root, name) -> (folder, kind, stat, path)."""
+    try:
+        files = list(iter_gallery_files(root, group_runs=False, extra_kinds=LUT_KINDS))
+    except OSError:
+        return []
+    names = []
+    for relative, folder, _subfolder, _run_id, kind, path in files:
+        try:
+            stat = os.stat(path)
+        except OSError:
+            continue
+        found[(root, relative)] = (folder, kind, stat, path)
+        names.append(relative)
+    return names
+
+
+def _add_durations(assets, winners, found):
+    """`media=true`: each audio and video asset's `duration_seconds`, set in
+    place, from `probed_duration`'s memoised header read, validated
+    against its root."""
+    for entry in assets:
+        if entry["kind"] not in ("audio", "video"):
+            continue
+        root = winners[entry["name"]].root
+        probed = probed_duration(found[(root, entry["name"])][3], root)
+        if probed is not None:
+            entry["duration_seconds"] = probed.get("duration_seconds")
 
 
 @router.get("/api/assets", response_model=AssetList, response_model_exclude_unset=True)
@@ -289,6 +328,11 @@ def list_assets(
         default=None,
         description="Only assets whose name starts with this, e.g. a folder "
         "such as 'cast/'",
+    ),
+    media: bool = Query(
+        default=False,
+        description="Add `duration_seconds` to each audio and video asset "
+        "listed, probed and memoised as the gallery's `media=true` is",
     ),
 ):
     """The asset library: the input media an 'asset:' reference names.
@@ -307,6 +351,10 @@ def list_assets(
     `used_by` names the workspace's own workflows that reference an asset
     (`asset_users`) - what lets a workspace show the shared assets it
     actually uses rather than the whole shared library.
+
+    `media=true` adds `duration_seconds` to the audio and video assets
+    returned (after `limit`), the gallery's probe and its memo; off, the
+    payload is unchanged.
     """
     library = workspace_asset_library(request.app.state, ws)
     if not library.roots():
@@ -322,25 +370,7 @@ def list_assets(
     # hands to `entries` - which decides the winner of each name and what it
     # hid, exactly as 'asset:' resolution does
     found = {}
-
-    def media_names(root):
-        try:
-            files = list(
-                iter_gallery_files(root, group_runs=False, extra_kinds=LUT_KINDS)
-            )
-        except OSError:
-            return []
-        names = []
-        for relative, folder, _subfolder, _run_id, kind, path in files:
-            try:
-                stat = os.stat(path)
-            except OSError:
-                continue
-            found[(root, relative)] = (folder, kind, stat, path)
-            names.append(relative)
-        return names
-
-    winners, hidden = library.entries(media_names)
+    winners, hidden = library.entries(lambda root: _media_names(root, found))
 
     def summary(name, root):
         folder, kind, stat, _path = found[(root.root, name)]
@@ -389,6 +419,8 @@ def list_assets(
     folders = sorted({entry["folder"] for entry in assets} | {""})
     if limit is not None:
         assets, shadowed = assets[:limit], shadowed[:limit]
+    if media:
+        _add_durations(assets, winners, found)
     return {
         "workspace": ws.name,
         "libraries": library.describe(),
@@ -430,8 +462,12 @@ class KeepRequest(BaseModel):
     response_model=Kept,
     response_model_exclude_unset=True,
 )
+@writes(ASSETS)
 def keep_output_as_asset(
-    request: Request, body: KeepRequest, ws: Workspace = Depends(selected_workspace)
+    request: Request,
+    body: KeepRequest,
+    ws: Workspace = Depends(selected_workspace),
+    change: Change = Depends(pending_change),
 ):
     """Keep a generated file as an input asset, under a stable name.
 
@@ -483,8 +519,11 @@ def keep_output_as_asset(
     if os.path.exists(destination) and not body.overwrite:
         raise HTTPException(
             status_code=409,
-            detail=f"{make_ref(ASSET, asset_name)} already exists - pass "
-            f"overwrite=true to replace it",
+            detail={
+                "code": "exists",
+                "message": f"{make_ref(ASSET, asset_name)} already exists - pass "
+                f"overwrite=true to replace it",
+            },
         )
 
     os.makedirs(os.path.dirname(destination), exist_ok=True)
@@ -536,9 +575,7 @@ def keep_output_as_asset(
 
     logger.info(f"Kept output {body.name} as {make_ref(ASSET, asset_name)}")
     if body.shared:
-        changed_everywhere(request, ASSETS)
-    else:
-        changed(request, ws.name, ASSETS)
+        change.everywhere()
     return {
         "reference": make_ref(ASSET, asset_name),
         "name": asset_name,
@@ -549,6 +586,7 @@ def keep_output_as_asset(
 
 
 @router.post("/api/assets/archive")
+@NO_CHANGE("builds a download or a view; writes nothing a page lists")
 def archive_assets(
     request: Request, body: ArchiveRequest, ws: Workspace = Depends(selected_workspace)
 ):
@@ -580,8 +618,12 @@ def archive_assets(
     response_model=AssetDeleted,
     response_model_exclude_unset=True,
 )
+@writes(ASSETS)
 def delete_asset(
-    request: Request, name: str, ws: Workspace = Depends(selected_workspace)
+    request: Request,
+    name: str,
+    ws: Workspace = Depends(selected_workspace),
+    change: Change = Depends(pending_change),
 ):
     """Permanently remove one file from the asset library.
 
@@ -622,7 +664,7 @@ def delete_asset(
         except OSError as e:
             logger.warning(f"Could not clear what {path} left beside it: {e}")
         forget_workspace_usage()
-        changed_assets(request, ws, root)
+        change.in_library(ws, root)
         return {
             "name": relative,
             "workspace": ws.name,

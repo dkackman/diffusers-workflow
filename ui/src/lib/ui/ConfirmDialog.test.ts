@@ -11,6 +11,7 @@ import {
   chooseDialog,
   confirmDialog,
   confirmState,
+  nameDialog,
   resolveChoice,
 } from '../confirm.svelte'
 import { overlayOpen } from './layers.svelte'
@@ -116,4 +117,41 @@ it('is named by the first sentence of the message by default', async () => {
   expect(
     await screen.findByRole('alertdialog', { name: 'Discard changes?' }),
   ).toBeTruthy()
+})
+
+it('the dialog is named by its visible title', async () => {
+  render(ConfirmDialog)
+  void confirmDialog('This removes it on disk.', { title: 'Delete a.png?' })
+  const dialog = await screen.findByRole('alertdialog', {
+    name: 'Delete a.png?',
+  })
+  expect(dialog.hasAttribute('aria-label')).toBe(false)
+  const heading = screen.getByRole('heading', { name: 'Delete a.png?' })
+  expect(dialog.getAttribute('aria-labelledby')).toBe(heading.id)
+})
+
+it('a name dialog labels its field and starts in it', async () => {
+  render(ConfirmDialog)
+  void nameDialog('Pick one.', {
+    title: 'Save as asset',
+    label: 'Name in the asset library',
+    initial: 'a.png',
+    validate: () => null,
+  })
+  const field = await screen.findByRole('textbox', {
+    name: 'Name in the asset library',
+  })
+  await waitFor(() => expect(document.activeElement).toBe(field))
+  // Save is the default confirm label
+  expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy()
+})
+
+it("shows a choice's title", async () => {
+  render(ConfirmDialog)
+  void chooseDialog('x', [
+    { label: 'Keep both', value: 'keep-both', title: 'saves as a-2.png' },
+    { label: 'Cancel', value: 'cancel' },
+  ])
+  const button = await screen.findByRole('button', { name: 'Keep both' })
+  expect(button.getAttribute('title')).toBe('saves as a-2.png')
 })

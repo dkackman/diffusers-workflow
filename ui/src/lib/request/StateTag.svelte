@@ -19,9 +19,9 @@
     padding: 0 0.3rem;
     white-space: nowrap;
   }
+  /* Ink words on the quiet border: the ready chip is the ink outline */
   .open {
     color: var(--ink);
-    border-color: var(--ink);
   }
   .done {
     color: var(--good);

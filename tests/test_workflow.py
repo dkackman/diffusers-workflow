@@ -265,6 +265,45 @@ class TestSubWorkflowSeedInheritance:
         )
         assert action.workflow_definition["seed"] == 99
 
+    def run_seed(self, action, arguments=None):
+        from dw.workflow_run import prepare_definition, run_base_dir
+
+        definition = json.loads(json.dumps(action.workflow_definition))
+        _, seed, _ = prepare_definition(
+            action, definition, arguments or {}, run_base_dir(action)
+        )
+        return seed
+
+    def seed_variable_child(self):
+        # How every catalog template declares its seed: a variable whose
+        # default is null, so the key is present and a caller may set it
+        return {
+            "id": "c",
+            "variables": {"seed": None},
+            "seed": "variable:seed",
+            "steps": self.child_steps(),
+        }
+
+    def test_a_null_seed_variable_inherits_the_parent_seed(self, tmp_path):
+        # #1641 - the key is present, so setdefault never fired and the
+        # child drew a random seed of its own
+        action = self.child_action(self.seed_variable_child(), 4242, tmp_path)
+        assert self.run_seed(action) == 4242
+
+    def test_a_handed_seed_wins_over_the_parent_seed(self, tmp_path):
+        action = self.child_action(self.seed_variable_child(), 4242, tmp_path)
+        assert self.run_seed(action, {"seed": 7}) == 7
+
+    def test_a_seed_variable_default_wins_over_the_parent_seed(self, tmp_path):
+        child = self.seed_variable_child()
+        child["variables"]["seed"] = 99
+        action = self.child_action(child, 4242, tmp_path)
+        assert self.run_seed(action) == 99
+
+    def test_a_top_level_null_seed_stays_unset(self, tmp_path):
+        workflow = Workflow(self.seed_variable_child(), str(tmp_path), "")
+        assert self.run_seed(workflow) is None
+
 
 class TestSubWorkflowHandedArguments:
     """A composed child reads what its parent step handed it from the

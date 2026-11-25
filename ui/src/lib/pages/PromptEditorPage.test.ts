@@ -6,11 +6,14 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/svelte'
 import PromptEditorPage from './PromptEditorPage.svelte'
-import { api } from '../api'
+import { api } from '../test/apiMock'
 import { ApiError } from '../apiErrors'
-import { chooseDialog } from '../confirm.svelte'
+import { chooseDialog, confirmDialog } from '../confirm.svelte'
+import { feed } from '../test/feedMock'
+import { formatMtime } from '../format'
 
 // Monaco cannot boot in jsdom; the JSON view is read through this stub,
 // which renders the value it was handed as plain text
@@ -24,43 +27,49 @@ vi.mock('../confirm.svelte', () => ({
   confirmDialog: vi.fn().mockResolvedValue(true),
 }))
 
-vi.mock('../api', () => ({
-  api: {
-    listPrompts: vi.fn().mockResolvedValue({
-      prompts: ['portraits/hero'],
-      libraries: [{ origin: 'workspace', root: 'prompts', writable: true }],
-      shadowed: [],
-      details: {},
-    }),
-    getPrompt: vi.fn().mockResolvedValue({
-      prompt: { text: 'a hero at dawn' },
-      writable: true,
-      etag: '"p1"',
-    }),
-    savePrompt: vi.fn().mockResolvedValue({ saved: {}, etag: '"p2"' }),
-    listModels: vi.fn().mockResolvedValue({ repos: [] }),
-    listEnhancers: vi.fn().mockResolvedValue({
-      presets: [
-        {
-          key: 'h3',
-          label: 'H3',
-          default_model: 'org/enhancer',
-          models: ['org/enhancer'],
-          intended_models: [],
-          placeholder: 'an idea',
-        },
-      ],
-    }),
-    startDownload: vi.fn().mockResolvedValue({}),
-    listDownloads: vi.fn().mockResolvedValue({
-      downloads: [{ repo_id: 'org/enhancer', status: 'downloading' }],
-    }),
-    listWorkflows: vi.fn().mockResolvedValue({ workflows: [], details: {} }),
-    promptDownloadUrl: (name: string) => `/api/prompts/${name}/download`,
-  },
-  fetchOutputText: vi.fn(),
-  streamJobEvents: vi.fn(() => () => {}),
+vi.mock('../changes.svelte', async () => ({
+  changes: (await import('../test/feedMock')).feed.changes,
 }))
+
+vi.mock('../api', async () =>
+  (await import('../test/apiMock')).apiModule({
+    fetchOutputText: vi.fn(),
+    streamJobEvents: vi.fn(() => () => {}),
+  }),
+)
+api.listPrompts.mockResolvedValue({
+  prompts: ['portraits/hero'],
+  libraries: [{ origin: 'workspace', root: 'prompts', writable: true }],
+  shadowed: [],
+  details: {},
+})
+api.getPrompt.mockResolvedValue({
+  prompt: { text: 'a hero at dawn' },
+  writable: true,
+  etag: '"p1"',
+})
+api.savePrompt.mockResolvedValue({ saved: {}, etag: '"p2"' })
+api.listModels.mockResolvedValue({ repos: [] })
+api.listEnhancers.mockResolvedValue({
+  presets: [
+    {
+      key: 'h3',
+      label: 'H3',
+      default_model: 'org/enhancer',
+      models: ['org/enhancer'],
+      intended_models: [],
+      placeholder: 'an idea',
+    },
+  ],
+})
+api.startDownload.mockResolvedValue({})
+api.listDownloads.mockResolvedValue({
+  downloads: [{ repo_id: 'org/enhancer', status: 'downloading' }],
+})
+api.listWorkflows.mockResolvedValue({ workflows: [], details: {} })
+api.promptDownloadUrl.mockImplementation(
+  (name: string) => `/api/prompts/${name}/download`,
+)
 vi.mock('../toast', () => ({
   notify: { error: vi.fn(), success: vi.fn(), dismiss: vi.fn() },
 }))
@@ -94,6 +103,20 @@ function unloadPrevented() {
   window.dispatchEvent(event)
   return event.defaultPrevented
 }
+
+it('sets the tab title to the open prompt, with Prompts as its back link', async () => {
+  await openHero()
+  expect(document.title).toBe('portraits/hero · diffusers-workflow')
+  expect(screen.getByRole('link', { name: '← Prompts' })).toHaveAttribute(
+    'href',
+    '#/shared/prompts',
+  )
+  cleanup()
+  render(PromptEditorPage, { name: '' })
+  await waitFor(() =>
+    expect(document.title).toBe('New prompt · diffusers-workflow'),
+  )
+})
 
 it('mounts a stored prompt under the folder and name it was saved as', async () => {
   await openHero()
@@ -137,6 +160,25 @@ it('saves to the folder and name shown on Ctrl+S', async () => {
   expect(vi.mocked(api.savePrompt).mock.calls[0][2]).toEqual({
     ifMatch: '"p1"',
   })
+})
+
+it('a double Ctrl+S writes once', async () => {
+  await openHero()
+  await waitFor(() =>
+    expect(
+      (document.querySelector('.folderpick') as HTMLSelectElement).value,
+    ).toBe('portraits'),
+  )
+  // Both presses land before the page renders the first one's busy state
+  window.dispatchEvent(
+    new KeyboardEvent('keydown', { key: 's', ctrlKey: true }),
+  )
+  window.dispatchEvent(
+    new KeyboardEvent('keydown', { key: 's', ctrlKey: true }),
+  )
+  await waitFor(() => expect(api.savePrompt).toHaveBeenCalled())
+  await new Promise((r) => setTimeout(r, 20))
+  expect(api.savePrompt).toHaveBeenCalledTimes(1)
 })
 
 it('guards a tab close only while there are unsaved edits', async () => {
@@ -212,7 +254,9 @@ it('a failed load shows Retry, disables Save and never saves', async () => {
   )
   render(PromptEditorPage, { name: 'portraits/hero' })
   expect(
-    await screen.findByText("Couldn't open portraits/hero: server exploded"),
+    await screen.findByText(
+      "Couldn't open portraits/hero: The server hit an error",
+    ),
   ).toBeTruthy()
   expect(saveButton().disabled).toBe(true)
   await fireEvent.keyDown(window, { key: 's', ctrlKey: true })
@@ -230,7 +274,9 @@ it('a 404 offers to start a new prompt with that name', async () => {
   )
   render(PromptEditorPage, { name: 'portraits/missing' })
   expect(
-    await screen.findByText("Couldn't open portraits/missing: not found"),
+    await screen.findByText(
+      "Couldn't open portraits/missing: That wasn't found",
+    ),
   ).toBeTruthy()
   await fireEvent.click(
     screen.getByRole('button', {
@@ -285,7 +331,9 @@ it('going back to a prompt after another failed to open shows the prompt', async
     new ApiError('server exploded', 500),
   )
   await rerender({ name: 'portraits/other' })
-  await screen.findByText("Couldn't open portraits/other: server exploded")
+  await screen.findByText(
+    "Couldn't open portraits/other: The server hit an error",
+  )
   await rerender({ name: 'portraits/hero' })
   await waitFor(() => expect(promptText().value).toBe('a hero at dawn'))
   expect(screen.queryByText(/Couldn't open/)).toBeNull()
@@ -306,4 +354,164 @@ it('going back to a prompt while another is still being read shows the prompt', 
   await new Promise((r) => setTimeout(r, 0))
   expect(promptText().value).toBe('a hero at dawn')
   expect(saveButton().disabled).toBe(false)
+})
+
+it('Load theirs replaces the edits', async () => {
+  await openHero()
+  await fireEvent.input(promptText(), { target: { value: 'my edit' } })
+  vi.mocked(api.getPrompt).mockResolvedValueOnce({
+    prompt: { text: 'their version' },
+    writable: true,
+    etag: '"p9"',
+  } as never)
+  feed.move('default', 'prompts')
+  const banner = await screen.findByText(
+    'portraits/hero changed since you opened it, in another tab or by an agent',
+  )
+  expect(banner.closest('[role="status"]')).toBeTruthy()
+  expect(promptText().value).toBe('my edit')
+  await fireEvent.click(screen.getByRole('button', { name: 'Load theirs' }))
+  await waitFor(() => expect(promptText().value).toBe('their version'))
+  expect(screen.queryByRole('button', { name: 'Load theirs' })).toBeNull()
+})
+
+it('a remote reload refreshes the enhancer idea', async () => {
+  vi.mocked(api.getPrompt).mockResolvedValueOnce({
+    prompt: { text: 'a hero at dawn', enhanced: { idea: 'my idea' } },
+    writable: true,
+    etag: '"p1"',
+  } as never)
+  await openHero()
+  const idea = () => document.getElementById('enhance-idea') as HTMLInputElement
+  await waitFor(() => expect(idea().value).toBe('my idea'))
+  vi.mocked(api.getPrompt).mockResolvedValueOnce({
+    prompt: { text: 'their version', enhanced: { idea: 'their idea' } },
+    writable: true,
+    etag: '"p9"',
+  } as never)
+  feed.move('default', 'prompts')
+  await waitFor(() => expect(promptText().value).toBe('their version'))
+  await waitFor(() => expect(idea().value).toBe('their idea'))
+})
+
+it('a remote reload keeps an enhancer idea the person typed', async () => {
+  vi.mocked(api.getPrompt).mockResolvedValueOnce({
+    prompt: { text: 'a hero at dawn', enhanced: { idea: 'my idea' } },
+    writable: true,
+    etag: '"p1"',
+  } as never)
+  await openHero()
+  const idea = () => document.getElementById('enhance-idea') as HTMLInputElement
+  await waitFor(() => expect(idea().value).toBe('my idea'))
+  await fireEvent.input(idea(), {
+    target: { value: 'typed, not enhanced yet' },
+  })
+  vi.mocked(api.getPrompt).mockResolvedValueOnce({
+    prompt: { text: 'their version', enhanced: { idea: 'their idea' } },
+    writable: true,
+    etag: '"p9"',
+  } as never)
+  feed.move('default', 'prompts')
+  await waitFor(() => expect(promptText().value).toBe('their version'))
+  expect(idea().value).toBe('typed, not enhanced yet')
+})
+
+it('a second Delete while the warning loads does nothing', async () => {
+  await openHero()
+  let land: (listing: unknown) => void = () => {}
+  vi.mocked(api.listWorkflows).mockClear()
+  vi.mocked(api.listWorkflows).mockReturnValueOnce(
+    new Promise((resolve) => (land = resolve)) as never,
+  )
+  vi.mocked(confirmDialog).mockClear()
+  vi.mocked(confirmDialog).mockResolvedValueOnce(false)
+  const del = screen.getByRole('button', {
+    name: 'delete this prompt from the library',
+  })
+  await fireEvent.click(del)
+  await fireEvent.click(del)
+  land({ workflows: [], details: {} })
+  await waitFor(() => expect(confirmDialog).toHaveBeenCalledTimes(1))
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  expect(confirmDialog).toHaveBeenCalledTimes(1)
+  expect(api.listWorkflows).toHaveBeenCalledTimes(1)
+})
+
+it('shows the unsaved chip like the workflow editor', async () => {
+  await openHero()
+  expect(screen.queryByText('unsaved')).toBeNull()
+  await fireEvent.input(promptText(), { target: { value: 'changed' } })
+  expect(screen.getByText('unsaved')).toBeTruthy()
+})
+
+it('Save is the one primary button of the prompt editor', async () => {
+  await openHero()
+  await waitFor(() => expect(screen.getByRole('button', { name: /^Save/ })))
+  const primary = within(
+    screen
+      .getByRole('heading', { level: 1 })
+      .closest('.pagehead') as HTMLElement,
+  )
+    .getAllByRole('button')
+    .filter((b) => b.matches('.withicon:not(.quiet, .bare)'))
+    .map((b) => b.textContent?.trim())
+  expect(primary).toEqual(['Save'])
+  expect(screen.getByRole('button', { name: /^Save/ })).not.toHaveClass('quiet')
+})
+
+it('an example prompt says so', async () => {
+  vi.mocked(api.getPrompt).mockResolvedValueOnce({
+    prompt: { text: 'a hero at dawn' },
+    origin: 'builtin',
+    writable: false,
+    etag: '"p1"',
+  })
+  await openHero()
+  expect(
+    screen.getByText(
+      "This is an example, so it can't be changed in place. Save makes your own copy in default.",
+    ),
+  ).toBeTruthy()
+})
+
+it('PromptEditorPage says when the prompt was last saved', async () => {
+  const changed = 1_790_000_000
+  vi.mocked(api.listPrompts).mockResolvedValueOnce({
+    prompts: ['portraits/hero'],
+    libraries: [{ origin: 'workspace', root: 'prompts', writable: true }],
+    shadowed: [],
+    details: { 'portraits/hero': { mtime: changed } },
+  } as never)
+  await openHero()
+  await waitFor(() =>
+    expect(document.querySelector('.stamp time')?.textContent?.trim()).toBe(
+      `Changed ${formatMtime(changed)}`,
+    ),
+  )
+})
+
+it('PromptEditorPage says its own save at once, from no change feed', async () => {
+  const list = vi.mocked(api.listPrompts)
+  const original = list.getMockImplementation()!
+  let changed = 1_790_000_000
+  list.mockImplementation(
+    async () =>
+      ({
+        prompts: ['portraits/hero'],
+        libraries: [{ origin: 'workspace', root: 'prompts', writable: true }],
+        shadowed: [],
+        details: { 'portraits/hero': { mtime: changed } },
+      }) as never,
+  )
+  try {
+    await openHero()
+    const stamp = () => document.querySelector('.stamp time')?.textContent
+    await waitFor(() => expect(stamp()).toBe(`Changed ${formatMtime(changed)}`))
+    changed += 3600
+    await fireEvent.click(saveButton())
+    // the feed never moves here: the save itself reads the time back
+    await waitFor(() => expect(stamp()).toBe(`Changed ${formatMtime(changed)}`))
+  } finally {
+    list.mockImplementation(original)
+  }
 })

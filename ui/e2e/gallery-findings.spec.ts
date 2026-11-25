@@ -1,9 +1,10 @@
 import { expect, test, type Page } from '@playwright/test'
 
-// The gallery detail's Findings and Assess (#1477), on a mocked gallery: one
-// video whose metadata carries a level finding, and an Assess reply with one
-// warn and one info finding and a probe that did not apply. Screenshots of
-// the detail in both themes land in this spec's test-results folder.
+// The Findings and Assess beside the Gallery's open file (#1477), on a
+// mocked gallery: one video whose metadata carries a level finding, and an
+// Assess reply with one warn and one info finding and a probe that did not
+// apply. Screenshots of the viewer in both themes land in this spec's
+// test-results folder.
 
 const NAME = 'clip/run-1/final/clip.mp4'
 
@@ -89,19 +90,19 @@ async function mockGallery(page: Page) {
     assessCalls.push(route.request().method())
     return route.fulfill({ json: assessReply })
   })
-  // No media is served: the panel is what is being looked at
+  // No media is served: the aside is what is being looked at
   await page.route('**/outputs/**', (route) => route.fulfill({ status: 404 }))
   return assessCalls
 }
 
 for (const theme of ['light', 'dark'] as const) {
-  test(`findings and Assess in the gallery detail (${theme})`, async ({
+  test(`findings and Assess in the gallery viewer (${theme})`, async ({
     page,
   }, testInfo) => {
     await page.emulateMedia({ colorScheme: theme })
     const assessCalls = await mockGallery(page)
     await page.goto('/#/ws/default/gallery')
-    await page.locator('button.cell').first().click()
+    await page.locator('button.filetile').first().click()
 
     const findings = page.getByRole('region', { name: 'Findings' })
     // The metadata's level finding shows without a click
@@ -116,7 +117,7 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(findings).toContainText('analyze_seams not applicable')
     expect(assessCalls).toEqual(['GET'])
 
-    await page.locator('.detail').screenshot({
+    await page.getByRole('dialog', { name: 'clip.mp4' }).screenshot({
       path: testInfo.outputPath(`gallery-findings-${theme}.png`),
     })
   })

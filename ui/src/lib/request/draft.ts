@@ -1,6 +1,8 @@
-// The draft of a note for the agent, on a request or one of its items:
-// when leaving it loses something, and what a refused save says beside it.
-import { ApiError } from '../apiErrors'
+// A note's draft: when leaving it loses something, and the tab storage it
+// is kept in (the storage layer of src/lib/noteDraft.svelte.ts, which both
+// note editors share); and, for a note for the agent on a request, what a
+// refused save says beside it.
+import { ApiError, describeError } from '../apiErrors'
 import type { LedgerNoteRef } from '../types'
 
 /** Whether closing the editor would lose words: the draft has text, and it
@@ -28,7 +30,7 @@ const RELOADS = new Set([
 ])
 
 /** What the item shows under the draft when a save is refused: the
- * server's own message and code, and `reload` when reading the request
+ * server's message as `describeError` reads it, and its code, and `reload` when reading the request
  * again is the answer; a workspace with no root folder
  * (`no_workspace_root`), a bad reference or a full list is not cured by a
  * reload. Null for a failure that is not the server refusing the write
@@ -36,7 +38,8 @@ const RELOADS = new Set([
 export function saveFailure(error: unknown): SaveFailure | null {
   if (!(error instanceof ApiError) || error.status >= 500) return null
   const code = error.code ?? null
-  return { message: error.message, reload: RELOADS.has(code ?? ''), code }
+  const { title } = describeError(error)
+  return { message: title, reload: RELOADS.has(code ?? ''), code }
 }
 
 // The box goes with the item when the plan is read again: the words are
@@ -47,7 +50,7 @@ const GONE_ITEM =
 /** The words beside a refused draft, said for the person writing the note
  * where the server's sentence is for an agent (a stale revision tells it
  * to rewrite its plan) or names no way on; any other refusal is the
- * server's message. */
+ * server's message as `saveFailure` described it - never the raw one. */
 export function refusalText(failure: SaveFailure): string {
   switch (failure.code) {
     case 'stale_revision':

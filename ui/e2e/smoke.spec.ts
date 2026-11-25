@@ -9,7 +9,7 @@ test('workflow browser lists, describes and filters', async ({ page }) => {
   ).toBeVisible()
   // the filter searches descriptions, not just names: 'fill dev' appears in
   // outpaint's description and in no workflow's name
-  await page.getByPlaceholder('filter…').fill('fill dev')
+  await page.getByPlaceholder('search workflows…').fill('fill dev')
   await expect(page.getByRole('link', { name: /^outpaint / })).toBeVisible()
   await expect(page.getByRole('link', { name: /^z-image / })).toHaveCount(0)
 })
@@ -83,13 +83,24 @@ test('split view shows editable JSON beside the form', async ({ page }) => {
   await expect(page.locator('.jsoncol')).toHaveCount(0)
 })
 
+test('the status page has one h1, with the queue as a section under it', async ({
+  page,
+}) => {
+  await page.goto('/#/server/status')
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Status')
+  await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1)
+  await expect(
+    page.getByRole('heading', { level: 2, name: 'All jobs' }),
+  ).toBeVisible()
+  await expect(page).toHaveTitle('Status · diffusers-workflow')
+})
+
 test('schema page renders a browsable tree from the live schema', async ({
   page,
 }) => {
   await page.goto('/#/schema')
-  await expect(
-    page.getByRole('heading', { name: 'Workflow Schema' }),
-  ).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Schema' })).toBeVisible()
+  await expect(page).toHaveTitle('Schema · diffusers-workflow')
   // the document root is open and shows the top-level properties
   await expect(page.getByText('steps', { exact: true })).toBeVisible()
   // expanding a definition reveals its properties
@@ -125,7 +136,7 @@ test('editor validates, saves into a new folder, and deletes', async ({
   test.setTimeout(60_000)
   await page.goto('/#/edit/models/z-image')
   await page.getByRole('button', { name: 'Validate' }).click()
-  await expect(page.getByText('schema-valid')).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByText('Ready to run.')).toBeVisible({ timeout: 30_000 })
 
   // save into a folder that does not exist yet - the "new folder…" flow
   // exercises the {name:path} route and the server's directory creation
@@ -156,7 +167,7 @@ test('editor validates, saves into a new folder, and deletes', async ({
   await expect(page.getByRole('link', { name: /E2EScratch/ })).toHaveCount(0)
 })
 
-test('the editor breadcrumb walks back to the workflow it opened', async ({
+test('the editor back link walks back to the workflow it opened', async ({
   page,
 }) => {
   await page.goto('/#/workflows/models/z-image')
@@ -164,7 +175,9 @@ test('the editor breadcrumb walks back to the workflow it opened', async ({
   await expect(page).toHaveURL(/#\/ws\/default\/edit\/models\/z-image$/)
   // the way back to the read-only page, which the bare "← workflows"
   // link never offered
-  await page.getByRole('link', { name: 'z-image', exact: true }).click()
+  await page
+    .getByRole('link', { name: '← models/z-image', exact: true })
+    .click()
   await expect(page).toHaveURL(/#\/ws\/default\/workflows\/models\/z-image$/)
   await expect(
     page.getByRole('heading', { name: 'models/z-image' }),
@@ -281,11 +294,11 @@ test('models page inventories the hub cache', async ({ page }) => {
   // Read-only: this runs against the developer's real hub cache
   await page.goto('/#/models')
   await expect(page.locator('h1')).toHaveText('Models')
-  await expect(page.locator('.head .muted')).toContainText('cached', {
+  await expect(page.locator('.pagehead .muted')).toContainText('cached', {
     timeout: 30_000,
   })
   // The download form is present but never submitted here
-  await expect(page.getByPlaceholder(/download a model/)).toBeVisible()
+  await expect(page.getByLabel('Hugging Face repo to download')).toBeVisible()
 })
 
 test('task steps get introspection-driven forms', async ({ page }) => {
@@ -327,10 +340,10 @@ test('the theme toggle re-themes an open Monaco editor', async ({ page }) => {
   await expect(editor).toBeVisible({ timeout: 20_000 })
   await expect(editor).toHaveClass(/\bvs\b/)
 
-  const toggle = page.getByRole('button', { name: /^theme:/ })
+  const toggle = page.getByRole('button', { name: /^theme:/i })
   await toggle.click() // system -> light
   await toggle.click() // light -> dark
-  await expect(toggle).toHaveAccessibleName(/theme: dark/)
+  await expect(toggle).toHaveAccessibleName(/theme: dark/i)
   await expect(editor).toHaveClass(/vs-dark/)
 
   await toggle.click() // dark -> system (light)
@@ -342,7 +355,12 @@ test('an unknown job renders an error rather than a blank page', async ({
   page,
 }) => {
   await page.goto('/#/jobs/does-not-exist')
-  await expect(page.getByText('Unknown job')).toBeVisible()
+  await expect(
+    page.getByText(
+      "Couldn't load job does-not-exist: job does-not-exist wasn't found",
+    ),
+  ).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible()
 })
 
 test('the workflow page checks a run as you edit, and places each finding', async ({
@@ -354,7 +372,8 @@ test('the workflow page checks a run as you edit, and places each finding', asyn
     const body = route.request().postDataJSON() as Record<string, unknown>
     asked.push({ url: route.request().url(), body })
     const args = (body.arguments ?? {}) as Record<string, unknown>
-    const refused = args.num_inference_steps === '0'
+    // the page sends typed values: a number, not the typed string
+    const refused = args.num_inference_steps === 0
     await route.fulfill({
       json: {
         valid: !refused,
@@ -389,28 +408,25 @@ test('the workflow page checks a run as you edit, and places each finding', asyn
   })
   await page.goto('/#/workflows/models/z-image')
   const check = page.getByRole('region', { name: 'run check' })
-  await expect(
-    check.getByText('a run would be admitted, with warnings'),
-  ).toBeVisible()
-  await expect(check.getByLabel('what a run will do')).toContainText('~3 min')
+  await expect(check.getByText('Ready to run.')).toBeVisible()
+  await expect(check).toContainText('about 3 min')
   expect(asked[0].body.workflow_path).toBe('models/z-image')
   expect(asked[0].url).toContain('sizes=false')
   // a hostile warning prints as text
-  await expect(
-    check.getByLabel('findings').getByText(/<img src=x onerror=/),
-  ).toBeVisible()
+  await check.getByText(/note for the workflow's author/).click()
+  await expect(check.getByText(/<img src=x onerror=/)).toBeVisible()
   expect(
     await page.evaluate(() => (window as { __pwned?: number }).__pwned),
   ).toBeUndefined()
 
   await page.getByLabel('num_inference_steps').fill('0')
-  await expect(check.getByText('a run would be refused')).toBeVisible()
+  await expect(check.getByText(/A job would be refused/)).toBeVisible()
   await expect(
     page.locator('[data-findings-for="num_inference_steps"]'),
   ).toContainText('must be at least 1')
-  await expect(check.getByLabel('findings')).not.toContainText(
-    'must be at least 1',
-  )
-  // the check never gates Run
-  await expect(page.getByRole('button', { name: /Run/ })).toBeEnabled()
+  // the field's error is shown under the field and nowhere in the run check
+  await expect(check).not.toContainText('must be at least 1')
+  // a refusing check turns Run into Fix, which goes to the field
+  await page.getByRole('button', { name: 'Fix 1 issue' }).click()
+  await expect(page.getByLabel('num_inference_steps')).toBeFocused()
 })

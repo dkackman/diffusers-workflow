@@ -2,7 +2,6 @@
 // the note's text and when it was written, and the agent's only voice is
 // the `why` of its next write: so the page can say the agent has written
 // since, never that it read the note.
-import { formatMtime } from '../format'
 import type { LedgerHistoryEntry, LedgerNote, LedgerRequest } from '../types'
 
 const seconds = (at: string) => Date.parse(at) / 1000
@@ -16,6 +15,16 @@ export function agentWritesSince(
   return history
     .filter((e) => e.by === 'agent' && Date.parse(e.at) > saved)
     .sort((a, b) => a.revision - b.revision)
+}
+
+/** What the agent said in its first write after the note: the revision it
+ * made and its `why`; null while it has written none */
+export function answerOf(
+  note: LedgerNote,
+  request: LedgerRequest,
+): { revision: number; why: string } | null {
+  const first = agentWritesSince(note, request.history)[0]
+  return first ? { revision: first.revision, why: first.why } : null
 }
 
 type Standing = Pick<LedgerRequest, 'state' | 'agent_wrote_at'>
@@ -45,19 +54,29 @@ export function noteWaiting(
 }
 
 export type NoteLine = {
-  text: string
+  /** When the note was first saved (unix seconds; NaN when the ledger's
+   * string does not parse, which `<Time>` says as "unknown time") */
+  written: number
+  /** When it was last edited, when that is not when it was written */
+  changed: number | null
+  /** Where it stands, after the times: a sentence, or the start of one the
+   * agent's write ends */
+  standing: string
+  /** The agent's write the sentence ends with: its time, said `changed
+   * <relative> by the agent`, after `lead` ('latest r14, ') */
+  agent: { at: number; lead: string } | null
   /** The agent has written since: the note may have done its work, so the
    * page offers to clear it */
   answered: boolean
 }
 
 /** What a waiting note, and the box a note is written in, say of when the
- * agent sees it: whether an agent session's notes channel is polling the
- * workspace (listening.svelte.ts) */
+ * agent sees it: whether the agent is connected, which is whether its
+ * notes channel is polling the workspace (listening.svelte.ts) */
 export const LISTENING_LINE =
-  'An agent session is listening; it will see this within about 10 seconds.'
+  'The agent is connected; it will see this within about 10 seconds.'
 export const NOT_LISTENING_LINE =
-  'No agent session is listening. It reads this the next time it updates the plan.'
+  "The agent isn't connected. It reads this the next time it updates the plan."
 
 /** A new note that has references but no words yet: the references say
  * what it is about, never what to change */
@@ -67,46 +86,46 @@ export const NEEDS_WORDS =
 /** Where a note is on the request page, for a link to it */
 export const noteAnchor = (id: string) => `request-note-${id}`
 
-/** The line under a saved note: when it was saved (and edited), then
- * where it stands. `listening` is whether an agent session will hear a
- * waiting note now. */
+/** The line under a saved note: when it was written (and changed), then
+ * where it stands - the times are `<Time>`s (ItemNote), the rest text.
+ * `listening` is whether an agent session will hear a waiting note now. */
 export function noteLine(
   note: LedgerNote,
   request: StandingWithHistory,
-  now: Date = new Date(),
   listening = false,
 ): NoteLine {
   const answered = noteAnswered(note, request)
-  const edited =
-    note.created !== note.at
-      ? ` · edited ${formatMtime(seconds(note.at), now)}`
-      : ''
-  const saved = `Saved ${formatMtime(seconds(note.created), now)}${edited}.`
+  const line = {
+    written: seconds(note.created),
+    changed: note.created !== note.at ? seconds(note.at) : null,
+    agent: null,
+    answered,
+  }
   if (request.state !== 'open')
     return {
-      text: `${saved} This request is closed. The agent may not return to it.`,
-      answered,
+      ...line,
+      standing: 'This request is closed. The agent may not return to it.',
     }
   if (!answered)
     return {
-      text: `${saved} ${listening ? LISTENING_LINE : NOT_LISTENING_LINE}`,
-      answered,
+      ...line,
+      standing: listening ? LISTENING_LINE : NOT_LISTENING_LINE,
     }
   const since = agentWritesSince(note, request.history)
   if (since.length === 0)
     return {
-      text: `${saved} The agent has updated the plan since (${formatMtime(seconds(request.agent_wrote_at as string), now)}).`,
-      answered,
+      ...line,
+      standing: 'The agent has updated the plan since',
+      agent: { at: seconds(request.agent_wrote_at as string), lead: '' },
     }
   // What it said is the header's and Plan changes' to show: here, only
   // that it has answered, and where to look
   const latest = since[since.length - 1]
   const times = since.length === 1 ? 'once' : `${since.length} times`
   return {
-    text:
-      `${saved} The agent has updated the plan ${times} since ` +
-      `(latest r${latest.revision}, ${formatMtime(seconds(latest.at), now)}).`,
-    answered,
+    ...line,
+    standing: `The agent has updated the plan ${times} since`,
+    agent: { at: seconds(latest.at), lead: `latest r${latest.revision}, ` },
   }
 }
 
@@ -117,4 +136,28 @@ export function notesWaiting(request: LedgerRequest): number {
     ...request.items.filter((item) => !item.dropped).flatMap((i) => i.notes),
   ]
   return notes.filter((note) => noteWaiting(note, request)).length
+}
+
+/** Whether a note can be written here: the request is open and the item
+ * (if any) is not dropped */
+export function noteListEditable(
+  request: LedgerRequest,
+  item: string | null,
+): boolean {
+  return (
+    request.state === 'open' &&
+    (item === null || request.items.some((i) => i.key === item && !i.dropped))
+  )
+}
+
+/** Whether a note list has anything to draw: a note to read, or a box to
+ * write in. A dropped item, or a closed request, keeps its notes to read
+ * and takes no more until it is reopened, so with none saved it shows
+ * nothing. */
+export function noteListShows(
+  request: LedgerRequest,
+  item: string | null,
+  shown: number,
+): boolean {
+  return shown > 0 || noteListEditable(request, item)
 }

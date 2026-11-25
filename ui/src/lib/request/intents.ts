@@ -25,7 +25,13 @@ export type Intent =
   | { kind: 'restore'; key: string; memory?: DropMemory }
   /** Put `key` before `before`, or last among the live items */
   | { kind: 'move'; key: string; before: string | null }
-  | { kind: 'state'; state: LedgerRequest['state'] }
+  /** `from` is the state the write expects to find: an Undo puts back
+   * the state it took away only over the one it wrote */
+  | {
+      kind: 'state'
+      state: LedgerRequest['state']
+      from?: LedgerRequest['state']
+    }
 
 export type Refusal =
   /** The item is no longer in the plan at all */
@@ -38,6 +44,8 @@ export type Refusal =
   | 'anchor_gone'
   /** The plan already says what the intent asks */
   | 'no_change'
+  /** The request's state is no longer the one the intent was made over */
+  | 'moved_on'
 
 export type Refused = { refusal: Refusal }
 /** The request as the intent leaves it, the `why` its write carries, and
@@ -265,9 +273,10 @@ const STATE_WHY: Record<LedgerRequest['state'], string> = {
 
 function setState(
   request: LedgerRequest,
-  state: LedgerRequest['state'],
+  { state, from }: Extract<Intent, { kind: 'state' }>,
 ): Change | Refused {
   if (request.state === state) return no('no_change')
+  if (from !== undefined && request.state !== from) return no('moved_on')
   const next = { ...request, state }
   return {
     request: { ...next, items: settle(next, request.items) },
@@ -291,7 +300,7 @@ export function project(
     case 'move':
       return move(request, intent)
     case 'state':
-      return setState(request, intent.state)
+      return setState(request, intent)
   }
 }
 

@@ -17,6 +17,10 @@ export interface PollOptions {
   immediate?: boolean
   /** Keep ticking while the tab is hidden. Only the status poll does */
   whileHidden?: boolean
+  /** Stop after the first call. It is a timeout that waits out a hidden
+   * tab: on the tab's return it starts its interval over, and does not
+   * fire at once, even when it is not `immediate` */
+  once?: boolean
 }
 
 /** Call `fn` every `ms` - at once too, unless `immediate` is false - until
@@ -25,7 +29,7 @@ export interface PollOptions {
 export function poll(
   fn: () => unknown,
   ms: number,
-  { immediate = true, whileHidden = false }: PollOptions = {},
+  { immediate = true, whileHidden = false, once = false }: PollOptions = {},
 ): () => void {
   let pending = false
   let stopped = false
@@ -38,6 +42,8 @@ export function poll(
       result = fn()
     } catch {
       return
+    } finally {
+      if (once) stop()
     }
     if (result instanceof Promise) {
       pending = true
@@ -56,26 +62,30 @@ export function poll(
     timer = null
   }
 
-  if (whileHidden || !hidden()) {
-    if (immediate) fire()
+  const unwatch = watchTab(whileHidden, pause, () => {
+    if (timer !== null) return
+    if (!once) fire()
     start()
-  }
-  const onVisibility = () => {
-    if (hidden()) pause()
-    else if (timer === null) {
-      fire()
-      start()
-    }
-  }
-  if (!whileHidden && typeof document !== 'undefined')
-    document.addEventListener('visibilitychange', onVisibility)
-
-  return () => {
+  })
+  function stop() {
     stopped = true
     pause()
-    if (!whileHidden && typeof document !== 'undefined')
-      document.removeEventListener('visibilitychange', onVisibility)
+    unwatch()
   }
+  if (whileHidden || !hidden()) {
+    if (immediate) fire()
+    if (!stopped) start()
+  }
+  return stop
+}
+
+/** Call `hide` when the tab is hidden and `show` when it is back, until the
+ * returned function stops it; never, for a timer that ticks while hidden */
+function watchTab(whileHidden: boolean, hide: () => void, show: () => void) {
+  if (whileHidden || typeof document === 'undefined') return () => {}
+  const onVisibility = () => (hidden() ? hide() : show())
+  document.addEventListener('visibilitychange', onVisibility)
+  return () => document.removeEventListener('visibilitychange', onVisibility)
 }
 
 export const sleep = (ms: number) =>

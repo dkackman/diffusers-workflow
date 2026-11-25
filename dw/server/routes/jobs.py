@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from ..changes import GALLERY, JOBS, changed
+from ..changes import GALLERY, JOBS, NO_CHANGE, ChangeRoute, pending_change, writes
 from ..api_models import (
     JobCancelled,
     JobDetail,
@@ -36,12 +36,7 @@ from ...host_memory_projection import CEILING_FRACTION, host_memory_warnings
 from ...plan import gate_warnings, missing_repo_errors
 from ...presets import apply_presets
 from ...schema import format_validation_errors
-from ...security import (
-    InvalidInputError,
-    SecurityError,
-    validate_ledger_key,
-    validate_path,
-)
+from ...security import SecurityError, validate_path
 from ...variables import set_variables
 from ...workspace import Workspace
 from ..admission import (
@@ -56,11 +51,9 @@ from ..admission import (
     check_bound_acknowledgement,
     validation_plan,
 )
-from ..catalog import (
-    catalog_name_for,
-    resolve_workflow_reference,
-)
+from ..catalog import catalog_name_for, resolve_workflow_reference
 from ..deps import (
+    check_ledger_filter,
     internal_error,
     selected_workspace,
     sources_for,
@@ -81,6 +74,7 @@ from ..outputs import (
     absolute_served_url,
     asset_library_for_job,
     delete_run_directory,
+    job_prompts,
     output_kinds,
     served_url,
     with_run_state,
@@ -88,7 +82,7 @@ from ..outputs import (
 
 logger = logging.getLogger("dw")
 
-router = APIRouter()
+router = APIRouter(route_class=ChangeRoute)
 
 # How long one SSE poll waits for a new event before checking liveness
 SSE_POLL_SECONDS = 1.0
@@ -120,6 +114,7 @@ def _historical_log_note(stored):
     response_model=JobDetail,
     response_model_exclude_unset=True,
 )
+@writes(JOBS, by="the job manager")
 def submit_job(
     http_request: Request,
     request: JobRequest,
@@ -253,6 +248,7 @@ def list_jobs(
         default=None,
         description="With `request`: only the jobs linked to this item of it",
     ),
+    prompts: bool = False,
 ):
     """All jobs by default - a plain filter, not `selected_workspace`,
     since the jobs list spans every workspace the server holds unless a
@@ -262,16 +258,10 @@ def list_jobs(
     `limit` keeps the newest N, and `total` always reports how many
     matched before the cut, so a caller can tell a bounded answer from a
     complete one. The default is still every matching job, oldest first -
-    what the web UI polls."""
+    what the web UI polls. `prompts=true` adds `prompts`: each listed job's
+    submitted `prompt` argument by job id."""
     manager = request.app.state.job_manager
-    if item and not request_id:
-        raise HTTPException(status_code=422, detail="item needs request")
-    for value, what in ((request_id, "request"), (item, "item")):
-        if value:
-            try:
-                validate_ledger_key(value, what)
-            except InvalidInputError as e:
-                raise HTTPException(status_code=422, detail=str(e))
+    check_ledger_filter(request_id, item)
     if workspace:
         # A name that was never a workspace is a typo, not "no jobs here"
         workspace_for(request.app.state, workspace)
@@ -298,7 +288,10 @@ def list_jobs(
         request=request_id,
         item=item,
     )
-    return {"jobs": jobs, "total": total}
+    if not prompts:
+        return {"jobs": jobs, "total": total}
+    found = job_prompts(manager, [job["id"] for job in jobs])
+    return {"jobs": jobs, "total": total, "prompts": found}
 
 
 @router.get(
@@ -331,6 +324,7 @@ def get_job(request: Request, job_id: str):
     response_model=RunDeleted,
     response_model_exclude_unset=True,
 )
+@writes(GALLERY, JOBS)
 def delete_job_run(request: Request, job_id: str):
     """Delete the run directory a job wrote, whole - the run a job id
     names, without the caller listing the gallery to find it. The job
@@ -367,11 +361,9 @@ def delete_job_run(request: Request, job_id: str):
             status_code=404, detail=f"Job {job_id}'s run directory is already gone"
         )
     swept = delete_run_directory(path, root)
-    workspace = (
-        job.get("workspace") if isinstance(job, dict) else job.spec.get("workspace")
-    )
-    # The job page shows its files, the gallery the run
-    changed(request, workspace, GALLERY, JOBS)
+    # The job page shows its files, the gallery the run, in the job's workspace
+    spec = job if isinstance(job, dict) else job.spec
+    pending_change(request).in_workspace(spec.get("workspace"))
     return {"job_id": job_id, "run_dir": run_dir, "deleted": True, "run_swept": swept}
 
 
@@ -516,6 +508,7 @@ class RerunRequest(BaseModel):
     response_model=JobDetail,
     response_model_exclude_unset=True,
 )
+@writes(JOBS, by="the job manager")
 def rerun_job(request: Request, job_id: str, body: RerunRequest = RerunRequest()):
     """Queue a fresh job from a previous job's stored spec, admitted as
     a new submission would be - a reference that resolved when the
@@ -584,6 +577,7 @@ class RestartBatchRequest(BaseModel):
     response_model=RestartBatchRerun,
     response_model_exclude_unset=True,
 )
+@writes(JOBS, by="the job manager")
 def rerun_restart_batch(
     request: Request, job_id: str, body: RestartBatchRequest = RestartBatchRequest()
 ):
@@ -649,6 +643,7 @@ def rerun_restart_batch(
     response_model=JobExport,
     response_model_exclude_unset=True,
 )
+@NO_CHANGE("an export lands in exports/, which no page lists")
 def export_job_route(
     request: Request,
     job_id: str,
@@ -694,16 +689,7 @@ def export_job_route(
     # list, so it is false. export_job's `next` keeps its hand-it-over
     # branch for the day /exports is gated.
     body["auth_required"] = False
-    for key, name in (
-        ("workflow", "workflow.json"),
-        ("manifest", "manifest.json"),
-        ("job", "job.json"),
-    ):
-        try:
-            with open(os.path.join(summary.directory, name), "r") as file:
-                body[key] = json.load(file)
-        except (OSError, ValueError):
-            body[key] = None
+    body.update(summary.inline_json())
     return body
 
 
@@ -716,6 +702,7 @@ class MoveRequest(BaseModel):
     response_model=JobMoved,
     response_model_exclude_unset=True,
 )
+@writes(JOBS, by="the job manager")
 def move_job(request: Request, job_id: str, body: MoveRequest):
     """Reorder a queued job. 409 once it is running or finished -
     only the waiting portion of the queue can be rearranged."""
@@ -738,6 +725,7 @@ def move_job(request: Request, job_id: str, body: MoveRequest):
     response_model=JobCancelled,
     response_model_exclude_unset=True,
 )
+@writes(JOBS, by="the job manager")
 def cancel_job(request: Request, job_id: str):
     manager = request.app.state.job_manager
     status = manager.cancel(job_id)
@@ -833,6 +821,7 @@ def job_event_log(
 @router.post(
     "/api/validate", response_model=ValidationResult, response_model_exclude_unset=True
 )
+@NO_CHANGE("validation reads only")
 def validate_workflow(
     http_request: Request,
     request: JobRequest,

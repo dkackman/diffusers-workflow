@@ -1,17 +1,18 @@
 <script lang="ts">
   import { api } from '../api'
+  import { resource } from '../resource.svelte'
+  import LoadState from '../ui/LoadState.svelte'
+  import PageHeader from '../ui/PageHeader.svelte'
   import SchemaNode, { type SchemaValue } from '../schema/SchemaNode.svelte'
 
-  let schema = $state<SchemaValue | null>(null)
-  let error = $state('')
   let filter = $state('')
 
-  $effect(() => {
-    api
-      .getSchema()
-      .then((s) => (schema = s))
-      .catch((e) => (error = e instanceof Error ? e.message : String(e)))
+  // The schema the running server validates against: it changes only with
+  // the server, whose restart raises the epoch and reads it again
+  const read = resource(() => api.getSchema() as Promise<SchemaValue>, {
+    watch: [],
   })
+  const schema = $derived(read.data ?? null)
 
   const definitions = $derived(
     Object.entries(schema?.$defs ?? {}) as [string, SchemaValue][],
@@ -23,15 +24,18 @@
   )
 </script>
 
-<div class="head">
-  <h1>Workflow Schema</h1>
-  <span class="flex"></span>
-  <a class="muted" href="/api/schema" target="_blank" rel="noopener">
-    raw JSON
-  </a>
-</div>
+<PageHeader title="Schema">
+  {#snippet actions()}<a
+      class="muted"
+      href="/api/schema"
+      target="_blank"
+      rel="noopener"
+    >
+      raw JSON
+    </a>{/snippet}
+</PageHeader>
 
-{#if error}<p class="error">{error}</p>{/if}
+<LoadState of={read} label="the schema" />
 
 {#if schema}
   <p class="muted intro">
@@ -46,7 +50,7 @@
 
   <div class="defshead">
     <h2>Definitions</h2>
-    <input placeholder="filter…" bind:value={filter} />
+    <input class="filter" placeholder="filter…" bind:value={filter} />
   </div>
   {#each shownDefinitions as [name, definition] (name)}
     <div class="panel def" id={'def-' + name}>
@@ -55,17 +59,9 @@
   {:else}
     <p class="muted">No definition matches "{filter}".</p>
   {/each}
-{:else if !error}
-  <p class="muted">loading schema…</p>
 {/if}
 
 <style>
-  .head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.4rem 0.6rem;
-  }
   .intro {
     max-width: 80ch;
   }

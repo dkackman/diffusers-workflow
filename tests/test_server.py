@@ -310,6 +310,21 @@ def test_a_running_job_carries_the_workers_device_and_a_queued_one_does_not(
         wait_for_status(client, running["id"], ["cancelled"])
 
 
+def test_worker_info_names_the_jobs_workspace(server):
+    with server(hanging_script) as client:
+        running = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        wait_for_status(client, running["id"], ["running"])
+
+        workers = client.get("/api/health").json()["workers"]
+        busy = [w for w in workers if w["current_job"] == running["id"]]
+        assert busy and busy[0]["workspace"]
+
+        client.post(f"/api/jobs/{running['id']}/cancel")
+        wait_for_status(client, running["id"], ["cancelled"])
+        idle = client.get("/api/health").json()["workers"]
+        assert all("workspace" not in w for w in idle)
+
+
 def test_a_finished_jobs_device_is_remembered_in_history(server, monkeypatch):
     label = "cuda:1 NVIDIA GeForce RTX 3090"
     monkeypatch.setattr(
@@ -2576,25 +2591,30 @@ def test_gallery_metadata_hashes_the_decoded_audio(server, tmp_path):
 
 
 def test_gallery_listing_never_computes_the_pcm_hash(server, tmp_path, monkeypatch):
-    """list_gallery media=true probes every file on the page: it must not
-    pay for the hash only get_gallery_metadata reports (#1139)."""
-    from dw.server.routes import gallery
+    """list_gallery media=true reads every file on the page: it must not
+    pay for the hash only get_gallery_metadata reports (#1139) - nor for
+    any decode, since its length is the container header's."""
+    import av
+
+    from dw.server import outputs as outputs_module
     from tests.test_media_info import write_wav
 
     calls = []
-    real = gallery.probe_media
+    real_decode = av.container.InputContainer.decode
 
-    def spy(*args, **kwargs):
-        calls.append(kwargs)
-        return real(*args, **kwargs)
+    def counting_decode(self, *args, **kwargs):
+        calls.append(True)
+        yield from real_decode(self, *args, **kwargs)
 
-    monkeypatch.setattr(gallery, "probe_media", spy)
+    outputs_module._duration_at.cache_clear()
+    monkeypatch.setattr(av.container.InputContainer, "decode", counting_decode)
     with server(success_script) as client:
         write_wav(tmp_path / "outputs" / "score-gen.0-0.0.wav", seconds=1.0)
 
         listing = client.get("/api/gallery", params={"media": "true"}).json()
 
-        assert calls and not any(c.get("pcm_hash") for c in calls)
+        assert calls == []
+        assert listing["files"][0]["duration_seconds"] == pytest.approx(1.0)
         for entry in listing["files"]:
             assert "pcm_sha256" not in entry
 
@@ -3368,6 +3388,62 @@ def test_the_asset_library_lists_what_it_holds(asset_server, tmp_path):
     assert names["gyre/voice.wav"]["kind"] == "audio"
     assert names["notes.txt"]["kind"] == "text"
     assert body["folders"] == ["", "gyre"]
+
+
+def test_the_asset_listing_adds_durations_only_when_asked(
+    asset_server, tmp_path, monkeypatch
+):
+    """`media=true` probes the audio and video assets through the gallery's
+    memo; without it the payload is key for key what it was, so the MCP
+    tools that list assets see nothing new."""
+    from dw.server import outputs as outputs_module
+
+    library = tmp_path / "assets"
+    (library / "iris.png").write_bytes(b"png")
+    (library / "voice.wav").write_bytes(b"riff")
+    (library / "clip.mp4").write_bytes(b"mp4")
+    calls = []
+
+    def probe(path):
+        calls.append(os.path.basename(path))
+        return 2.5
+
+    outputs_module._duration_at.cache_clear()
+    monkeypatch.setattr(outputs_module, "media_duration", probe)
+
+    with asset_server(success_script) as client:
+        plain = client.get("/api/assets").json()
+        media = client.get("/api/assets", params={"media": "true"}).json()
+        client.get("/api/assets", params={"media": "true"})
+
+    assert set(plain) == {
+        "workspace",
+        "libraries",
+        "assets",
+        "folders",
+        "shadowed",
+        "total",
+        "shadowed_total",
+    }
+    for entry in plain["assets"]:
+        assert set(entry) == {
+            "name",
+            "reference",
+            "folder",
+            "kind",
+            "size",
+            "mtime",
+            "origin",
+            "writable",
+            "url",
+        }
+    durations = {e["name"]: e.get("duration_seconds") for e in media["assets"]}
+    assert durations == {"iris.png": None, "voice.wav": 2.5, "clip.mp4": 2.5}
+    assert "duration_seconds" not in next(
+        e for e in media["assets"] if e["name"] == "iris.png"
+    )
+    # The memo answers the second media listing; the plain one probed nothing
+    assert sorted(calls) == ["clip.mp4", "voice.wav"]
 
 
 def test_the_asset_listing_names_its_libraries(tmp_path):
@@ -7079,3 +7155,18 @@ def test_unrealized_job_workflow_folds_the_chosen_preset(server):
 
     assert body["realized"] is False
     assert body["definition"]["variables"]["steps"] == 4
+
+
+def test_an_unknown_workspace_is_a_named_404(server, tmp_path):
+    from dw.workspace import Workspace
+
+    with server(success_script) as client:
+        (tmp_path / "ws").mkdir()
+        client.app.state.workspace_root = Workspace(str(tmp_path / "ws"), "flag")
+        response = client.get("/api/jobs", params={"workspace": "ghost"})
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == {
+            "code": "no_workspace",
+            "message": "No such workspace: ghost",
+        }

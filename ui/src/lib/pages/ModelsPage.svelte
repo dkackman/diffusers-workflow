@@ -1,155 +1,133 @@
+<script lang="ts" module>
+  // The server checks a download with huggingface_hub's validate_repo_id
+  // (dw/hub_cache.py); this is that rule, so the field never refuses a repo
+  // the server takes nor sends one it refuses. Pinned by
+  // tests/test_ui_twins.py. A part is 1-96 word, "-" or "." characters,
+  // opening and closing on a word character; the namespace is optional
+  const PART = String.raw`[A-Za-z0-9_](?:[A-Za-z0-9_.-]{0,94}[A-Za-z0-9_])?`
+  const REPO_ID = new RegExp(`^(?:${PART}/)?${PART}$`)
+
+  const REPO_ID_HINT =
+    'A repo id is org/name, like black-forest-labs/FLUX.1-dev.'
+
+  /** Why a download field's value cannot be sent, or null when it is empty
+   * or a repo id the server accepts */
+  export function repoIdHint(value: string): string | null {
+    const repo = value.trim()
+    if (!repo) return null
+    const valid =
+      REPO_ID.test(repo) &&
+      !repo.includes('--') &&
+      !repo.includes('..') &&
+      !repo.endsWith('.git')
+    return valid ? null : REPO_ID_HINT
+  }
+</script>
+
 <script lang="ts">
-  import { poll } from '../poll'
-  import { formatDay, gbFromBytes } from '../format'
+  import { resource } from '../resource.svelte'
+  import LoadState from '../ui/LoadState.svelte'
+  import DiskMeter from '../ui/DiskMeter.svelte'
+  import PageHeader from '../ui/PageHeader.svelte'
+  import { formatBytes, gbFromBytes } from '../format'
+  import Time from '../ui/Time.svelte'
   import {
     ChevronDown,
     ChevronRight,
     Download,
     ExternalLink,
-    HardDrive,
     RefreshCw,
     Trash2,
     X,
   } from '@lucide/svelte'
   import { api } from '../api'
-  import { notify } from '../toast'
-  import { confirmDialog } from '../confirm.svelte'
+  import { action } from '../action.svelte'
+  import { modelDeleteConfirm, UPDATE_DIFFUSERS_CONFIRM } from '../destructive'
   import CopyButton from '../CopyButton.svelte'
   import LastUsedCell, { LAST_USED_TIP } from '../LastUsedCell.svelte'
-  import type {
-    DiffusersStatus,
-    ModelCache,
-    ModelDownload,
-    ModelRepo,
-  } from '../types'
-  import { formatBytes } from '../format'
+  import type { ModelDownload, ModelRepo } from '../types'
 
-  let cache = $state<ModelCache | null>(null)
-  let error = $state('')
-  let deleting = $state<string | null>(null)
   let expanded = $state<Record<string, boolean>>({})
-
-  let downloads = $state<ModelDownload[]>([])
   let repoInput = $state('')
+  const repoHint = $derived(repoIdHint(repoInput))
 
-  async function refresh() {
-    try {
-      cache = await api.listModels()
-      error = ''
-    } catch (e) {
-      error = e instanceof Error ? e.message : String(e)
-    }
-  }
-  async function refreshDownloads() {
-    try {
-      downloads = (await api.listDownloads()).downloads
-    } catch {
-      /* the models fetch reports connectivity problems */
-    }
-  }
-
-  let diffusers = $state<DiffusersStatus | null>(null)
-  async function refreshDiffusers() {
-    try {
-      diffusers = await api.diffusersStatus()
-    } catch {
-      /* the models fetch reports connectivity problems */
-    }
-  }
-  $effect(() => {
-    refresh()
-    refreshDownloads()
-    refreshDiffusers()
+  // The hub cache and downloads follow the models feed (a delete, a
+  // download started or cancelled, here or by an agent); a download or a
+  // diffusers update in flight also keeps a 2 s poll while it runs
+  const cacheRead = resource(() => api.listModels(), { watch: ['models'] })
+  const cache = $derived(cacheRead.data ?? null)
+  const downloadsRead = resource(() => api.listDownloads(), {
+    watch: ['models'],
+    alsoLive: (): number | null => (active ? 2000 : null),
   })
-
-  // Poll while pip runs so the badge flips when it finishes
+  const downloads = $derived(downloadsRead.data?.downloads ?? [])
+  const active = $derived(
+    downloads.filter((d) => d.status === 'downloading').length,
+  )
+  // A download finishing re-reads the repo list, so it appears with its
+  // real size
+  let wasActive = 0
+  $effect(() => {
+    const now = active
+    if (now < wasActive) void cacheRead.reload()
+    wasActive = now
+  })
+  // An update started or finished elsewhere (another tab, an agent) moves
+  // models too
+  const diffusersRead = resource(() => api.diffusersStatus(), {
+    watch: ['models'],
+    alsoLive: (): number | null => (updating ? 2000 : null),
+  })
+  const diffusers = $derived(diffusersRead.data)
+  // Polled while pip runs so the badge flips when it finishes
   const updating = $derived(diffusers?.status === 'running')
-  $effect(() => {
-    if (!updating) return
-    return poll(refreshDiffusers, 2000, { immediate: false })
-  })
 
-  async function startDiffusersUpdate() {
-    try {
-      diffusers = await api.updateDiffusers()
-      error = ''
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      notify.error(msg)
-    }
-  }
+  const update = action(
+    async () => {
+      await api.updateDiffusers()
+      await diffusersRead.reload()
+    },
+    {
+      doing: 'start the diffusers update',
+      confirm: () => UPDATE_DIFFUSERS_CONFIRM,
+    },
+  )
 
-  // While anything is downloading, poll progress - and refresh the repo
-  // list when a download finishes so it appears with its real size
-  const anyActive = $derived(downloads.some((d) => d.status === 'downloading'))
-  $effect(() => {
-    if (!anyActive) return
-    return poll(
-      async () => {
-        const before = downloads.filter(
-          (d) => d.status === 'downloading',
-        ).length
-        await refreshDownloads()
-        const after = downloads.filter((d) => d.status === 'downloading').length
-        if (after < before) refresh()
-      },
-      2000,
-      { immediate: false },
-    )
-  })
-
-  async function startDownload() {
-    const repo = repoInput.trim()
-    if (!repo) return
-    try {
+  const startDownload = action(
+    async (repo: string) => {
       await api.startDownload(repo)
       repoInput = ''
-      error = ''
-      await refreshDownloads()
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      notify.error(msg)
-    }
-  }
+      await downloadsRead.reload()
+    },
+    { doing: (repo) => `download ${repo}` },
+  )
 
-  async function cancelDownload(id: string) {
-    try {
+  const cancelDownload = action(
+    async (id: string) => {
       await api.cancelDownload(id)
-      await refreshDownloads()
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      notify.error(msg)
-    }
-  }
+      await downloadsRead.reload()
+    },
+    { doing: 'cancel the download' },
+  )
 
   const pct = (download: ModelDownload) =>
     download.total
       ? Math.min(100, Math.round((100 * download.downloaded) / download.total))
       : null
 
-  async function remove(repo: ModelRepo) {
-    if (
-      !(await confirmDialog(
-        `Delete ${repo.repo_id} (${gb(repo.size_on_disk)} GB) from the hub cache?\n` +
-          'The next workflow that needs it will download it again.',
-        { confirmLabel: 'Delete' },
-      ))
-    )
-      return
-    deleting = repo.repo_id
-    try {
+  const remove = action(
+    async (repo: ModelRepo) => {
       await api.deleteModel(repo.repo_id)
-      await refresh()
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      notify.error(msg)
-    } finally {
-      deleting = null
-    }
-  }
+      await cacheRead.reload()
+    },
+    {
+      doing: (repo) => `delete ${repo.repo_id}`,
+      confirm: (repo) =>
+        modelDeleteConfirm(repo.repo_id, gbFromBytes(repo.size_on_disk)),
+    },
+  )
 
   const gb = gbFromBytes
-  const day = (stamp: number | null) => (stamp ? formatDay(stamp) : '—')
   const hubUrl = (repo: ModelRepo) =>
     'https://huggingface.co/' +
     (repo.repo_type === 'model' ? '' : repo.repo_type + 's/') +
@@ -160,118 +138,124 @@
   const largest = $derived(
     Math.max(1, ...(cache?.repos ?? []).map((r) => r.size_on_disk)),
   )
-  const usedPct = $derived.by(() => {
-    if (!cache?.disk_total || cache.disk_free == null) return null
-    return Math.round(
-      (100 * (cache.disk_total - cache.disk_free)) / cache.disk_total,
-    )
-  })
 </script>
 
-<div class="head">
-  <h1>Models</h1>
+<PageHeader title="Models" baseline>
   {#if cache}
     <span class="muted" title={cache.cache_dir}>
       {cache.repos.length} cached · {gb(cache.size_on_disk)} GB
     </span>
-    {#if usedPct != null}
-      <span class="disk" title="disk holding the hub cache">
-        <HardDrive size={14} />
-        <span class="diskbar"><span style="width: {usedPct}%"></span></span>
-        {gb(cache.disk_free ?? 0)} GB free
-      </span>
-    {/if}
   {/if}
-</div>
+  {#snippet actions()}
+    {#if cache && cache.disk_total && cache.disk_free != null}
+      <DiskMeter
+        freeBytes={cache.disk_free}
+        totalBytes={cache.disk_total}
+        title="disk holding the hub cache"
+        icon
+      />
+    {/if}
+  {/snippet}
+</PageHeader>
 
 <div class="toolrow">
   <form
     class="dlform"
     onsubmit={(e) => {
       e.preventDefault()
-      startDownload()
+      const repo = repoInput.trim()
+      if (repo && !repoIdHint(repo)) void startDownload.run(repo)
     }}
   >
     <input
-      placeholder="download a model… (org/name)"
+      aria-label="Hugging Face repo to download"
+      placeholder="org/name, e.g. black-forest-labs/FLUX.1-dev"
       bind:value={repoInput}
-      title="a Hugging Face repo id, e.g. black-forest-labs/FLUX.1-dev"
+      aria-invalid={repoHint ? 'true' : undefined}
     />
     <button
       class="withicon"
       type="submit"
-      disabled={!repoInput.trim()}
+      disabled={!repoInput.trim() || !!repoHint || startDownload.busy}
       title="download this repo into the hub cache"
     >
       <Download size={14} />Download
     </button>
+    {#if repoHint}<span class="hint">{repoHint}</span>{/if}
   </form>
 
-  {#if diffusers}
-    <div class="engine">
-      <span class="enginename">diffusers</span>
-      <code>{diffusers.version ?? 'not installed'}</code>
-      {#if diffusers.commit}
-        <span
-          class="muted"
-          title="installed from git commit {diffusers.commit}"
-        >
-          @{diffusers.commit.slice(0, 9)}
-        </span>
-      {/if}
-      {#if updating}
-        <span class="muted busy">
-          <RefreshCw size={14} class="spin" />updating from GitHub…
-        </span>
-      {:else}
-        <button
-          class="quiet withicon"
-          onclick={startDiffusersUpdate}
-          title="install the latest diffusers from GitHub - new model pipelines usually land there before a release. The worker restarts when idle so the next job uses it"
-        >
-          <RefreshCw size={14} />Update from GitHub
-        </button>
-        {#if diffusers.status === 'failed'}
-          <span class="warn" title={diffusers.log ?? ''}>
-            update failed: {diffusers.error} (hover for pip output)
+  <LoadState of={diffusersRead} label="the diffusers version" quiet>
+    {#if diffusers}
+      <div class="engine">
+        <span class="enginename">diffusers</span>
+        <code>{diffusers.version ?? 'not installed'}</code>
+        {#if diffusers.commit}
+          <span
+            class="muted"
+            title="installed from git commit {diffusers.commit}"
+          >
+            @{diffusers.commit.slice(0, 9)}
           </span>
-        {:else if diffusers.status === 'succeeded'}
-          <span class="updated">updated - the next job uses it</span>
         {/if}
-      {/if}
-    </div>
-  {/if}
+        {#if updating}
+          <span class="muted busy">
+            <RefreshCw size={14} class="spin" />updating from GitHub…
+          </span>
+        {:else}
+          <button
+            class="quiet withicon"
+            onclick={() => update.run()}
+            disabled={update.busy}
+            title="install the latest diffusers from GitHub - new model pipelines usually land there before a release. The worker restarts when idle so the next job uses it"
+          >
+            <RefreshCw size={14} />Update from GitHub
+          </button>
+          {#if diffusers.status === 'failed'}
+            <span class="bad" title={diffusers.log ?? ''}>
+              update failed: {diffusers.error} (hover for pip output)
+            </span>
+          {:else if diffusers.status === 'succeeded'}
+            <span class="updated">updated - the next job uses it</span>
+          {/if}
+        {/if}
+      </div>
+    {/if}
+  </LoadState>
 </div>
 
-{#if error}<p class="warn">{error}</p>{/if}
-
-{#each downloads.filter((d) => d.status === 'downloading' || (d.finished_at && Date.now() / 1000 - d.finished_at < 300)) as download (download.id)}
-  <div class="dl" class:failed={download.status === 'failed'}>
-    <span class="dlrepo">{download.repo_id}</span>
-    {#if download.status === 'downloading'}
-      {#if pct(download) != null}
-        <span class="dlbar"><span style="width: {pct(download)}%"></span></span>
-        <span class="muted dlnum">
-          {gb(download.downloaded)} / {gb(download.total ?? 0)} GB
-        </span>
+<LoadState of={downloadsRead} label="downloads" quiet>
+  {#each downloads.filter((d) => d.status === 'downloading' || (d.finished_at && Date.now() / 1000 - d.finished_at < 300)) as download (download.id)}
+    <div class="dl" class:failed={download.status === 'failed'}>
+      <span class="dlrepo">{download.repo_id}</span>
+      {#if download.status === 'downloading'}
+        {#if pct(download) != null}
+          <span class="dlbar">
+            <span style="width: {pct(download)}%"></span>
+          </span>
+          <span class="muted dlnum">
+            {gb(download.downloaded)} / {gb(download.total ?? 0)} GB
+          </span>
+        {:else}
+          <span class="muted dlnum">{gb(download.downloaded)} GB…</span>
+        {/if}
+        <button
+          class="quiet icon"
+          onclick={() => cancelDownload.run(download.id)}
+          disabled={cancelDownload.busy}
+          title="cancel this download - partial files resume on retry"
+          aria-label="cancel downloading {download.repo_id}"
+        >
+          <X size={14} />
+        </button>
+      {:else if download.status === 'failed'}
+        <span class="bad">{download.error}</span>
       {:else}
-        <span class="muted dlnum">{gb(download.downloaded)} GB…</span>
+        <span class="muted">{download.status}</span>
       {/if}
-      <button
-        class="quiet icon"
-        onclick={() => cancelDownload(download.id)}
-        title="cancel this download - partial files resume on retry"
-        aria-label="cancel downloading {download.repo_id}"
-      >
-        <X size={14} />
-      </button>
-    {:else if download.status === 'failed'}
-      <span class="warn">{download.error}</span>
-    {:else}
-      <span class="muted">{download.status}</span>
-    {/if}
-  </div>
-{/each}
+    </div>
+  {/each}
+</LoadState>
+
 {#if cache?.warnings.length}
   <p class="muted skipped" title={cache.warnings.join('\n')}>
     {cache.warnings.length} cache
@@ -280,122 +264,119 @@
   </p>
 {/if}
 
-{#if cache && cache.repos.length === 0}
-  <p class="muted">
-    The hub cache is empty - models land here the first time a workflow
-    downloads them.
-  </p>
-{/if}
-
-{#if cache}
-  <div class="tablewrap">
-    <table>
-      <thead>
-        <tr>
-          <th></th>
-          <th>repo</th>
-          <th class="num">size</th>
-          <th class="num">files</th>
-          <th title={LAST_USED_TIP}>last used</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {#each cache.repos as repo (repo.repo_id)}
+<LoadState
+  of={cacheRead}
+  label="the hub cache"
+  empty={cache !== null && cache.repos.length === 0}
+>
+  {#snippet emptyText()}The hub cache is empty - models land here the first time
+    a workflow downloads them.{/snippet}
+  {#if cache}
+    <div class="tablewrap">
+      <table class="datatable">
+        <thead>
           <tr>
-            <td>
-              <button
-                class="quiet icon"
-                onclick={() =>
-                  (expanded[repo.repo_id] = !expanded[repo.repo_id])}
-                title={expanded[repo.repo_id]
-                  ? 'hide revisions'
-                  : 'show cached revisions'}
-                aria-label="toggle revisions for {repo.repo_id}"
-              >
-                {#if expanded[repo.repo_id]}<ChevronDown
-                    size={14}
-                  />{:else}<ChevronRight size={14} />{/if}
-              </button>
-            </td>
-            <td class="repo">
-              {repo.repo_id}
-              {#if repo.repo_type !== 'model'}
-                <span class="badge">{repo.repo_type}</span>
-              {/if}
-              <CopyButton
-                text={repo.repo_id}
-                title="copy model id to clipboard"
-                class="copymodel"
-              />
-              <a
-                href={hubUrl(repo)}
-                target="_blank"
-                rel="noreferrer"
-                class="muted hublink"
-                title="open on huggingface.co"
-              >
-                <ExternalLink size={12} />
-              </a>
-            </td>
-            <td class="num size">
-              <span
-                class="sizebar"
-                style="width: {(100 * repo.size_on_disk) / largest}%"
-              ></span>
-              <span class="sizenum">{formatBytes(repo.size_on_disk)}</span>
-            </td>
-            <td class="num muted">{repo.nb_files}</td>
-            <LastUsedCell
-              lastJobUse={repo.last_job_use}
-              lastAccessed={repo.last_accessed}
-            />
-            <td>
-              <button
-                class="quiet icon danger"
-                onclick={() => remove(repo)}
-                disabled={deleting !== null}
-                title="delete every cached revision of this repo"
-                aria-label="delete {repo.repo_id} from the cache"
-              >
-                <Trash2 size={14} />
-              </button>
-            </td>
+            <th></th>
+            <th>repo</th>
+            <th class="num">size</th>
+            <th class="num wideonly">files</th>
+            <th class="wideonly" title={LAST_USED_TIP}>last used</th>
+            <th></th>
           </tr>
-          {#if expanded[repo.repo_id]}
-            {#each repo.revisions as revision (revision.commit_hash)}
-              <tr class="revision">
-                <td></td>
-                <td class="muted">
-                  <code>{revision.commit_hash.slice(0, 12)}</code>
-                  {#if revision.refs.length}({revision.refs.join(', ')}){/if}
-                </td>
-                <td class="num muted">{formatBytes(revision.size_on_disk)}</td>
-                <td></td>
-                <td class="muted lastused">{day(revision.last_modified)}</td>
-                <td></td>
-              </tr>
-            {/each}
-          {/if}
-        {/each}
-      </tbody>
-    </table>
-  </div>
-{/if}
+        </thead>
+        <tbody>
+          {#each cache.repos as repo (repo.repo_id)}
+            <tr>
+              <td>
+                <button
+                  class="quiet icon"
+                  onclick={() =>
+                    (expanded[repo.repo_id] = !expanded[repo.repo_id])}
+                  title={expanded[repo.repo_id]
+                    ? 'hide revisions'
+                    : 'show cached revisions'}
+                  aria-label="toggle revisions for {repo.repo_id}"
+                >
+                  {#if expanded[repo.repo_id]}<ChevronDown
+                      size={14}
+                    />{:else}<ChevronRight size={14} />{/if}
+                </button>
+              </td>
+              <td class="repo">
+                {repo.repo_id}
+                {#if repo.repo_type !== 'model'}
+                  <span class="badge">{repo.repo_type}</span>
+                {/if}
+                <CopyButton
+                  text={repo.repo_id}
+                  title="copy model id to clipboard"
+                  class="copymodel"
+                />
+                <a
+                  href={hubUrl(repo)}
+                  target="_blank"
+                  rel="noreferrer"
+                  class="muted hublink"
+                  title="open on huggingface.co"
+                >
+                  <ExternalLink size={12} />
+                </a>
+              </td>
+              <td class="num size">
+                <span
+                  class="sizebar"
+                  style="width: {(100 * repo.size_on_disk) / largest}%"
+                ></span>
+                <span class="sizenum">{formatBytes(repo.size_on_disk)}</span>
+              </td>
+              <td class="num muted wideonly">{repo.nb_files}</td>
+              <LastUsedCell
+                class="wideonly"
+                lastJobUse={repo.last_job_use}
+                lastAccessed={repo.last_accessed}
+              />
+              <td>
+                <button
+                  class="quiet icon"
+                  onclick={() => remove.run(repo)}
+                  disabled={remove.busy}
+                  title="delete every cached revision of this repo"
+                  aria-label="delete {repo.repo_id} from the cache"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </td>
+            </tr>
+            {#if expanded[repo.repo_id]}
+              {#each repo.revisions as revision (revision.commit_hash)}
+                <tr class="revision">
+                  <td></td>
+                  <td class="muted">
+                    <code>{revision.commit_hash.slice(0, 12)}</code>
+                    {#if revision.refs.length}({revision.refs.join(', ')}){/if}
+                  </td>
+                  <td class="num muted">
+                    {formatBytes(revision.size_on_disk)}
+                  </td>
+                  <td class="wideonly"></td>
+                  <td class="muted lastused wideonly">
+                    {#if revision.last_modified}<Time
+                        at={revision.last_modified}
+                        mode="day"
+                      />{:else}—{/if}
+                  </td>
+                  <td></td>
+                </tr>
+              {/each}
+            {/if}
+          {/each}
+        </tbody>
+      </table>
+    </div>
+  {/if}
+</LoadState>
 
 <style>
-  .head {
-    display: flex;
-    align-items: baseline;
-    flex-wrap: wrap;
-    gap: 0.4rem 1rem;
-    margin-bottom: 1rem;
-  }
-  /* Six columns of repo ids and sizes have a floor well above a phone -
-     scroll the table itself rather than the whole document */
-  .tablewrap {
-    overflow-x: auto;
-  }
   .engine {
     display: flex;
     align-items: center;
@@ -428,30 +409,7 @@
   .updated {
     color: var(--accent);
   }
-  .disk {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    margin-left: auto;
-    color: var(--muted);
-    font-size: 0.85rem;
-  }
-  .diskbar {
-    width: 90px;
-    height: 6px;
-    border-radius: 3px;
-    background: var(--line);
-    overflow: hidden;
-    display: inline-block;
-  }
-  .diskbar > span {
-    display: block;
-    height: 100%;
-    background: var(--muted);
-    opacity: 0.7;
-  }
-  .warn {
-    color: var(--danger, #c33);
+  .bad {
     font-size: 0.9rem;
   }
   .toolrow {
@@ -462,6 +420,8 @@
   }
   .dlform {
     display: flex;
+    flex-wrap: wrap;
+    align-items: center;
     gap: 0.5rem;
   }
   .dlform input {
@@ -480,6 +440,10 @@
       flex: 1;
       max-width: none;
     }
+    /* repo and size are what a phone needs; the rest is on a wider screen */
+    .datatable :global(.wideonly) {
+      display: none;
+    }
   }
   .dl {
     display: flex;
@@ -489,7 +453,7 @@
     font-size: 0.88rem;
     margin-bottom: 0.4rem;
   }
-  .dl.failed .warn {
+  .dl.failed .bad {
     font-size: 0.82rem;
   }
   .dlrepo {
@@ -519,24 +483,10 @@
     font-size: 0.82rem;
     margin: 0 0 0.6rem;
   }
+  /* Six columns of repo ids and sizes have a floor well above a phone: the
+     table scrolls itself (.tablewrap) rather than the whole document */
   table {
-    width: 100%;
-    border-collapse: collapse;
     font-size: 0.9rem;
-  }
-  th {
-    text-align: left;
-    font-weight: 600;
-    color: var(--muted);
-    font-size: 0.75rem;
-    text-transform: none;
-    padding: 0.4rem 0.5rem;
-    border-bottom: 1px solid var(--line);
-  }
-  td {
-    padding: 0.35rem 0.5rem;
-    border-bottom: 1px solid var(--line);
-    vertical-align: middle;
   }
   .num {
     text-align: right;
@@ -588,7 +538,7 @@
     position: relative;
   }
   .revision td {
-    border-bottom: none;
+    border-top: none;
     padding-top: 0.1rem;
     padding-bottom: 0.1rem;
     font-size: 0.82rem;

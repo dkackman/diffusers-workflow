@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { HealthInfo, JobDetail } from './types'
+import { pageFrame } from './pageFrame.svelte'
 import {
   BASE_TITLE,
   endedSince,
   endedTitle,
+  finishedText,
   nextWatch,
   percentDone,
   runningIds,
@@ -66,6 +68,20 @@ describe('nextWatch', () => {
   })
 })
 
+describe('adopted jobs', () => {
+  it('an adopted job that finished before the next poll ends once', () => {
+    const adopted = new Set(['x'])
+    const next = nextWatch(['a'], health(['a']), adopted)
+    expect(next.ended).toEqual(['x'])
+    expect(nextWatch(null, health([]), adopted).ended).toEqual(['x'])
+    expect(nextWatch(['x'], health([]), adopted).ended).toEqual(['x'])
+  })
+  it('an adopted job is held while anything is queued', () => {
+    const queued = { ...health([]), queued: 1 } as HealthInfo
+    expect(nextWatch(null, queued, new Set(['x'])).ended).toEqual([])
+  })
+})
+
 describe('percentDone', () => {
   it('counts finished steps plus the denoise fraction of the current one', () => {
     expect(
@@ -109,6 +125,24 @@ describe('tabTitle', () => {
     }
     expect(tabTitle(job, 1)).toBe(`▶ 0% · ref-to-video +1 — ${BASE_TITLE}`)
   })
+  it("the running title keeps the page's name", () => {
+    const job = {
+      workflow: 'minimax/ref-to-video',
+      workflow_name: 'templates/minimax/ref-to-video',
+      progress: progress({ step_index: 0, total_steps: 2 }),
+    }
+    pageFrame.title = 'Gallery'
+    try {
+      expect(tabTitle(job, 1)).toBe(
+        '▶ 0% · ref-to-video +1 — Gallery · diffusers-workflow',
+      )
+      expect(endedTitle({ ...job, status: 'succeeded' })).toBe(
+        '✓ ref-to-video — Gallery · diffusers-workflow',
+      )
+    } finally {
+      pageFrame.title = ''
+    }
+  })
   it('leaves the percent out when there is none', () => {
     expect(
       tabTitle({ workflow: 'wf', workflow_name: null, progress: null }),
@@ -128,5 +162,18 @@ describe('endedTitle', () => {
     expect(endedTitle({ ...base, status: 'cancelled' })).toBe(
       `⊘ wf — ${BASE_TITLE}`,
     )
+  })
+})
+
+describe('finishedText', () => {
+  it('finishedText names the file, not the JSON id', () => {
+    const job = {
+      workflow: 'E2ECard',
+      workflow_name: 'e2e-card',
+      status: 'succeeded',
+      started_at: 10,
+      finished_at: 22,
+    } as unknown as JobDetail
+    expect(finishedText(job).startsWith('e2e-card ')).toBe(true)
   })
 })

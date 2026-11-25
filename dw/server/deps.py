@@ -17,7 +17,12 @@ from ..adapter_compatibility import catalog_index
 from ..lora_catalog import entry_errors
 from ..presets import PRESETS_KEY, effective_variables
 from ..realize import strings_with_prefix
-from ..security import SecurityError, validate_asset_reference
+from ..security import (
+    InvalidInputError,
+    SecurityError,
+    validate_asset_reference,
+    validate_ledger_key,
+)
 from ..vram_inheritance import (
     build_index,
     inherited_differences,
@@ -57,6 +62,19 @@ def internal_error(message):
     return HTTPException(
         status_code=500, detail="internal error - the server log has the detail"
     )
+
+
+def check_ledger_filter(request_id, item):
+    """Refuse a listing's requests-ledger filter: an `item` without a
+    `request`, or either as a malformed ledger key, is a 422."""
+    if item and not request_id:
+        raise HTTPException(status_code=422, detail="item needs request")
+    for value, what in ((request_id, "request"), (item, "item")):
+        if value:
+            try:
+                validate_ledger_key(value, what)
+            except InvalidInputError as e:
+                raise HTTPException(status_code=422, detail=str(e))
 
 
 def asset_library_missing(shared=False):
@@ -112,6 +130,15 @@ def workspace_root(state):
     return root
 
 
+def no_such_workspace(name):
+    """The 404 for a workspace that does not exist, carrying the stable code
+    `no_workspace` so a client can tell it from a missing file."""
+    return HTTPException(
+        status_code=404,
+        detail={"code": "no_workspace", "message": f"No such workspace: {name}"},
+    )
+
+
 def workspace_for(state, name):
     """The Workspace a request names.
 
@@ -133,15 +160,19 @@ def workspace_for(state, name):
     except SecurityError as e:
         raise HTTPException(status_code=400, detail=str(e))
     if not _holds_a_workspace(selected.root):
-        raise HTTPException(status_code=404, detail=f"No such workspace: {name}")
+        raise no_such_workspace(name)
     return selected
 
 
 def selected_workspace(request: Request, workspace: Optional[str] = None) -> Workspace:
     """FastAPI dependency form of workspace_for, reading the name from
     the `?workspace=` query parameter every scoped route already takes -
-    used as `ws: Workspace = Depends(selected_workspace)`."""
-    return workspace_for(request.app.state, workspace)
+    used as `ws: Workspace = Depends(selected_workspace)`. Records the name
+    on `request.state.dw_workspace`, the workspace a write route's declared
+    change bumps (dw/server/changes.py, `ChangeRoute`)."""
+    ws = workspace_for(request.app.state, workspace)
+    request.state.dw_workspace = ws.name
+    return ws
 
 
 def sources_for(state, ws):
@@ -518,7 +549,7 @@ def inherited_observed(state, ws, definition, arguments=None, *, card=None):
 
 
 def inherited_host_ram(state, ws, definition, history):
-    """(mb, "inherited", runs) for an inline workflow whose own memory key has
+    """(mb, "inherited", runs, template) for an inline workflow whose own memory key has
     no run, read from this machine's runs of the catalog templates that load
     the same pipeline identity (#1436), or None. The larger peak of the
     matching templates wins: under-projecting is the failure the host-RAM
@@ -529,7 +560,7 @@ def inherited_host_ram(state, ws, definition, history):
     if identity is None or history is None:
         return None
     best = None
-    for _name, template, _writable in _catalog_listing(state, ws):
+    for name, template, _writable in _catalog_listing(state, ws):
         if not isinstance(template, dict) or template_identity(template) != identity:
             continue
         key = memory_key(template)
@@ -537,7 +568,7 @@ def inherited_host_ram(state, ws, definition, history):
             continue
         peaks = history.peaks_for_key(key)
         if peaks and (best is None or max(peaks) > best[0]):
-            best = (max(peaks), "inherited", len(peaks))
+            best = (max(peaks), "inherited", len(peaks), name)
     return best
 
 

@@ -58,6 +58,27 @@ it('says a failure, a new item, a drop and a new take', () => {
   expect(announce(one, two)).toBe('Poster has a new take.')
 })
 
+it('says an item the agent removed outright was dropped', () => {
+  const gone = request([
+    item('shot', {
+      title: 'Shot 3',
+      status: 'running',
+      attempts: [attempt('j', 'running')],
+    }),
+  ])
+  expect(announce(before, gone)).toBe('The cut was dropped from the plan.')
+  // one already dropped, then removed: nothing new to say
+  const dropped = request([
+    item('shot', {
+      title: 'Shot 3',
+      status: 'running',
+      attempts: [attempt('j', 'running')],
+    }),
+    item('cut', { title: 'The cut', dropped: true, status: 'dropped' }),
+  ])
+  expect(announce(dropped, gone)).toBe('')
+})
+
 it('says the request was closed or reopened', () => {
   expect(announce(before, { ...before, state: 'done' })).toMatch(
     /^The request was marked done\./,
@@ -87,14 +108,59 @@ it('says the review banner changed state once, and nothing as it ticks', () => {
       }),
     ])
   const free = request([item('a', { title: 'Title card' })])
-  expect(announce(free, held('holding'))).toBe('1 item held for your review.')
+  expect(announce(free, held('holding'))).toBe('1 item waiting for your OK.')
   // the same state with fewer seconds left: nothing to say
   expect(announce(held('holding', 60), held('holding', 30))).toBe('')
   expect(announce(held('holding'), held('redirected'))).toBe(
-    'You left a note after these were held: the agent will revise before running.',
+    "The held items won't start on their own: you left a note.",
   )
   expect(announce(held('holding'), held('due', 0))).toBe(
     'Review time is up for the held items.',
   )
   expect(announce(held('due', 0), free)).toBe('')
+})
+
+it('announces a rename', () => {
+  const renamed = request([
+    item('shot', {
+      title: 'Shot 3: the pier',
+      status: 'running',
+      attempts: [attempt('j', 'running')],
+    }),
+    item('cut', { title: 'The cut', depends_on: ['shot'] }),
+  ])
+  expect(announce(before, renamed)).toBe(
+    'The agent renamed Shot 3 to Shot 3: the pier.',
+  )
+  // Renamed and finished in one refresh: both, the new name in the second
+  const done = request([
+    doneItem('shot', { title: 'Shot 3: the pier' }),
+    item('cut', { title: 'The cut', depends_on: ['shot'] }),
+  ])
+  expect(announce(before, done)).toBe(
+    'The agent renamed Shot 3 to Shot 3: the pier. Shot 3: the pier finished.',
+  )
+})
+
+it('says an argument change after a rename', () => {
+  const edited = request([
+    item('shot', {
+      title: 'Shot 3: the pier',
+      status: 'running',
+      attempts: [attempt('j', 'running')],
+      arguments: { seed: 7 },
+    }),
+    item('cut', { title: 'The cut', depends_on: ['shot'], workflow: 'cut' }),
+  ])
+  expect(announce(before, edited)).toBe(
+    'The agent renamed Shot 3 to Shot 3: the pier. ' +
+      'The agent changed the arguments of Shot 3: the pier. ' +
+      'The agent changed the workflow of The cut.',
+  )
+})
+
+it('naming an untitled item is said', () => {
+  const untitled = request([item('shot', { title: '' })])
+  const named = request([item('shot', { title: 'Shot 3' })])
+  expect(announce(untitled, named)).toBe('The agent named Shot 3.')
 })

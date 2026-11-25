@@ -22,6 +22,31 @@ function describeContents(contents: unknown): string {
   return parts.length ? parts.join(', ') : 'nothing'
 }
 
+/** FastAPI's 422 list of validation errors as one line: each entry's
+ * `msg`, or the entry itself when it has none. */
+function validationMessages(detail: unknown[]): string {
+  return detail
+    .map((entry) =>
+      entry && typeof entry === 'object'
+        ? String((entry as { msg?: unknown }).msg ?? JSON.stringify(entry))
+        : String(entry),
+    )
+    .filter(Boolean)
+    .join('. ')
+}
+
+/** An object `detail` as text: its `message`, then what the route says it
+ * would act on - a workspace's `contents`, or the `entries` found. */
+function recordDetail(record: Record<string, unknown>, fallback: string) {
+  const message = typeof record.message === 'string' ? record.message : fallback
+  const contents = describeContents(record.contents)
+  if (contents) return `${message}\n\n${contents}`
+  if (Array.isArray(record.entries) && record.entries.length) {
+    return `${message}\n\n${record.entries.join(', ')}`
+  }
+  return message
+}
+
 /** The message inside an error response's `detail`. Most routes answer with
  * a plain string, but the ones that have to say what they would do send an
  * object instead - the workspace delete's `{message, contents}`, the
@@ -32,27 +57,9 @@ function describeContents(contents: unknown): string {
 export function errorDetail(payload: unknown, fallback: string): string {
   const detail = (payload as { detail?: unknown } | null)?.detail
   if (typeof detail === 'string') return detail
-  if (Array.isArray(detail)) {
-    const messages = detail
-      .map((entry) =>
-        entry && typeof entry === 'object'
-          ? String((entry as { msg?: unknown }).msg ?? JSON.stringify(entry))
-          : String(entry),
-      )
-      .filter(Boolean)
-    return messages.length ? messages.join('. ') : fallback
-  }
-  if (detail && typeof detail === 'object') {
-    const record = detail as Record<string, unknown>
-    const message =
-      typeof record.message === 'string' ? record.message : fallback
-    const contents = describeContents(record.contents)
-    if (contents) return `${message}\n\n${contents}`
-    if (Array.isArray(record.entries) && record.entries.length) {
-      return `${message}\n\n${record.entries.join(', ')}`
-    }
-    return message
-  }
+  if (Array.isArray(detail)) return validationMessages(detail) || fallback
+  if (detail && typeof detail === 'object')
+    return recordDetail(detail as Record<string, unknown>, fallback)
   return fallback
 }
 
@@ -97,5 +104,123 @@ export class ApiError extends Error {
     this.status = status
     this.code = code
     this.detail = detail
+  }
+}
+
+/** fetch's own TypeError - the request never reached the server - as
+ * `send` rethrows it. Only this is an outage: a TypeError from a bug in a
+ * page's own code is not, and must not send the user to restart a healthy
+ * server. Still a TypeError, for callers that only ask that. */
+export class NetworkError extends TypeError {
+  constructor(message: string) {
+    super(message)
+    this.name = 'NetworkError'
+  }
+}
+
+export type ErrorKind =
+  | 'offline'
+  | 'locked'
+  | 'forbidden'
+  | 'no_workspace'
+  | 'not_found'
+  | 'refused'
+  | 'server'
+  | 'json'
+  | 'unknown'
+
+export type Described = {
+  kind: ErrorKind
+  title: string
+  remedy?: string
+  detail?: string
+  code?: string
+  status?: number
+}
+
+const REFUSAL_TITLE_MAX = 160
+
+function firstLine(message: string): string {
+  return message.split('\n')[0].trim()
+}
+
+/** A line cut to `max` characters at a word boundary */
+function cutAtWord(line: string, max: number): string {
+  if (line.length <= max) return line
+  const cut = line.slice(0, max)
+  const space = cut.lastIndexOf(' ')
+  return (space > 0 ? cut.slice(0, space) : cut).trimEnd()
+}
+
+type Base = Pick<Described, 'kind' | 'title' | 'remedy'>
+
+function titled(kind: ErrorKind, title: string, remedy?: string): Base {
+  return { kind, title, remedy }
+}
+
+function byStatus(
+  status: number,
+  code: string | undefined,
+  message: string,
+  what: string,
+): Base | undefined {
+  if (status === 401) {
+    return titled(
+      'locked',
+      'The server needs an API token',
+      'Enter it with the key button in the header.',
+    )
+  }
+  if (status === 403) return titled('forbidden', firstLine(message))
+  if (status === 404 && code === 'no_workspace') {
+    return titled(
+      'no_workspace',
+      "This workspace doesn't exist",
+      'Pick another one in the sidebar.',
+    )
+  }
+  if (status === 404) return titled('not_found', `${what} wasn't found`)
+  if (status === 400 || status === 409 || status === 422) {
+    return titled('refused', cutAtWord(firstLine(message), REFUSAL_TITLE_MAX))
+  }
+  if (status >= 500) {
+    return titled(
+      'server',
+      'The server hit an error',
+      'Try again. The server log has the detail.',
+    )
+  }
+  return undefined
+}
+
+function classify(e: unknown, message: string, what: string): Base {
+  if (e instanceof NetworkError) {
+    return titled(
+      'offline',
+      "Can't reach the server",
+      "Check that dw.serve is running. This page reloads when it's back.",
+    )
+  }
+  if (e instanceof SyntaxError) {
+    return titled('json', "The JSON doesn't parse")
+  }
+  const known =
+    e instanceof ApiError ? byStatus(e.status, e.code, message, what) : null
+  return known ?? titled('unknown', 'Something went wrong')
+}
+
+/** The one mapping from any failure to a title a person can read and, where
+ * there is one, what to do about it. `what` names the thing a 404 is about. */
+export function describeError(e: unknown, what?: string): Described {
+  const message = e instanceof Error ? e.message : String(e)
+  const { kind, title, remedy } = classify(e, message, what ?? 'That')
+  return {
+    kind,
+    title,
+    ...(remedy ? { remedy } : {}),
+    ...(message && message !== title ? { detail: message } : {}),
+    ...(e instanceof ApiError
+      ? { status: e.status, ...(e.code ? { code: e.code } : {}) }
+      : {}),
   }
 }

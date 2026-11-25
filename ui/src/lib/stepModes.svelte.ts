@@ -30,6 +30,20 @@ export class StepModes {
     this.#modes[name] = mode
   }
 
+  /** A renamed step keeps its mode. One the person picked stays
+   * remembered; one only marked for this session stays unstored. */
+  rename(from: string, to: string) {
+    if (from in this.#modes) {
+      this.#modes[to] = this.#modes[from]
+      delete this.#modes[from]
+    }
+    const stored = storageGet<Record<string, StepMode>>(this.#key(), {})
+    if (!(from in stored)) return
+    stored[to] = stored[from]
+    delete stored[from]
+    storageSet(this.#key(), stored)
+  }
+
   setAll(steps: Record<string, any>[], mode: StepMode) {
     for (const step of steps) this.#modes[step.name] = mode
     this.#persist()
@@ -38,6 +52,18 @@ export class StepModes {
   /** Take up the modes stored for the workflow now being edited. */
   restore() {
     this.#modes = storageGet(this.#key(), {})
+  }
+
+  /** The steps are now `names` (the server's copy replaced them): each
+   * keeps its mode by name, and one that left is forgotten, so a step of
+   * that name coming back opens as any new one does. */
+  retain(names: string[]) {
+    const kept = (modes: Record<string, StepMode>) =>
+      Object.fromEntries(
+        Object.entries(modes).filter(([n]) => names.includes(n)),
+      )
+    this.#modes = kept(this.#modes)
+    storageSet(this.#key(), kept(storageGet(this.#key(), {})))
   }
 
   reset(modes: Record<string, StepMode>) {

@@ -95,7 +95,8 @@ it('a candidate validation refuses will not run, with its first error', async ()
           errors: [{ message: 'seed must be an integer', path: 'seed' }],
           warnings: [],
         }
-      if (body.workflow_path === 'flow-c') throw new Error('offline')
+      if (body.workflow_path === 'flow-c')
+        throw new Error('socket hang up at 10.0.0.4:8765')
       if (body.workflow_path === 'flow-d')
         throw new ApiError('workflow_path must name a workflow', 400)
       return valid('a')
@@ -103,14 +104,96 @@ it('a candidate validation refuses will not run, with its first error', async ()
   })
   await queue.price()
   expect(states(queue)).toEqual(['priced', 'refused', 'refused', 'refused'])
-  expect(queue.rows[1].error).toBe('would be refused: seed must be an integer')
-  expect(queue.rows[2].error).toBe('could not be checked: offline')
+  expect(queue.rows[1].error).toBe(
+    "A job would be refused: 1 issue to fix. Ask the agent to fix the item's workflow or arguments.",
+  )
+  // a failure that is not the server's answer leads with plain words; the
+  // raw text is the row's detail, for Details
+  expect(queue.rows[2].error).toBe('could not be checked: Something went wrong')
+  expect(queue.rows[2].detail).toBe('socket hang up at 10.0.0.4:8765')
   // the server refusing the question is what a submit would meet too
   expect(queue.rows[3].error).toBe(
     'would be refused: workflow_path must name a workflow',
   )
   expect(queue.rows[1].ticked).toBe(false)
   expect(queue.chosen.map((row) => row.candidate.key)).toEqual(['a'])
+})
+
+it('an optional row starts unticked', async () => {
+  const api = {
+    validate: vi.fn(async () => valid('f')),
+    submitJob: vi.fn(async () => job('job-f')),
+  }
+  const queue = new RunQueue(
+    [candidate('a'), candidate('f', { optional: true })],
+    { workspace: 'studio', requestId: 'r1', api: api as unknown as RunApi },
+  )
+  expect(queue.rows.map((row) => row.ticked)).toEqual([true, false])
+  await queue.price()
+  // priced the same as the others, and tickable
+  expect(states(queue)).toEqual(['priced', 'priced'])
+  expect(queue.chosen.map((row) => row.candidate.key)).toEqual(['a'])
+  queue.rows[1].ticked = true
+  expect(queue.chosen.map((row) => row.candidate.key)).toEqual(['a', 'f'])
+})
+
+it('a refused validation reads the verdict, the engine text behind detail', async () => {
+  const { queue } = setup(['a', 'b'], {
+    validate: vi.fn(async (body: { workflow_path?: string }) =>
+      body.workflow_path === 'flow-b'
+        ? {
+            valid: false,
+            error: 'workflow failed to load',
+            errors: [
+              { message: 'seed must be an integer', path: 'arguments.seed' },
+              { message: 'steps[0] has no pipeline', path: 'steps[0]' },
+            ],
+            warnings: [],
+          }
+        : {
+            valid: false,
+            error: null,
+            errors: [],
+            warnings: [],
+          },
+    ) as Mock,
+  })
+  await queue.price()
+  expect(states(queue)).toEqual(['refused', 'refused'])
+  // nothing counted: the bare refusal
+  expect(queue.rows[0].error).toBe(
+    "A job would be refused. Ask the agent to fix the item's workflow or arguments.",
+  )
+  expect(queue.rows[0].detail).toBeNull()
+  expect(queue.rows[1].error).toBe(
+    "A job would be refused: 2 issues to fix. Ask the agent to fix the item's workflow or arguments.",
+  )
+  expect(queue.rows[1].detail).toBe(
+    'seed must be an integer\nsteps[0] has no pipeline\nworkflow failed to load',
+  )
+})
+
+it('a gated model is priced with its verdict', async () => {
+  const gated = valid('a')
+  gated.plan!.downloads_required = [
+    { repo: 'org/m', gb: null, gated: true, access_blocked: true },
+  ] as Plan['downloads_required']
+  const { queue } = setup(['a', 'b'], {
+    validate: vi.fn(async (body: { workflow_path?: string }) =>
+      body.workflow_path === 'flow-a' ? gated : valid('b'),
+    ) as Mock,
+  })
+  await queue.price()
+  expect(states(queue)).toEqual(['priced', 'priced'])
+  expect(queue.rows[0].verdict).toMatchObject({
+    tone: 'warn',
+    text: 'This model needs Hugging Face access.',
+    remedy:
+      'Accept its terms on Hugging Face, then sign in on the server with hf auth login.',
+  })
+  // the row stays ticked: the server is the gate
+  expect(queue.rows[0].ticked).toBe(true)
+  expect(queue.rows[1].verdict).toBeNull()
 })
 
 it('closing drops the validations still out, and prices no more', async () => {
@@ -134,6 +217,28 @@ it('closing drops the validations still out, and prices no more', async () => {
   expect(api.validate).toHaveBeenCalledTimes(PRICING_LANES)
   // not an error on the row: the dialog is gone
   expect(queue.rows.every((row) => row.error === null)).toBe(true)
+})
+
+it('closing mid-submit sends no row not yet sent, and answers once the one out lands', async () => {
+  const land: (() => void)[] = []
+  const { api, queue } = setup(['a', 'b', 'c'], {
+    submitJob: vi.fn(async (body: { item?: string }) => {
+      await new Promise<void>((resolve) => land.push(resolve))
+      return job(`job-${body.item}`)
+    }),
+  })
+  await queue.price()
+  const submitting = queue.submit()
+  await vi.waitFor(() => expect(api.submitJob).toHaveBeenCalledTimes(1))
+  const landing = queue.close()
+  expect(queue.queued).toHaveLength(0)
+  land[0]()
+  await submitting
+  // the one already sent is the server's; the rest were never sent
+  expect(await landing).toBe(1)
+  expect(api.submitJob).toHaveBeenCalledTimes(1)
+  expect(states(queue)).toEqual(['queued', 'priced', 'priced'])
+  expect(queue.busy).toBe(false)
 })
 
 it('queues the ticked rows in plan order, each bound to the plan it was quoted', async () => {
@@ -228,7 +333,7 @@ it("says a refused link in plain words, by the server's code", async () => {
       undefined,
       "The item's stored workflow or arguments were refused: no variable 'sed'",
     ],
-    f: [500, undefined, 'the worker is down'],
+    f: [500, undefined, 'The server hit an error'],
   }
   const { queue } = setup(Object.keys(refusals), {
     submitJob: vi.fn(async (body: { item?: string }) => {
@@ -237,7 +342,7 @@ it("says a refused link in plain words, by the server's code", async () => {
         status === 400
           ? "no variable 'sed'"
           : status === 500
-            ? 'the worker is down'
+            ? 'worker crashed: CUDA error: out of memory at step 3'
             : 'server words'
       throw new ApiError(text, status, code)
     }) as Mock,
@@ -247,6 +352,10 @@ it("says a refused link in plain words, by the server's code", async () => {
   expect(states(queue)).toEqual(Array(6).fill('failed'))
   expect(queue.rows.map((row) => row.error)).toEqual(
     Object.values(refusals).map(([, , words]) => words),
+  )
+  // the 500's own text is kept for Details, never put in the row's words
+  expect(queue.rows[5].detail).toBe(
+    'worker crashed: CUDA error: out of memory at step 3',
   )
   expect(queue.finished).toBe(false)
 })

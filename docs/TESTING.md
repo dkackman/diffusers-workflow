@@ -94,6 +94,8 @@ npm run preflight      # check, lint, format, ratchet, build, test, e2e
 
 `ui/playwright.config.ts` starts its own server (`ui/e2e/serve_fixture.py --port 8971`, against a scratch copy of the example workflows and prompts), so do not run `dw.serve` on that port. It runs on `DW_E2E_PYTHON` when set, else `venv/bin/python` or `.venv/bin/python`, else `python3`. It uses one worker because the fixture server's first import of a diffusers pipeline module is not concurrency-safe. The e2e specs serve the built UI, so run `npm run build` first.
 
+To see the whole UI at once, `npm run ux:capture [OUT]` (`ui/scripts/ux-capture.mjs`, after `npm run build`) screenshots every route in both themes at 1440 and 390 px wide, against the same fixture server on port 8972, and prints the folder it wrote.
+
 ## CI
 
 `.github/workflows/ci.yml` runs on pushes to `master` and `develop`, on `v<semver>` tags and on pull requests:

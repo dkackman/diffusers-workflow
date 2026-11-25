@@ -1,16 +1,11 @@
 <script lang="ts">
-  import { tick, untrack, type Snippet } from 'svelte'
+  import { tick, type Snippet } from 'svelte'
   import { X } from '@lucide/svelte'
   import { confirmDialog } from '../confirm.svelte'
+  import { destroyConfirm } from '../destructive'
   import { notify } from '../toast'
-  import {
-    draftAtRisk,
-    keepDraft,
-    readDraft,
-    refusalText,
-    saveFailure,
-    type SaveFailure,
-  } from './draft'
+  import { refusalText, saveFailure, type SaveFailure } from './draft'
+  import { NOTE_MAX, NoteDraft } from '../noteDraft.svelte'
   import {
     LISTENING_LINE,
     NEEDS_WORDS,
@@ -18,6 +13,9 @@
     type NoteLine,
   } from './noteState'
   import type { LedgerNote, LedgerNoteRef } from '../types'
+  import Time from '../ui/Time.svelte'
+  // Between the note's two times; spelled here, as a block trims a space
+  const BETWEEN = ' · '
 
   // One of the user's notes for the agent, on a request or one of its
   // items - or, with `note` null, the box a new one is written in. The
@@ -29,9 +27,11 @@
     note,
     about,
     line,
+    answer = null,
     editable = true,
     draftKey = null,
     listening = false,
+    stops = 0,
     refs = [],
     chip,
     onremoveref,
@@ -41,6 +41,7 @@
     ondelete,
     onreload,
     onmove,
+    onopen,
   }: {
     /** The saved note; null for the box a new one is written in */
     note: LedgerNote | null
@@ -49,6 +50,9 @@
     about: string
     /** The line under the saved note; null when there is none */
     line: NoteLine | null
+    /** What the agent said in its first write after the saved note
+     * (answerOf); null while it has said nothing */
+    answer?: { revision: number; why: string } | null
     /** False where the ledger would not keep an edit: a dropped item */
     editable?: boolean
     /** Where the unsaved draft is kept across a reload (draft.ts) */
@@ -56,6 +60,9 @@
     /** Whether an agent session will hear the note now: the button says
      * "Send to agent", else "Save note". Saving works either way */
     listening?: boolean
+    /** How many held items saving a note would stop from starting on
+     * their own (holdsStopped); the open box warns while it is above 0 */
+    stops?: number
     /** What the note is about: a saved note's, or a new one's so far */
     refs?: LedgerNoteRef[]
     /** How a reference is drawn */
@@ -75,130 +82,108 @@
     /** An item's new-note box only: hand the draft to the request's own
      * note box ("For the whole request instead") */
     onmove?: (text: string) => void
+    /** The box was opened: a row keeps itself open under it */
+    onopen?: () => void
   } = $props()
 
-  const MAX = 4000
-  const COUNT_FROM = 3600
-
-  // A draft a reload left behind comes back as one set aside
-  const left = untrack(() => {
-    const text = readDraft(draftKey)
-    return text !== null && draftAtRisk(text, note?.text ?? null) ? text : null
+  const unreadNote = destroyConfirm({
+    name: 'this note',
+    noun: 'note',
+    consequence: 'The agent has not had the chance to read it.',
   })
-  let editing = $state(false)
-  let draft = $state(left ?? '')
-  // Esc closed the box over words that are not saved: they are still here
-  let kept = $state(left !== null)
+
+  const saved = $derived(note?.text ?? null)
+  // The draft, kept for the tab under `draftKey`; a key that moved (a
+  // reference added or taken off) carries it and leaves nothing behind
+  const draft: NoteDraft = new NoteDraft({
+    key: () => draftKey,
+    saved: () => saved ?? '',
+    save: async () => {
+      await save()
+    },
+    onclose: () => void focusOpener(),
+    rekey: 'move',
+  })
   let saving = $state(false)
   // The server's answer to the last save, shown until the next one
   let refused = $state<SaveFailure | null>(null)
   let box = $state<HTMLTextAreaElement>()
   let opener = $state<HTMLButtonElement>()
 
-  const saved = $derived(note?.text ?? null)
-
-  // Words not yet saved are kept for the tab; saved or discarded,
-  // forgotten - and a key that moved (a reference added or taken off)
-  // leaves nothing behind under the old one
-  let lastKey: string | null = null
-  $effect(() => {
-    const atRisk = (editing || kept) && draftAtRisk(draft, saved)
-    if (lastKey && lastKey !== draftKey) keepDraft(lastKey, null)
-    lastKey = draftKey
-    keepDraft(draftKey, atRisk ? draft : null)
-  })
-
   /** Open the box: the row's menu and "Note this take" ask for it too. An
    * open box keeps what is in it */
   export async function edit(text?: string) {
-    if (!editing) {
-      if (!kept) draft = saved ?? ''
-      kept = false
+    onopen?.()
+    if (!draft.editing) {
+      draft.open()
       refused = null
-      editing = true
     }
     // Moved-in words follow a draft already there, after a blank line
-    if (text) draft = draft.trim() ? `${draft.trimEnd()}\n\n${text}` : text
+    if (text)
+      draft.text = draft.text.trim()
+        ? `${draft.text.trimEnd()}\n\n${text}`
+        : text
     await tick()
     box?.focus()
   }
-  async function shut() {
-    editing = false
+  async function focusOpener() {
     await tick()
     opener?.focus()
   }
-  /** Esc: out of the box, the draft kept for the next time it is opened */
-  function setAside() {
-    kept = draftAtRisk(draft, saved)
-    void shut()
-  }
   async function cancel() {
-    if (
-      draftAtRisk(draft, saved) &&
-      !(await confirmDialog('Discard this draft of your note?', {
-        confirmLabel: 'Discard',
-        cancelLabel: 'Keep editing',
-      }))
-    )
-      return
-    kept = false
-    void shut()
+    if (await draft.cancel()) void focusOpener()
   }
   // The draft stays: it is saved again, against the request as it now is
   function reload() {
     refused = null
     onreload()
   }
-  async function store(write: () => Promise<void>) {
+  /** Send `sent` (the box as it was at the press) through `write` */
+  async function store(write: () => Promise<void>, sent: string) {
+    // Ctrl+Enter is not a disabled button: a second press waits for none
+    if (saving) return
     saving = true
     try {
       await write()
-      kept = false
+      const open = draft.editing
       refused = null
-      draft = ''
-      if (editing) void shut()
+      // Words typed while it was out stay in the box
+      if (draft.done(sent)) {
+        if (open) void focusOpener()
+      } else if (note === null && draft.text.startsWith(sent)) {
+        // Typing went on while it was out: the box keeps only the new words
+        draft.text = draft.text.slice(sent.length).trim()
+      }
       if (note === null) onsaved?.()
     } catch (e) {
       refused = saveFailure(e)
-      if (!refused) notify.error(e instanceof Error ? e.message : String(e))
+      if (!refused) notify.failure('save the note', e)
     } finally {
       saving = false
     }
   }
   // A new note goes out only with words: references alone are not a note
-  const wordless = $derived(note === null && !draft.trim())
+  const wordless = $derived(note === null && !draft.text.trim())
   /** A saved note emptied is deleted, asking first as "Delete note" does;
    * a new one with no words is not sent, and the box stays open */
-  function save() {
-    if (draft.trim()) return store(() => onsave(draft))
-    if (note && ondelete) return remove()
+  function save(): Promise<void> | undefined {
+    const sent = draft.text
+    if (sent.trim()) return store(() => onsave(sent), sent)
+    if (note && ondelete) return remove(sent)
   }
-  async function remove() {
+  async function remove(sent: string) {
     if (
       !line?.answered &&
-      !(await confirmDialog(
-        'Delete this note? The agent has not had the chance to read it.',
-        { confirmLabel: 'Delete' },
-      ))
+      !(await confirmDialog(unreadNote.message, unreadNote))
     )
       return
-    if (ondelete) await store(ondelete)
+    if (ondelete) await store(ondelete, sent)
   }
   function move() {
     if (!onmove || wordless) return
-    onmove(draft)
-    kept = false
-    draft = ''
-    void shut()
-  }
-  function keys(event: KeyboardEvent) {
-    if (event.key === 'Escape') {
-      event.stopPropagation()
-      setAside()
-    } else if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
-      event.preventDefault()
-      void save()
-    }
+    onmove(draft.text)
+    draft.done(draft.text)
+    void focusOpener()
   }
 </script>
 
@@ -227,17 +212,17 @@
 
 {#if note || editable}
   <div class="note">
-    {#if editing}
+    {#if draft.editing}
       <textarea
         bind:this={box}
-        bind:value={draft}
+        bind:value={draft.text}
         rows="3"
-        maxlength={MAX}
+        maxlength={NOTE_MAX}
         aria-label={note
           ? `Edit your note for the agent on ${about}`
           : `Note for the agent on ${about}`}
         placeholder="What should the agent change?"
-        onkeydown={keys}></textarea>
+        onkeydown={(e) => draft.keydown(e)}></textarea>
       {#if refs.length || extra}
         <div class="about">
           <span class="aboutlabel">About</span>
@@ -252,10 +237,16 @@
       {#if wordless && refs.length}
         <p class="hint">{NEEDS_WORDS}</p>
       {/if}
+      {#if stops > 0}
+        <p class="hint" role="status">
+          Saving this note stops {stops === 1 ? '1 item' : `${stops} items`}
+          waiting for your OK from starting on their own.
+        </p>
+      {/if}
       <p class="hint muted">
         {listening ? LISTENING_LINE : NOT_LISTENING_LINE}
-        {#if draft.length > COUNT_FROM}
-          <span class="num">{draft.length} / {MAX}</span>
+        {#if draft.counter}
+          <span class="num">{draft.counter}</span>
         {/if}
       </p>
       <div class="actions">
@@ -293,9 +284,18 @@
             {@render chips()}
           </div>
         {/if}
-        {#if line}<p class="hint muted">{line.text}</p>{/if}
+        {#if answer}
+          <p class="hint">
+            The agent answered in r{answer.revision}: {answer.why}
+          </p>
+        {/if}
+        {#if line}
+          <!-- One sentence, kept on one line: a line break here is a space -->
+          <!-- prettier-ignore -->
+          <p class="hint muted noteline"><Time at={line.written} label="written" />{#if line.changed !== null}{BETWEEN}<Time at={line.changed} label="changed" />{/if}{`. ${line.standing}`}{#if line.agent}{` (${line.agent.lead}`}<Time at={line.agent.at} label="changed" by="agent" />).{/if}</p>
+        {/if}
       {/if}
-      {#if kept}<p class="hint">You have an unsaved draft.</p>{/if}
+      {#if draft.kept}<p class="hint">You have an unsaved draft.</p>{/if}
       {#if editable}
         <div class="actions">
           <button
@@ -305,7 +305,7 @@
             onclick={() => edit()}
             disabled={saving}
           >
-            {kept
+            {draft.kept
               ? 'Continue the draft'
               : note
                 ? 'Edit note'
@@ -315,10 +315,13 @@
             <button
               type="button"
               class="bare"
-              onclick={remove}
+              onclick={() => remove(draft.text)}
               disabled={saving}
+              title={line?.answered
+                ? 'The agent has answered; remove it from the list'
+                : undefined}
             >
-              Delete note
+              {line?.answered ? 'Clear note' : 'Delete note'}
             </button>
           {/if}
         </div>
@@ -347,7 +350,6 @@
     margin: 0;
   }
   .hint {
-    font-size: var(--t-sm);
     margin: var(--space-1) 0 0;
   }
   .about {

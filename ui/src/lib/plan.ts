@@ -4,6 +4,7 @@ import type {
   PlanHostMemory,
   RequiredDownload,
 } from './types'
+import { formatApprox, formatMinutes } from './format'
 
 /** One line of a plan, read for a person: what it says and how loudly.
  * `warn` marks a figure that is not a quote (no cost block, a figure from
@@ -41,7 +42,7 @@ export function describePlan(plan: Plan): PlanLine[] {
     lines.push({
       text:
         cached >= plan.steps
-          ? `all ${steps(plan.steps)} cached - a run generates nothing`
+          ? `all ${steps(plan.steps)} cached - a job generates nothing`
           : `${cached} of ${steps(plan.steps)} cached`,
       tone: 'plain',
     })
@@ -87,9 +88,9 @@ function hostMemory(memory: PlanHostMemory): PlanLine {
     observed: 'observed',
     fit: `fit to ${memory.runs} run${memory.runs === 1 ? '' : 's'}`,
     declared: 'declared',
-    inherited: 'inherited from the template',
+    inherited: `inherited from ${memory.inherited_from ?? 'an example'}`,
   }[memory.basis]
-  return { text: `host RAM ~${gb} GB (${basis})`, tone: 'plain' }
+  return { text: `host RAM about ${gb} GB (${basis})`, tone: 'plain' }
 }
 
 /** The qualifiers every priced figure carries: the card it was measured
@@ -125,21 +126,27 @@ function figure(
     : { text: `${text}${forCard}`, tone: line.tone }
 }
 
+/** The card the run dispatches to when it says more than the backend, else
+ * nothing. */
+function pricedCard(estimate: Plan['estimate']): string {
+  const { priced_for, device } = estimate
+  return priced_for && priced_for !== device ? priced_for : ''
+}
+
 /** ` - for <card>` when the card the run dispatches to says more than the
  * backend, else nothing. */
 function dispatchCard(estimate: Plan['estimate']): string {
-  const { priced_for, device } = estimate
-  return priced_for && priced_for !== device ? ` - for ${priced_for}` : ''
+  const card = pricedCard(estimate)
+  return card ? ` - for ${card}` : ''
 }
 
 function rawFigure(
   estimate: PlanEstimate,
   listEntries: Plan['list_entries'],
 ): PlanLine {
-  const { minutes, basis, device, priced_for } = estimate
+  const { minutes, basis, device } = estimate
   if (basis === 'unknown' || minutes === null) return unpriced(estimate)
-  // the card the run dispatches to, when it says more than the backend
-  const on = priced_for && priced_for !== device ? priced_for : device
+  const on = pricedCard(estimate) || device
   const { card, along, missing } = qualifiers(estimate)
   if (basis === 'other_device') {
     return {
@@ -150,7 +157,7 @@ function rawFigure(
   // another workflow's runs of the same pipeline priced this one (#797)
   if (basis === 'inherited') {
     return {
-      text: `~${minutes} min, inherited from ${estimate.inherited_from ?? 'a template'}${along}${missing}`,
+      text: `${formatMinutes(minutes)}, inherited from ${estimate.inherited_from ?? 'an example'}${along}${missing}`,
       tone: 'plain',
     }
   }
@@ -163,13 +170,13 @@ function rawFigure(
   if (basis === 'derived') {
     const target = forList ? ` for ${forList}` : ''
     return {
-      text: `~${minutes} min on ${on} - estimated${target}${along}, from a figure ${card}${missing}`,
+      text: `${formatMinutes(minutes)} on ${on} - estimated${target}${along}, from a figure ${card}${missing}`,
       tone: 'warn',
     }
   }
   const repriced = basis === 'per_entry' ? `re-priced for ${forList}, ` : ''
   return {
-    text: `~${minutes} min on ${on} - ${repriced}${card}${along}${missing}`,
+    text: `${formatMinutes(minutes)} on ${on} - ${repriced}${card}${along}${missing}`,
     tone: 'plain',
   }
 }
@@ -232,7 +239,20 @@ export function describeEstimateTotal(
   }
   const total = Math.round(minutes * 10) / 10
   return {
-    text: `total ~${total} min${unpricedNote}`,
+    text: `total ${formatMinutes(total)}${unpricedNote}`,
     tone: missing ? 'warn' : 'plain',
   }
+}
+
+/** The one line a plan opens with: the time to expect, and the weights to
+ * fetch first when a download has a size. */
+export function planSummary(plan: Plan): string {
+  const { minutes, basis } = plan.estimate
+  const time =
+    basis === 'unknown' || minutes === null
+      ? 'no estimate'
+      : formatApprox(minutes * 60)
+  const gb = plan.downloads_required.reduce((n, d) => n + (d.gb ?? 0), 0)
+  const sized = plan.downloads_required.some((d) => d.gb !== null)
+  return sized ? `${time} · downloads ${Number(gb.toFixed(1))} GB first` : time
 }

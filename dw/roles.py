@@ -35,7 +35,9 @@ rewriting a manifest (`consumed_outputs`, `listed_role`):
    an output: reference (a run id, 'v<N>' or 'latest', resolved to the file
    that run read: its inputs are pinned as it opened, and an unpinned
    'latest' is the newest run that started before it), or through an asset:
-   reference to an asset keep_output kept from that file. A role rule 1
+   reference to an asset keep_output kept from that file - unless that later
+   run wrote only text or other non-media files (an export_timeline bundle,
+   a transcript), which reads a deliverable as rule 3's consumer does. A role rule 1
    declared is recorded as such (`role_declared`) and never demoted; an entry
    from before that flag is demotable, and so is a file with no recorded
    role, which lists as intermediate once read.
@@ -265,7 +267,21 @@ def _recorded_reads(run_dir):
     cached = _READS.get(path)
     if cached is not None and cached[0] == signature:
         return cached[1]
-    inputs = (_read_manifest(run_dir) or {}).get("inputs")
+    manifest = _read_manifest(run_dir) or {}
+    if _writes_only_text(
+        [
+            name
+            for entry in manifest.get("steps") or []
+            if isinstance(entry, dict)
+            for name in entry.get("files") or []
+        ]
+    ):
+        # A run that wrote no media (an exported timeline bundle, a
+        # transcript, a check) packages or reads what it was given: like
+        # rule 3's text-only consumer, it does not demote it
+        _READS[path] = (signature, ())
+        return ()
+    inputs = manifest.get("inputs")
     if not isinstance(inputs, list):
         try:
             with open(os.path.join(run_dir, REALIZED_FILE_NAME)) as handle:

@@ -603,6 +603,51 @@ def forget_workspace_usage():
     _usage_cache.clear()
 
 
+def file_times(path):
+    """When a file or folder last changed (`mtime`) and, where the filesystem
+    records it, when it was first written (`created`, from `st_birthtime`:
+    macOS and the BSDs, not Linux's stat). No birth time means no `created`
+    key - never the mtime standing in for one. A path that cannot be read
+    answers {}."""
+    try:
+        stat = os.stat(path)
+    except OSError:
+        return {}
+    times = {"mtime": stat.st_mtime}
+    birth = getattr(stat, "st_birthtime", None)
+    if birth is not None:
+        times["created"] = birth
+    return times
+
+
+def _newest_mtime(folder):
+    """The newest mtime of a folder and of the entries directly in it."""
+    try:
+        entries = [entry.path for entry in os.scandir(folder)]
+    except OSError:
+        return None
+    stamps = [file_times(path).get("mtime") for path in [folder, *entries]]
+    return max((stamp for stamp in stamps if stamp is not None), default=None)
+
+
+def workspace_times(workspace):
+    """When a workspace last changed: the newest mtime of its own folders
+    (_own_folders) and of the entries directly in them. A folder's mtime moves
+    only when an entry directly in it is added or removed, so one level down
+    is what sees a workflow saved, an asset folder filled and a run landing
+    in outputs/<workflow>/. `created` is the root's birth time, where the
+    filesystem has one. {} when none of its folders can be read."""
+    stamps = [_newest_mtime(folder) for folder in _own_folders(workspace)]
+    newest = max((stamp for stamp in stamps if stamp is not None), default=None)
+    if newest is None:
+        return {}
+    times = {"mtime": newest}
+    created = file_times(workspace.root).get("created") if workspace.root else None
+    if created is not None:
+        times["created"] = created
+    return times
+
+
 def delete_workspace(workspace, name):
     """Remove a named workspace and everything in it.
 

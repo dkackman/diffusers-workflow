@@ -1,22 +1,21 @@
 <script lang="ts">
   import { setNumber } from '../editor'
-  import { api } from '../api'
+  import { catalogFor } from './loraCatalog'
+  import { latestOnly } from '../latest'
+  import { sleep } from '../poll'
+  import { resource } from '../resource.svelte'
   import type { LoraRow } from '../types'
   import { Plus, Trash2 } from '@lucide/svelte'
 
   let { pipeline = $bindable() }: { pipeline: Record<string, any> } = $props()
 
+  const uid = $props.id()
   const loras = $derived(pipeline.loras ?? [])
 
-  // Catalog suggestions (GET /api/loras, catalog-only - never the Hub). Only
+  // Catalog suggestions (loraCatalog.ts, catalog-only - never the Hub). Only
   // a literal Hub repo id is asked about: a `variable:` base resolves only
   // for a saved workflow, never for the draft being edited
   const REPO_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/
-  const STATUS_ORDER: Record<string, number> = { proven: 0, trial: 1 }
-  // A catalog read is a local file scan; one still unsettled after this long
-  // has hung (a stalled connection, a stub that never answers) and counts as
-  // a failure, so the panel never sits on a bare heading (#1501)
-  const CATALOG_TIMEOUT_MS = 8000
 
   const base = $derived(pipeline.from_pretrained_arguments?.model_name)
   const repo = $derived(
@@ -32,48 +31,23 @@
       : undefined,
   )
 
-  let catalog = $state<LoraRow[]>([])
-  let catalogState = $state<'idle' | 'loading' | 'ready' | 'error'>('idle')
-
-  $effect(() => {
-    const model = repo
-    const workflow = partition
-    catalog = []
-    if (!model) {
-      catalogState = 'idle'
-      return
-    }
-    catalogState = 'loading'
-    let stale = false
-    let giveUp: ReturnType<typeof setTimeout> | undefined
-    const timer = setTimeout(() => {
-      giveUp = setTimeout(() => {
-        if (!stale && catalogState === 'loading') catalogState = 'error'
-      }, CATALOG_TIMEOUT_MS)
-      api
-        .listLoras(workflow ? { model, workflow } : { model })
-        .then((body) => {
-          if (stale) return
-          catalog = body.loras
-            .filter((row) => row.status !== 'rejected')
-            .sort(
-              (a, b) =>
-                (STATUS_ORDER[a.status] ?? 2) - (STATUS_ORDER[b.status] ?? 2) ||
-                a.name.localeCompare(b.name),
-            )
-          catalogState = 'ready'
-        })
-        .catch(() => {
-          if (!stale) catalogState = 'error'
-        })
-        .finally(() => clearTimeout(giveUp))
-    }, 300)
-    return () => {
-      stale = true
-      clearTimeout(timer)
-      clearTimeout(giveUp)
-    }
-  })
+  // Asked 300 ms after the repo stops changing, and again when a LoRA is
+  // saved or deleted anywhere (the loras feed)
+  const typing = latestOnly()
+  let gone = false
+  $effect(() => () => (gone = true))
+  const catalogRead = resource(
+    async (): Promise<LoraRow[]> => {
+      const [model, workflow] = [repo, partition]
+      const current = typing()
+      if (!model) return []
+      await sleep(300)
+      return current() && !gone ? catalogFor(model, workflow) : []
+    },
+    { watch: ['loras'] },
+  )
+  const catalog = $derived(catalogRead.data ?? [])
+  const catalogState = $derived(repo ? catalogRead.status : 'idle')
 
   function isAdded(row: LoraRow) {
     return loras.some(
@@ -166,28 +140,43 @@
   </section>
 
   {#each loras as lora, index (index)}
+    {@const rowId = `${uid}-${index}`}
+    {@const removeName = lora.model_name
+      ? `remove ${lora.model_name}`
+      : 'remove this LoRA'}
     <div class="row">
-      <input bind:value={lora.model_name} placeholder="org/lora-repo or path" />
-      <input
-        value={lora.weight_name ?? ''}
-        placeholder="weight file (optional)"
-        onchange={(e) => {
-          const v = e.currentTarget.value
-          if (v) lora.weight_name = v
-          else delete lora.weight_name
-        }}
-      />
-      <input
-        class="scale"
-        value={lora.scale ?? ''}
-        placeholder="scale"
-        onchange={(e) => setNumber(lora, 'scale', e.currentTarget.value)}
-      />
+      <div class="formgrid">
+        <label for="{rowId}-model">Model</label>
+        <input
+          id="{rowId}-model"
+          bind:value={lora.model_name}
+          placeholder="org/lora-repo or path"
+        />
+        <label for="{rowId}-weight">Weight file</label>
+        <input
+          id="{rowId}-weight"
+          value={lora.weight_name ?? ''}
+          placeholder="weight file (optional)"
+          onchange={(e) => {
+            const v = e.currentTarget.value
+            if (v) lora.weight_name = v
+            else delete lora.weight_name
+          }}
+        />
+        <label for="{rowId}-scale">Scale</label>
+        <input
+          id="{rowId}-scale"
+          class="scale"
+          value={lora.scale ?? ''}
+          placeholder="scale"
+          onchange={(e) => setNumber(lora, 'scale', e.currentTarget.value)}
+        />
+      </div>
       <button
         class="quiet icon"
         onclick={() => remove(index)}
-        title="remove this LoRA"
-        aria-label="remove this LoRA"
+        title={removeName}
+        aria-label={removeName}
       >
         <Trash2 size={14} />
       </button>
@@ -281,22 +270,15 @@
   }
   .row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 80px auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     gap: 0.5rem;
     width: 100%;
-    align-items: center;
+    align-items: start;
   }
   .revision {
     grid-column: 1 / -1;
   }
-  /* Two repo fields side by side need ~460px; below that they stack and the
-     scale keeps the remove button company on the last line */
-  @container (max-width: 460px) {
-    .row {
-      grid-template-columns: minmax(0, 1fr) auto;
-    }
-    .row > input:not(.scale) {
-      grid-column: 1 / -1;
-    }
+  .scale {
+    max-width: 80px;
   }
 </style>

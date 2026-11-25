@@ -1,94 +1,96 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import Suggest from '../ui/Suggest.svelte'
   import { isNameSegment } from '../names'
-  import { DocumentEditor, NEW_FOLDER } from '../editorShell.svelte'
-  import ViewSwitch from '../editor/ViewSwitch.svelte'
-  import FolderPicker from '../editor/FolderPicker.svelte'
+  import {
+    DocumentEditor,
+    EDITOR_VIEWS,
+    NEW_FOLDER,
+    editorKeys,
+    type EditorView,
+  } from '../editorShell.svelte'
+  import Segmented from '../ui/Segmented.svelte'
+  import DocumentFileBar from '../editor/DocumentFileBar.svelte'
   import EditorBody from '../editor/EditorBody.svelte'
   import EnhancePanel from '../editor/EnhancePanel.svelte'
   import { Enhancer } from '../enhancer.svelte'
   import { PROMPT, reference } from '../references'
-  import {
-    Braces,
-    Columns2,
-    Copy,
-    LayoutList,
-    Save,
-    Sparkles,
-    Trash2,
-  } from '@lucide/svelte'
+  import { Copy, Save, Sparkles, Trash2 } from '@lucide/svelte'
   import { api } from '../api'
   import { ApiError } from '../apiErrors'
-  import { openPrompt, savePromptAt } from '../promptFile'
+  import {
+    deleteWarning,
+    openPrompt,
+    savePromptAt,
+    watchPrompt,
+    withSavedPrompt,
+  } from '../promptFile'
+  import { resource } from '../resource.svelte'
+  import LoadState from '../ui/LoadState.svelte'
   import LoadFailed from '../ui/LoadFailed.svelte'
+  import PageHeader from '../ui/PageHeader.svelte'
   import { writableRoot } from '../libraries'
   import DownloadLink from '../DownloadLink.svelte'
-  import { go, renameRoute } from '../router.svelte'
-  import { sharedHref } from '../routes'
+  import { go } from '../router.svelte'
+  import { SECTION_LABELS, sharedHref } from '../routes'
   import { notify } from '../toast'
-  import { confirmDialog } from '../confirm.svelte'
+  import { action } from '../action.svelte'
+  import { destroyConfirm } from '../destructive'
   import { loadPromptLibrary } from '../promptlib.svelte'
-  import { groupOf, leafOf } from '../grouping'
-  import { emptyPrompt, parseTags, workflowsReferencing } from '../prompts'
-  import CopyButton from '../CopyButton.svelte'
+  import { groupOf } from '../grouping'
+  import { DocumentRoute } from '../documentRoute.svelte'
+  import { emptyPrompt, parseTags } from '../prompts'
   import type { PromptDetail } from '../types'
 
   let { name = '' }: { name?: string } = $props()
 
-  const shell = new DocumentEditor({
-    viewKey: 'dw-prompt-editor-view',
-    views: ['form', 'split', 'json'],
-    label: (): string => shell.savePath() ?? 'this prompt',
-  })
+  const shell = watchPrompt(
+    new DocumentEditor({
+      viewKey: 'dw-prompt-editor-view',
+      views: ['form', 'split', 'json'],
+      label: (): string => shell.savePath() ?? 'this prompt',
+    }),
+  )
   shell.doc = emptyPrompt()
-  let promptDir = $state('')
-  let promptFiles = $state<string[]>([])
-  let promptDetails = $state<Record<string, PromptDetail>>({})
+  // The listing: the folder picker's files, where a new prompt saves, and
+  // each prompt's intended model for the enhancer
+  const listing = resource(() => api.listPrompts(), { watch: ['prompts'] })
+  const promptDir = $derived(
+    listing.data ? writableRoot(listing.data.libraries) : '',
+  )
+  const promptFiles = $derived(listing.data?.prompts ?? [])
+  const promptDetails = $derived<Record<string, PromptDetail>>(
+    listing.data?.details ?? {},
+  )
   // A prompt from a read-only examples library: it can be edited and saved
   // (the save lands in this workspace's library, shadowing it) but not
   // deleted, the way a read-only workflow behaves
   const readOnly = $derived(!shell.writable)
-  // The prompt being edited: the route's, until a save names another (or
-  // its first) - the URL follows a beat later
-  const current = $derived(
-    shell.loadState === 'loading' || shell.loadState === 'failed'
-      ? name
-      : (shell.loadedPath ?? name),
-  )
-  // The file on screen, so the route catching up with a save does not
-  // read it again
-  let opened = ''
-
   // Existing folders, from the listing - one level is the designed depth
   const folders = $derived(
     [...new Set(promptFiles.map(groupOf).filter(Boolean))].sort(),
   )
 
-  const VIEWS = [
-    {
-      view: 'form',
-      label: 'form',
-      title: 'edit with a form',
-      icon: LayoutList,
-    },
-    {
-      view: 'split',
-      label: 'split',
-      title: 'form beside the JSON - both editable, blur applies',
-      icon: Columns2,
-    },
-    {
-      view: 'json',
-      label: 'JSON',
-      title: 'edit the raw JSON, schema-aware',
-      icon: Braces,
-    },
-  ] as const
+  const views = EDITOR_VIEWS.filter((v) => v.value !== 'flow')
 
   // ------------------------------------------------------------- enhancer
 
   const enhancer = new Enhancer()
   const intendedModels = $derived(enhancer.intendedModels(promptDetails))
+
+  // The idea the last read put in the enhancer: an idea still equal to it was
+  // not typed, so a newer read may replace it
+  let readIdea = ''
+
+  // The server's copy replaced the prompt: its idea is the enhancer's, unless
+  // the person has typed one of their own
+  $effect(() => {
+    if (!shell.remoteLoads) return
+    untrack(() => {
+      if (enhancer.idea !== readIdea) return
+      readIdea = enhancer.idea = shell.doc.enhanced?.idea ?? ''
+    })
+  })
 
   function useResult() {
     const { text, enhanced } = enhancer.takeResult()
@@ -98,32 +100,23 @@
 
   // ---------------------------------------------------------------- lifecycle
 
-  $effect(() => {
-    api
-      .listPrompts()
-      .then((r) => {
-        promptFiles = r.prompts
-        promptDir = writableRoot(r.libraries)
-        promptDetails = r.details ?? {}
-      })
-      .catch((e) => notify.error(e.message))
-    if (name && opened === name) {
-      // the route catching up with a save: this is the prompt already
-    } else if (name) {
-      shell.saveName = leafOf(name)
-      shell.folder = groupOf(name)
-      open(name)
-    } else {
-      opened = ''
-      const imported = shell.takeImport(
-        'dw-prompt-editor-import',
-        'dw-prompt-editor-folder',
-      )
-      if (imported) notify.success('Duplicated - save under a new name')
-      shell.startNew(imported ?? emptyPrompt())
-      shell.saveName = ''
-    }
+  const place = new DocumentRoute(shell, {
+    name: () => name,
+    href: (path) => sharedHref('prompt-edit', ...path.split('/')),
+    open,
+    startDraft,
   })
+
+  /** A new prompt: a duplicate's hand-off, else the blank starter. */
+  function startDraft() {
+    const imported = shell.takeImport(
+      'dw-prompt-editor-import',
+      'dw-prompt-editor-folder',
+    )
+    if (imported) notify.success('Duplicated - save under a new name')
+    shell.startNew(imported ?? emptyPrompt())
+    shell.saveName = ''
+  }
 
   // Apart from the route: the URL following a save must not stop an
   // enhancement in flight
@@ -137,22 +130,12 @@
    * definition comes back beside where it was found: a prompt from a
    * read-only examples library can be edited and saved (the copy lands
    * here) but not deleted. */
-  async function open(path: string) {
-    // a new read has begun: until it lands nothing is opened
-    opened = ''
-    const prompt = await openPrompt(shell, path, () => path !== name)
-    if (!prompt) return
-    opened = path
-    enhancer.idea = prompt.enhanced?.idea ?? ''
+  async function open(path: string, stale: () => boolean) {
+    const prompt = await openPrompt(shell, path, stale)
+    if (!prompt) return false
+    readIdea = enhancer.idea = prompt.enhanced?.idea ?? ''
     enhancer.preselect(shell.doc.intended_model)
-  }
-
-  function onKeydown(event: KeyboardEvent) {
-    if (!shell.canWrite) return
-    if ((event.ctrlKey || event.metaKey) && event.key === 's') {
-      event.preventDefault()
-      save()
-    }
+    return true
   }
 
   // ---------------------------------------------------------------- editing
@@ -188,7 +171,7 @@
     return null
   }
 
-  async function save() {
+  function save() {
     if (!shell.canWrite) return
     shell.flush()
     const blocker = saveBlocker()
@@ -196,61 +179,65 @@
       notify.error(blocker)
       return
     }
-    const path = shell.savePath()!
-    shell.busy = true
-    try {
-      const outcome = await savePromptAt(shell, path)
-      if (outcome === 'cancelled') return
-      shell.commitNewFolder()
+    void saving.run(shell.savePath()!)
+  }
+  const onKeydown = editorKeys(shell, { save })
+  // An action: Save twice (or Ctrl+S twice) writes once
+  const saving = action(
+    async (path: string) => {
+      shell.busy = true
+      try {
+        const outcome = await savePromptAt(shell, path)
+        if (outcome === 'cancelled') return null
+        shell.commitNewFolder()
+      } finally {
+        shell.busy = false
+      }
       // Same as the workflow editor: the picker lists folders from the
       // listing, so a newly created one must be added or the select resets
-      if (!promptFiles.includes(path)) promptFiles = [...promptFiles, path]
-      notify.success(`Saved to ${path}`)
+      if (listing.data) listing.adopt(withSavedPrompt(listing.data, path))
+      // and its saved time read back quietly, as the workflow editor does
+      void listing.refresh()
       loadPromptLibrary()
       // The URL names the prompt now on screen: a first save, or a save as
-      opened = path
-      if (path !== name)
-        renameRoute(sharedHref('prompt-edit', ...path.split('/')))
-    } catch (e) {
-      notify.error(e instanceof Error ? e.message : String(e))
-    } finally {
-      shell.busy = false
-    }
-  }
+      place.saved(path)
+      return path
+    },
+    {
+      doing: (path) => `save ${path}`,
+      success: (path) => `Saved to ${path}`,
+    },
+  )
 
-  async function remove() {
-    const name = current
-    if (!name) return
-    // Say what the delete is about to break: any workflow holding a
-    // prompt:name reference fails at run time once the file is gone
-    let warning = ''
-    try {
-      const { details } = await api.listWorkflows()
-      const referencing = workflowsReferencing(name, details ?? {})
-      if (referencing.length) {
-        const shown = referencing.slice(0, 5).join(', ')
-        const more = referencing.length > 5 ? ', …' : ''
-        warning =
-          `\n\nReferenced by ${referencing.length} workflow` +
-          `${referencing.length === 1 ? '' : 's'} (${shown}${more}) - ` +
-          'they will fail at run time until updated.'
-      }
-    } catch {
-      /* the confirm still protects the file itself */
-    }
-    if (
-      !(await confirmDialog(
-        `Delete ${name}.json? This removes the file on disk.${warning}`,
-        { confirmLabel: 'Delete' },
-      ))
-    )
-      return
-    try {
+  // The workflows a delete would break are read on the click that asks
+  const removing = action<[name: string, warning: string], void>(
+    async (name) => {
       await api.deletePrompt(name)
       loadPromptLibrary()
       go('shared', 'prompts')
-    } catch (e) {
-      notify.error(e instanceof Error ? e.message : String(e))
+    },
+    {
+      doing: (name) => `delete ${name}`,
+      confirm: (name, warning) =>
+        destroyConfirm({
+          name: `${name}.json`,
+          noun: 'prompt',
+          consequence: warning.trim(),
+        }),
+    },
+  )
+  // A Delete pressed again while the warning is read does nothing; one
+  // pressed while the delete runs is the action's busy guard
+  let warning = false
+  async function remove() {
+    const name = place.current
+    if (!name || removing.busy || warning) return
+    warning = true
+    try {
+      const said = await deleteWarning(name)
+      if (!removing.busy) await removing.run(name, said)
+    } finally {
+      warning = false
     }
   }
 
@@ -269,82 +256,83 @@
 
 <!-- The editing surface: a flush commits the field focused in it -->
 <div class="editing" bind:this={shell.root}>
-  <div class="head">
-    <a href={sharedHref('prompts')} class="muted">← prompts</a>
-    <h1>{current || 'New prompt'}</h1>
-    <span class="flex"></span>
-    <ViewSwitch
-      view={shell.view}
-      options={[...VIEWS]}
-      onselect={(view) => shell.setView(view)}
-    />
-    {#if current}
-      <button
-        class="quiet withicon"
-        onclick={duplicate}
-        title="open a copy in the editor to save under a new name"
+  <PageHeader
+    title={place.current || 'New prompt'}
+    back={{ href: sharedHref('prompts'), label: SECTION_LABELS.shared.prompts }}
+  >
+    {#if shell.dirty}
+      <span
+        class="chip unsaved"
+        title="this definition differs from the last save"
       >
-        <Copy size={14} />Duplicate
-      </button>
-      <DownloadLink href={api.promptDownloadUrl(current)} />
-      {#if !readOnly}
-        <button
-          class="quiet icon danger"
-          onclick={remove}
-          title="delete this prompt from the library"
-          aria-label="delete this prompt from the library"
-        >
-          <Trash2 size={14} />
-        </button>
-      {/if}
+        unsaved
+      </span>
     {/if}
-    <button
-      class="withicon"
-      onclick={save}
-      disabled={shell.busy || !shell.canWrite}
-      title="write to the prompt directory under the name below (Ctrl+S)"
-    >
-      <Save size={14} />Save{#if shell.dirty}<span class="dirtydot"></span>{/if}
-    </button>
-  </div>
+    {#snippet actions()}
+      <Segmented
+        label="editor view"
+        value={shell.view}
+        options={views}
+        onselect={(view) => shell.setView(view as EditorView)}
+      />
+      {#if place.current}
+        <button
+          class="quiet withicon"
+          onclick={duplicate}
+          title="open a copy in the editor to save under a new name"
+        >
+          <Copy size={14} />Duplicate
+        </button>
+        <DownloadLink href={api.promptDownloadUrl(place.current)} />
+        {#if !readOnly}
+          <button
+            class="quiet icon danger"
+            onclick={remove}
+            title="delete this prompt from the library"
+            aria-label="delete this prompt from the library"
+          >
+            <Trash2 size={14} />
+          </button>
+        {/if}
+      {/if}
+      <button
+        class="withicon"
+        onclick={save}
+        disabled={shell.busy || !shell.canWrite}
+        title="write to the prompt directory under the name below (Ctrl+S)"
+      >
+        <Save size={14} />Save{#if shell.dirty}<span class="dirtydot"
+          ></span>{/if}
+      </button>
+    {/snippet}
+  </PageHeader>
 
   {#if shell.loadState === 'failed'}
     <LoadFailed
       label={name}
       error={shell.loadError}
-      onretry={() => open(name)}
+      onretry={() => place.retry()}
       oncreate={shell.loadError instanceof ApiError &&
       shell.loadError.status === 404
         ? () => shell.startNew(emptyPrompt())
         : undefined}
     />
   {:else}
-    <div class="savebar muted">
-      saving as
-      <FolderPicker
-        bind:folder={shell.folder}
-        bind:newFolder={shell.newFolder}
-        {folders}
-        newFolderTitle="name for the new folder at the root of the prompt directory"
-      />
-      {#if shell.folder === NEW_FOLDER}<span>/</span>{/if}
-      <input
-        class="savename"
-        bind:value={shell.saveName}
-        placeholder="MyPrompt"
-      />
-      <span class="dirhint">.json in {promptDir}</span>
-      <span class="flex"></span>
-      {#if shell.savePath()}
-        <code class="refhint" title="use the stored prompt from any workflow">
-          prompt:{shell.savePath()}
-        </code>
-        <CopyButton
-          text={reference(PROMPT, shell.savePath() ?? '')}
-          title="copy reference to clipboard"
-        />
-      {/if}
-    </div>
+    <!-- The listing only feeds the folder picker: loading shows nothing -->
+    <LoadState of={listing} label="the prompt list">
+      {#snippet skeleton()}{/snippet}
+    </LoadState>
+    <DocumentFileBar
+      ed={shell}
+      dir={promptDir}
+      {folders}
+      noun="prompt"
+      described={false}
+      changed={listing.data?.details?.[place.current]?.mtime}
+      reference={shell.savePath()
+        ? reference(PROMPT, shell.savePath() ?? '')
+        : ''}
+    />
 
     <EditorBody
       view={shell.view}
@@ -386,7 +374,7 @@
                 oninput={(e) =>
                   setField('negative_prompt', e.currentTarget.value)}
               ></textarea>
-              <div class="metagrid">
+              <div class="formgrid metagrid">
                 <label for="prompt-desc">description</label>
                 <input
                   id="prompt-desc"
@@ -437,38 +425,6 @@
   .editing {
     display: contents;
   }
-  .head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.4rem 0.6rem;
-    margin-bottom: 0.4rem;
-  }
-  .head h1 {
-    font-size: 1.1rem;
-    margin: 0;
-  }
-  .savebar {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.4rem 0.4rem;
-    margin-bottom: 1rem;
-    font-size: 0.85rem;
-  }
-  .savename {
-    max-width: 200px;
-  }
-  /* a directory is one unbroken token, so let it wrap anywhere rather than
-     push the bar past a phone-width viewport */
-  .dirhint {
-    min-width: 0;
-    overflow-wrap: anywhere;
-  }
-  .refhint {
-    font-size: 0.8rem;
-    color: var(--accent);
-  }
   .promptform {
     container-type: inline-size;
   }
@@ -487,11 +443,6 @@
     margin-bottom: 1rem;
     min-width: 0;
   }
-  .panel h2 {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-  }
   .fieldlabel {
     display: block;
     font-weight: 600;
@@ -507,22 +458,7 @@
     font-size: 0.95rem;
   }
   .metagrid {
-    display: grid;
-    grid-template-columns: minmax(120px, 40%) minmax(0, 1fr);
-    gap: 0.5rem 0.8rem;
-    align-items: center;
     margin-top: 0.6rem;
-  }
-  @container (max-width: 420px) {
-    .metagrid {
-      grid-template-columns: minmax(0, 1fr);
-      gap: 0.2rem;
-    }
-  }
-  .metagrid label {
-    font-weight: 600;
-    color: var(--muted);
-    font-size: 0.85rem;
   }
   .metagrid textarea {
     align-self: stretch;

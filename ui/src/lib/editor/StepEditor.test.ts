@@ -1,19 +1,12 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/svelte'
+import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
+import { api } from '../test/apiMock'
 import { VARIABLE } from '../references'
 import StepEditor from './StepEditor.svelte'
 
 // The LoRA editor asks the catalog about a literal base repo; keep it offline
-vi.mock('../api', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../api')>()
-  return {
-    ...actual,
-    api: {
-      ...actual.api,
-      listLoras: () => Promise.resolve({ libraries: [], loras: [] }),
-    },
-  }
-})
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
+api.listLoras.mockResolvedValue({ libraries: [], loras: [] })
 
 afterEach(() => cleanup())
 
@@ -118,4 +111,59 @@ it('leaves a step with no torch_dtype unchanged on opening full', async () => {
   })
   await new Promise((r) => setTimeout(r, 50))
   expect(JSON.stringify(s)).toBe(before)
+})
+
+// The step's media arguments take the results of the steps before it
+it('offers an image argument the results of the steps before it', async () => {
+  const s = step()
+  s.name = 'use'
+  Object.assign(s.pipeline, { arguments: { image: '' } })
+  const workflow = {
+    steps: [
+      { name: 'still', result: { content_type: 'image/png' } },
+      s,
+      { name: 'later', result: { content_type: 'image/png' } },
+    ],
+  }
+  render(StepEditor, {
+    step: s,
+    index: 1,
+    workflow,
+    count: 3,
+    mode: 'full',
+    onremove: () => {},
+    onmove: () => {},
+  })
+  const input = screen.getByPlaceholderText('type, drop or choose an image')
+  await fireEvent.focus(input)
+  await fireEvent.input(input, { target: { value: '' } })
+  const text = (await screen.findAllByRole('option'))
+    .map((o) => o.textContent)
+    .join('\n')
+  expect(text).toContain('previous_result:still')
+  expect(text).not.toContain('previous_result:later')
+})
+
+it('a step removed during the pause never reads its sub-workflow', async () => {
+  vi.useFakeTimers()
+  try {
+    api.getWorkflow.mockResolvedValue({ definition: { variables: { a: 'b' } } })
+    const sub = {
+      name: 'sub',
+      workflow: { path: 'child.json', arguments: {} },
+    }
+    const { unmount } = render(StepEditor, {
+      step: sub,
+      index: 0,
+      count: 1,
+      onremove: () => {},
+      onmove: () => {},
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    unmount()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(api.getWorkflow).not.toHaveBeenCalled()
+  } finally {
+    vi.useRealTimers()
+  }
 })

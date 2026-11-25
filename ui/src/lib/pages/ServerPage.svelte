@@ -1,54 +1,51 @@
 <script lang="ts">
-  import { poll } from '../poll'
   import { Globe, Plug, ShieldCheck, TriangleAlert } from '@lucide/svelte'
   import { api } from '../api'
   import CopyButton from '../CopyButton.svelte'
-  import WorkerList from '../WorkerList.svelte'
-  import CardMemoryList from '../CardMemoryList.svelte'
+  import ServerHealthList from '../ServerHealthList.svelte'
+  import { resource } from '../resource.svelte'
+  import LoadState from '../ui/LoadState.svelte'
+  import PageHeader from '../ui/PageHeader.svelte'
+  import { SECTION_LABELS } from '../routes'
   import CachesPanel from '../CachesPanel.svelte'
-  import { cardReadings } from '../cardMemory'
   import {
     addressLabel,
+    bindSnippet,
     browserUrl,
     isLoopbackBind,
     isUnauthenticatedPublicBind,
-    mcpAddCommand,
-    mcpUrl,
+    mcpAddCommandAt,
+    mcpUrlAt,
+    reachedOrigin,
+    REMOTE_GUIDE,
     runtimeRows,
     runtimeText,
   } from '../serverinfo'
-  import type { HealthInfo, MemoryInfo, ServerInfo } from '../types'
+  import type { ServerInfo } from '../types'
 
-  let info = $state<ServerInfo | null>(null)
-  let error = $state('')
-  let health = $state<HealthInfo | null>(null)
-  let memory = $state<MemoryInfo | null>(null)
-  const cards = $derived(cardReadings(memory))
-
-  $effect(() => {
-    api
-      .server()
-      .then((s) => {
-        info = s
-        error = ''
-      })
-      .catch((e) => (error = e instanceof Error ? e.message : String(e)))
-  })
-
-  // The live half of the page: the same endpoint App.svelte polls for the
-  // status bar, fetched here so the worker/queue lines keep up on their own
-  $effect(() => {
-    return poll(async () => {
-      // settled apart: memory answers 503 while the worker is starting
-      const [h, m] = await Promise.allSettled([api.health(), api.memory()])
-      health = h.status === 'fulfilled' ? h.value : null
-      memory = m.status === 'fulfilled' ? m.value : null
-    }, 5000)
-  })
+  // Static while the server runs; a reconnect or an accepted token raises
+  // the epoch, which reads it again, so the page recovers on its own
+  const read = resource(() => api.server(), { watch: [] })
+  const info = $derived<ServerInfo | null>(read.data ?? null)
 
   /** Which interface address the connect snippets are written against. */
   let selected = $state('')
-  const addresses = $derived(info?.addresses ?? [])
+  // A wildcard bind answers on every interface; a bind to one address answers
+  // on that address only, so it is the only one worth offering
+  const addresses = $derived.by(() => {
+    if (!info) return []
+    if (info.wildcard_bind || isLoopbackBind(info.bind_host)) {
+      return info.addresses
+    }
+    const named = info.addresses.find((a) => a.address === info.bind_host)
+    return [
+      named ?? {
+        address: info.bind_host,
+        family: info.bind_host.includes(':') ? 'IPv6' : 'IPv4',
+        interface: '',
+      },
+    ]
+  })
   const address = $derived(
     addresses.find((a) => a.address === selected)?.address ??
       addresses[0]?.address ??
@@ -56,48 +53,44 @@
   )
   const port = $derived(info?.port ?? 0)
   const mcpPath = $derived(info?.mcp.path ?? '/mcp')
+  const loopback = $derived(info ? isLoopbackBind(info.bind_host) : false)
+  // A loopback bind read from a page that is not on loopback: the reader got
+  // here through a proxy or tunnel, so the page's own origin is the address
+  // that works, and rebinding (plaintext on every interface) is never advised
+  const origin = reachedOrigin()
+  const proxied = $derived(loopback && origin !== null)
+  /** The base URL the connect snippets are built on; empty when there is
+   * none worth offering (a loopback page on a loopback bind, no address). */
+  const base = $derived(
+    proxied
+      ? (origin ?? '')
+      : loopback || !address
+        ? ''
+        : browserUrl(address, port),
+  )
 </script>
 
-<div class="head">
-  <h1>Server</h1>
-  {#if info}
-    <span class="muted">{info.hostname} · v{info.version}</span>
-  {/if}
-</div>
+<!-- The status page's header: the queue below it is a section of this page -->
+<PageHeader
+  title={SECTION_LABELS.server.status}
+  secondary={info ? `${info.hostname} · v${info.version}` : undefined}
+  baseline
+/>
 
-{#if error}
-  <p class="warn">{error}</p>
-  <p class="muted">
-    The server details need the API token — set it with the key icon above.
-  </p>
-{/if}
+<LoadState of={read} label="the server details" />
 
 {#if info}
   <div class="panel">
-    <h2>Status</h2>
-    <dl>
+    <h2>Server</h2>
+    <dl class="kv">
       <dt>Hostname</dt>
       <dd>{info.hostname}</dd>
       <dt>Version</dt>
       <dd>{info.version}</dd>
       <dt>Device</dt>
       <dd>{info.device}</dd>
-      <dt>{(health?.workers.length ?? 0) > 1 ? 'Workers' : 'Worker'}</dt>
-      <dd>
-        {#if health?.workers.length}
-          <WorkerList workers={health.workers} />
-        {/if}
-        {#if !health}
-          <span class="warn">unreachable</span>
-        {:else if !health.worker_alive}
-          <span class="muted">not started — spawns with the first job</span>
-        {/if}
-      </dd>
-      <dt>Queue</dt>
-      <dd>{health?.queued ?? 0} queued</dd>
-      <dt>Memory</dt>
-      <dd><CardMemoryList {cards} /></dd>
     </dl>
+    <ServerHealthList />
   </div>
 
   <div class="panel runtime">
@@ -105,7 +98,7 @@
       Runtime
       <CopyButton text={runtimeText(info)} title="copy the runtime versions" />
     </h2>
-    <dl>
+    <dl class="kv">
       {#each runtimeRows(info.runtime) as row (row.name)}
         <dt>{row.name}</dt>
         <dd>
@@ -121,7 +114,7 @@
 
   <div class="panel">
     <h2>Binding</h2>
-    <dl>
+    <dl class="kv">
       <dt>Bind host</dt>
       <dd><code>{info.bind_host}</code></dd>
       <dt>Port</dt>
@@ -132,7 +125,9 @@
     <p class="muted note">
       {#if info.wildcard_bind}
         A wildcard bind is reachable on every address listed below.
-      {:else if isLoopbackBind(info.bind_host)}
+      {:else if proxied}
+        A loopback bind: you reached it through a proxy or tunnel.
+      {:else if loopback}
         A loopback bind is reachable only from this machine.
       {:else}
         This server answers on {info.bind_host} only.
@@ -142,13 +137,23 @@
 
   <div class="panel">
     <h2>Addresses</h2>
-    {#if addresses.length === 0}
+    {#if proxied}
+      <p class="muted">
+        You reached this server at <code>{origin}</code>, through a proxy or
+        tunnel.
+      </p>
+    {:else if loopback}
+      <p class="muted">
+        This server is bound to {info.bind_host}, so only this machine can reach
+        it.
+      </p>
+    {:else if addresses.length === 0}
       <p class="muted">
         No non-loopback address — this machine is reachable only from itself.
       </p>
     {:else}
       <div class="tablewrap">
-        <table>
+        <table class="datatable">
           <thead>
             <tr>
               <th></th>
@@ -193,17 +198,17 @@
   <div class="panel">
     <h2><Plug size={15} />MCP</h2>
     {#if info.mcp.mounted}
-      <dl>
+      <dl class="kv">
         <dt>Mounted</dt>
         <dd>yes</dd>
         <dt>Path</dt>
         <dd><code>{info.mcp.path}</code></dd>
-        {#if address}
+        {#if base}
           <dt>Endpoint</dt>
           <dd>
-            <code>{mcpUrl(address, port, mcpPath)}</code>
+            <code>{mcpUrlAt(base, mcpPath)}</code>
             <CopyButton
-              text={mcpUrl(address, port, mcpPath)}
+              text={mcpUrlAt(base, mcpPath)}
               title="copy the MCP endpoint URL"
             />
           </dd>
@@ -211,15 +216,16 @@
       </dl>
     {:else}
       <p class="muted">
-        Not mounted — restart with <code>dw-serve --mcp</code> to serve the MCP
-        tool surface at <code>{info.mcp.path}</code>.
+        Not mounted. Restart the server with --mcp (<code>
+          python -m dw.serve --mcp
+        </code>) to serve the MCP tools at <code>{info.mcp.path}</code>.
       </p>
     {/if}
   </div>
 
   <div class="panel" class:warn-edge={isUnauthenticatedPublicBind(info)}>
     <h2><ShieldCheck size={15} />Authentication</h2>
-    <dl>
+    <dl class="kv">
       <dt>Token required</dt>
       <dd>{info.auth_required ? 'yes' : 'no'}</dd>
     </dl>
@@ -239,13 +245,27 @@
 
   <div class="panel">
     <h2><Globe size={15} />Connect from another machine</h2>
-    {#if !address}
+    {#if loopback && !proxied}
+      <p class="muted">
+        Only this machine can reach this server. To use it from another, restart
+        it bound to the network, with a token:
+      </p>
+      <div class="snippet">
+        <code>{bindSnippet()}</code>
+        <CopyButton text={bindSnippet()} title="copy the restart command" />
+      </div>
+      <p class="muted note">
+        <a href={REMOTE_GUIDE} target="_blank" rel="noopener noreferrer">
+          How to use dw from another machine
+        </a>
+      </p>
+    {:else if !base}
       <p class="muted">
         No network address to build a URL from — nothing outside this machine
         can reach it.
       </p>
     {:else}
-      {#if addresses.length > 1}
+      {#if !proxied && addresses.length > 1}
         <label class="picker">
           Address
           <select
@@ -261,11 +281,8 @@
 
       <h3>Browser</h3>
       <div class="snippet">
-        <code>{browserUrl(address, port)}</code>
-        <CopyButton
-          text={browserUrl(address, port)}
-          title="copy the browser URL"
-        />
+        <code>{base}</code>
+        <CopyButton text={base} title="copy the browser URL" />
       </div>
       {#if info.auth_required}
         <p class="muted note">
@@ -276,19 +293,23 @@
       <h3>Claude Code</h3>
       {#if info.mcp.mounted}
         <div class="snippet">
-          <code>{mcpAddCommand(address, port, mcpPath)}</code>
+          <code>
+            {mcpAddCommandAt(base, mcpPath, info.auth_required)}
+          </code>
           <CopyButton
-            text={mcpAddCommand(address, port, mcpPath)}
+            text={mcpAddCommandAt(base, mcpPath, info.auth_required)}
             title="copy the claude mcp add command"
           />
         </div>
-        <p class="muted note">
-          Replace <code>&lt;token&gt;</code> with the server's API token.
-        </p>
+        {#if info.auth_required}
+          <p class="muted note">
+            Replace <code>&lt;token&gt;</code> with the server's API token.
+          </p>
+        {/if}
       {:else}
         <p class="muted">
-          The MCP endpoint is not mounted, so there is no command to run yet —
-          restart the server with <code>dw-serve --mcp</code>.
+          The MCP endpoint is not mounted, so there is no command to run yet.
+          Restart the server with --mcp.
         </p>
       {/if}
     {/if}
@@ -296,7 +317,7 @@
 
   <div class="panel">
     <h2>Directories</h2>
-    <dl>
+    <dl class="kv">
       <dt>Workspace</dt>
       <dd>
         {#if info.directories.workspace}
@@ -329,53 +350,16 @@
   </div>
 
   <CachesPanel />
-{:else if !error}
-  <p class="muted">loading server details…</p>
 {/if}
 
 <style>
-  .head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 0.4rem 0.8rem;
-  }
   .panel {
     margin-bottom: 0.8rem;
-  }
-  h2 {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    margin: 0 0 0.6rem;
-    font-size: 0.95rem;
   }
   h3 {
     margin: 0.9rem 0 0.35rem;
     font-size: 0.85rem;
     color: var(--muted);
-  }
-  dl {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: var(--space-2) var(--space-4);
-    margin: 0;
-    align-items: baseline;
-  }
-  dt {
-    font-weight: 600;
-    color: var(--muted);
-    font-size: 0.75rem;
-    text-transform: none;
-  }
-  dd {
-    margin: 0;
-    /* a grid item's automatic minimum width is its content's min-content
-       size (an unbroken path or address) unless overridden - min-width:0
-       lets it shrink to the 1fr track and overflow-wrap lets a long value
-       break instead of pushing the document wider */
-    min-width: 0;
-    overflow-wrap: anywhere;
   }
   .note {
     margin: 0.6rem 0 0;
@@ -383,7 +367,6 @@
     font-size: 0.85rem;
   }
   .warn {
-    color: var(--warn);
     display: flex;
     align-items: center;
     gap: 0.4rem;
@@ -404,25 +387,6 @@
     gap: 0.4rem;
     font-size: 0.85rem;
     color: var(--muted);
-  }
-  .tablewrap {
-    overflow-x: auto;
-  }
-  table {
-    width: 100%;
-    border-collapse: collapse;
-  }
-  th {
-    text-align: left;
-    font-size: 0.75rem;
-    text-transform: none;
-    color: var(--muted);
-    font-weight: 600;
-    padding: 0.2rem 0.5rem 0.2rem 0;
-  }
-  td {
-    padding: 0.25rem 0.5rem 0.25rem 0;
-    border-top: 1px solid var(--line);
   }
   tr.chosen code {
     color: var(--accent);

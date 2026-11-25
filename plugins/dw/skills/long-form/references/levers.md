@@ -107,7 +107,7 @@ motion together at 86 s, and nothing is measured past 86 s.
   A keyframe face that differs from the still, such as an edit that ages it, is
   followed and accumulates. A walk did not read at chest-up framing; a slow
   lateral camera arc did, but arc v4 + latent carry sharpens from about
-  45 s; the cause is not isolated.
+  45 s; the cause is latent carry (`bench/records/narrated.md`).
 - **`experimental_latent_carry` with `experimental_capstone`**: holds
   saturation flat, does not hold the face past about 60-70 s alone. Stays
   experimental; no key rename.

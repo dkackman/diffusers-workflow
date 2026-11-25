@@ -11,135 +11,137 @@
   import { api } from '../api'
   import { goWs, route } from '../router.svelte'
   import { leafOf } from '../grouping'
-  import { sharedHref, wsHref } from '../routes'
+  import { SECTION_LABELS, fileHref, sharedHref, wsHref } from '../routes'
+  import { outputMedia } from '../media'
+  import OutputTile from '../ui/OutputTile.svelte'
   import { workspace } from '../workspace.svelte'
   import { loadPromptLibrary } from '../promptlib.svelte'
-  import { notify } from '../toast'
   import { observedText, observedTitle } from '../observed'
   import { costBasisWords, costFigure, costMeasuredOn } from '../cost'
-  import { confirmDialog } from '../confirm.svelte'
+  import { action } from '../action.svelte'
+  import { destroyConfirm } from '../destructive'
   import type { GalleryFile, WorkflowDefinition } from '../types'
   import ClampedText from '../ui/ClampedText.svelte'
-  import { onDestroy } from 'svelte'
-  import { describePlan } from '../plan'
+  import { onDestroy, untrack } from 'svelte'
+  import { resource } from '../resource.svelte'
+  import LoadState from '../ui/LoadState.svelte'
+  import PageHeader from '../ui/PageHeader.svelte'
   import { placeFindings } from '../findings'
-  import { RunCheck } from '../runCheck.svelte'
+  import { RunCheck, verdictOf } from '../runCheck.svelte'
   import RunCheckPanel from '../workflow/RunCheckPanel.svelte'
-  import { WORKFLOW_PREFILL_KEY } from '../chainActions'
+  import EnhanceDialog from '../workflow/EnhanceDialog.svelte'
+  import * as form from '../workflow/runForm'
+  import RemoteNotice from '../ui/RemoteNotice.svelte'
+  import Time from '../ui/Time.svelte'
 
   let { name }: { name: string } = $props()
 
-  let workflow = $state<WorkflowDefinition | null>(null)
-  /** Where this workflow was read from, and whether it is the user's to
-   * change - an examples or builtin source is read-only. Both come back on
-   * `getWorkflow` itself, off the response headers, so there is no separate
-   * `listWorkflows` round trip just to learn them. */
-  let origin = $state('')
-  let writable = $state(true)
   let overrides = $state<Record<string, string>>({})
-  let error = $state('')
-  let submitting = $state(false)
   /** Collapsed by default: this page is where you set variables and run,
    * and a 520px read-only editor between the form and the rest of the page
-   * pushed the actual work off the screen. The editor is one click away,
-   * and Edit opens the real one. */
+   * pushed the actual work off the screen. Edit opens the real one. */
   let showJson = $state(false)
+
+  /** The definition, with where it was read from and whether it is the
+   * user's to change - an examples or builtin source is read-only. Both
+   * come back on `getWorkflow` itself, off the response headers, so there
+   * is no separate `listWorkflows` round trip just to learn them. Held only
+   * while it is this name's. Keyed by name, so a write from elsewhere marks
+   * it changed and the page says so */
+  const read = resource(
+    async () => {
+      const wanted = name
+      return { name: wanted, ...(await api.getWorkflow(wanted)) }
+    },
+    { watch: ['workflows'], rows: (d) => [[d.name, d.definition]] },
+  )
+  const fetched = $derived(read.data?.name === name ? read.data : null)
+  const workflow = $derived<WorkflowDefinition | null>(
+    fetched?.definition ?? null,
+  )
+  const origin = $derived(fetched?.origin ?? '')
+  const writable = $derived(fetched?.writable ?? true)
   /** What this workflow has already made, newest first - the same proof the
    * catalog card shows, in the place where you decide whether to run it
-   * again. */
-  let proofs = $state<GalleryFile[]>([])
-  /** This server's own measured run time for the workflow, if it has one. */
-  let observed = $state<Record<string, unknown> | null>(null)
-  /** The maintainer's figure for this workflow, from the same catalog card:
-   * "a maintainer's figure: ~3 min · 22 GB VRAM, measured on <card> at
-   * steps=30". Null when the card has no cost - never "unknown cost". */
-  let curated = $state<string | null>(null)
-
-  /** Values another page asked this one to open with (Repair this
-   * segment, #1476): read once, and only when they name this workflow.
-   * Filled in, never submitted - Run is still the user's */
-  function takePrefill(): Record<string, string> {
-    const raw = sessionStorage.getItem(WORKFLOW_PREFILL_KEY)
-    if (raw === null) return {}
-    sessionStorage.removeItem(WORKFLOW_PREFILL_KEY)
-    try {
-      const parsed = JSON.parse(raw)
-      if (parsed?.workflow !== name) return {}
-      const args = parsed.arguments
-      if (!args || typeof args !== 'object') return {}
-      return Object.fromEntries(
-        Object.entries(args).map(([key, value]) => [key, String(value)]),
+   * again. A run writes to <outputs>/<identity>/<run id>/, and the gallery
+   * reports that identity as `folder`, so this workflow's name matches its
+   * outputs directly. */
+  const proofRead = resource(
+    async () => {
+      const wanted = name
+      const result = await api.gallery()
+      const files = result.files.filter(
+        (file: GalleryFile) => file.folder === wanted,
       )
-    } catch {
-      return {}
-    }
-  }
+      return {
+        name: wanted,
+        workspace: result.workspace,
+        files: files.slice(0, 6),
+      }
+    },
+    { watch: ['gallery'] },
+  )
+  const proofs = $derived(
+    proofRead.data?.name === name ? proofRead.data.files : [],
+  )
+  // The listing's own workspace: each proof's thumbnail and link name it
+  const proofHome = $derived(proofRead.data?.workspace ?? workspace.current)
+  /** The catalog card: this server's own measured run time for the
+   * workflow, and the maintainer's figure - "a maintainer's figure: ~3 min
+   * · 22 GB VRAM, measured on <card> at steps=30". Null when the card has
+   * no cost - never "unknown cost". */
+  const catalog = resource(() => api.listWorkflows({ inputs: true }), {
+    watch: ['workflows'],
+  })
+  const card = $derived(catalog.data?.details?.[name])
+  const observed = $derived(
+    (card?.observed as Record<string, unknown> | undefined) ?? null,
+  )
+  const curated = $derived.by(() => {
+    const measured = card?.cost?.[0]
+    if (!measured || !card) return null
+    const basis = costBasisWords(catalog.data?.cost_basis)
+    const figure = `${costFigure(measured)}, ${costMeasuredOn(card.cost, card.cost_drivers)}`
+    return basis ? `${basis}: ${figure}` : figure
+  })
+
+  let restored = $state(false)
+  let enhancing = $state('') // the variable whose Enhance dialog is open
+  let seeded = '' // the draft key (workspace and name) held in `overrides`
+  const saver = new form.DraftSaver()
 
   $effect(() => {
-    overrides = takePrefill()
-    workflow = null
-    origin = ''
-    writable = true
-    loadPromptLibrary()
-    api
-      .getWorkflow(name)
-      .then((fetched) => {
-        workflow = fetched.definition
-        origin = fetched.origin
-        writable = fetched.writable
-      })
-      .catch((e) => (error = e.message))
-    observed = null
-    curated = null
-    const wanted = name
-    api
-      .listWorkflows()
-      .then((r) => {
-        if (wanted !== name) return
-        const card = r.details?.[name]
-        observed = (card?.observed as Record<string, unknown>) ?? null
-        const measured = card?.cost?.[0]
-        if (measured) {
-          const basis = costBasisWords(r.cost_basis)
-          const figure = `${costFigure(measured)}, ${costMeasuredOn(card.cost, card.cost_drivers)}`
-          curated = basis ? `${basis}: ${figure}` : figure
-        }
-      })
-      .catch(() => {})
+    void name
+    untrack(() => {
+      showJson = false
+      loadPromptLibrary()
+    })
   })
 
   $effect(() => {
-    // A run writes to <outputs>/<identity>/<run id>/, and the gallery
-    // reports that identity as `folder`, so this workflow's name matches
-    // its outputs directly. Loaded separately from the definition so the
-    // page is usable before it answers.
-    const wanted = name
-    proofs = []
-    api
-      .gallery()
-      .then((result) => {
-        if (wanted !== name) return
-        proofs = result.files
-          .filter((file) => file.folder === wanted)
-          .slice(0, 6)
-      })
-      .catch(() => {
-        /* the page reads fine without them */
-      })
+    const key = form.draftKey(workspace.current, name)
+    if (!workflow || seeded === key) return
+    seeded = key
+    untrack(() => {
+      saver.flush()
+      const opened = form.openingValues(workspace.current, name, workflow)
+      ;({ restored, overrides } = opened)
+    })
   })
+
+  $effect(() => {
+    const values = $state.snapshot(overrides)
+    const key = form.draftKey(workspace.current, name)
+    if (seeded === key) saver.schedule(key, values)
+  })
+
+  onDestroy(saver.flush)
+  const resetForm = () => ((overrides = {}), (restored = false))
 
   const variables = $derived(Object.entries(workflow?.variables ?? {}))
 
-  /** The arguments a Run sends: the overrides with every blank dropped, so
-   * a blank field leaves the workflow's own default in place. Validate asks
-   * about exactly these, so its answer predicts the Run click. */
-  function runArguments(): Record<string, unknown> {
-    const args: Record<string, unknown> = {}
-    for (const [key, value] of Object.entries(overrides)) {
-      if (value !== '') args[key] = value
-    }
-    return args
-  }
+  const runArguments = () =>
+    form.runArguments(overrides, workflow?.variables ?? {})
 
   /** The check beside Run, asked about exactly what Run would send. */
   const runCheck = new RunCheck((sizes, signal) =>
@@ -166,9 +168,29 @@
       variables.map(([key]) => key),
     ),
   )
-  const planLines = $derived(
-    runCheck.validation?.plan ? describePlan(runCheck.validation.plan) : [],
+  const verdict = $derived(
+    verdictOf(runCheck.validation, runCheck.error, placed),
   )
+
+  /** A refused check turns Run into Fix: nothing else gates Run */
+  const fixing = $derived(
+    verdict?.tone === 'bad' && verdict.issues > 0 ? verdict.issues : 0,
+  )
+
+  /** Bring the first issue into view: the first field with an error, in
+   * form order, else the first general finding */
+  function showFirstIssue() {
+    const key = variables
+      .map(([k]) => k)
+      .find((k) => placed.byVariable[k]?.some((f) => f.tone === 'bad'))
+    const target =
+      key === undefined
+        ? document.getElementById('issue-0')
+        : document.getElementById(`var-${key}`)
+    if (!target) return
+    target.scrollIntoView?.({ block: 'center' })
+    if (key !== undefined) target.focus()
+  }
 
   function newFrom() {
     if (!workflow) return
@@ -179,29 +201,20 @@
     goWs('edit')
   }
 
-  async function remove() {
-    if (
-      !(await confirmDialog(
-        `Delete ${name}.json? This removes the file on disk.`,
-        {
-          confirmLabel: 'Delete',
-        },
-      ))
-    )
-      return
-    try {
+  const removing = action(
+    async () => {
       await api.deleteWorkflow(name)
       goWs('workflows')
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      notify.error(msg)
-    }
-  }
+    },
+    {
+      doing: () => `delete ${name}`,
+      confirm: () => destroyConfirm({ name: `${name}.json`, noun: 'workflow' }),
+    },
+  )
+  const remove = () => removing.run()
 
-  async function run() {
-    submitting = true
-    error = ''
-    try {
+  const running = action(
+    async () => {
       const job = await api.submitJob({
         // By name, not by composed path: the server resolves a name across
         // every source it can read, so an example runs where it lives
@@ -209,29 +222,24 @@
         arguments: runArguments(),
       })
       goWs('jobs', job.id)
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      notify.error(msg)
-    } finally {
-      submitting = false
-    }
-  }
+      return job
+    },
+    { doing: () => `run ${name}` },
+  )
 </script>
-
-<a
-  href={route.view.kind === 'shared'
-    ? sharedHref('examples')
-    : wsHref(workspace.current, 'workflows')}
-  class="back muted"
->
-  ← workflows
-</a>
 
 <!-- One filled button: Run, the thing you came here to do. Everything else
      is outlined or bare, and Delete is pushed out of reach of Run rather
      than sitting beside it. -->
-<div class="head">
-  <h1>{name}</h1>
+<PageHeader
+  title={name}
+  back={route.view.kind === 'shared'
+    ? { href: sharedHref('examples'), label: SECTION_LABELS.shared.examples }
+    : {
+        href: wsHref(workspace.current, 'workflows'),
+        label: SECTION_LABELS.ws.workflows,
+      }}
+>
   {#if !writable}
     <span
       class="readonly muted"
@@ -240,31 +248,46 @@
       {origin || 'read-only'}, read-only
     </span>
   {/if}
-  <span class="flex"></span>
-  <a
-    class="plain editlink"
-    href={wsHref(workspace.current, 'edit', ...name.split('/'))}
-    title="open this workflow in the editor"
-  >
-    <SquarePen size={14} />Edit
-  </a>
-  <button
-    class="quiet withicon"
-    onclick={newFrom}
-    disabled={!workflow}
-    title="open a copy in the editor to save under a new name"
-  >
-    <Copy size={14} />Duplicate
-  </button>
-  <button
-    class="withicon run"
-    onclick={run}
-    disabled={submitting || !workflow}
-    title="queue this workflow with the variables below"
-  >
-    <Play size={14} />{submitting ? 'Submitting…' : 'Run'}
-  </button>
-</div>
+  <!-- The file's own times, exact: this is the detail you reuse from -->
+  {#if card?.mtime}
+    <span class="stamps muted">
+      <Time at={card.mtime} mode="exact" label="changed" />
+      {#if card.created}
+        · <Time at={card.created} mode="exact" label="created" />
+      {/if}
+    </span>
+  {/if}
+  {#snippet actions()}<a
+      class="plain editlink"
+      href={wsHref(workspace.current, 'edit', ...name.split('/'))}
+      title="open this workflow in the editor"
+    >
+      <SquarePen size={14} />Edit
+    </a>
+    <button
+      class="quiet withicon"
+      onclick={newFrom}
+      disabled={!workflow}
+      title="open a copy in the editor to save under a new name"
+    >
+      <Copy size={14} />Duplicate
+    </button>
+    <button
+      class="withicon run"
+      onclick={() => (fixing ? showFirstIssue() : void running.run())}
+      disabled={running.busy || !workflow}
+      aria-busy={running.busy}
+      title={fixing
+        ? 'Shows what would stop this job'
+        : 'queue this workflow with the variables below'}
+    >
+      <Play size={14} />{running.busy
+        ? 'Submitting…'
+        : fixing
+          ? `Fix ${fixing} ${fixing === 1 ? 'issue' : 'issues'}`
+          : 'Run'}
+    </button>{/snippet}
+</PageHeader>
 
 <!-- The template's own figure, then what this server measured: two claims,
      each saying whose it is. The per-run figure for the values below is the
@@ -285,141 +308,129 @@
   </div>
 {/if}
 
-{#if error}<p class="error">{error}</p>{/if}
+<LoadState of={read} label={name} what={name}>
+  {#if workflow}
+    <RemoteNotice shown={read.changed.has(name)} />
+    <RunCheckPanel
+      {verdict}
+      checking={runCheck.checking}
+      plan={runCheck.validation?.plan ?? null}
+      checkError={runCheck.error}
+      findings={placed.general}
+      author={placed.author}
+    />
 
-{#if workflow}
-  <RunCheckPanel
-    verdict={runCheck.verdict}
-    checking={runCheck.checking}
-    {planLines}
-    checkError={runCheck.error}
-    findings={placed.general}
-  />
-
-  {#if workflow.description}
-    <div class="muted desc prose">
-      <ClampedText text={String(workflow.description)} />
-    </div>
-  {/if}
-
-  <!-- What it made last time, before you decide to make another -->
-  {#if proofs.length}
-    <div class="proofs">
-      {#each proofs as proof (proof.name)}
-        <a
-          class="plain frame proof"
-          href={wsHref(workspace.current, 'gallery')}
-          title="{proof.label} — open the gallery"
-        >
-          {#if proof.kind === 'image'}
-            <img
-              src={api.galleryThumbnailUrl(proof.name)}
-              alt={proof.label}
-              loading="lazy"
-            />
-          {:else}
-            <img
-              src={api.galleryThumbnailUrl(proof.name)}
-              alt={proof.label}
-              loading="lazy"
-            />
-            <span class="videobadge" aria-hidden="true">
-              <Play size={11} />
-            </span>
-          {/if}
-        </a>
-      {/each}
-    </div>
-  {/if}
-
-  {#if variables.length}
-    <div class="panel">
-      <!-- The heading names a thing the engine resolves, so it is mono; the
-           hint is written for a person, so it is not -->
-      <h2>Variables</h2>
-      <p class="hint muted">
-        Leave a field blank to use the workflow's own default. Type
-        <code>prompt:</code>, <code>asset:</code> or <code>output:</code> to pick
-        a stored prompt, an asset or an earlier run's file - or press ↓ in an empty
-        field to see them.
-      </p>
-      <VariablesForm
-        mode="override"
-        variables={workflow.variables ?? {}}
-        bind:overrides
-        idPrefix="var-"
-        backendVariables={attentionBackendVariables(workflow)}
-        requiredVariables={requiredVariables(workflow)}
-        constraints={constraintHints(workflow)}
-        presets={workflow.presets}
-        findings={placed.byVariable}
-      />
-    </div>
-  {:else}
-    <p class="muted">This workflow defines no variables.</p>
-  {/if}
-
-  <!-- The definition, the file and the destructive action all live below
-       the work, in that order of how often anyone wants them -->
-  <div class="foot">
-    <button
-      class="bare"
-      onclick={() => (showJson = !showJson)}
-      aria-expanded={showJson}
-      title={showJson
-        ? 'hide the workflow definition'
-        : 'show the workflow definition'}
-    >
-      {showJson ? 'hide' : 'show'} JSON
-    </button>
-    <DownloadLink href={api.workflowDownloadUrl(name)} />
-    <span class="flex"></span>
-    {#if writable}
-      <button
-        class="quiet icon danger"
-        onclick={remove}
-        title="delete this workflow file from disk"
-        aria-label="delete this workflow file from disk"
-      >
-        <Trash2 size={14} />
-      </button>
+    {#if workflow.description}
+      <div class="muted desc prose">
+        <ClampedText text={String(workflow.description)} />
+      </div>
     {/if}
-  </div>
 
-  {#if showJson}
-    <div class="json">
-      <JsonEditor
-        value={JSON.stringify(workflow, null, 2)}
-        readonly
-        height="520px"
-      />
+    <!-- What it made last time, before you decide to make another -->
+    <LoadState of={proofRead} label="what {name} made" quiet>
+      {#if proofs.length}
+        <div class="proofs">
+          {#each proofs as proof (proof.name)}
+            <OutputTile
+              file={outputMedia(proof, proofHome)}
+              size="strip"
+              caption="none"
+              href={fileHref(proofHome, 'gallery', proof.name)}
+              alt={proof.label}
+              title="{proof.label} — open it in the gallery"
+            />
+          {/each}
+        </div>
+      {/if}
+    </LoadState>
+
+    {#if variables.length}
+      <div class="panel">
+        <!-- The heading names a thing the engine resolves, so it is mono; the
+           hint is written for a person, so it is not -->
+        <h2>Variables</h2>
+        <p class="hint muted">
+          Leave a field blank to use the workflow's own default.
+          {#if restored}
+            Restored what you last typed here.
+            <button class="bare" onclick={resetForm}>Reset to defaults</button>
+          {/if}
+        </p>
+        <VariablesForm
+          mode="override"
+          variables={workflow.variables ?? {}}
+          bind:overrides
+          idPrefix="var-"
+          backendVariables={attentionBackendVariables(workflow)}
+          requiredVariables={requiredVariables(workflow)}
+          constraints={constraintHints(workflow)}
+          presets={workflow.presets}
+          findings={placed.byVariable}
+          kinds={card?.inputs ?? {}}
+          advanced={form.advancedVariables(workflow, card)}
+          seed={form.seedVariable(workflow)}
+          onenhance={(key) => (enhancing = key)}
+        />
+        {#if enhancing}
+          <EnhanceDialog
+            bind:open={() => !!enhancing, () => (enhancing = '')}
+            idea={form.enhanceIdea(overrides, workflow, enhancing)}
+            onuse={(text) => (overrides[enhancing] = text)}
+          />
+        {/if}
+      </div>
+    {:else}
+      <p class="muted">This workflow defines no variables.</p>
+    {/if}
+
+    <!-- The definition, the file and the destructive action all live below
+       the work, in that order of how often anyone wants them -->
+    <div class="foot">
+      <button
+        class="bare"
+        onclick={() => (showJson = !showJson)}
+        aria-expanded={showJson}
+        title={showJson
+          ? 'hide the workflow definition'
+          : 'show the workflow definition'}
+      >
+        {showJson ? 'hide' : 'show'} JSON
+      </button>
+      <DownloadLink href={api.workflowDownloadUrl(name)} />
+      <span class="flex"></span>
+      {#if writable}
+        <button
+          class="quiet icon danger"
+          onclick={remove}
+          title="delete this workflow file from disk"
+          aria-label="delete this workflow file from disk"
+        >
+          <Trash2 size={14} />
+        </button>
+      {/if}
     </div>
+
+    {#if showJson}
+      <div class="json">
+        <JsonEditor
+          value={JSON.stringify(workflow, null, 2)}
+          readonly
+          height="520px"
+        />
+      </div>
+    {/if}
   {/if}
-{/if}
+</LoadState>
 
 <style>
-  .back {
-    display: inline-block;
-    font-size: var(--t-sm);
-    margin-bottom: var(--space-3);
+  .stamps {
+    font-size: var(--t-xs);
+    align-self: center;
   }
   .readonly {
     font-family: var(--font-mono);
     font-size: var(--t-xs);
     align-self: center;
-  }
-  .head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.4rem 0.6rem;
-    margin-bottom: var(--space-4);
-  }
-  .head h1 {
-    word-break: break-word;
-  }
-  .head .flex {
-    flex: 1;
   }
   .editlink {
     display: inline-flex;
@@ -440,11 +451,6 @@
     flex-wrap: wrap;
     gap: var(--space-2);
     margin-bottom: var(--space-4);
-  }
-  /* .frame carries the look; this only says how big a proof is here */
-  .proof {
-    width: 116px;
-    aspect-ratio: 1;
   }
 
   .foot {
@@ -469,14 +475,10 @@
   .costs p {
     margin: var(--space-1) 0;
   }
-  .error {
-    color: var(--bad);
-  }
   .desc {
     margin: 0 0 var(--space-4);
   }
   .hint {
     margin: -0.4rem 0 var(--space-3);
-    font-size: var(--t-sm);
   }
 </style>

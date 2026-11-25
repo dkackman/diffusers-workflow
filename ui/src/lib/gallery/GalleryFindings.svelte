@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { LevelFinding } from '../types'
+  import ErrorLine from '../ui/ErrorLine.svelte'
   import {
     formatAt,
     measuredLine,
@@ -41,8 +42,8 @@
   {#if assessed?.reply}
     <div class="measured muted">{measuredLine(assessed.reply)}</div>
   {/if}
-  {#if assessed?.error}
-    <div class="error" role="alert">{assessed.error}</div>
+  {#if assessed && assessed.error != null}
+    <ErrorLine error={assessed.error} doing="assess this file" />
   {/if}
 </section>
 
@@ -84,11 +85,6 @@
   .measured {
     margin-top: 0.3rem;
     font-size: var(--t-xs);
-    overflow-wrap: anywhere;
-  }
-  .error {
-    margin-top: 0.3rem;
-    color: var(--bad);
     overflow-wrap: anywhere;
   }
 </style>

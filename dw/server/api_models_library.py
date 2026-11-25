@@ -1,9 +1,6 @@
-"""Response models for the library routes - workspaces, workflows, prompts,
-enhancer presets, LoRAs, the asset library, the requests ledger, and the
-gallery's marks and request links on one file. Part of
-the UI's response contract that `dw/server/api_models.py` describes; it
-re-exports every name here.
-"""
+"""Response models for the library routes: workspaces, workflows, prompts, enhancer
+presets, LoRAs, the asset library, the requests ledger, and one gallery file's marks
+and request links. Part of the UI response contract `api_models.py` re-exports."""
 
 from typing import Any, Literal
 
@@ -17,6 +14,7 @@ from .catalog_shape import SHAPES, TRAITS
 Origin = Literal["workspace", "common", "examples", "builtin"]
 Shape = Literal[SHAPES]
 Trait = Literal[TRAITS]
+InputKind = Literal["image", "video", "audio", "file"]
 
 
 class LibraryRoot(ApiModel):
@@ -36,7 +34,15 @@ class DiskUsage(ApiModel):
     bytes: int
 
 
-class WorkspaceInfo(ApiModel):
+class Dated(ApiModel):
+    mtime: float = sometimes("Epoch seconds its file last changed; times=true only.")
+    created: float = sometimes("Birth time, if the filesystem has it; times=true only.")
+
+
+class WorkspaceInfo(Dated):
+    mtime: float = sometimes(
+        "The newest mtime of its folders and their direct entries; times=true only."
+    )
     name: str
     default: bool
     root: str | None
@@ -75,17 +81,14 @@ class WorkspaceCopied(ApiModel):
     destination: str
     copied: CopiedItems
     already_present: list[str] = Field(
-        description="Runs the destination already held (`<workflow>/<run id>`) "
-        "and assets it held with identical bytes (library-relative path) - "
-        "skipped."
+        description="Runs the destination already held (`<workflow>/<run id>`) and "
+        "assets it held with identical bytes (library-relative path) - skipped."
     )
     renumbered: dict[str, dict[str, int]] = Field(
-        description="Copied runs whose `vN` changed, keyed `<workflow>/<run id>`: "
-        "`{from, to}`."
+        description="Runs whose `vN` changed, `<workflow>/<run id>` to `{from, to}`."
     )
     warnings: dict[str, Any] = Field(
-        description="`unresolved_output_refs`, `absolute_paths` and `no_jobs`, "
-        "each only when it applies."
+        description="`unresolved_output_refs`, `absolute_paths`, `no_jobs`: where each applies."
     )
     bytes_linked: int
     bytes_copied: int
@@ -102,10 +105,8 @@ class WorkflowCost(ApiModel):
     minutes: int | float
 
 
-class WorkflowCard(ApiModel):
-    """One workflow's entry in the full listing (the agent's
-    `view=compact` answer is a different, smaller shape outside this
-    model)."""
+class WorkflowCard(Dated):
+    """One workflow in the full listing; `view=compact` answers a smaller shape."""
 
     kinds: list[str]
     steps: int
@@ -118,10 +119,12 @@ class WorkflowCard(ApiModel):
     )
     configures_missing: str = sometimes("A `configures` that names no workflow.")
     prompt_refs: list[str]
+    inputs: dict[str, InputKind] = sometimes(
+        "Each variable feeding a media argument, and its kind; inputs=true only."
+    )
     shape: Shape = Field(description="What the workflow makes, derived by the server.")
     traits: list[Trait] = Field(
-        description="Sorted, independent facts about how the output is made or what "
-        "it needs."
+        description="Sorted facts about how the output is made or what it needs."
     )
     summary: str = Field(
         description="The description's first sentence, clipped - what a card shows."
@@ -130,8 +133,8 @@ class WorkflowCard(ApiModel):
     constraints: dict[str, Any]
     cost_drivers: dict[str, Any]
     cost: list[WorkflowCost] | None = Field(
-        description="Measured runs, one per device the maintainer measured on. Null "
-        "means unknown - never derived."
+        description="Measured runs, one per device the maintainer measured on; null "
+        "means unknown, never derived."
     )
     observed: dict[str, Any] = sometimes("This box's own history for it.")
     origin: Origin
@@ -142,8 +145,7 @@ class WorkflowCard(ApiModel):
 
 class BuiltinWorkflows(ApiModel):
     workflows: list[str] = Field(
-        description="The packaged fragments a sub-workflow step names as "
-        "`builtin:<name>.json`, each as what follows the prefix."
+        description="Packaged fragments, each as a step names it after `builtin:`."
     )
 
 
@@ -176,7 +178,7 @@ class WorkflowDeleted(ApiModel):
     deleted: bool
 
 
-class PromptCard(ApiModel):
+class PromptCard(Dated):
     description: str
     intended_model: str
     tags: list[str]
@@ -218,11 +220,10 @@ class EnhancerPresets(ApiModel):
     presets: list[EnhancerPreset]
 
 
-# The LoRA catalog listing (GET /api/loras). A row is a catalog entry
-# (dw/lora_catalog_schema.json) as stored, plus where it came from. Every
-# field the schema allows is declared, so the strict suite fails on an entry
-# key the model does not know rather than the route dropping it; numbers are
-# `int | float` so a stored `1` goes out as `1`, not `1.0`.
+# The LoRA catalog listing (GET /api/loras): a row is a stored catalog entry
+# (dw/lora_catalog_schema.json) plus where it came from. Every field the schema allows
+# is declared, so the strict suite fails on a key the model lacks rather than the route
+# dropping it; numbers are `int | float`, so a stored `1` goes out as `1`, not `1.0`.
 
 
 class LoraScale(ApiModel):
@@ -309,6 +310,7 @@ class AssetFile(ApiModel):
         "when any do"
     )
     note: str = sometimes("The asset's note, when it has one.")
+    duration_seconds: int | float | None = sometimes("A/V length with `media=true`.")
 
 
 class ShadowedAsset(ApiModel):
@@ -375,8 +377,7 @@ class LedgerNoteRef(ApiModel):
 
 
 class LedgerNote(ApiModel):
-    """One note the user wrote for the agent. Only the request-notes routes
-    write one."""
+    """One note the user wrote for the agent; only request-notes routes write one."""
 
     id: str = Field(description="Unique within the request; never reused.")
     text: str
@@ -401,6 +402,10 @@ class LedgerAttempt(ApiModel):
     job: str
     status: JobStatus
     note: str = sometimes("The job's note.")
+    reason: str = sometimes(
+        "Only with reasons=true: why a failed or cancelled job ended, "
+        "the first line of its error."
+    )
     minutes: int | float | None = Field(
         description="Run time; null until the job has started."
     )
@@ -448,21 +453,18 @@ class LedgerItem(ApiModel):
     status: Literal[
         "dropped", "done", "revised", "running", "queued", "failed", "planned"
     ] = Field(
-        description="Derived from the item's linked jobs, first that holds: "
-        "dropped, done (a result exists) - or revised when its workflow or "
-        "arguments changed after every succeeded take and no take was "
-        "accepted since - running, queued, failed (every linked job failed or "
-        "was cancelled), planned."
+        description="Derived from the item's linked jobs, first that holds: dropped, "
+        "done (a result exists) - or revised when its workflow or arguments changed "
+        "after every succeeded take and no take was accepted since - running, "
+        "queued, failed (every linked job failed or was cancelled), planned."
     )
     revised_because: list[str] = sometimes(
-        "What moved on a revised item: `workflow`, `arguments`, "
-        "`prompt:<name>` (a referenced prompt's text changed). Absent unless "
-        "the item is revised."
+        "What moved on a revised item: `workflow`, `arguments`, `prompt:<name>` (a "
+        "referenced prompt's text changed). Absent unless the item is revised."
     )
     changed_at: str | None = Field(
-        description="When the item was created or its workflow or arguments "
-        "last changed, stamped by the server; null on an item stored before "
-        "the stamp."
+        description="When the item was created or its workflow or arguments last "
+        "changed, stamped by the server; null on an item stored before the stamp."
     )
     accepted_basis: "LedgerAcceptedBasis | None" = Field(
         description="When a take was last accepted while the item read "
@@ -554,6 +556,10 @@ class LedgerSummary(ApiModel):
     spent_minutes: int | float
     remaining_minutes: int | float
     updated_at: str | None
+    needs: dict[str, int] = sometimes(
+        "Only with needs=true: how many items want the user, by reason - held, ready, "
+        "failed (can run again), revised, choose, accepted_missing - and notes_waiting."
+    )
 
 
 class LedgerList(ApiModel):
@@ -694,6 +700,11 @@ class ChangeCounts(ApiModel):
     jobs: int = Field(
         description="Job queue, start, finish, cancel and move, and a run deleted."
     )
+    models: int = Field(
+        description="Model downloads, cancels and deletes, cache clears, and "
+        "a diffusers update. Server-wide."
+    )
+    loras: int = Field(description="LoRA catalog saves and deletes. Server-wide.")
 
 
 class WorkspaceChanges(ApiModel):
@@ -746,4 +757,14 @@ class NoteSet(ApiModel):
     note: str | None = Field(description="The effective note after the write.")
     note_source: Literal["file", "run"] | None = Field(
         description="Whose note `note` is; null for a workspace or no note."
+    )
+
+
+class NoteRead(ApiModel):
+    target: str
+    note: str | None = Field(
+        description="The target's own note, never the run's a file falls back to."
+    )
+    etag: str = Field(
+        description="What `If-Match` on PUT /api/notes names to replace only this note."
     )

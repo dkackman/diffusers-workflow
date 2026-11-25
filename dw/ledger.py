@@ -299,25 +299,25 @@ def _no_jobs(_request_id):
     return []
 
 
-def list_requests(root, jobs_for=_no_jobs, prompts=None):
+def list_requests(root, jobs_for=_no_jobs, prompts=None, needs=False):
     """The list view, newest change first. `jobs_for(request_id)` lists the
-    jobs linked to a request; `prompts` is the `name -> digest` callable the
-    revised rule reads (`ledger_views.is_revised`), None for rule 1 alone."""
+    jobs linked to a request; `prompts` the `name -> digest` callable rule 2
+    reads (None: rule 1 alone; `is_revised`); `needs` adds each row's."""
     rows = [
-        summary_view(r, jobs_for(r.get("id")), prompts)
+        summary_view(r, jobs_for(r.get("id")), prompts, needs)
         for r in read_requests(root).values()
     ]
     rows.sort(key=lambda row: row.get("updated_at") or "", reverse=True)
     return rows
 
 
-def listing(root, jobs_for=_no_jobs, prompts=None):
+def listing(root, jobs_for=_no_jobs, prompts=None, needs=False):
     """What the list route answers: `requests` (`list_requests`), and
     `unreadable` - why - when the file is there but is not a ledger."""
     problem = unreadable(root)
     if problem is not None:
         return {"requests": [], "unreadable": str(problem)}
-    return {"requests": list_requests(root, jobs_for, prompts)}
+    return {"requests": list_requests(root, jobs_for, prompts, needs)}
 
 
 def get_request(root, request_id, jobs_for=_no_jobs, prompts=None):

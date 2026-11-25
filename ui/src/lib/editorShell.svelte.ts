@@ -8,13 +8,94 @@
 // commits only on blur.
 // Constructed during a page's component init, since it registers the
 // JSON-mirror, tab-close and leave-guard effects there.
+// `watchRemote` (also called at init) follows the server's copy: when the
+// change feed moves the document's kind it reads the document again, and a
+// newer ETag reloads an unedited document with a toast, or holds the read
+// and sets `remote` 'diverged' for the page's banner (ui/RemoteChanged):
+// Load theirs takes the held read, Keep mine leaves the ETag alone so the
+// next save meets the `stale_write` question. A read that finds the file
+// gone sets `remote` 'gone', and the next save creates it again. The flush
+// a re-read makes is quiet: a broken JSON draft is held, never toasted. A
+// read begun before a load or a save is not news, nor one at the ETag the
+// user already declined.
+// A move seen while `busy` is read again once it clears, and text still
+// mid-IME-composition counts as an edit, so it is never loaded over.
+// `remoteLoads` counts the loads the server's copy caused (a reload, Load
+// theirs), so a page can drop what it said about the copy replaced - a
+// validation verdict.
+import { tick, untrack, type Component } from 'svelte'
+import { Braces, Columns2, LayoutList, Workflow } from '@lucide/svelte'
+import { overlayOpen } from './ui/layers.svelte'
 import type { WritePreconditions } from './apiRequest'
+import type { ChangeKind } from './changes.svelte'
 import { confirmDialog } from './confirm.svelte'
 import { isNameSegment } from './names'
 import { addLeaveGuard } from './router.svelte'
+import { describeError } from './apiErrors'
+import { resource } from './resource.svelte'
 import { notify } from './toast'
+import type { UndoTarget } from './destructive'
 
 export type EditorView = 'form' | 'split' | 'json' | 'flow'
+
+/** Every view an editor can offer, with its words; an editor filters this
+ * by the views it has (`DocumentEditor`'s `views`). */
+export const EDITOR_VIEWS: {
+  value: EditorView
+  label: string
+  title: string
+  icon: Component<{ size?: number }>
+}[] = [
+  { value: 'form', label: 'form', title: 'edit with a form', icon: LayoutList },
+  {
+    value: 'split',
+    label: 'split',
+    title: 'form beside the JSON - both editable, blur applies',
+    icon: Columns2,
+  },
+  {
+    value: 'json',
+    label: 'JSON',
+    title: 'edit the raw JSON, schema-aware',
+    icon: Braces,
+  },
+  {
+    value: 'flow',
+    label: 'flow',
+    title:
+      'read-only data-flow diagram: steps as boxes, previous_result as edges',
+    icon: Workflow,
+  },
+]
+
+/** The editor shortcut a key press names: Ctrl/Cmd+S (Caps-Lock S too)
+ * or Ctrl/Cmd+Enter. */
+function shortcut(e: KeyboardEvent): 'save' | 'run' | null {
+  if (!(e.ctrlKey || e.metaKey)) return null
+  const key = e.key.toLowerCase()
+  return key === 's' ? 'save' : key === 'enter' ? 'run' : null
+}
+
+/** The editor's Ctrl/Cmd+S save and Ctrl/Cmd+Enter run. Ctrl/Cmd+S never
+ * reaches the browser, whose own Save would download the page; nothing
+ * fires under an overlay, mid-IME composition, on a document that cannot
+ * be written or while it is busy; the pending edit is flushed first. */
+export function editorKeys(
+  ed: DocumentEditor,
+  handlers: { save: () => void; run?: () => void },
+): (e: KeyboardEvent) => void {
+  return (e) => {
+    const which = shortcut(e)
+    if (which === 'save') e.preventDefault()
+    if (!which || e.isComposing || overlayOpen()) return
+    const act = handlers[which]
+    if (!act || !ed.canWrite) return
+    e.preventDefault()
+    if (ed.busy) return
+    ed.flush()
+    act()
+  }
+}
 
 /** 'new' is a blank or handed-over document, 'failed' one that never
  * arrived - which must not be saved over the file it stands in for. */
@@ -25,6 +106,26 @@ export type LoadOptions = {
   path?: string | null
   writable?: boolean
 }
+
+/** The document as the server holds it now, read again on a feed move */
+type Found = {
+  doc: Record<string, any>
+  etag: string | null
+  writable: boolean
+}
+
+/** A re-read: the server's copy, or `gone` when the file is not there */
+export type RemoteRead = (Found & { gone?: undefined }) | { gone: true }
+
+/** What a page's flushers are told: `quiet` when nobody asked to save,
+ * so a draft that does not parse is held without a toast */
+export type Flusher = (options?: { quiet?: boolean }) => void
+
+/** A re-read, with the version of the editor and the path it was asked at */
+type Arrival = RemoteRead & { version: number; path: string | null }
+
+/** The toast an unedited document's reload shows */
+export const REMOTE_RELOADED = 'Updated by an agent or another tab'
 
 // The views that show the JSON draft, which a parse failure keeps open
 const JSON_VIEWS: readonly EditorView[] = ['json', 'split']
@@ -46,6 +147,38 @@ function storedView(
   }
 }
 
+type TextField = HTMLInputElement | HTMLTextAreaElement
+
+function isTextField(el: HTMLElement): el is TextField {
+  return el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement
+}
+
+function caretOf(el: HTMLElement): [number | null, number | null] | null {
+  return isTextField(el) ? [el.selectionStart, el.selectionEnd] : null
+}
+
+/** The field a re-render put in place of `was`: the same id, else name. */
+function successorOf(was: HTMLElement, root: HTMLElement | null) {
+  const name = was.getAttribute('name')
+  const selector = was.id
+    ? `#${CSS.escape(was.id)}`
+    : name
+      ? `[name="${CSS.escape(name)}"]`
+      : ''
+  return selector ? root?.querySelector<HTMLElement>(selector) : null
+}
+
+// Every document an editor opens - another file, a newer copy, a new
+// draft - counts here; an edit in place does not
+let opened = 0
+
+/** An editor's Undo is for the document it was made in: one opened since
+ * refuses it, so it never lands in another workflow */
+export const OPEN_DOCUMENT: UndoTarget = {
+  now: () => opened,
+  away: 'Nothing undone: another workflow, or a newer copy of this one, has opened since.',
+}
+
 export class DocumentEditor {
   doc = $state<Record<string, any>>({})
   // The document as last loaded or saved, serialized; '' until one loads,
@@ -65,6 +198,11 @@ export class DocumentEditor {
   etag = $state<string | null>(null)
   loadedPath = $state<string | null>(null)
   writable = $state(true)
+  // Whether the server's copy moved on under unsaved edits, or the file
+  // was deleted (watchRemote)
+  remote = $state<'same' | 'diverged' | 'gone'>('same')
+  // How many times the server's copy replaced the document on screen
+  remoteLoads = $state(0)
 
   readonly canWrite = $derived(
     this.loadState === 'new' || this.loadState === 'loaded',
@@ -75,13 +213,43 @@ export class DocumentEditor {
       JSON.stringify($state.snapshot(this.doc)) !== this.baseline,
   )
 
+  // Not reactive: nothing renders from it
+  #root: HTMLElement | null = null
+  #composing = false
+
   /** The page's editing surface: a flush commits the field focused in it.
-   * Not reactive: nothing renders from it */
-  root: HTMLElement | null = null
+   * Setting it follows the element's IME composition, which a blur ends. */
+  get root(): HTMLElement | null {
+    return this.#root
+  }
+  set root(el: HTMLElement | null) {
+    this.#root?.removeEventListener('compositionstart', this.#compose)
+    this.#root?.removeEventListener('compositionend', this.#compose)
+    this.#root?.removeEventListener('focusout', this.#compose)
+    this.#root = el
+    this.#composing = false
+    el?.addEventListener('compositionstart', this.#compose)
+    el?.addEventListener('compositionend', this.#compose)
+    // A field that leaves mid-composition (removed, or tabbed away) ends it
+    el?.addEventListener('focusout', this.#compose)
+  }
+
+  #compose = (event: Event) => {
+    this.#composing = event.type === 'compositionstart'
+  }
 
   #viewKey: string
   // Not reactive: nothing renders from it
-  #flushers: Array<() => void> = []
+  #flushers: Flusher[] = []
+  // The newer read a diverged document holds for Load theirs, and the ETag
+  // Keep mine declined; neither renders
+  #theirs: Found | null = null
+  #declined: string | null = null
+  // Moved by every load and save, so a re-read begun before one is dropped
+  #version = 0
+  // A feed move skipped (or a re-read dropped) while `busy`: read once it
+  // clears, since no later move comes for that write
+  #missed = false
 
   constructor({
     viewKey,
@@ -131,7 +299,7 @@ export class DocumentEditor {
   }
 
   /** Run `fn` on every flush; returns its removal. */
-  registerFlush(fn: () => void): () => void {
+  registerFlush(fn: Flusher): () => void {
     this.#flushers.push(fn)
     return () => {
       this.#flushers = this.#flushers.filter((f) => f !== fn)
@@ -140,20 +308,44 @@ export class DocumentEditor {
 
   /** Push every pending edit into the document now: the focused field's,
    * which a browser commits on blur (its `change`), then every debounced
-   * one. The field gets its focus back, so typing carries on. */
-  flush() {
+   * one. The field gets its focus back once the commit has rendered, so
+   * typing carries on; mid-composition it is not blurred at all. `quiet`
+   * holds a draft that does not parse without a toast. */
+  flush({ quiet = false } = {}) {
     const active = document.activeElement
-    if (active instanceof HTMLElement && this.root?.contains(active)) {
+    if (
+      !this.#composing &&
+      active instanceof HTMLElement &&
+      this.#root?.contains(active)
+    ) {
       active.blur()
-      if (active.isConnected) active.focus({ preventScroll: true })
+      void this.#refocus(active)
     }
-    for (const fn of [...this.#flushers]) fn()
+    for (const fn of [...this.#flushers]) fn({ quiet })
+  }
+
+  async #refocus(was: HTMLElement) {
+    const caret = caretOf(was)
+    await tick()
+    const node = was.isConnected ? was : successorOf(was, this.#root)
+    if (!node) return
+    // Focus that moved on meanwhile (a dialog, a click) is not ours to take
+    const now = document.activeElement
+    if (now && now !== document.body && now !== was) return
+    node.focus({ preventScroll: true })
+    if (caret && isTextField(node)) {
+      try {
+        node.setSelectionRange(caret[0], caret[1])
+      } catch {
+        /* a type with no selection */
+      }
+    }
   }
 
   /** Whether leaving now would lose anything: an edit not yet saved, once
    * every pending one is in, or a JSON draft that never parsed. */
-  unsaved(): boolean {
-    this.flush()
+  unsaved({ quiet = false } = {}): boolean {
+    this.flush({ quiet })
     return this.dirty || this.jsonParseFailed
   }
 
@@ -183,7 +375,7 @@ export class DocumentEditor {
       this.jsonParseFailed = true
       if (!quiet)
         notify.error(
-          `JSON: ${e instanceof Error ? e.message : e}`,
+          `JSON: ${describeError(e).detail ?? describeError(e).title}`,
           'json-parse',
         )
     }
@@ -202,6 +394,7 @@ export class DocumentEditor {
   ) {
     this.doc = doc
     this.baseline = JSON.stringify(doc)
+    opened++
     // The last document's broken draft is not this one's: the JSON view
     // mirrors the document just opened
     this.jsonParseFailed = false
@@ -211,6 +404,105 @@ export class DocumentEditor {
     this.etag = etag
     this.loadedPath = path
     this.writable = writable
+    this.#settled()
+  }
+
+  /** The document on screen is the server's again: no banner, no held
+   * read, and any re-read in flight is from before */
+  #settled() {
+    this.#version++
+    this.#theirs = null
+    this.#declined = null
+    this.remote = 'same'
+  }
+
+  /** Follow the server's copy of the document through the `kind` feed,
+   * re-reading it with `read` (header above). Call during component init. */
+  watchRemote({
+    kind,
+    read,
+  }: {
+    kind: ChangeKind
+    read: () => Promise<RemoteRead>
+  }): void {
+    const reread = resource(() => this.#reread(read), {
+      watch: [kind],
+      lazy: true,
+    })
+    $effect(() => {
+      const arrived = reread.data
+      if (arrived) untrack(() => this.#arrived(arrived))
+    })
+    // A save's own move lands here too; its etag matches, so it is no news
+    $effect(() => {
+      if (this.busy || this.loadState !== 'loaded') return
+      untrack(() => {
+        if (!this.#missed) return
+        this.#missed = false
+        void reread.reload()
+      })
+    })
+  }
+
+  /** Nothing to compare while no document is open or a save is writing */
+  async #reread(read: () => Promise<RemoteRead>): Promise<Arrival | null> {
+    if (this.busy) this.#missed = true
+    if (this.loadState !== 'loaded' || this.busy) return null
+    const version = this.#version
+    const path = this.loadedPath
+    return { ...(await read()), version, path }
+  }
+
+  /** Whether `read` is about the document on screen, as it is now */
+  #current(read: Arrival): boolean {
+    return (
+      read.version === this.#version &&
+      read.path === this.loadedPath &&
+      this.loadState === 'loaded' &&
+      !this.busy
+    )
+  }
+
+  #arrived(read: Arrival) {
+    if (this.busy) this.#missed = true
+    if (!this.#current(read)) return
+    if (read.gone) {
+      this.#theirs = null
+      this.remote = 'gone'
+      return
+    }
+    if (read.etag === this.etag || read.etag === this.#declined) {
+      // The file is back as it was read: nothing was lost after all
+      if (this.remote === 'gone') this.remote = 'same'
+      return
+    }
+    // Text mid-composition never reaches `doc`, so it counts as an edit
+    if (this.#composing || this.unsaved({ quiet: true })) {
+      this.#theirs = read
+      this.remote = 'diverged'
+      return
+    }
+    this.load(read.doc, read)
+    this.remoteLoads++
+    notify.success(REMOTE_RELOADED)
+  }
+
+  /** Load theirs: the newer read replaces the edits. */
+  takeTheirs() {
+    const theirs = this.#theirs
+    if (theirs) {
+      this.load(theirs.doc, theirs)
+      this.remoteLoads++
+    }
+    this.remote = 'same'
+  }
+
+  /** Keep mine: the edits stay, and so does the ETag they were read at, so
+   * the next save asks before it replaces the newer copy. */
+  keepMine() {
+    this.#declined = this.#theirs?.etag ?? null
+    this.#theirs = null
+    this.remote = 'same'
   }
 
   /** The read failed: nothing to edit, and nothing a save may write. */
@@ -228,9 +520,11 @@ export class DocumentEditor {
   /** What a save to `path` insists on: the file still at the ETag this
    * document was read at when it is that file and its origin takes writes,
    * else that nothing is there yet - a new name, or a read-only origin's
-   * document whose save lands as a new copy in front of it. */
+   * document whose save lands as a new copy in front of it, or a file
+   * deleted since it was read, which the save writes back. */
   preconditions(path: string): WritePreconditions {
-    if (path !== this.loadedPath || !this.writable) return { createOnly: true }
+    if (path !== this.loadedPath || !this.writable || this.remote === 'gone')
+      return { createOnly: true }
     return this.etag ? { ifMatch: this.etag } : {}
   }
 
@@ -242,6 +536,7 @@ export class DocumentEditor {
   /** Record `baseline` (the document as it is now) as the saved one. */
   markSaved(baseline: string = this.serialized()) {
     this.baseline = baseline
+    this.#settled()
   }
 
   /** The folder a save lands in - a new folder's typed name, trimmed. */

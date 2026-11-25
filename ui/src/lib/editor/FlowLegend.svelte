@@ -26,7 +26,7 @@
 </script>
 
 <ul class="legend muted" aria-label="data-flow legend">
-  <li title="a step with no previous_result input - it starts the run">
+  <li title="a step with no previous_result input - it starts the job">
     <span class="swatch entry"></span>entry
   </li>
   {#if edges}
@@ -54,22 +54,22 @@
     </li>
   {/if}
   {#if done}
-    <li title="this run has finished the step; its time is on the right">
+    <li title="this job has finished the step; its time is on the right">
       <span class="swatch done"></span>finished
     </li>
   {/if}
   {#if active}
-    <li title="the step this run is executing now">
+    <li title="the step this job is executing now">
       <span class="swatch active"></span>running
     </li>
   {/if}
   {#if failed}
-    <li title="the step this run failed in - the error is below">
+    <li title="the step this job failed in - the error is below">
       <span class="swatch failed"></span>failed
     </li>
   {/if}
   {#if pending}
-    <li title="a step this run has not reached">
+    <li title="a step this job has not reached">
       <span class="swatch pending"></span>not run
     </li>
   {/if}

@@ -1,13 +1,18 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
+  import ErrorLine from '../ui/ErrorLine.svelte'
   import { SlidersHorizontal } from '@lucide/svelte'
   import { api } from '../api'
   import { displayValue } from '../editor'
+  import { typedArguments } from '../workflow/typedArguments'
   import { go } from '../router.svelte'
-  import { notify } from '../toast'
+  import { action } from '../action.svelte'
   import Modal from '../ui/Modal.svelte'
   import VariablesForm from '../editor/VariablesForm.svelte'
   import type { JobDetail } from '../types'
   import { promotionTitle, promotionsOf, type Promotion } from './promotions'
+  import { resource } from '../resource.svelte'
+  import { workflowPresets } from './rerun'
 
   // A finished job queued again with some of its arguments changed: a form
   // over every variable the run declared, and one button per other value of
@@ -16,11 +21,14 @@
   let {
     job,
     declared,
+    open = $bindable(false),
   }: {
     job: JobDetail
     /** The run's definition's declared variables, or null when the job's
      * definition is not on file - the form then lists its arguments only */
     declared: Record<string, unknown> | null
+    /** Whether the form is open: the job page's error panel opens it too */
+    open?: boolean
   } = $props()
 
   // What this run used for each variable: its declared default, under the
@@ -30,94 +38,96 @@
     ...(job.arguments ?? {}),
   })
 
-  let open = $state(false)
   let overrides = $state<Record<string, string>>({})
-  let error = $state('')
-  let submitting = $state(false)
+  let newSeed = $state(false)
+  let error = $state<unknown>(null)
 
   // Only what differs from the run goes: the server stores the overrides
   // exactly as sent, so retyping a value the run already used (30 over 30)
   // would otherwise be named as a change it never was
+  const started = (key: string) => displayValue(values[key]).trim()
   const changed = $derived(
     Object.fromEntries(
       Object.entries(overrides).filter(([key, raw]) => {
         const text = raw.trim()
-        return text !== '' && text !== displayValue(values[key]).trim()
+        return text !== '' && text !== started(key)
       }),
     ),
   )
   const changedCount = $derived(Object.keys(changed).length)
 
-  function start() {
-    overrides = {}
-    error = ''
-    open = true
-  }
+  // Opened from here or from outside, the form holds the job's values
+  $effect(() => {
+    if (!open) return
+    // Only opening seeds the form: a job or definition refresh while it is
+    // open must not wipe what was typed
+    untrack(() => {
+      overrides = Object.fromEntries(
+        Object.keys(values).map((key) => [key, displayValue(values[key])]),
+      )
+      newSeed = false
+      error = null
+    })
+  })
 
-  async function queue() {
-    if (!changedCount || submitting) return
-    submitting = true
-    error = ''
-    try {
-      const next = await api.rerunJob(job.id, { arguments: { ...changed } })
+  const queueing = action(
+    async () => {
+      if (!changedCount && !newSeed) return null
+      error = null
+      let next
+      try {
+        next = await api.rerunJob(job.id, {
+          newSeed,
+          arguments: typedArguments(changed, values),
+        })
+      } catch (e) {
+        // A refused value is the user's to fix: the modal stays open on it
+        error = e
+        return null
+      }
       open = false
       go('ws', job.workspace, 'jobs', next.id)
-    } catch (e) {
-      // A refused value is the user's to fix: the modal stays open on it
-      error = e instanceof Error ? e.message : String(e)
-    } finally {
-      submitting = false
-    }
-  }
+      return next
+    },
+    { doing: 'rerun it' },
+  )
 
-  // The selectors come from the workflow file as it is now - the job's own
-  // definition has its bundles folded in and its `presets` stripped. Only a
-  // job run by catalog name can be looked up; anything else has none.
-  let presets = $state<Record<string, Record<string, unknown>> | null>(null)
-  $effect(() => {
-    const name = job.workflow_name
-    presets = null
-    if (!name) return
-    let stopped = false
-    api
-      .getWorkflow(name)
-      .then(({ definition }) => {
-        if (stopped) return
-        const found = (definition as Record<string, unknown>)?.presets
-        presets =
-          found && typeof found === 'object'
-            ? (found as Record<string, Record<string, unknown>>)
-            : null
-      })
-      .catch(() => {
-        /* inline or deleted workflow: no promotions */
-      })
-    return () => {
-      stopped = true
-    }
+  // The selectors come from the workflow file as it is now (rerun.ts), read
+  // again when a workflow is saved anywhere
+  const presetsRead = resource(() => workflowPresets(job.workflow_name), {
+    watch: ['workflows'],
   })
+  const presets = $derived(presetsRead.data ?? null)
+
+  // The kind of file each variable takes, read once the form is open
+  const catalog = resource(
+    () => (open ? api.listWorkflows({ inputs: true }) : Promise.resolve(null)),
+    { watch: ['workflows'] },
+  )
+  const kinds = $derived(
+    catalog.data?.details?.[job.workflow_name ?? '']?.inputs ?? {},
+  )
 
   const promotions = $derived(
     promotionsOf(presets, declared, job.arguments ?? {}, values),
   )
 
-  async function promote(p: Promotion) {
-    try {
+  const promote = action(
+    async (p: Promotion) => {
       const next = await api.rerunJob(job.id, {
         arguments: { [p.selector]: p.value },
       })
       go('ws', job.workspace, 'jobs', next.id)
-    } catch (e) {
-      notify.error(e instanceof Error ? e.message : String(e))
-    }
-  }
+    },
+    { doing: 'run it again' },
+  )
 </script>
 
 {#if Object.keys(values).length}
   <button
     class="quiet withicon"
-    onclick={start}
-    title="queue this job again with some of its variables changed - what you leave blank keeps this run's value"
+    onclick={() => (open = true)}
+    title="queue this job again with some of its variables changed - what you leave blank keeps this job's value"
   >
     <SlidersHorizontal size={14} />Run again with changes…
   </button>
@@ -126,7 +136,9 @@
   <button
     class="quiet promote"
     data-promotion={p.selector}
-    onclick={() => promote(p)}
+    disabled={promote.busy}
+    aria-busy={promote.busy}
+    onclick={() => void promote.run(p)}
     title={promotionTitle(p)}
   >
     <code>{p.selector}</code>: {p.value}
@@ -136,27 +148,33 @@
 <Modal bind:open label="Run again with changes" wide>
   <h2>Run again with changes</h2>
   <p class="hint muted">
-    Each field shows what this run used. Type only what should change - a blank
-    field keeps this run's value, the drawn seed included.
+    Each field holds what this job used. Change what should differ.
   </p>
   <VariablesForm
     mode="override"
     variables={values}
     bind:overrides
     idPrefix="rerun-var-"
+    {kinds}
   />
-  {#if error}<p class="error" role="alert">{error}</p>{/if}
+  <label class="newseed">
+    <input type="checkbox" bind:checked={newSeed} />New seed
+  </label>
+  {#if error}<ErrorLine {error} doing="rerun it" />{/if}
   <div class="actions">
-    {#if !changedCount}<span class="muted">nothing changed</span>{/if}
+    {#if !changedCount && !newSeed}<span class="muted">
+        nothing changed
+      </span>{/if}
     <button class="quiet" onclick={() => (open = false)}>Cancel</button>
     <button
-      onclick={queue}
-      disabled={!changedCount || submitting}
-      title={changedCount
-        ? `queue a rerun changing ${Object.keys(changed).join(', ')}`
-        : 'nothing changed - type a value that differs from this run'}
+      onclick={() => void queueing.run()}
+      disabled={(!changedCount && !newSeed) || queueing.busy}
+      aria-busy={queueing.busy}
+      title={changedCount || newSeed
+        ? `queue a rerun${changedCount ? ` changing ${Object.keys(changed).join(', ')}` : ''}${newSeed ? ' with a new seed' : ''}`
+        : 'nothing changed - change a value, or choose New seed'}
     >
-      {submitting ? 'Queueing…' : 'Queue'}
+      {queueing.busy ? 'Queueing…' : 'Queue'}
     </button>
   </div>
 </Modal>
@@ -165,14 +183,17 @@
   .promote {
     font-size: 0.85rem;
   }
+  .newseed {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+  }
   .actions {
     display: flex;
     justify-content: flex-end;
     align-items: center;
     gap: var(--space-2);
     margin-top: var(--space-3);
-  }
-  .error {
-    color: var(--bad);
   }
 </style>

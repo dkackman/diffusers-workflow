@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { ChevronDown, ChevronRight, Upload } from '@lucide/svelte'
+  import { Upload } from '@lucide/svelte'
+  import GroupHeading from '../ui/GroupHeading.svelte'
   import type { AssetLibrary } from '../types'
 
   // A library section's header: the label, the count, the root it reads,
@@ -22,15 +23,14 @@
 </script>
 
 <div class="libraryrow">
-  <button
-    class="library"
-    onclick={ontoggle}
+  <GroupHeading
+    size="library"
+    label={section.label}
+    count={section.assets.length}
+    collapsed={!open}
+    {ontoggle}
     title={open ? 'collapse this library' : 'expand this library'}
-  >
-    {#if open}<ChevronDown size={15} />{:else}<ChevronRight size={15} />{/if}
-    {section.label}
-    <span class="muted">({section.assets.length})</span>
-  </button>
+  />
   <span class="path muted">{section.root}</span>
   <span class="flex"></span>
   {#if !section.writable}
@@ -71,26 +71,6 @@
     margin: 1.6rem 0 var(--space-2);
     padding-bottom: 0.3rem;
     border-bottom: 1px solid var(--line);
-  }
-  /* A library is a heavier folder heading: the same mono name the engine
-     resolves, ink rather than muted, because it is the page's top level */
-  .library {
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-    background: none;
-    border: none;
-    color: var(--ink);
-    font-family: var(--font-mono);
-    font-weight: 600;
-    font-size: var(--t-md);
-    padding: 0;
-    margin: 0;
-    cursor: pointer;
-  }
-  .library:hover {
-    filter: none;
-    color: var(--accent);
   }
   .path {
     font-family: var(--font-mono);

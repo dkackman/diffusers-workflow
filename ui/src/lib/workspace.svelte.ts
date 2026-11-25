@@ -2,6 +2,7 @@ import { api } from './api'
 import { notify } from './toast'
 import { wsHref, type RouteView } from './routes'
 import { DEFAULT_WORKSPACE, workspace } from './workspaceState.svelte'
+import { onReconnect } from './connection.svelte'
 
 // The state lives in its own module so api.ts can scope requests by it
 // without importing this one, which imports api.ts to load the listing
@@ -32,10 +33,6 @@ export function rememberWorkspace(name: string): void {
 // a workspace the URL named from one the localStorage fallback supplied.
 // Recorded here rather than read off the router, which imports this module.
 let lastView: RouteView | null = null
-// Whether `names` is the server's answer. A failed listing falls back to
-// the default alone so the sidebar has something to show, and that fallback
-// must not be read as proof that every other workspace is gone.
-let listed = false
 // Whether `names` was fetched for the check now reading it. The listing is
 // cached for the page's life, and a workspace can be created elsewhere after
 // it landed (an agent's create_workspace, another tab) - the running chip's
@@ -43,6 +40,13 @@ let listed = false
 // a name the cache lacks is refetched once before it is called missing.
 let fresh = false
 let refetching = false
+// How a missing workspace's route is replaced: the router hands over its
+// replaceRoute at load, since it imports this module and so cannot be imported
+let replaceRoute: (hash: string) => void = () => {}
+
+export function setRouteReplacer(replace: (hash: string) => void): void {
+  replaceRoute = replace
+}
 
 export function applyRouteWorkspace(view: RouteView | null): void {
   lastView = view
@@ -64,7 +68,7 @@ export function applyRouteWorkspace(view: RouteView | null): void {
  * toast, no navigation. Nothing until a listing has landed, and nothing on
  * the fallback a failed listing leaves. */
 export function checkWorkspaceExists(view: RouteView | null): void {
-  if (!listed || !workspace.names) return
+  if (!workspace.listed || !workspace.names) return
   if (workspace.names.includes(workspace.current)) return
   if (!fresh) {
     // The refetch's own landing re-runs this check against `lastView`
@@ -79,7 +83,7 @@ export function checkWorkspaceExists(view: RouteView | null): void {
   rememberWorkspace(DEFAULT_WORKSPACE)
   if (view?.kind === 'ws') {
     notify.error(`No workspace named ${missing} - showing default`)
-    location.replace(wsHref(DEFAULT_WORKSPACE, 'overview'))
+    replaceRoute(wsHref(DEFAULT_WORKSPACE, 'overview'))
   }
 }
 
@@ -105,12 +109,17 @@ export function loadWorkspaces(): Promise<void> {
       try {
         const result = await api.listWorkspaces()
         workspace.names = result.workspaces.map((entry) => entry.name)
-        listed = true
+        workspace.listed = true
         workspace.root = result.workspace_root
         workspace.usage = Object.fromEntries(
           result.workspaces
             .filter((entry) => entry.usage)
             .map((entry) => [entry.name, entry.usage!]),
+        )
+        workspace.changed = Object.fromEntries(
+          result.workspaces
+            .filter((entry) => entry.mtime)
+            .map((entry) => [entry.name, entry.mtime!]),
         )
         workspace.notes = Object.fromEntries(
           result.workspaces
@@ -127,7 +136,7 @@ export function loadWorkspaces(): Promise<void> {
         // keeps the listing that landed: a server hiccup does not empty the
         // sidebar, and the name that listing lacks is still called missing,
         // since that listing is the only answer there is.
-        if (listed) checkAgainstFreshListing()
+        if (workspace.listed) checkAgainstFreshListing()
         else workspace.names = [DEFAULT_WORKSPACE]
       }
     })()
@@ -140,3 +149,32 @@ export function loadWorkspaces(): Promise<void> {
 export function invalidateWorkspaces(): void {
   workspacesPromise = null
 }
+
+// A relist on its way, while it is: what relistOrJoin joins
+let relisting: Promise<void> | null = null
+
+/** The listing read again, the cached one dropped first: what a view
+ * watching the `workspaces` kind loads. Never a read already on its way,
+ * which may have left before the change it was asked for */
+export function relistWorkspaces(): Promise<void> {
+  invalidateWorkspaces()
+  const read = (relisting = loadWorkspaces())
+  void read.finally(() => {
+    if (relisting === read) relisting = null
+  })
+  return read
+}
+
+/** A relist, joining one already on its way: what a watcher the same feed
+ * poll calls after the `workspaces` one reads, so one poll that moves both
+ * lists the workspaces once (the Sidebar's content, as Overview joins) */
+export function relistOrJoin(): Promise<void> {
+  return relisting ?? relistWorkspaces()
+}
+
+// A listing read while the server was down or locked is the default-only
+// fallback; once it lets this browser in again, read the real one
+onReconnect(() => {
+  invalidateWorkspaces()
+  void loadWorkspaces()
+})

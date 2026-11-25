@@ -1,5 +1,6 @@
 import type {
   AssetDeleted,
+  NoteRead,
   NoteSet,
   StarSet,
   AssetList,
@@ -58,6 +59,7 @@ import type {
 import { ApiError, errorDetail } from './apiErrors'
 import {
   archiveFrom,
+  fetchText,
   isValidateRequest,
   jsonInit,
   preconditionHeaders,
@@ -71,12 +73,21 @@ import {
   addToken,
   appendQuery,
   encodePath,
+  linked,
   outputUrl,
+  queryOf,
   scopeTo,
   withToken,
-  galleryThumbnailUrl,
 } from './apiUrls'
 import { documentRoutes } from './apiDocuments'
+import { adoptJob } from './jobWatch'
+
+/** A job the server accepted is watched from now, so one that ends before
+ * the next status poll still raises its finish toast (jobWatch.ts). */
+function adopting(job: JobDetail): JobDetail {
+  if (job.id) adoptJob(job.id)
+  return job
+}
 
 // Pages and their test mocks import these from here
 export { ApiError, errorDetail, outputUrl }
@@ -91,37 +102,32 @@ export type {
 // The ledger's routes (request notes, the change counters): workspace in the path
 const UNSCOPED = { scope: false }
 const ws = encodeURIComponent
-const notesUrl = (workspace: string) =>
-  `/api/workspaces/${encodeURIComponent(workspace)}/request-notes`
+const notesUrl = (w: string) => `/api/workspaces/${ws(w)}/request-notes`
 const ledgerRead = <T>(url: string) => request<T>(url, undefined, UNSCOPED)
 
 export const api = {
   // getWorkflow, saveWorkflow, getPrompt, savePrompt
   ...documentRoutes,
-  listWorkflows: () => request<WorkflowList>('/api/workflows'),
+  // The three library listings ask for each entry's times (`times=true`)
+  listWorkflows: (o?: { inputs?: boolean }) =>
+    request<WorkflowList>(`/api/workflows?inputs=${!!o?.inputs}&times=true`),
   // Unscoped on purpose: `workspace` is explicit so Status can span every
   // workspace and a workspace's Jobs page can name its own. `status` is one
-  // state or a comma-separated set ('succeeded,failed,cancelled'); `limit`
-  // keeps the newest N of what matched.
+  // state or a set ('succeeded,failed,cancelled'); `limit` keeps the newest N.
   // `requestId` (with `item`) narrows to the jobs linked to a requests-ledger
-  // request, or one item of it
+  // request, or one item of it; `opts.prompts` adds each job's prompt
   listJobs: (
     workspace?: string,
     limit?: number,
     status?: string,
     requestId?: string,
     item?: string,
+    opts?: { prompts?: boolean },
   ) => {
-    const query = new URLSearchParams()
-    if (workspace) query.set('workspace', workspace)
-    if (status) query.set('status', status)
-    if (requestId) query.set('request', requestId)
-    if (requestId && item) query.set('item', item)
-    if (limit) query.set('limit', String(limit))
-    const qs = query.toString()
-    return request<JobList>(qs ? `/api/jobs?${qs}` : '/api/jobs', undefined, {
-      scope: false,
-    })
+    const link = linked(requestId, item)
+    const qs = queryOf({ workspace, status, ...link, limit, ...opts })
+    const url = qs ? `/api/jobs?${qs}` : '/api/jobs'
+    return request<JobList>(url, undefined, UNSCOPED)
   },
   getJob: (id: string) => request<JobDetail>(`/api/jobs/${id}`),
   /** The definition a job ran, for the job page's read-only flow view.
@@ -157,22 +163,24 @@ export const api = {
    * `arguments` override the run's own, and are sent only when there are
    * some - the server stores them as the rerun's `overrides` exactly as
    * sent, so they must be only what changed. */
-  rerunJob: (
+  rerunJob: async (
     id: string,
     {
       newSeed = false,
       arguments: overrides,
     }: { newSeed?: boolean; arguments?: Record<string, unknown> } = {},
   ) =>
-    request<JobDetail>(`/api/jobs/${id}/rerun`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(
-        overrides && Object.keys(overrides).length
-          ? { new_seed: newSeed, arguments: overrides }
-          : { new_seed: newSeed },
-      ),
-    }),
+    adopting(
+      await request<JobDetail>(`/api/jobs/${id}/rerun`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(
+          overrides && Object.keys(overrides).length
+            ? { new_seed: newSeed, arguments: overrides }
+            : { new_seed: newSeed },
+        ),
+      }),
+    ),
   /** Rerun every job one dead server's restart cancelled, naming any one of
    * them. Without `acknowledged` it is a priced preview - `would_queue` and
    * `skipped` - and queues nothing; with it the batch is queued. Every
@@ -229,12 +237,14 @@ export const api = {
    * `unknown_request`, `unknown_item` before anything queues); with
    * `acknowledged_cost` bound to a validate plan, a run whose plan has
    * moved is a 409 carrying the current plan and what to resend. */
-  submitJob: (body: JobSubmitBody) =>
-    request<JobDetail>('/api/jobs', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    }),
+  submitJob: async (body: JobSubmitBody) =>
+    adopting(
+      await request<JobDetail>('/api/jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    ),
   memory: () => request<MemoryInfo>('/api/memory'),
   listModels: () => request<ModelCache>('/api/models'),
   startDownload: (repoId: string) =>
@@ -276,19 +286,21 @@ export const api = {
       { method: 'DELETE' },
     ),
   // Loads the whole gallery in one request, like listWorkflows/listPrompts -
-  // the limit just needs to exceed any real output directory's file count
-  // `roles` narrows to those roles server-side (repeated `role` parameters;
-  // a null role counts as final there). The page filters on the client, so
-  // it asks for none
+  // the limit just needs to exceed any real output directory's file count.
+  // `roles` narrows server-side (repeated `role` parameters; a null role
+  // counts as final there); the page filters on the client, so asks for none
   // `requestId` narrows to the runs whose job is linked to that
   // requests-ledger request (in the selected workspace), and `item` to one
-  // item of it
-  gallery: (roles?: string[], requestId?: string, item?: string) => {
-    const params = new URLSearchParams({ limit: '100000' })
-    for (const role of roles ?? []) params.append('role', role)
-    if (requestId) params.set('request', requestId)
-    if (requestId && item) params.set('item', item)
-    return request<GalleryList>(`/api/gallery?${params}`)
+  // item of it. `opts`: `prompts` (by run id), `media` (durations)
+  gallery: (
+    roles?: string[],
+    requestId?: string,
+    item?: string,
+    opts?: { prompts?: boolean; media?: boolean },
+  ) => {
+    const link = linked(requestId, item)
+    const qs = queryOf({ limit: 100000, role: roles, ...link, ...opts })
+    return request<GalleryList>(`/api/gallery?${qs}`)
   },
   // `workspace`, when given, names the file's own workspace and wins over
   // whatever is currently selected in the picker - mirrors `outputUrl`, since
@@ -301,12 +313,14 @@ export const api = {
       undefined,
       { scope: workspace === undefined },
     ),
+  /** A gallery text file's contents, from the `url` its listing gave -
+   * which names its workspace already */
+  fileText: (url: string) => fetchText(url, { scope: false }),
   /** Run every assessment probe that applies to one output, in the
    * server's threadpool: a GET, scoped to the picker's workspace. It decodes
    * the whole file, so only a click calls it, never a poll. */
   assess: (name: string) =>
     request<AssessReply>(`/api/gallery/${encodePath(name)}/assess`),
-  galleryThumbnailUrl,
   deleteOutput: (name: string) =>
     request<OutputDeleted>(`/api/gallery/${encodePath(name)}`, {
       method: 'DELETE',
@@ -343,9 +357,10 @@ export const api = {
         (shared ? '&shared=true' : ''),
       { method: 'POST', body: file, headers: preconditionHeaders(pre) },
     ),
-  /** The asset library, spanning the workspace's own, the shared `common`
-   * one and any example library - each entry tagged with which. */
-  listAssets: () => request<AssetList>('/api/assets'),
+  /** The asset library: the workspace's own, the shared `common` one and any
+   * example library, each entry tagged with which; `media` adds A/V lengths */
+  listAssets: (opts?: { media?: boolean; limit?: number }) =>
+    request<AssetList>(opts ? `/api/assets?${queryOf(opts)}` : '/api/assets'),
   /** Download a multi-file asset selection as one zip - the gallery's bulk
    * download, for the input side. Spans every library on the search path,
    * since the grid does. */
@@ -359,13 +374,13 @@ export const api = {
   // The requests ledger. Unscoped: the workspace is in the path
   listRequests: (workspace: string) =>
     request<LedgerList>(
-      `/api/workspaces/${encodeURIComponent(workspace)}/requests`,
+      `/api/workspaces/${encodeURIComponent(workspace)}/requests?needs=true`,
       undefined,
       { scope: false },
     ),
   getRequest: (workspace: string, id: string) =>
     request<LedgerRequest>(
-      `/api/workspaces/${encodeURIComponent(workspace)}/requests/${encodeURIComponent(id)}`,
+      `/api/workspaces/${encodeURIComponent(workspace)}/requests/${encodeURIComponent(id)}?reasons=true`,
       undefined,
       { scope: false },
     ),
@@ -373,7 +388,7 @@ export const api = {
    * by the user. A stale revision is a 409 ApiError. */
   putRequest: (workspace: string, id: string, body: RequestWriteBody) =>
     request<LedgerRequest>(
-      `/api/workspaces/${encodeURIComponent(workspace)}/requests/${encodeURIComponent(id)}`,
+      `/api/workspaces/${encodeURIComponent(workspace)}/requests/${encodeURIComponent(id)}?reasons=true`,
       {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -410,7 +425,19 @@ export const api = {
   /** What moved: the change counters the change feed reads (changes.svelte.ts) */
   workspaceChanges: (w: string) =>
     ledgerRead<WorkspaceChanges>(`/api/workspaces/${ws(w)}/changes`),
-  listWorkspaces: () => request<WorkspaceList>('/api/workspaces'),
+  listWorkspaces: () => request<WorkspaceList>('/api/workspaces?times=true'),
+  /** The target's own note and the etag `setNote`'s `ifMatch` names: the
+   * precondition a save reads, not a view (the page's resource is that).
+   * Scoped like `setNote`. */
+  noteForSave: (target: string, workspace?: string) =>
+    noteRequest<NoteRead>(
+      appendQuery('/api/notes', 'target', target),
+      workspace,
+    ),
+  /** Whether the server lets the saved token in: a read any token opens */
+  checkToken: async (): Promise<void> => {
+    await request<unknown>('/api/workspaces', undefined, UNSCOPED)
+  },
   createWorkspace: (name: string) =>
     request<WorkspaceInfo>('/api/workspaces', {
       method: 'POST',
@@ -476,7 +503,7 @@ export const api = {
     }),
   workflowDownloadUrl: (name: string) =>
     withToken(`/api/workflows/${encodePath(name)}/download`),
-  listPrompts: () => request<PromptList>('/api/prompts'),
+  listPrompts: () => request<PromptList>('/api/prompts?times=true'),
   /** Catalog LoRA entries for one base: `model` a Hub repo id (or a saved
    * workflow's name), `workflow` an optional partition. Catalog-only - the
    * Hub is searched by /api/loras/recommend, which the UI never calls.
@@ -492,33 +519,22 @@ export const api = {
     withToken(`/api/prompts/${encodePath(name)}/download`),
   getPromptSchema: () => request<Record<string, unknown>>('/api/prompt-schema'),
   listEnhancers: () => request<EnhancerPresets>('/api/enhancers'),
-  enhance: (body: {
+  enhance: async (body: {
     idea: string
     preset: string
     model_name?: string
     device?: string
   }) =>
-    request<JobDetail>('/api/enhance', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    }),
+    adopting(
+      await request<JobDetail>('/api/enhance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    ),
 }
 
-/** Fetch the text of a saved output file - how an enhancement's result
- * comes back, since the manifest only names files. `workspace` names the
- * job's own workspace, for the same reason `outputUrl` takes one: the file
- * has to be read from where the job wrote it, not from whatever the picker
- * says now. */
-export async function fetchOutputText(
-  path: string,
-  workspace?: string,
-): Promise<string> {
-  const name = path.split('/').pop() ?? ''
-  const response = await fetch(outputUrl(path, undefined, workspace))
-  if (!response.ok) throw new Error(`Could not read ${name}`)
-  return response.text()
-}
+export { fetchOutputText } from './apiRequest'
 
 /** Set (or, with null, clear) the note on a workspace, asset, run or file.
  * A file name or run directory is read in the picked workspace, unless
@@ -528,18 +544,21 @@ export function setNote(
   target: string,
   note: string | null,
   workspace?: string,
+  ifMatch?: string,
 ): Promise<NoteSet> {
-  const path = '/api/notes'
-  return request<NoteSet>(
-    workspace === undefined ? path : scopeTo(path, workspace),
-    {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target, note }),
-    },
-    { scope: workspace === undefined },
+  const init = jsonInit(
+    'PUT',
+    { target, note },
+    preconditionHeaders({ ifMatch }),
   )
+  return noteRequest<NoteSet>('/api/notes', workspace, init)
 }
+
+/** A notes route, in `workspace` or else the picker's */
+const noteRequest = <T>(path: string, workspace?: string, init?: RequestInit) =>
+  request<T>(workspace === undefined ? path : scopeTo(path, workspace), init, {
+    scope: workspace === undefined,
+  })
 
 export const TERMINAL_STATUSES = ['succeeded', 'failed', 'cancelled']
 
@@ -551,6 +570,7 @@ export function streamJobEvents(
   after: number,
   onEvent: (event: JobEvent) => void,
   onEnd: () => void,
+  onDrop?: () => void,
 ): () => void {
   // EventSource cannot set custom headers, so a configured token rides
   // along as a query parameter for this one route - see docs/SERVER.md.
@@ -568,7 +588,10 @@ export function streamJobEvents(
       onEnd()
     }
   }
-  // No onerror handling: a dropped connection is EventSource's own job to
-  // repair. Closing here froze live progress on any transient hiccup.
+  // A dropped connection is EventSource's own to repair, so it is not closed
+  // here - closing froze live progress on any transient hiccup. `onDrop`
+  // lets the caller read the job again: after a restart it may have ended,
+  // or be gone, and no event will ever say so.
+  source.onerror = () => onDrop?.()
   return () => source.close()
 }

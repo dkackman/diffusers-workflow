@@ -1,7 +1,10 @@
 // The one save path the editors share: flush pending edits, refuse a
 // document whose load failed, write under the editor's preconditions, and
 // turn a 409 write conflict into one question - Replace or Cancel - rather
-// than a toast. A Replace writes again with no precondition.
+// than a toast - titled "was deleted" when the file the editor read is
+// gone. A Replace writes again with no precondition. A saved
+// document is a loaded one - a new document's first save included - so
+// watchRemote follows the server's copy of it from then on.
 import { ApiError } from './apiErrors'
 import type { WritePreconditions } from './apiRequest'
 import { chooseDialog } from './confirm.svelte'
@@ -18,11 +21,19 @@ const CONFLICTS: Record<string, (label: string) => string> = {
     `${label} changed since you opened it, in another tab or by an agent. Replace that version with yours?`,
 }
 
-/** The question a write conflict asks, or null for any other failure. */
-function conflictQuestion(error: unknown, label: string): string | null {
+type Question = { message: string; title?: string }
+
+/** The question a write conflict asks, or null for any other failure. A
+ * stale_write carrying no current etag is a file deleted since the read */
+function conflictQuestion(error: unknown, label: string): Question | null {
   if (!(error instanceof ApiError) || error.status !== 409) return null
+  if (error.code === 'stale_write' && error.detail?.etag === null)
+    return {
+      message: `${label} was deleted since you opened it, in another tab or by an agent. Write yours back?`,
+      title: `${label} was deleted`,
+    }
   const ask = error.code ? CONFLICTS[error.code] : undefined
-  return ask ? ask(label) : null
+  return ask ? { message: ask(label) } : null
 }
 
 async function replaceOnConflict(
@@ -31,10 +42,13 @@ async function replaceOnConflict(
 ): Promise<boolean> {
   const question = conflictQuestion(error, label)
   if (!question) throw error
-  const answer = await chooseDialog(question, [
+  const choices = [
     { label: 'Replace', value: 'replace', danger: true },
     { label: 'Cancel', value: 'cancel' },
-  ])
+  ]
+  const answer = question.title
+    ? await chooseDialog(question.message, choices, { title: question.title })
+    : await chooseDialog(question.message, choices)
   // Cancel, Escape and a click outside all answer null or 'cancel'
   return answer === 'replace'
 }
@@ -66,6 +80,7 @@ export async function saveDocument(
   ed.loadedPath = opts.path
   // Saved to the workspace: the next save overwrites this copy in place
   ed.writable = true
+  ed.loadState = 'loaded'
   return 'saved'
 }
 

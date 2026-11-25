@@ -90,6 +90,22 @@ it('a refresh older than what a write returned does not put the old plan back', 
   expect(store.view?.items[0].accepted?.job).toBe('j1')
 })
 
+it('an overtaken refresh is not taken', async () => {
+  const { ledger, store } = setup()
+  const next = { ...ledger.current, revision: ledger.current.revision + 1 }
+  ledger.current = next
+  let current = true
+  const refreshing = store.refresh(() => current)
+  // a later read overtook this one before it landed
+  current = false
+  await refreshing
+  expect(store.read?.revision).toBe(next.revision - 1)
+  // the one that is current is taken
+  current = true
+  await store.refresh(() => current)
+  expect(store.read?.revision).toBe(next.revision)
+})
+
 it('writes one at a time, each over what the one before it returned', async () => {
   const { ledger, store } = setup()
   const first = store.push({ kind: 'accept', key: 'a', job: 'j1' })

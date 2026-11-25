@@ -2,6 +2,10 @@
   import { Plus } from '@lucide/svelte'
   import StepEditor from './StepEditor.svelte'
   import { emptyStep, emptyTaskStep, emptyWorkflowStep } from '../editor'
+  import { undoToast } from '../destructive'
+  import { OPEN_DOCUMENT } from '../editorShell.svelte'
+  import { renameStep } from '../stepRename'
+  import { notify } from '../toast'
   import type { StepFlow } from '../flow'
   import type { StepModes } from '../stepModes.svelte'
 
@@ -9,6 +13,7 @@
   // them and set how much of each shows
   let {
     steps = $bindable(),
+    workflow = $bindable({}),
     modes,
     folder,
     flow,
@@ -17,6 +22,9 @@
     hovered = $bindable(),
   }: {
     steps: Record<string, any>[] | undefined
+    // The whole document: what a step's arguments take from earlier steps,
+    // and the variables a rename carries a reference in
+    workflow?: Record<string, any>
     modes: StepModes
     // The folder the workflow saves into, which a sub-workflow step's
     // relative path resolves against
@@ -27,6 +35,17 @@
     hovered: string | null
   } = $props()
 
+  /** `name`, or with the first free `-2`, `-3`... suffix when a step has
+   * it. Step mode and flow-graph edges are keyed by name - two steps sharing
+   * the factory default (e.g. 'generate') would collide in the step modes */
+  function freeName(name: string): string {
+    const taken = new Set((steps ?? []).map((s: Record<string, any>) => s.name))
+    if (!taken.has(name)) return name
+    let n = 2
+    while (taken.has(`${name}-${n}`)) n++
+    return `${name}-${n}`
+  }
+
   function addStep(kind: string) {
     const step =
       kind === 'task'
@@ -34,22 +53,64 @@
         : kind === 'workflow'
           ? emptyWorkflowStep()
           : emptyStep()
-    // Step mode and flow-graph edges are keyed by name - two steps sharing
-    // the factory default (e.g. 'generate') would collide in the step modes
-    const existingNames = new Set(
-      (steps ?? []).map((s: Record<string, any>) => s.name),
-    )
-    if (existingNames.has(step.name)) {
-      let n = 2
-      while (existingNames.has(`${step.name}-${n}`)) n++
-      step.name = `${step.name}-${n}`
-    }
+    step.name = freeName(step.name)
     steps = [...(steps ?? []), step]
     modes.mark(step.name, 'full')
   }
 
+  /** Removed at once, with an Undo that puts the step back where it was -
+   * before the first step that followed it and is still there, else last -
+   * under a free name, saying so when that name is not its own */
   function removeStep(index: number) {
-    steps!.splice(index, 1)
+    const list = steps ?? []
+    const removed = $state.snapshot(list[index])
+    const after = new Set(list.slice(index + 1).map((s) => s.name))
+    steps = list.filter((_, at) => at !== index)
+    undoToast(
+      `Removed step ${removed.name}`,
+      () => {
+        const now = steps ?? []
+        const step = { ...removed, name: freeName(removed.name) }
+        const found = now.findIndex((s) => after.has(s.name))
+        const at = found < 0 ? now.length : found
+        steps = [...now.slice(0, at), step, ...now.slice(at)]
+        modes.mark(step.name, 'full')
+        if (step.name !== removed.name)
+          notify.success(`Step ${removed.name} came back as ${step.name}`)
+      },
+      OPEN_DOCUMENT,
+    )
+  }
+
+  /** Step `index` called `to`, and every reference to it in the steps, the
+   * variables and the presets with it. Each step is changed in place, so its editor -
+   * focus, open sections - stays as it was. */
+  function rename(index: number, to: string) {
+    const list = steps ?? []
+    const from = list[index].name
+    const result = renameStep(
+      $state.snapshot({ ...workflow, steps: list }),
+      from,
+      to,
+    )
+    result.workflow.steps.forEach((next: Record<string, any>, at: number) => {
+      if (JSON.stringify(next) !== JSON.stringify($state.snapshot(list[at])))
+        Object.assign(list[at], next)
+    })
+    // Everything else the rename rewrote (variables, presets, ...) goes back
+    // on the document, so what the toast counts is what the document holds.
+    for (const [key, next] of Object.entries(result.workflow)) {
+      if (key === 'steps') continue
+      if (
+        JSON.stringify(next) !== JSON.stringify($state.snapshot(workflow[key]))
+      )
+        workflow[key] = next
+    }
+    modes.rename(from, to)
+    const n = result.count
+    const carried =
+      n > 0 ? `, and ${n} ${n === 1 ? 'reference' : 'references'} to it` : ''
+    notify.success(`Renamed step ${from} to ${to}${carried}`)
   }
 
   function moveStep(index: number, delta: number) {
@@ -94,6 +155,7 @@
       <StepEditor
         bind:step={steps![index]}
         {index}
+        {workflow}
         count={steps!.length}
         references={stepReferences[index] ?? []}
         baseFolder={folder}
@@ -104,6 +166,7 @@
         onhover={(n) => (hovered = n)}
         onremove={() => removeStep(index)}
         onmove={(delta) => moveStep(index, delta)}
+        onrename={(to) => rename(index, to)}
       />
     </div>
   {/each}

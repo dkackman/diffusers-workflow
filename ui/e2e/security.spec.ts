@@ -208,9 +208,10 @@ test('hostile content in the workflow editor stays text', async ({ page }) => {
   await assertInert(page, `/#/ws/${WS}/edit/hostile`, /hostile/)
 })
 
-test('the job page lists the output as an inert link', async ({ page }) => {
+test('the job page lists the output as an inert tile', async ({ page }) => {
   await assertInert(page, `/#/ws/${WS}/jobs/${htmlJobId}`, /hostile-html/)
-  await expect(page.locator('a.filelink').first()).toBeVisible()
+  // a text output is a tile whose excerpt is the file's text, never markup
+  await expect(page.getByLabel(/^Open .*hostile-html.*\.txt$/)).toBeVisible()
 })
 
 test('a gallery file with a hostile name opens inert', async ({ page }) => {
@@ -235,7 +236,8 @@ test.describe('an html file in outputs', () => {
     await page.getByRole('button', { name: 'API token' }).click()
     await page.getByPlaceholder('API token').fill('secret-probe')
     await page.getByRole('button', { name: 'Save' }).click()
-    await expect(page.getByRole('button', { name: 'Saved' })).toBeVisible()
+    // the fixture server runs without a token, so it accepts any
+    await expect(page.getByText('Token accepted')).toBeVisible()
     await page.goto(`/outputs/${htmlOutput}?workspace=${WS}`)
     await page.waitForLoadState('load')
     const title = await page.title()

@@ -333,6 +333,11 @@ def prepare_definition(workflow, workflow_def, arguments, base_dir):
     # dict.get default, torch.seed() would run on every call and reseed
     # the global RNG even when the workflow names an explicit seed
     default_seed = workflow_def.get("seed")
+    if default_seed is None and workflow._inherited_seed is not None:
+        # A composed child whose `variable:seed` nobody set runs under the
+        # parent's seed, so one seed reproduces the whole run (#1641)
+        default_seed = workflow._inherited_seed
+        workflow_def["seed"] = default_seed
     # The schema lets 'seed' be a string so it can hold a 'variable:'
     # reference, which the substitution above has already resolved -
     # but a variable overridden from the command line arrives as a

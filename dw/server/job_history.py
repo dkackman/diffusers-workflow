@@ -91,10 +91,9 @@ _ADDED_COLUMNS = (
     ("host_memory_job_peak_rss_mb", "REAL"),
     # The largest committed reading of the run (RssAnon + RssShmem + the
     # driver's pinned pages, host_memory.committed_mb) - its RSS without the
-    # mapped checkpoint pages, which are page cache (#869). An absolute
-    # process reading, where host_memory_job_peak_rss_mb is job-scoped
-    # growth. NULL for a row predating the column and where the platform
-    # has no split
+    # mapped checkpoint pages, which are page cache (#869). An absolute process
+    # reading, where host_memory_job_peak_rss_mb is job-scoped growth. NULL
+    # for a row predating the column and where the platform has no split
     ("host_memory_job_peak_committed_mb", "REAL"),
     # The card the job ran on - "cuda:1 NVIDIA GeForce RTX 3090" (#462).
     # NULL for a row predating the column: which card that was is not
@@ -133,10 +132,9 @@ _ADDED_COLUMNS = (
     # all of which are terminal
     ("server_instance", "TEXT"),
     # A database may hold a column no longer declared here (`kept`, #917,
-    # retired once #944 made a workspace delete retire every row rather
-    # than keep the ones an asset named): the migration only adds what is
-    # missing (`_add_missing_columns`), so a stray physical column is left
-    # alone and never read
+    # retired once #944 made a workspace delete retire every row, not keep
+    # the ones an asset named): the migration only adds what is missing
+    # (`_add_missing_columns`), so a stray column is left alone and unread
 )
 
 
@@ -149,9 +147,13 @@ def _rerun_spec(job):
     return {key: job.spec[key] for key in RERUN_SPEC_KEYS if key in job.spec}
 
 
+def _attr(name):
+    return name, lambda job: getattr(job, name, None)
+
+
 # What `JobHistory.record` writes: one (column, getter) per recorded column, so
 # a new job field is one entry here (plus its `_ADDED_COLUMNS` DDL), not a
-# placeholder and a positional value. `getattr(..., None)` is for a test double
+# placeholder and a positional value. `_attr` reads None for a test double
 # or an older in-memory Job predating a column: absent means unknown, which the
 # column itself allows (#243)
 _RECORDED = (
@@ -172,32 +174,23 @@ _RECORDED = (
     ("run_id", lambda job: job.run_id),
     ("run_dir", lambda job: job.run_dir),
     ("acknowledged", lambda job: job.acknowledged),
-    (
-        "host_memory_peak_rss_mb",
-        lambda job: getattr(job, "host_memory_peak_rss_mb", None),
-    ),
-    (
-        "host_memory_job_peak_rss_mb",
-        lambda job: getattr(job, "host_memory_job_peak_rss_mb", None),
-    ),
-    (
-        "host_memory_job_peak_committed_mb",
-        lambda job: getattr(job, "host_memory_job_peak_committed_mb", None),
-    ),
-    ("run_version", lambda job: getattr(job, "run_version", None)),
-    ("device", lambda job: getattr(job, "device", None)),
-    ("device_ordinal", lambda job: getattr(job, "device_ordinal", None)),
-    ("device_card", lambda job: getattr(job, "device_card", None)),
-    ("note", lambda job: getattr(job, "note", None)),
+    _attr("host_memory_peak_rss_mb"),
+    _attr("host_memory_job_peak_rss_mb"),
+    _attr("host_memory_job_peak_committed_mb"),
+    _attr("run_version"),
+    _attr("device"),
+    _attr("device_ordinal"),
+    _attr("device_card"),
+    _attr("note"),
     ("memory_key", _memory_key_of),
-    ("rerun_of", lambda job: getattr(job, "rerun_of", None)),
-    ("request", lambda job: getattr(job, "request", None)),
-    ("item", lambda job: getattr(job, "item", None)),
+    _attr("rerun_of"),
+    _attr("request"),
+    _attr("item"),
     (
         "overrides",
         lambda job: _json(job.spec["overrides"]) if job.spec.get("overrides") else None,
     ),
-    ("server_instance", lambda job: getattr(job, "server_instance", None)),
+    _attr("server_instance"),
 )
 
 # What the startup sweep writes into a dead server's open rows (#1220). Both
@@ -207,9 +200,8 @@ RESTART_RUNNING = (
     "server restart: running when the server stopped; "
     "partial outputs may be in {run_dir}"
 )
-# The prefix every tombstone's error starts with - what a batch is matched
-# on - is job_record's RESTART_PREFIX, beside the row-reason helper
-# A row that was dispatched but had not reported its run directory yet
+# A dispatched row that had not reported its run directory yet. A batch is
+# matched on job_record's RESTART_PREFIX, beside the row-reason helper
 RESTART_RUNNING_NO_RUN = (
     "server restart: running when the server stopped, before it opened a run"
 )
@@ -397,21 +389,20 @@ class JobHistory:
         before #1245). Its own SQL with no row cap, not the 200-row listing.
         A retired workspace's rows are members too, `workspace` still
         carrying DELETED_SUFFIX, so the caller can say why it skips one."""
-        pattern = RESTART_LIKE
         with self._lock, self._connect() as connection:
             row = connection.execute(
                 "SELECT server_instance FROM jobs WHERE id = ? AND status = ?"
                 " AND error LIKE ? AND server_instance IS NOT NULL",
-                (job_id, CANCELLED, pattern),
+                (job_id, CANCELLED, RESTART_LIKE),
             ).fetchone()
             if row is None:
                 return None
             instance = row["server_instance"]
             rows = connection.execute(
-                "SELECT id, workflow, workspace, created_at FROM jobs"
+                "SELECT id, workflow, workflow_name, workspace, created_at FROM jobs"
                 " WHERE server_instance = ? AND status = ? AND error LIKE ?"
                 " ORDER BY created_at, id",
-                (instance, CANCELLED, pattern),
+                (instance, CANCELLED, RESTART_LIKE),
             ).fetchall()
         return instance, [dict(member) for member in rows]
 
@@ -444,9 +435,8 @@ class JobHistory:
         from ..host_memory_projection import COMMITTED_PEAK, RSS_PEAK
 
         peaks, committed = self._peaks_for_key(key)
-        if not peaks:
-            return peaks, None
-        return peaks, COMMITTED_PEAK if committed else RSS_PEAK
+        basis = COMMITTED_PEAK if committed else RSS_PEAK
+        return peaks, basis if peaks else None
 
     def _peaks_for_key(self, key):
         """This machine's committed job peak, in MB, for every successful run
@@ -607,7 +597,7 @@ class JobHistory:
         name it ran from (NULL for an inline workflow)."""
         with self._lock, self._connect() as connection:
             rows = connection.execute(
-                "SELECT id, item, status, run_id, run_dir, note, created_at,"
+                "SELECT id, item, status, run_id, run_dir, note, error, created_at,"
                 " started_at, finished_at, workflow_name, arguments,"
                 " CASE WHEN json_valid(spec) THEN json_extract(spec, '$.output_dir') END"
                 " AS output_dir FROM jobs WHERE workspace = ? AND request = ?"
@@ -631,17 +621,24 @@ class JobHistory:
     def run_ids_for_request(self, workspace, request, item=None):
         """The run ids of `workspace`'s jobs linked to `request` (and, with
         `item`, to that item of it) - what the run-based gallery filters by."""
-        sql = (
-            "SELECT run_id FROM jobs WHERE workspace = ? AND request = ?"
-            " AND run_id IS NOT NULL"
-        )
-        params = [workspace, request]
-        if item:
-            sql += " AND item = ?"
-            params.append(item)
+        sql = "SELECT run_id FROM jobs WHERE workspace = ? AND request = ?"
+        sql += " AND run_id IS NOT NULL" + (" AND item = ?" if item else "")
+        params = [workspace, request, *([item] if item else [])]
         with self._lock, self._connect() as connection:
             rows = connection.execute(sql, params).fetchall()
         return {row["run_id"] for row in rows}
+
+    def submitted_prompts(self, ids, by_run=False, workspace=None):
+        """(id, run id, json_type, json_extract) of `$.prompt` for `workspace`'s rows
+        (any for None) whose id (run id `by_run`) is in list `ids` - not the blob."""
+        p, rows, col = "arguments, '$.prompt'", [], ("id", "run_id")[by_run]
+        sql = f"SELECT id, run_id, json_type({p}), json_extract({p}) FROM jobs"
+        sql += " WHERE json_valid(arguments) AND IFNULL(?, workspace) IS workspace"
+        for chunk in (ids[at : at + 500] for at in range(0, len(ids), 500)):
+            with self._lock, self._connect() as connection:
+                query = f"{sql} AND {col} IN ({','.join('?' * len(chunk))})"
+                rows += connection.execute(query, [workspace, *chunk]).fetchall()
+        return rows
 
     def device_ordinal(self, job_id):
         """The ordinal of the card a finished job ran on ('cuda:1'), or None
@@ -780,10 +777,8 @@ class JobHistory:
             row = connection.execute(
                 "SELECT events FROM jobs WHERE id = ?", (job_id,)
             ).fetchone()
-        if row is None:
-            return None
-        if not row["events"]:
-            return []
+        if row is None or not row["events"]:
+            return None if row is None else []
         try:
             return stored_manifest(json.loads(row["events"]))
         except json.JSONDecodeError:
@@ -804,7 +799,6 @@ class JobHistory:
         each produce a file with the same relative name, and without this a
         later job in another workspace could wrongly claim the match.
         """
-        escaped = _like_escaped(file_name)
         # Unbounded on purpose: every later fixed-seed rerun republishes the
         # file with 'reused', so a LIMIT would let the writing job fall out of
         # the window after that many reruns and leave the file unattributed.
@@ -812,10 +806,8 @@ class JobHistory:
         query = (
             "SELECT id, status, manifest FROM jobs WHERE manifest LIKE ? ESCAPE '\\'"
         )
-        params = [f"%{escaped}%"]
-        if workspace:
-            query += " AND workspace = ?"
-            params.append(workspace)
+        query += " AND workspace = ?" if workspace else ""
+        params = [f"%{_like_escaped(file_name)}%", *([workspace] if workspace else [])]
         query += " ORDER BY finished_at DESC"
         with self._lock, self._connect() as connection:
             rows = connection.execute(query, params).fetchall()

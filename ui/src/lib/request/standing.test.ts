@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest'
 import { formatDay } from '../format'
 import { planState } from './itemState'
-import { agentSaid, needsLine, standing } from './standing'
+import { agentSaid, needsLine, needsParts, standing } from './standing'
 import {
   attempt,
   doneItem,
@@ -54,7 +54,7 @@ it('says what is ready when nothing is in flight', () => {
     item('b', { ready: true }),
     item('c', { ready: true }),
   ])
-  expect(said.sentence).toBe('Nothing is running. 2 ready to run. 1 of 3 done.')
+  expect(said.sentence).toBe('Nothing is running. 1 of 3 done.')
   expect(said.needs).toBe('Needs you: 2 ready to run.')
 })
 
@@ -137,6 +137,7 @@ it('has a sentence for a plan with nothing to do, and for no plan', () => {
 it('lists every reason the user is needed, in one line', () => {
   expect(
     needsLine({
+      held: 0,
       ready: 2,
       revised: 0,
       failed: 1,
@@ -146,6 +147,7 @@ it('lists every reason the user is needed, in one line', () => {
   ).toBe('Needs you: 2 ready to run, 1 failed, 1 take to choose.')
   expect(
     needsLine({
+      held: 0,
       ready: 0,
       revised: 0,
       failed: 0,
@@ -155,6 +157,7 @@ it('lists every reason the user is needed, in one line', () => {
   ).toBe('Needs you: 2 takes to choose, 1 accepted take missing.')
   expect(
     needsLine({
+      held: 0,
       ready: 0,
       revised: 0,
       failed: 0,
@@ -189,11 +192,12 @@ it("gives the agent's latest word on an open request, and none on a closed one",
 
 it('counts a revised item as ready to run, and as needing the user', () => {
   expect(say([revisedItem('a'), item('b', { depends_on: ['a'] })])).toEqual({
-    sentence: 'Nothing is running. 1 ready to run. 0 of 2 done.',
+    sentence: 'Nothing is running. 0 of 2 done.',
     needs: 'Needs you: 1 revised since its take.',
   })
   expect(
     needsLine({
+      held: 0,
       ready: 1,
       revised: 2,
       failed: 0,
@@ -201,4 +205,67 @@ it('counts a revised item as ready to run, and as needing the user', () => {
       accepted_missing: 0,
     }),
   ).toBe('Needs you: 1 ready to run, 2 revised since their takes.')
+})
+
+it('the lead leaves the count to the needs line', () => {
+  const said = say([item('a', { ready: true }), item('b', { ready: true })])
+  expect(said.sentence).toBe('Nothing is running. 0 of 2 done.')
+  expect(said.sentence).not.toMatch(/ready/)
+  expect(said.needs).toBe('Needs you: 2 ready to run.')
+})
+
+const hold = {
+  until: '2026-11-21T12:00:00+00:00',
+  state: 'holding' as const,
+  seconds_left: 30,
+}
+
+it('needs parts name the first item of each reason', () => {
+  const req = request([
+    doneItem('cast'),
+    failed('plate'),
+    item('b', { ready: true }),
+    item('a', { ready: true }),
+    failed('blocked', { depends_on: ['b'] }),
+    failed('bad'),
+  ])
+  expect(needsParts(planState(req))).toEqual([
+    { reason: 'ready', text: '2 ready to run', key: 'b' },
+    { reason: 'failed', text: '2 failed', key: 'plate' },
+  ])
+  expect(needsParts(planState(request([doneItem('a')])))).toEqual([])
+})
+
+it("the parts come in the copy's order", () => {
+  const req = request([
+    doneItem('two', { attempts: [attempt('x'), attempt('y')] }),
+    doneItem('gone', {
+      accepted: { job: 'job-gone', run_id: null },
+      accepted_missing: true,
+    }),
+    revisedItem('rev'),
+    failed('bad'),
+    item('go', { ready: true }),
+    item('held', { ready: true, review: hold }),
+  ])
+  const parts = needsParts(planState(req))
+  expect(parts.map((p) => p.text)).toEqual([
+    '1 waiting for your OK',
+    '1 ready to run',
+    '1 failed',
+    '1 revised since its take',
+    '1 take to choose',
+    '1 accepted take missing',
+  ])
+  expect(parts.map((p) => p.key)).toEqual([
+    'held',
+    'go',
+    'bad',
+    'rev',
+    'two',
+    'gone',
+  ])
+  expect(standing(req, planState(req)).needs).toBe(
+    `Needs you: ${parts.map((p) => p.text).join(', ')}.`,
+  )
 })

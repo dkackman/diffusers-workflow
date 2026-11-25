@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest'
 import {
   formatBytes,
   formatDuration,
+  formatApprox,
   formatMinutes,
   formatSpent,
   formatDay,
   formatMtime,
+  formatRelative,
   gbFromBytes,
   gbFromMb,
 } from './format'
@@ -60,20 +62,78 @@ describe('formatDuration', () => {
     expect(formatDuration(243)).toBe('4m 03s')
     expect(formatDuration(3725)).toBe('1h 02m')
   })
+
+  it('26527 h reads in days', () => {
+    expect(formatDuration(26527 * 3600)).toBe('1105d 07h')
+    expect(formatDuration(86_400 + 2 * 3600 + 59)).toBe('1d 02h')
+    expect(formatDuration(86_399)).toBe('23h 59m')
+  })
+
+  it('a day exactly is the first that reads in days', () => {
+    expect(formatDuration(86_399)).toBe('23h 59m')
+    expect(formatDuration(86_400)).toBe('1d 00h')
+  })
+})
+
+describe('formatRelative', () => {
+  // 2026-11-24 12:00:00 UTC, in unix seconds
+  const NOW = 1_795_521_600
+
+  it('says just now under a minute, and for a time a little ahead (skew)', () => {
+    expect(formatRelative(NOW, NOW)).toBe('just now')
+    expect(formatRelative(NOW - 59, NOW)).toBe('just now')
+    expect(formatRelative(NOW + 120, NOW)).toBe('just now')
+  })
+
+  it('counts whole minutes, then whole hours', () => {
+    expect(formatRelative(NOW - 60, NOW)).toBe('1 min ago')
+    expect(formatRelative(NOW - 3599, NOW)).toBe('59 min ago')
+    expect(formatRelative(NOW - 3600, NOW)).toBe('1 h ago')
+    expect(formatRelative(NOW - 86_399, NOW)).toBe('23 h ago')
+  })
+
+  it('counts days up to 30, one day in the singular', () => {
+    expect(formatRelative(NOW - 86_400, NOW)).toBe('1 day ago')
+    expect(formatRelative(NOW - 2 * 86_400, NOW)).toBe('2 days ago')
+    expect(formatRelative(NOW - 30 * 86_400, NOW)).toBe('30 days ago')
+  })
+
+  it('past 30 days gives the day itself', () => {
+    const at = NOW - 31 * 86_400
+    expect(formatRelative(at, NOW)).toBe(formatDay(at, new Date(NOW * 1000)))
+  })
 })
 
 it('gives measured minutes with no tilde', () => {
   expect(formatSpent(38.27)).toBe('38 min')
   expect(formatSpent(6.25)).toBe('6.3 min')
   expect(formatSpent(2)).toBe('2 min')
-  expect(formatSpent(0.4)).toBe('<1 min')
+  expect(formatSpent(0.4)).toBe('under 1 min')
   expect(formatSpent(0)).toBe('0 min')
 })
 
 describe('formatMinutes', () => {
-  it('rounds to two places and says <1 below a minute', () => {
-    expect(formatMinutes(12.946)).toBe('~12.95 min')
-    expect(formatMinutes(0.4)).toBe('<1 min')
+  it('rounds to two places and says under 1 min below a minute', () => {
+    expect(formatMinutes(12.946)).toBe('about 12.95 min')
+    expect(formatMinutes(0.4)).toBe('under 1 min')
+  })
+})
+
+it('formatMinutes past an hour reads hours and minutes', () => {
+  expect(formatMinutes(59.5)).toBe('about 59.5 min')
+  expect(formatMinutes(60)).toBe('about 1 h')
+  expect(formatMinutes(80)).toBe('about 1 h 20 min')
+  expect(formatMinutes(125.4)).toBe('about 2 h 5 min')
+})
+
+describe('formatApprox', () => {
+  it('reads an ETA in whole minutes', () => {
+    expect(formatApprox(30)).toBe('under 1 min')
+    expect(formatApprox(180)).toBe('about 3 min')
+  })
+  it('formatApprox crosses an hour', () => {
+    expect(formatApprox(4800)).toBe('about 1 h 20 min')
+    expect(formatApprox(7200)).toBe('about 2 h')
   })
 })
 

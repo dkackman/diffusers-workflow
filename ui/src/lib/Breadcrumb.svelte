@@ -2,13 +2,19 @@
   import { fade } from 'svelte/transition'
   import { prefersReducedMotion } from 'svelte/motion'
   import { route } from './router.svelte'
-  import { serverHref, sharedHref, wsHref } from './routes'
+  import {
+    SECTION_LABELS,
+    sectionLabel,
+    serverHref,
+    sharedHref,
+    wsHref,
+  } from './routes'
   import { wsColor } from './wsColor'
 
   // group / section, each a link; the section's rest (a workflow or job
   // name) is the page's own h1, not the crumb's
   const crumbs = $derived.by(
-    (): { label: string; href: string; dot?: string }[] => {
+    (): { label: string; href?: string; dot?: string }[] => {
       const view = route.view
       if (view.kind === 'ws')
         return [
@@ -17,17 +23,23 @@
             href: wsHref(view.workspace, 'overview'),
             dot: wsColor(view.workspace),
           },
-          { label: view.section, href: wsHref(view.workspace, view.section) },
+          {
+            label: sectionLabel(view),
+            href: wsHref(view.workspace, view.section),
+          },
         ]
       if (view.kind === 'shared')
         return [
-          { label: 'shared', href: sharedHref('prompts') },
-          { label: view.section, href: sharedHref(view.section) },
+          { label: SECTION_LABELS.groups.shared, href: sharedHref('prompts') },
+          { label: sectionLabel(view), href: sharedHref(view.section) },
         ]
-      return [
-        { label: 'server', href: serverHref('status') },
-        { label: view.section, href: serverHref(view.section) },
-      ]
+      if (view.kind === 'server')
+        return [
+          { label: SECTION_LABELS.groups.server, href: serverHref('status') },
+          { label: sectionLabel(view), href: serverHref(view.section) },
+        ]
+      // a page that is not there has nowhere to link to
+      return [{ label: sectionLabel(view) }]
     },
   )
 </script>
@@ -40,14 +52,23 @@
          shows up here as well as in the sidebar; in only, so the row never
          holds two labels at once -->
     {#key crumb.label}
-      <a
-        class="plain"
-        href={crumb.href}
-        in:fade={{ duration: prefersReducedMotion.current ? 0 : 150 }}
-      >
-        {#if crumb.dot}<span class="dot" style:background={crumb.dot}
-          ></span>{/if}{crumb.label}
-      </a>
+      {#if crumb.href}
+        <a
+          class="plain"
+          href={crumb.href}
+          in:fade={{ duration: prefersReducedMotion.current ? 0 : 150 }}
+        >
+          {#if crumb.dot}<span class="dot" style:background={crumb.dot}
+            ></span>{/if}{crumb.label}
+        </a>
+      {:else}
+        <span
+          class="here"
+          in:fade={{ duration: prefersReducedMotion.current ? 0 : 150 }}
+        >
+          {crumb.label}
+        </span>
+      {/if}
     {/key}
   {/each}
 </nav>
@@ -74,7 +95,8 @@
     height: 8px;
     border-radius: 50%;
   }
-  .crumbs a:last-child {
+  .crumbs a:last-child,
+  .here {
     color: var(--ink);
   }
 </style>

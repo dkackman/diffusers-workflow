@@ -4,7 +4,7 @@ import type { DocumentEditor } from './editorShell.svelte'
 import { ApiError } from './apiErrors'
 import { chooseDialog } from './confirm.svelte'
 
-vi.mock('./api', () => ({ api: {} }))
+vi.mock('./api', async () => (await import('./test/apiMock')).apiModule())
 const notifyError = vi.hoisted(() => vi.fn())
 vi.mock('./toast', () => ({ notify: { error: notifyError } }))
 vi.mock('./confirm.svelte', () => ({ chooseDialog: vi.fn() }))
@@ -92,6 +92,23 @@ it('asks with the stale_write copy', async () => {
     'hero changed since you opened it, in another tab or by an agent. Replace that version with yours?',
     REPLACE,
   )
+})
+
+it('asks with the deleted title when the file is gone', async () => {
+  const ed = fakeEditor()
+  const gone = new ApiError('conflict', 409, 'stale_write', {
+    code: 'stale_write',
+    message: 'conflict',
+    etag: null,
+  })
+  const write = vi.fn().mockRejectedValueOnce(gone)
+  vi.mocked(chooseDialog).mockResolvedValueOnce('cancel')
+  await saveDocument(ed, { path: 'hero', label: 'hero', write })
+  const [message, choices, options] = vi.mocked(chooseDialog).mock.calls[0]
+  expect(options).toEqual({ title: 'hero was deleted' })
+  expect(message).toContain('hero was deleted since you opened it')
+  expect(message).not.toContain('changed')
+  expect(choices).toEqual(REPLACE)
 })
 
 it('rethrows a non-conflict error', async () => {

@@ -2,6 +2,7 @@ import { api } from './api'
 import { confirmDialog } from './confirm.svelte'
 import { describeEstimate, describeEstimateTotal } from './plan'
 import { notify } from './toast'
+import { workflowName } from './terms'
 import type { JobSummary } from './types'
 
 /** One server restart's worth of cancelled jobs that look not yet rerun:
@@ -58,7 +59,7 @@ export async function rerunRestartBatchWithConfirm(
   try {
     preview = await api.rerunRestartBatch(id)
   } catch (e) {
-    notify.error(e instanceof Error ? e.message : String(e))
+    notify.failure('preview the rerun', e)
     return 'cancelled'
   }
   const would = preview.would_queue ?? []
@@ -77,7 +78,7 @@ export async function rerunRestartBatchWithConfirm(
   }
   const lines = would.map(
     (entry) =>
-      `• ${entry.workflow ?? '(no workflow)'} (${entry.id}, ${entry.workspace}) - ${describeEstimate(entry.estimate).text}`,
+      `• ${entry.workflow || entry.workflow_name ? workflowName(entry) : '(no workflow)'} (${entry.id}, ${entry.workspace}) - ${describeEstimate(entry.estimate).text}`,
   )
   const total = describeEstimateTotal(would.map((entry) => entry.estimate))
   const message =
@@ -96,7 +97,7 @@ export async function rerunRestartBatchWithConfirm(
       : ''
     notify.success(`Queued ${answer.queued.length}${skippedNote}`)
   } catch (e) {
-    notify.error(e instanceof Error ? e.message : String(e))
+    notify.failure('rerun the jobs', e)
     return 'cancelled'
   }
   return 'queued'

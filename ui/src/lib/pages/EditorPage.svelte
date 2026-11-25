@@ -1,30 +1,42 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import { editorLists, loadEditorLists } from '../editorLists.svelte'
-  import { DocumentEditor, NEW_FOLDER } from '../editorShell.svelte'
-  import ViewSwitch from '../editor/ViewSwitch.svelte'
+  import {
+    DocumentEditor,
+    EDITOR_VIEWS,
+    NEW_FOLDER,
+    editorKeys,
+    type EditorView,
+  } from '../editorShell.svelte'
+  import Segmented from '../ui/Segmented.svelte'
   import EditorBody from '../editor/EditorBody.svelte'
   import StepList from '../editor/StepList.svelte'
   import { StepModes } from '../stepModes.svelte'
   import ValidationPanel from '../editor/ValidationPanel.svelte'
-  import WorkflowFileBar, { IMPORTED } from '../editor/WorkflowFileBar.svelte'
-  import {
-    CircleCheck,
-    Columns2,
-    Braces,
-    LayoutList,
-    Play,
-    Save,
-    Workflow,
-  } from '@lucide/svelte'
+  import { EditorJumps, editorCheck } from '../editor/editorCheck.svelte'
+  import DocumentFileBar from '../editor/DocumentFileBar.svelte'
+  import WorkflowOrigin, { IMPORTED } from '../editor/WorkflowOrigin.svelte'
+  import { CircleCheck, Play, Save } from '@lucide/svelte'
   import { api } from '../api'
   import { ApiError } from '../apiErrors'
-  import { openWorkflow, saveWorkflowAt } from '../editor/workflowFile'
+  import {
+    openWorkflow,
+    listedWorkflows,
+    startingWorkflow,
+    validatedRun,
+    validatedSave,
+    watchWorkflow,
+    withSaved,
+  } from '../editor/workflowFile'
+  import { resource } from '../resource.svelte'
   import LoadFailed from '../ui/LoadFailed.svelte'
-  import { writableRoot } from '../libraries'
+  import ErrorLine from '../ui/ErrorLine.svelte'
+  import PageHeader from '../ui/PageHeader.svelte'
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
-  import { go, goWs, renameRoute } from '../router.svelte'
-  import { wsHref } from '../routes'
+  import { action } from '../action.svelte'
+  import { go, goWs } from '../router.svelte'
+  import { SECTION_LABELS, wsHref } from '../routes'
   import { loadWorkspaces, workspace } from '../workspace.svelte'
   import {
     attentionBackendVariables,
@@ -34,10 +46,11 @@
   import { referenceSuggestions } from '../referenceSuggestions'
   import { danglingReferenceDetails, flowGraph } from '../flow'
   import { groupOf, leafOf } from '../grouping'
+  import { DocumentRoute } from '../documentRoute.svelte'
   import { loadPromptLibrary, promptLibrary } from '../promptlib.svelte'
   import VariablesForm from '../editor/VariablesForm.svelte'
   import FlowView from '../editor/FlowView.svelte'
-  import type { ValidationResult, WorkflowDefinition } from '../types'
+  import type { WorkflowDefinition } from '../types'
 
   let { name = '' }: { name?: string } = $props()
 
@@ -49,36 +62,57 @@
       localStorage.getItem('dw-editor-split') === '1' ? 'split' : null,
     label: (): string => ed.savePath() ?? 'this workflow',
   })
+  watchWorkflow(ed)
   ed.doc = emptyWorkflow()
-  let workflowDir = $state('')
+  // Where the document sits in the route. A new draft moved to another
+  // workspace stays on this page: the workspace is the route's scope, so
+  // the move reloads the listing and takes the draft back up from the
+  // hand-off
+  const place = new DocumentRoute(ed, {
+    name: () => name,
+    scope: () => workspace.current,
+    href: (path) => wsHref(workspace.current, 'edit', ...path.split('/')),
+    open,
+    startDraft,
+    refresh: () => {
+      loadEditorLists()
+      loadPromptLibrary()
+    },
+  })
   // The file fields collapse behind the path chip once the workflow has a
   // name - they are settings, not something you retouch on every edit
   let fileOpen = $state(false)
-  // The path being edited: the route's, until a save gives the document
-  // another (or its first) - the URL follows a beat later
-  const current = $derived(
-    ed.loadState === 'loading' || ed.loadState === 'failed'
-      ? name
-      : (ed.loadedPath ?? name),
-  )
-  // Which workspace and file the document on screen came from or went to,
-  // so the route catching up with a save does not read it again
-  let opened = ''
-
-  const modesKey = $derived(`step-modes:${current || '(unsaved)'}`)
+  const modesKey = $derived(`step-modes:${place.current || '(unsaved)'}`)
   // Keyed by step name; existing steps open compact, new ones full
   const modes = new StepModes(() => modesKey)
+  const jumps = new EditorJumps(ed, modes)
+  // The server's copy replaced the steps: each keeps its mode by name
+  $effect(() => {
+    if (!ed.remoteLoads) return
+    untrack(() =>
+      modes.retain(
+        ((ed.doc.steps as Record<string, any>[]) ?? []).map((s) => s?.name),
+      ),
+    )
+  })
 
   // Existing folders, from the listing - one level is the designed depth,
   // but any deeper directories that exist still appear and keep working
   const folders = $derived(
     [...new Set(editorLists.workflowFiles.map(groupOf).filter(Boolean))].sort(),
   )
-  let validation = $state<ValidationResult | null>(null)
+  // The verdict shown: the live check's, or the Validate button's
+  const check = editorCheck(ed)
   // A new workflow's starting point: '' for blank, an example's name, or
   // IMPORTED for a definition handed over from an image's metadata
   let startFrom = $state('')
-  let examples = $state<string[]>([])
+  // The listing: the folder picker's files, where a new file saves, and the
+  // read-only examples a new workflow can start from (workflowFile.ts)
+  const catalog = resource(() => api.listWorkflows(), { watch: ['workflows'] })
+  const listed = $derived(listedWorkflows(catalog.data))
+  $effect(() => {
+    if (catalog.data) editorLists.workflowFiles = listed.files
+  })
   // Beside the definition, a hand-off carries the draft's file name and
   // what it started from, so moving it to another workspace keeps both
   const NAME_KEY = 'dw-editor-import-name'
@@ -86,44 +120,16 @@
   // the workspace picker's names - outside the load effect, so the listing
   // landing cannot re-run it and reset the draft
   loadWorkspaces()
-  const VIEWS = [
-    {
-      view: 'form',
-      label: 'form',
-      title: 'edit with introspection-driven forms',
-      icon: LayoutList,
-    },
-    {
-      view: 'split',
-      label: 'split',
-      title: 'form beside the JSON - both editable, blur applies',
-      icon: Columns2,
-    },
-    {
-      view: 'json',
-      label: 'JSON',
-      title: 'edit the raw JSON, schema-aware',
-      icon: Braces,
-    },
-    {
-      view: 'flow',
-      label: 'flow',
-      title:
-        'read-only data-flow diagram: steps as boxes, previous_result as edges',
-      icon: Workflow,
-    },
-  ] as const
 
-  // Crumbs back out of the editor. The read-only page is where an edit
-  // usually starts, and until now the only exit landed on the list - so
-  // the last crumb links back to the workflow itself, when one is saved.
-  const crumbFolders = $derived(
-    current ? groupOf(current).split('/').filter(Boolean) : [],
-  )
-  const crumbName = $derived(current ? leafOf(current) : '')
-  const workflowHref = $derived(
-    wsHref(workspace.current, 'workflows', ...current.split('/')),
-  )
+  // The way out: a saved workflow's own page, else the Workflows list
+  const back = $derived({
+    href: wsHref(
+      workspace.current,
+      'workflows',
+      ...place.current.split('/').filter(Boolean),
+    ),
+    label: place.current || SECTION_LABELS.ws.workflows,
+  })
 
   // The data-flow graph and per-step reference problems drive the rail's
   // producer/consumer chips and inline warnings - promptLibrary.names stays
@@ -146,7 +152,6 @@
       ]),
     )
   })
-  let hovered = $state<string | null>(null)
   // Memoized so datalist options keep stable DOM identity - churn on every
   // render made the browser's suggestion dropdown flaky on first focus
   const stepReferences = $derived.by(() => {
@@ -156,34 +161,8 @@
     )
   })
 
-  $effect(() => {
-    // A new draft moved to another workspace stays on this page; the
-    // workspace is read here so the move reloads the listing and takes the
-    // draft back up from the hand-off
-    void workspace.current
-    loadEditorLists()
-    api.listWorkflows().then((r) => {
-      editorLists.workflowFiles = r.workflows.map((file) => `${file}.json`)
-      workflowDir = writableRoot(r.libraries)
-      examples = r.workflows.filter((wf) => r.details?.[wf]?.writable === false)
-    })
-    loadPromptLibrary()
-    // the route catching up with a save: this is the document already
-    if (name && opened === `${workspace.current}:${name}`) return
-    validation = null
-    if (name) {
-      ed.saveName = leafOf(name)
-      ed.folder = groupOf(name)
-      fileOpen = false
-      open(name)
-    } else {
-      startDraft()
-    }
-  })
-
   /** A new workflow: a hand-off's definition, else the blank starter. */
   function startDraft() {
-    opened = ''
     // A gallery "open as workflow" hands the definition over in
     // sessionStorage - one-shot, so a plain "New" stays a blank slate
     const imported = ed.takeImport('dw-editor-import', 'dw-editor-folder')
@@ -206,14 +185,11 @@
   }
 
   /** Read `path` into the editor; a failure leaves nothing to save. */
-  async function open(path: string) {
-    const where = `${workspace.current}:${path}`
-    // a new read has begun: until it lands nothing is opened, so a return
-    // to the previous file reads it again instead of trusting the key
-    opened = ''
-    if (!(await openWorkflow(ed, path, () => path !== name))) return
-    opened = where
+  async function open(path: string, stale: () => boolean) {
+    fileOpen = false
+    if (!(await openWorkflow(ed, path, stale))) return false
     modes.restore()
+    return true
   }
 
   /** The missing file `name`, begun as a blank workflow. */
@@ -236,45 +212,28 @@
     go('ws', target, 'edit')
   }
 
-  async function startingDoc(example: string) {
-    if (!example) return emptyWorkflow() as Record<string, any>
-    return (await api.getWorkflow(example)).definition as Record<string, any>
-  }
-
   /** A name the user typed stays; one the last example supplied follows
    * the new choice. */
   function followName(example: string) {
-    const supplied = examples.includes(startFrom) ? leafOf(startFrom) : ''
+    const supplied = listed.examples.includes(startFrom)
+      ? leafOf(startFrom)
+      : ''
     if (ed.saveName && ed.saveName !== supplied) return
     ed.saveName = example ? leafOf(example) : ''
   }
 
   async function chooseStart(example: string) {
     const message = `Start over from ${example || 'a blank workflow'}? Your edits are lost.`
-    if (
-      ed.dirty &&
-      !(await confirmDialog(message, { confirmLabel: 'Start over' }))
-    )
-      return
+    const ask = { confirmLabel: 'Start over', danger: true }
+    if (ed.unsaved() && !(await confirmDialog(message, ask))) return
     try {
-      const fresh = await startingDoc(example)
+      const fresh = await startingWorkflow(example, emptyWorkflow)
       ed.startNew(fresh)
       modes.reset(example ? {} : { [fresh.steps[0].name]: 'full' })
       followName(example)
       startFrom = example
     } catch (e) {
-      notify.error(e instanceof Error ? e.message : String(e))
-    }
-  }
-
-  function onKeydown(event: KeyboardEvent) {
-    if (!(event.ctrlKey || event.metaKey) || !ed.canWrite) return
-    if (event.key === 's') {
-      event.preventDefault()
-      save()
-    } else if (event.key === 'Enter') {
-      event.preventDefault()
-      run()
+      notify.failure('start a new workflow', e)
     }
   }
 
@@ -288,12 +247,12 @@
     }
     ed.busy = true
     try {
-      validation = await api.validate(
+      check.validation = await api.validate(
         $state.snapshot(ed.doc) as WorkflowDefinition,
       )
-      return validation.valid
+      return check.validation.valid
     } catch (e) {
-      notify.error(e instanceof Error ? e.message : String(e))
+      notify.failure('validate the workflow', e)
       return false
     } finally {
       ed.busy = false
@@ -311,69 +270,37 @@
       fileOpen = true
       return
     }
-    if (!(await validate())) return
-    ed.busy = true
+    if (!(await saving.run(path))) return
+    // The file is written: what follows only brings the page up to it
     try {
-      const outcome = await saveWorkflowAt(ed, path)
-      if (outcome === 'cancelled') return
-      ed.commitNewFolder()
-      // The folder picker's options come from the listing - a folder this
-      // save just created must appear there, or the select falls back to
-      // "(root)" while the state still names the folder
-      if (!editorLists.workflowFiles.includes(`${path}.json`)) {
-        editorLists.workflowFiles = [
-          ...editorLists.workflowFiles,
-          `${path}.json`,
-        ]
-      }
-      notify.success(`Saved to ${path}`)
-      // The URL names the file now on screen: a first save, or a save as
-      opened = `${workspace.current}:${path}`
-      if (path !== name)
-        renameRoute(wsHref(workspace.current, 'edit', ...path.split('/')))
+      // The URL names the file now on screen: a first save, or a save as.
+      // It goes first so a failure after it leaves page and URL agreeing
+      place.saved(path)
+      // A folder this save created must be in the picker at once, or the
+      // select falls back to "(root)" while the state still names it
+      if (catalog.data) catalog.adopt(withSaved(catalog.data, path))
+      // and the time it was saved at is the server's, read back quietly: the
+      // save names no mtime, and the listing has no rows, so nothing is marked
+      void catalog.refresh()
     } catch (e) {
-      notify.error(e instanceof Error ? e.message : String(e))
-    } finally {
-      ed.busy = false
+      notify.failure('update the editor after saving', e)
     }
   }
-
-  async function run() {
-    if (!(await validate())) return
-    ed.busy = true
-    try {
-      // base_dir anchors relative paths (images, sub-workflow files) the
-      // way running the saved file would - at the workflow's own folder
-      const directory =
-        ed.folder && ed.folder !== NEW_FOLDER ? `/${ed.folder}` : ''
-      const job = await api.submitJob({
-        workflow: $state.snapshot(ed.doc) as WorkflowDefinition,
-        base_dir: `${workflowDir}${directory}`,
-      })
-      goWs('jobs', job.id)
-    } catch (e) {
-      notify.error(e instanceof Error ? e.message : String(e))
-    } finally {
-      ed.busy = false
-    }
-  }
-
-  // The flow view's click-to-navigate: land back on the form view with the
-  // step's row scrolled into place and briefly lit, the same highlight the
-  // rail chips already use on hover - a reasonable cross-reference without
-  // teaching the flow view anything about editing.
-  function focusStep(stepName: string) {
-    ed.setView('form')
-    hovered = stepName
-    requestAnimationFrame(() => {
-      document
-        .getElementById('step-' + stepName)
-        ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    })
-    setTimeout(() => {
-      if (hovered === stepName) hovered = null
-    }, 2000)
-  }
+  // Save and Run are actions: pressed twice, each does one thing
+  const saving = action((path: string) => validatedSave(ed, path, validate), {
+    doing: (path) => `save ${path}`,
+    success: (path) => `Saved to ${path}`,
+  })
+  const running = action(
+    async () => {
+      const job = await validatedRun(ed, listed.dir, validate)
+      if (job) goWs('jobs', job.id)
+      return job
+    },
+    { doing: 'run the workflow' },
+  )
+  const run = () => void running.run()
+  const onKeydown = editorKeys(ed, { save: () => void save(), run })
 </script>
 
 <svelte:window onkeydown={onKeydown} />
@@ -381,105 +308,110 @@
 <!-- The editing surface: a flush commits the field focused in it -->
 <div class="editing" bind:this={ed.root}>
   <div class="head">
-    <nav class="crumbs muted" aria-label="breadcrumb">
-      <a href={wsHref(workspace.current, 'workflows')}>← workflows</a>
-      {#each crumbFolders as part (part)}
-        <span class="sep">/</span><span>{part}</span>
-      {/each}
-      {#if crumbName}
-        <span class="sep">/</span>
-        <a
-          href={workflowHref}
-          title="back to the read-only view of this workflow"
+    <PageHeader title={place.current || 'New workflow'} {back}>
+      <label class="wfidwrap">
+        <span class="wfidlabel">id</span>
+        <input
+          class="wfid"
+          bind:value={ed.doc.id}
+          placeholder="workflow id"
+          aria-label="workflow id"
+          title="the workflow's id - how it names itself, independent of the file name"
+        />
+      </label>
+      {#if ed.dirty}
+        <span
+          class="chip unsaved"
+          title="this definition differs from the last save"
         >
-          {crumbName}
-        </a>
+          unsaved
+        </span>
       {/if}
-    </nav>
-    <label class="wfidwrap">
-      <span class="wfidlabel">id</span>
-      <input
-        class="wfid"
-        bind:value={ed.doc.id}
-        placeholder="workflow id"
-        aria-label="workflow id"
-        title="the workflow's id - how it names itself, independent of the file name"
-      />
-    </label>
-    {#if ed.dirty}
-      <span
-        class="chip unsaved"
-        title="this definition differs from the last save"
-      >
-        unsaved
-      </span>
-    {/if}
-    <span class="flex"></span>
-    <ViewSwitch
-      view={ed.view}
-      options={[...VIEWS]}
-      onselect={(view) => ed.setView(view)}
-    />
-    <button
-      class="quiet withicon"
-      onclick={validate}
-      disabled={ed.busy || !ed.canWrite}
-      title="check against the schema and real pipeline signatures, without running"
-    >
-      <CircleCheck size={14} />Validate
-    </button>
-    <button
-      class="quiet withicon"
-      class:dirtybtn={ed.dirty}
-      onclick={save}
-      disabled={ed.busy || !ed.canWrite}
-      title="validate, then write to the workflow directory under the name below (Ctrl+S)"
-    >
-      <Save size={14} />Save{#if ed.dirty}<span class="dirtydot"></span>{/if}
-    </button>
-    <button
-      class="withicon"
-      onclick={run}
-      disabled={ed.busy || !ed.canWrite}
-      title="validate, then queue this definition as a job - no save needed (Ctrl+Enter)"
-    >
-      <Play size={14} />Run
-    </button>
+      {#snippet actions()}
+        <Segmented
+          label="editor view"
+          value={ed.view}
+          options={EDITOR_VIEWS}
+          onselect={(view) => ed.setView(view as EditorView)}
+        />
+        <button
+          class="quiet withicon"
+          onclick={validate}
+          disabled={ed.busy || !ed.canWrite}
+          title="check against the schema and real pipeline signatures, without running"
+        >
+          <CircleCheck size={14} />Validate
+        </button>
+        <button
+          class="quiet withicon"
+          onclick={save}
+          disabled={ed.busy || !ed.canWrite}
+          title="validate, then write to the workflow directory under the name below (Ctrl+S)"
+        >
+          <Save size={14} />Save{#if ed.dirty}<span class="dirtydot"
+            ></span>{/if}
+        </button>
+        <button
+          class="withicon"
+          onclick={run}
+          disabled={ed.busy || !ed.canWrite}
+          title="validate, then queue this definition as a job - no save needed (Ctrl+Enter)"
+        >
+          <Play size={14} />Run
+        </button>
+      {/snippet}
+    </PageHeader>
   </div>
 
   {#if ed.loadState === 'failed'}
     <LoadFailed
       label={name}
       error={ed.loadError}
-      onretry={() => open(name)}
+      onretry={() => place.retry()}
       oncreate={ed.loadError instanceof ApiError && ed.loadError.status === 404
         ? startMissing
         : undefined}
     />
   {:else}
-    <WorkflowFileBar
+    <DocumentFileBar
       {ed}
-      {workflowDir}
+      dir={listed.dir}
       {folders}
+      changed={catalog.data?.details?.[place.current]?.mtime}
       bind:fileOpen
-      origin={current
-        ? undefined
-        : {
-            workspace: workspace.current,
-            workspaces: workspace.names ?? [workspace.current],
-            startFrom,
-            examples,
-            onworkspace: moveToWorkspace,
-            onstartfrom: chooseStart,
-          }}
-    />
+    >
+      {#snippet extra()}
+        {#if !place.current}
+          <WorkflowOrigin
+            workspace={workspace.current}
+            workspaces={workspace.names ?? [workspace.current]}
+            {startFrom}
+            examples={listed.examples}
+            onworkspace={moveToWorkspace}
+            onstartfrom={chooseStart}
+          />
+        {/if}
+      {/snippet}
+    </DocumentFileBar>
+    {#if catalog.error}
+      <ErrorLine error={catalog.error} doing="list the workflows" />
+    {/if}
 
-    {#if validation}
-      <ValidationPanel {validation} ondismiss={() => (validation = null)} />
+    {#if check.validation || check.error}
+      <ValidationPanel
+        validation={check.validation}
+        error={check.error}
+        doc={ed.doc}
+        onjump={jumps.goTo}
+        ondismiss={() => {
+          check.validation = null
+          check.error = null
+        }}
+      />
     {/if}
 
     {#if ed.view === 'flow'}
-      <FlowView workflow={$state.snapshot(ed.doc)} onselect={focusStep} />
+      <FlowView workflow={$state.snapshot(ed.doc)} onselect={jumps.showStep} />
     {:else}
       <EditorBody
         view={ed.view}
@@ -504,12 +436,13 @@
 
           <StepList
             bind:steps={ed.doc.steps}
+            bind:workflow={ed.doc}
             {modes}
             folder={ed.folder === NEW_FOLDER ? '' : ed.folder}
             {flow}
             {problemsByStep}
             {stepReferences}
-            bind:hovered
+            bind:hovered={jumps.hovered}
           />
         {/snippet}
       </EditorBody>
@@ -526,10 +459,6 @@
      scrolls. Below 900px the app header wraps to a second row and its
      height stops being predictable, so the pinning is dropped there. */
   .head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.4rem 0.6rem;
     position: sticky;
     top: 76px;
     z-index: 5;
@@ -543,15 +472,8 @@
       position: static;
     }
   }
-  .crumbs {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    font-size: 0.85rem;
-    min-width: 0;
-  }
-  .crumbs .sep {
-    opacity: 0.5;
+  .head :global(.pagehead) {
+    margin-bottom: 0;
   }
   .wfidwrap {
     display: inline-flex;
@@ -565,7 +487,7 @@
     text-transform: none;
   }
   /* Reads as a title until you reach for it, rather than as an unexplained
-     text box sitting next to a breadcrumb */
+     text box sitting next to the title */
   .wfid {
     font-weight: 700;
     background: transparent;
@@ -577,17 +499,7 @@
   .wfid:focus {
     background: var(--panel-2);
   }
-  .chip.unsaved {
-    background: color-mix(in srgb, var(--warn) 22%, transparent);
-    color: var(--warn);
-  }
   .panel {
     margin-bottom: 1rem;
-  }
-  /* Unsaved work makes Save the thing to do next, so it stops looking
-     like the two quiet buttons beside it */
-  .dirtybtn {
-    border-color: var(--warn);
-    color: var(--warn);
   }
 </style>

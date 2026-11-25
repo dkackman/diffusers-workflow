@@ -2,47 +2,59 @@
   import { X } from '@lucide/svelte'
   import { api } from '../api'
   import { formatRequestFilter, parseRequestFilter } from '../requestFilter'
-  import { hashQuery, setHashQuery } from '../router.svelte'
+  import { hashState } from '../router.svelte'
   import { wsHref } from '../routes'
-  import type { LedgerSummary } from '../types'
-  import { workspace } from '../workspace.svelte'
+  import { resource } from '../resource.svelte'
+  import { untrack } from 'svelte'
+  import { workspace as current } from '../workspace.svelte'
 
-  // The gallery's request filter: `req=<id>` in the hash narrows it to that
-  // requests-ledger request's runs, `req=<id>/<item>` to one item's (the
-  // page asks the server, reading `request` and `item`). With no request
-  // chosen it offers a picker of the workspace's requests, hidden when
-  // there are none or the call fails; picking one clears any item.
+  // The request filter of the Gallery and the Jobs page: `req=<id>` in the
+  // hash narrows the page to that requests-ledger request's runs,
+  // `req=<id>/<item>` to one item's (the page asks the server, reading
+  // `request` and `item`). With no request chosen it offers a picker of
+  // `workspace`'s requests (the current one unless the page pins another),
+  // hidden when there are none, the call fails or it is not `pickable`;
+  // picking one clears any item.
   let {
     request = $bindable(''),
     item = $bindable(''),
-  }: { request: string; item: string } = $props()
+    workspace = '',
+    pickable = true,
+  }: {
+    request: string
+    item: string
+    workspace?: string
+    pickable?: boolean
+  } = $props()
+  const ws = $derived(workspace || current.current)
 
+  const req = hashState('req', '')
   const fromHash = () => {
-    const parsed = parseRequestFilter(hashQuery().req)
+    const parsed = parseRequestFilter(req.value)
     request = parsed.request
     item = parsed.request ? parsed.item : ''
   }
+  // Read at init, so the page's first listing already asks for it
   fromHash()
-  $effect(() => setHashQuery({ req: formatRequestFilter({ request, item }) }))
   $effect(() => {
-    window.addEventListener('hashchange', fromHash)
-    return () => window.removeEventListener('hashchange', fromHash)
+    void req.value
+    untrack(fromHash)
+  })
+  // The page clearing its filters clears this one too
+  $effect(() => {
+    const value = formatRequestFilter({ request, item })
+    untrack(() => {
+      if (value !== req.value) req.value = value
+    })
   })
 
-  let requests = $state<LedgerSummary[]>([])
-  $effect(() => {
-    const ws = workspace.current
-    let live = true
-    void (async () => {
-      try {
-        const list = await api.listRequests(ws)
-        if (live) requests = list.requests
-      } catch {
-        if (live) requests = []
-      }
-    })()
-    return () => (live = false)
+  // The picker is a convenience, so a failed read hides it rather than
+  // showing an error; a request an agent writes shows within one feed interval
+  const list = resource(() => api.listRequests(ws), {
+    watch: ['requests'],
+    workspace: () => ws,
   })
+  const requests = $derived(list.data?.requests ?? [])
   const title = $derived(requests.find((r) => r.id === request)?.title)
 </script>
 
@@ -50,12 +62,12 @@
   <span class="reqchip" data-testid="req-filter">
     <a
       class="plain"
-      href={wsHref(workspace.current, 'requests', request)}
-      title={title ? `${title} - open this request` : 'open this request'}
+      href={wsHref(ws, 'requests', request)}
+      title={`${request} - open this request`}
     >
-      {#if item}<code>{request} › {item}</code>{:else}request <code>
-          {request}
-        </code>{/if}
+      {#if title}request: {title}{:else}request: <code>{request}</code>{/if}
+      {#if item}
+        › <code>{item}</code>{/if}
     </a>
     <button
       class="quiet icon"
@@ -69,10 +81,10 @@
       <X size={12} />
     </button>
   </span>
-{:else if requests.length}
+{:else if pickable && requests.length}
   <select
     bind:value={request}
-    title="show only the runs made for one request"
+    title="show only the jobs made for one request"
     aria-label="filter by request"
   >
     <option value="">all requests</option>

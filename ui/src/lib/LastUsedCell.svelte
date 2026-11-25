@@ -14,22 +14,29 @@
 </script>
 
 <script lang="ts">
-  import { formatDay } from './format'
+  import Time from './ui/Time.svelte'
 
   let {
     lastJobUse,
     lastAccessed,
-  }: { lastJobUse: number | null; lastAccessed: number | null } = $props()
+    class: extra = '',
+  }: {
+    lastJobUse: number | null
+    lastAccessed: number | null
+    class?: string
+  } = $props()
 </script>
 
 {#if lastJobUse != null}
-  <td class="lastused" title={DW_USE_TIP}>{formatDay(lastJobUse)}</td>
+  <td class="lastused {extra}" title={DW_USE_TIP}>
+    <Time at={lastJobUse} mode="day" title={DW_USE_TIP} />
+  </td>
 {:else if lastAccessed != null}
-  <td class="muted lastused" title={DISK_FALLBACK_TIP}>
-    {formatDay(lastAccessed)} (disk)
+  <td class="muted lastused {extra}" title={DISK_FALLBACK_TIP}>
+    <Time at={lastAccessed} mode="day" title={DISK_FALLBACK_TIP} /> (disk)
   </td>
 {:else}
-  <td class="muted lastused">—</td>
+  <td class="muted lastused {extra}">—</td>
 {/if}
 
 <style>

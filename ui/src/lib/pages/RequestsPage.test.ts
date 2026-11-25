@@ -9,7 +9,10 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import RequestsPage from './RequestsPage.svelte'
 import { summary } from '../request/fixtures'
 import { workspace } from '../workspaceState.svelte'
+import { api } from '../test/apiMock'
 import { feed } from '../test/feedMock'
+import { connection } from '../connection.svelte'
+import { formatExact, formatRelative } from '../format'
 
 const data = vi.hoisted(() => ({
   requests: [] as unknown[],
@@ -17,21 +20,16 @@ const data = vi.hoisted(() => ({
   error: null as Error | null,
   requestsFor: null as ((ws: string) => Promise<unknown>) | null,
 }))
-vi.mock('../api', () => ({
-  api: {
-    listRequests: (ws: string) => {
-      if (data.requestsFor) return data.requestsFor(ws)
-      if (data.error) return Promise.reject(data.error)
-      return Promise.resolve({
-        workspace: 'studio',
-        requests: data.requests,
-        unreadable: data.unreadable,
-      })
-    },
-    galleryThumbnailUrl: (name: string, ws?: string) =>
-      `/thumb/${name}?ws=${ws}`,
-  },
-}))
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
+api.listRequests.mockImplementation((ws: string) => {
+  if (data.requestsFor) return data.requestsFor(ws)
+  if (data.error) return Promise.reject(data.error)
+  return Promise.resolve({
+    workspace: 'studio',
+    requests: data.requests,
+    unreadable: data.unreadable,
+  })
+})
 
 vi.mock('../changes.svelte', async () => ({
   changes: (await import('../test/feedMock')).feed.changes,
@@ -67,14 +65,16 @@ it('lists a request as one row: its pictures, what it wants, how far and what it
   expect(link.classList.contains('row')).toBe(true)
   expect(
     [...link.querySelectorAll('.cover img')].map((i) => i.getAttribute('src')),
-  ).toEqual(['/thumb/run/b.mp4?ws=studio', '/thumb/run/a.png?ws=studio'])
+  ).toEqual([
+    '/api/gallery/run/b.mp4/thumbnail?workspace=studio',
+    '/api/gallery/run/a.png/thumbnail?workspace=studio',
+  ])
+  expect(link.querySelectorAll('.cover .tile-mini')).toHaveLength(2)
   expect(link.querySelectorAll('.cover .videobadge')).toHaveLength(1)
   expect(screen.getByText('r1')).toBeTruthy()
   expect(link.querySelector('.tag')?.textContent).toBe('open')
   const line = link.querySelector('.attention') as HTMLElement
-  expect(line.textContent?.trim()).toBe(
-    'idle: 1 planned (1 ready), nothing running',
-  )
+  expect(line.textContent?.trim()).toBe('1 planned, nothing running')
   expect(line.classList.contains('idle')).toBe(true)
   expect(
     screen.getByRole('img', { name: '2 done, 1 not started' }),
@@ -82,7 +82,7 @@ it('lists a request as one row: its pictures, what it wants, how far and what it
   expect(screen.getByText('2/3')).toBeTruthy()
   // measured minutes carry no tilde; what is left is an estimate
   expect(screen.getByText('4 min spent')).toBeTruthy()
-  expect(screen.getByText('~2 min left')).toBeTruthy()
+  expect(screen.getByText('about 2 min left')).toBeTruthy()
   expect(link.querySelector('.updated')?.textContent).not.toBe('')
 })
 
@@ -170,12 +170,23 @@ it('a list that fails to load says why, and Retry asks again', async () => {
   data.error = new Error('boom')
   render(RequestsPage)
   expect((await screen.findByRole('alert')).textContent).toContain(
-    'Could not load requests: boom',
+    "Couldn't load requests",
   )
   data.error = null
   data.requests = [summary()]
   await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
   await screen.findByRole('link', { name: /Launch posters/ })
+})
+
+it('recovers when the server returns, by the connection epoch rising', async () => {
+  data.error = new Error('down')
+  render(RequestsPage)
+  await screen.findByText(/Couldn't load requests/)
+  data.error = null
+  data.requests = [summary()]
+  connection.epoch++
+  await screen.findByRole('link', { name: /Launch posters/ })
+  expect(screen.queryByText(/Couldn't load requests/)).toBeNull()
 })
 
 it('says when the requests file is there and cannot be read', async () => {
@@ -235,7 +246,7 @@ it('a request written from outside shows when the feed says requests moved, with
   expect(titles()).toContain('Second launch')
 })
 
-it('a quiet reload that fails keeps the list, and says nothing', async () => {
+it('a quiet reload that fails keeps the list under a refresh line', async () => {
   data.requests = [summary()]
   render(RequestsPage)
   await screen.findByRole('link', { name: /Launch posters/ })
@@ -243,7 +254,9 @@ it('a quiet reload that fails keeps the list, and says nothing', async () => {
   feed.move('studio', 'requests')
   await new Promise((resolve) => setTimeout(resolve, 0))
   expect(rows()).toHaveLength(1)
-  expect(screen.queryByRole('alert')).toBeNull()
+  expect((await screen.findByRole('alert')).textContent).toContain(
+    "Couldn't refresh requests",
+  )
 })
 
 it('another kind moving, or another workspace, reloads nothing', async () => {
@@ -266,4 +279,76 @@ it('watches the workspace it switched to, and only it', async () => {
   workspace.current = 'other'
   await waitFor(() => expect(feed.watched('other')).toEqual(['requests']))
   expect(feed.watched('studio')).toEqual([])
+})
+
+it('a request an agent edited is marked', async () => {
+  data.requests = [
+    summary({ id: 'r1', title: 'Launch posters' }),
+    summary({ id: 'r2', title: 'Second launch' }),
+  ]
+  render(RequestsPage)
+  await screen.findByRole('link', { name: /Second launch/ })
+  expect(document.querySelectorAll('.row-changed')).toHaveLength(0)
+  data.requests = [
+    summary({ id: 'r1', title: 'Launch posters' }),
+    summary({ id: 'r2', title: 'Second launch, recut' }),
+  ]
+  feed.move('studio', 'requests')
+  await screen.findByRole('link', { name: /Second launch, recut/ })
+  const marked = [...document.querySelectorAll('.list a.row-changed')]
+  expect(marked.map((r) => r.getAttribute('href'))).toEqual([
+    '#/ws/studio/requests/r2',
+  ])
+})
+
+it('a row names its waiting notes', async () => {
+  data.requests = [
+    summary({
+      id: 'n',
+      title: 'Noted',
+      needs: {
+        held: 0,
+        ready: 1,
+        failed: 0,
+        revised: 0,
+        choose: 0,
+        accepted_missing: 0,
+        notes_waiting: 2,
+      },
+    }),
+    summary({ id: 'm', title: 'Plain' }),
+  ]
+  render(RequestsPage)
+  await screen.findByRole('link', { name: /Noted/ })
+  const [noted, plain] = rows()
+  expect(noted.querySelector('.figures')?.textContent).toMatch(
+    /2\s+notes waiting for the agent/,
+  )
+  expect(noted.querySelector('.attention')?.textContent?.trim()).toBe(
+    'Needs you: 1 ready to run.',
+  )
+  expect(plain.querySelector('.figures')?.textContent).not.toMatch(/waiting/)
+})
+
+it('a row says when it was last written, and the hover says it is the last write', async () => {
+  const at = '2026-01-02T03:04:05+00:00'
+  data.requests = [summary({ updated_at: at })]
+  render(RequestsPage)
+  await screen.findByRole('link', { name: /Launch posters/ })
+  const time = rows()[0].querySelector('.updated time') as HTMLElement
+  expect(time.textContent?.trim()).toBe(
+    `changed ${formatRelative(Date.parse(at) / 1000, Date.now() / 1000)}`,
+  )
+  expect(time.getAttribute('title')).toBe(
+    `last written ${formatExact(Date.parse(at) / 1000)}`,
+  )
+})
+
+it('a row whose stored time does not parse still renders', async () => {
+  data.requests = [summary({ updated_at: 'yesterday-ish' })]
+  render(RequestsPage)
+  await screen.findByRole('link', { name: /Launch posters/ })
+  const updated = rows()[0].querySelector('.updated') as HTMLElement
+  expect(updated.textContent?.trim()).toBe('unknown time')
+  expect(updated.querySelector('[datetime]')).toBeNull()
 })

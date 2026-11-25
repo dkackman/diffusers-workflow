@@ -9,6 +9,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import JobPage from './JobPage.svelte'
 import '../router.svelte'
 import { attempt, entry, item, request } from '../request/fixtures'
+import { api, resetApi } from '../test/apiMock'
 import type { JobDetail, LedgerNote, LedgerRequest } from '../types'
 
 // The job page's note for the agent: a take of a request item gets a box
@@ -17,29 +18,13 @@ const held = vi.hoisted(() => ({
   job: null as JobDetail | null,
   request: null as LedgerRequest | null,
 }))
-const api = vi.hoisted(() => ({
-  getJob: vi.fn(),
-  getJobWorkflow: vi.fn(),
-  galleryMetadata: vi.fn(),
-  outputDownloadUrl: (name: string) => `/download/${name}`,
-  eventLog: vi.fn(),
-  getRequest: vi.fn(),
-  addNote: vi.fn(),
-  editNote: vi.fn(),
-  deleteNote: vi.fn(),
-  notesChannel: vi.fn(),
-}))
-vi.mock('../api', async () => {
-  const { ApiError } = await import('../apiErrors')
-  return {
-    ApiError,
-    TERMINAL_STATUSES: ['succeeded', 'failed', 'cancelled'],
-    api,
+vi.mock('../api', async () =>
+  (await import('../test/apiMock')).apiModule({
     outputUrl: (path: string) => `/outputs/${path}`,
     setNote: vi.fn(),
     streamJobEvents: () => () => {},
-  }
-})
+  }),
+)
 const notify = vi.hoisted(() => ({
   error: vi.fn(),
   success: vi.fn(),
@@ -101,9 +86,11 @@ beforeEach(() => {
   sessionStorage.clear()
   location.hash = '#/ws/studio/jobs/j2'
   window.dispatchEvent(new HashChangeEvent('hashchange'))
-  for (const call of Object.values(api))
-    if (vi.isMockFunction(call)) call.mockReset()
+  resetApi()
   for (const call of Object.values(notify)) call.mockReset()
+  api.outputDownloadUrl.mockImplementation(
+    (name: string) => `/download/${name}`,
+  )
   api.getJob.mockImplementation(async () => held.job)
   api.getJobWorkflow.mockRejectedValue(new Error('none'))
   api.galleryMetadata.mockResolvedValue({ metadata: null, inputs: [] })
@@ -161,6 +148,8 @@ it("shows only this job's notes, and a new one is about this job", async () => {
 it('"Note this file" makes the new note about that file of this job', async () => {
   held.job = job({ request: 'r1', item: 's3' })
   render(JobPage, { jobId: 'j2' })
+  // the note is one of the viewer's actions on the file
+  await fireEvent.click(await screen.findByLabelText('Open s3.mp4'))
   await fireEvent.click(
     await screen.findByRole('button', {
       name: 'Note this file (s3.mp4) for the agent',
@@ -178,6 +167,8 @@ it('offers no "Note this file" while the take is still running', async () => {
   held.job = job({ request: 'r1', item: 's3', status: 'running' })
   render(JobPage, { jobId: 'j2' })
   await screen.findByText('warmer light on this one')
+  await fireEvent.click(await screen.findByLabelText('Open s3.mp4'))
+  await screen.findByRole('dialog', { name: 's3.mp4' })
   expect(screen.queryByRole('button', { name: /Note this file/ })).toBeNull()
 })
 
@@ -228,4 +219,50 @@ it('tells when the agent answers a note added here, once', async () => {
   expect(notify.news.mock.calls[0][0]).toBe(
     'The agent updated Launch posters after your note: “slowed the push-in”',
   )
+})
+
+it('puts Results straight after the header and the error, the notes under them', async () => {
+  held.job = job({
+    request: 'r1',
+    item: 's3',
+    status: 'failed',
+    error: 'boom',
+    run_dir: 'shot/run-1',
+  })
+  render(JobPage, { jobId: 'j2' })
+  await screen.findByText('warmer light on this one')
+  const at = (el: Element | null) => {
+    expect(el).toBeTruthy()
+    return el!
+  }
+  const order = [
+    at(document.querySelector('h1')),
+    at(screen.getByText('The job stopped with an error.')),
+    at(screen.getByRole('heading', { name: 'Results' })),
+    at(screen.getByText('Your note on this job')),
+    at(screen.getByText('warmer light on this one')),
+  ]
+  for (let i = 1; i < order.length; i++)
+    expect(
+      order[i - 1].compareDocumentPosition(order[i]) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+})
+
+it("a dropped item's job has no empty agent-notes box", async () => {
+  held.job = job({ request: 'r1', item: 's3' })
+  held.request = request([
+    item('s3', {
+      title: 'Shot 3',
+      status: 'dropped',
+      dropped: true,
+      attempts: [attempt('j2')],
+      notes: [],
+    }),
+  ])
+  const { container } = render(JobPage, { jobId: 'j2' })
+  await waitFor(() => expect(api.getRequest).toHaveBeenCalled())
+  await waitFor(() => expect(screen.getByText('Results')).toBeTruthy())
+  expect(container.querySelector('.agentnotes')).toBeNull()
+  expect(screen.queryByText('Notes for the agent on Shot 3')).toBeNull()
 })

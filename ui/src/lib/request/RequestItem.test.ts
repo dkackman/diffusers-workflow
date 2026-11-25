@@ -7,25 +7,26 @@ import {
 } from '@testing-library/svelte'
 import { afterEach, expect, it, vi } from 'vitest'
 import RequestItem from './RequestItem.svelte'
+import source from './RequestItem.svelte?raw'
 import { planState } from './itemState'
+import { api } from '../test/apiMock'
 import { attempt, doneItem, entry, item, request } from './fixtures'
 import type { LedgerItem, LedgerRequest } from '../types'
 
-const api = vi.hoisted(() => ({
-  addNote: vi.fn(),
-  notesChannel: vi.fn(async () => ({ listening: false, last_seen: null })),
-}))
-vi.mock('../api', () => ({
-  api: {
-    ...api,
-    galleryThumbnailUrl: (name: string, ws?: string) =>
-      `/thumb/${name}?ws=${ws}`,
-  },
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
+api.addNote.mockReturnValue(undefined)
+api.notesChannel.mockImplementation(async () => ({
+  listening: false,
+  last_seen: null,
 }))
 vi.mock('../confirm.svelte', () => ({ confirmDialog: vi.fn() }))
 vi.mock('../toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
 
-afterEach(cleanup)
+// A draft is kept for the tab (draft.ts): none carries into the next test
+afterEach(() => {
+  cleanup()
+  sessionStorage.clear()
+})
 
 let ids = 0
 const note = (text: string, at: string) => ({
@@ -66,11 +67,14 @@ const withOutput = (key: string, output: typeof image | null) =>
 it('a done item shows its result as the proof, linked to the job', () => {
   const { container } = render(RequestItem, props([withOutput('a', image)]))
   const proof = screen.getByRole('img', { name: 'result of Opening shot' })
-  expect(proof.getAttribute('src')).toBe('/thumb/shot/a.png?ws=studio')
+  expect(proof.getAttribute('src')).toBe(
+    '/api/gallery/shot/a.png/thumbnail?workspace=studio',
+  )
   expect(proof.closest('a')?.getAttribute('href')).toBe(
     '#/ws/studio/jobs/job-a',
   )
-  expect(proof.closest('a')?.classList.contains('frame')).toBe(true)
+  expect(proof.closest('a')?.classList.contains('filetile')).toBe(true)
+  expect(proof.closest('a')?.classList.contains('tile-strip')).toBe(true)
   expect(chip(container)?.textContent).toBe('done')
   expect(chip(container)?.classList.contains('succeeded')).toBe(true)
   // measured minutes, so no tilde
@@ -89,7 +93,13 @@ it('marks a video proof as one, and stands a sound by a glyph', () => {
     props([withOutput('a', sound as never)]),
   )
   expect(container.querySelector('.proofcell img')).toBeNull()
-  expect(container.querySelector('.proofcell .glyph')?.textContent).toBe('♪')
+  expect(
+    container.querySelector('.proofcell .tile-glyph')?.textContent?.trim(),
+  ).toBe('♪')
+  // named where it stands alone
+  expect(
+    screen.getByRole('link', { name: 'result of Opening shot' }),
+  ).toBeTruthy()
 })
 
 it('a ready item says ready, with its estimate and an empty slot', () => {
@@ -99,10 +109,12 @@ it('a ready item says ready, with its estimate and an empty slot', () => {
   )
   expect(chip(container)?.textContent).toBe('ready')
   expect(chip(container)?.classList.contains('ready')).toBe(true)
-  expect(container.querySelector('.figure')?.textContent).toBe('est. ~6 min')
+  expect(container.querySelector('.figure')?.textContent).toBe(
+    'est. about 6 min',
+  )
   expect(container.querySelector('.proofcell .slot')).toBeTruthy()
-  // the slot is never a frame: the frame is only ever the picture
-  expect(container.querySelector('.proofcell .frame')).toBeNull()
+  // the slot is never a tile: the tile is only ever the file
+  expect(container.querySelector('.proofcell .filetile')).toBeNull()
   // no control is drawn that this increment cannot act on
   expect(screen.queryByRole('button', { name: /run/i })).toBeNull()
 })
@@ -126,6 +138,23 @@ it('a waiting item names what it waits on, each a way to that row', async () => 
   expect(line.querySelector('.bad')?.textContent?.trim()).toBe('(failed)')
   await fireEvent.click(within(line).getByRole('button', { name: 'Shot 3' }))
   expect(given.ongo).toHaveBeenCalledWith('shot')
+})
+
+it('a failed row that cannot run again yet says what it waits on', () => {
+  const failed = {
+    status: 'failed' as const,
+    attempts: [attempt('j', 'failed')],
+  }
+  const { container } = render(
+    RequestItem,
+    props([
+      item('plate', { title: 'Background plate', ...failed }),
+      item('comp', { title: 'Composite', depends_on: ['plate'], ...failed }),
+    ]),
+  )
+  expect(container.querySelector('.main .sub')?.textContent).toBe(
+    'Failed. It can run again once Background plate is done.',
+  )
 })
 
 it('says only the agent can run an item with no stored workflow', () => {
@@ -193,7 +222,7 @@ it('with several takes and none accepted, opens and marks the latest as the resu
     'take 3',
   ])
   expect(takes[2].querySelector('.mark')?.textContent?.trim()).toBe(
-    'result (latest)',
+    'latest take',
   )
   expect(takes[0].querySelector('.mark')).toBeNull()
   // a take that made nothing is a slot with its status in words
@@ -224,7 +253,7 @@ it('marks the accepted take, and stays closed', async () => {
   await fireEvent.click(title('Cast sheet'))
   const takes = [...container.querySelectorAll('.strip .tile')]
   expect(takes[0].querySelector('.mark')?.textContent?.trim()).toBe('accepted')
-  expect(takes[0].querySelector('.picked')).toBeTruthy()
+  expect(takes[0].querySelector('.filetile.picked.tile-take')).toBeTruthy()
   expect(takes[2].querySelector('.mark')).toBeNull()
 })
 
@@ -241,7 +270,7 @@ it("says when the accepted take's files are gone", () => {
   expect(screen.getByText(/The accepted take's files are gone/)).toBeTruthy()
 })
 
-it('a failed item says none of its attempts succeeded; a cancelled one is not failed', () => {
+it('a failed item says none of its takes succeeded; a cancelled one is not failed', () => {
   const failed = render(
     RequestItem,
     props([
@@ -252,7 +281,7 @@ it('a failed item says none of its attempts succeeded; a cancelled one is not fa
     ]),
   )
   expect(chip(failed.container)?.classList.contains('failed')).toBe(true)
-  expect(screen.getByText('2 attempts, none succeeded')).toBeTruthy()
+  expect(screen.getByText('2 takes, none succeeded')).toBeTruthy()
   cleanup()
   const { container } = render(
     RequestItem,
@@ -373,7 +402,7 @@ it('opens a row whose note the agent has had no chance to read', () => {
   )
   expect(title('Shot 3').getAttribute('aria-expanded')).toBe('true')
   expect(container.querySelector('.peek')).toBeNull()
-  expect(screen.getByText(/No agent session is listening/)).toBeTruthy()
+  expect(screen.getByText(/The agent isn't connected\. It reads/)).toBeTruthy()
 })
 
 it("the user's toggle outlives a refresh, and closing a row keeps its draft", async () => {
@@ -551,6 +580,74 @@ it('"Note this take" adds the take and its file to the new note, once', async ()
   })
 })
 
+// Open by default for its takes, then the agent accepts one: by default
+// it would close. A note being drafted keeps it open
+const accepted = () => goodTakes({ accepted: { job: 'j1', run_id: 'r1' } })
+
+it('"Note this take" keeps the row open when a read would close it', async () => {
+  const view = render(RequestItem, props([goodTakes()]))
+  expect(title('Shot 3').getAttribute('aria-expanded')).toBe('true')
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Note take 1 of Shot 3 for the agent' }),
+  )
+  await view.rerender(props([accepted()]))
+  expect(title('Shot 3').getAttribute('aria-expanded')).toBe('true')
+  expect(screen.getByLabelText('Note for the agent on Shot 3')).toBeTruthy()
+})
+
+it("the box's own Add a note keeps the row open while it holds a draft", async () => {
+  const view = render(RequestItem, props([goodTakes()]))
+  expect(title('Shot 3').getAttribute('aria-expanded')).toBe('true')
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Add a note for the agent' }),
+  )
+  const box = await screen.findByLabelText('Note for the agent on Shot 3')
+  await fireEvent.input(box, { target: { value: 'half a thought' } })
+  await view.rerender(props([accepted()]))
+  expect(title('Shot 3').getAttribute('aria-expanded')).toBe('true')
+  expect(
+    (
+      screen.getByLabelText(
+        'Note for the agent on Shot 3',
+      ) as HTMLTextAreaElement
+    ).value,
+  ).toBe('half a thought')
+})
+
+it("the menu's note keeps the row open when a read would close it", async () => {
+  const { createRawSnippet } = await import('svelte')
+  let api: { note: () => void } | undefined
+  const menu = createRawSnippet<[unknown, { note: () => void }]>(
+    (_row, given) => {
+      api = given()
+      return { render: () => '<span></span>' }
+    },
+  )
+  const view = render(RequestItem, { ...props([goodTakes()]), menu })
+  api?.note()
+  await screen.findByLabelText('Note for the agent on Shot 3')
+  await view.rerender({ ...props([accepted()]), menu })
+  expect(title('Shot 3').getAttribute('aria-expanded')).toBe('true')
+})
+
+it('a saved note keeps the row open: the read brings it back waiting', async () => {
+  api.addNote.mockResolvedValue({ revision: 4 })
+  const given = props([goodTakes()])
+  const view = render(RequestItem, given)
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Add a note for the agent' }),
+  )
+  const box = await screen.findByLabelText('Note for the agent on Shot 3')
+  await fireEvent.input(box, { target: { value: 'warmer' } })
+  await fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
+  await vi.waitFor(() => expect(given.onreload).toHaveBeenCalled())
+  const at = '2026-01-01T00:05:00+00:00'
+  await view.rerender(
+    props([goodTakes({ ...accepted(), notes: [note('warmer', at)] })]),
+  )
+  expect(title('Shot 3').getAttribute('aria-expanded')).toBe('true')
+})
+
 it('a dropped item offers no "Note this take"', async () => {
   render(RequestItem, props([goodTakes({ dropped: true, status: 'dropped' })]))
   await fireEvent.click(title('Shot 3'))
@@ -569,9 +666,183 @@ it('marks a held row with a chip: its countdown, a note left, or time up', () =>
     unmount()
     return text
   }
-  expect(chip('holding')).toBe('held · 02:05')
-  expect(chip('redirected')).toBe('held · note left')
+  expect(chip('holding')).toBe('waiting for your OK · 02:05')
+  expect(chip('redirected')).toBe('on hold: note left')
   expect(chip('due')).toBe('review time up')
   const { container } = render(RequestItem, props([item('a')]))
   expect(container.querySelector('.chip.held')).toBeNull()
+})
+
+const proofOf = (n: number) => ({
+  name: `run/take${n}.png`,
+  kind: 'image' as const,
+})
+const filedTakes = (over: Partial<LedgerItem> = {}) =>
+  doneItem('a', {
+    title: 'Shot 3',
+    attempts: [
+      attempt('j1', 'succeeded', { output: proofOf(1) }),
+      attempt('j2', 'failed'),
+      attempt('j3', 'succeeded', { output: proofOf(3) }),
+    ],
+    result: { job: 'j3', run_id: 'r3', output: proofOf(3) },
+    ...over,
+  })
+
+it('a take opens in the viewer, and Accept there accepts it', async () => {
+  const onaccept = vi.fn()
+  render(RequestItem, { ...props([filedTakes()]), onaccept })
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'take 1 of Shot 3' }),
+  )
+  const viewer = screen.getByRole('dialog')
+  expect(
+    within(viewer)
+      .getByRole('link', { name: 'Open the job' })
+      .getAttribute('href'),
+  ).toBe('#/ws/studio/jobs/j1')
+  await fireEvent.click(within(viewer).getByRole('button', { name: 'Accept' }))
+  expect(onaccept).toHaveBeenCalledWith(expect.objectContaining({ n: 1 }), 'j1')
+  expect(location.hash).toContain('open=')
+})
+
+it('the caption of a take links its job', () => {
+  render(RequestItem, props([filedTakes()]))
+  expect(
+    screen.getByRole('link', { name: 'take 3' }).getAttribute('href'),
+  ).toBe('#/ws/studio/jobs/j3')
+})
+
+it('Compare takes opens the newest four', () => {
+  const attempts = [1, 2, 3, 4, 5].map((n) =>
+    attempt(`j${n}`, 'succeeded', { output: proofOf(n) }),
+  )
+  render(RequestItem, props([filedTakes({ attempts })]))
+  const href = screen
+    .getByRole('link', { name: 'Compare takes' })
+    .getAttribute('href')
+  expect(href).toBe(
+    '#/ws/studio/compare/' +
+      [2, 3, 4, 5].map((n) => encodeURIComponent(`run/take${n}.png`)).join('/'),
+  )
+})
+
+it('a take with no file stays a slot and does not open', () => {
+  render(RequestItem, props([filedTakes()]))
+  expect(screen.queryByRole('button', { name: 'take 2 of Shot 3' })).toBeNull()
+  expect(
+    screen.getAllByRole('button', { name: /^take \d of Shot 3$/ }),
+  ).toHaveLength(2)
+})
+
+// A retry that writes the same file: two takes, one output name
+const sameName = { name: 'run/out.png', kind: 'image' as const }
+const retried = () =>
+  filedTakes({
+    attempts: [
+      attempt('j1', 'succeeded', { output: sameName }),
+      attempt('j2', 'succeeded', { output: sameName }),
+    ],
+    result: { job: 'j2', run_id: 'r2', output: sameName },
+  })
+
+it('takes that share an output name are told apart: the second accepts as the second', async () => {
+  const onaccept = vi.fn()
+  render(RequestItem, { ...props([retried()]), onaccept })
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'take 2 of Shot 3' }),
+  )
+  const viewer = screen.getByRole('dialog')
+  expect(
+    within(viewer)
+      .getByRole('link', { name: 'Open the job' })
+      .getAttribute('href'),
+  ).toBe('#/ws/studio/jobs/j2')
+  await fireEvent.click(within(viewer).getByRole('button', { name: 'Accept' }))
+  expect(onaccept).toHaveBeenCalledWith(expect.objectContaining({ n: 2 }), 'j2')
+})
+
+it('previous and next visit both takes that share a name', async () => {
+  render(RequestItem, props([retried()]))
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'take 1 of Shot 3' }),
+  )
+  const viewer = screen.getByRole('dialog')
+  const jobLink = () =>
+    within(viewer)
+      .getByRole('link', { name: 'Open the job' })
+      .getAttribute('href')
+  expect(jobLink()).toBe('#/ws/studio/jobs/j1')
+  await fireEvent.click(within(viewer).getByRole('button', { name: /next/i }))
+  expect(jobLink()).toBe('#/ws/studio/jobs/j2')
+  await fireEvent.click(within(viewer).getByRole('button', { name: /prev/i }))
+  expect(jobLink()).toBe('#/ws/studio/jobs/j1')
+})
+
+it('Compare takes names a file once, though two takes wrote it', () => {
+  const attempts = [
+    attempt('j1', 'succeeded', { output: proofOf(1) }),
+    attempt('j2', 'succeeded', { output: sameName }),
+    attempt('j3', 'succeeded', { output: sameName }),
+  ]
+  render(RequestItem, props([filedTakes({ attempts })]))
+  expect(
+    screen.getByRole('link', { name: 'Compare takes' }).getAttribute('href'),
+  ).toBe(
+    '#/ws/studio/compare/' +
+      [proofOf(1).name, sameName.name].map(encodeURIComponent).join('/'),
+  )
+})
+
+it('a failed row says why, collapsed or open, under what it waits on', () => {
+  const failed = item('a', {
+    title: 'Plate',
+    status: 'failed',
+    attempts: [attempt('j1', 'failed', { reason: 'e2e: this attempt failed' })],
+  })
+  const { container } = render(RequestItem, props([failed]))
+  expect(container.textContent).toContain(
+    'Take 1 failed: e2e: this attempt failed',
+  )
+})
+
+it("an open row's proof cell takes no room", async () => {
+  // not `a`: a test above leaves a deep link to one of a's takes in the hash
+  const { container } = render(RequestItem, props([withOutput('p', image)]))
+  const row = container.querySelector('.row') as HTMLElement
+  expect(row.classList.contains('under')).toBe(false)
+  await fireEvent.click(title('Opening shot'))
+  // the takes below show the picture: its track is 0 and the title spans it
+  expect(row.classList.contains('under')).toBe(true)
+  expect(source).toMatch(/\.row\.under\s*\{\s*--proof:\s*0px;?\s*\}/)
+  expect(source).toMatch(/\.proofcell\.under\s*\{\s*display:\s*none;?\s*\}/)
+  // open with no takes, the slot keeps its place
+  cleanup()
+  const plain = render(RequestItem, props([item('b', { ready: true })]))
+  await fireEvent.click(title('Item b'))
+  expect(plain.container.querySelector('.row.under')).toBeNull()
+})
+
+it('under 900px of panel, the chip and figure go under the title', () => {
+  const narrow = source.match(
+    /@container \(max-width: 900px\)\s*\{([\s\S]*?)\n {2}\}/,
+  )
+  expect(narrow?.[1]).toMatch(/'handle proof main main tail'/)
+  expect(narrow?.[1]).toMatch(/'handle proof chip figure tail'/)
+})
+
+it('the bound references of a new note outlive a read', async () => {
+  const given = props([goodTakes()])
+  const view = render(RequestItem, given)
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Note take 1 of Shot 3 for the agent' }),
+  )
+  await view.rerender(props([goodTakes()]))
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Note take 2 of Shot 3 for the agent' }),
+  )
+  const chips = screen
+    .getByRole('list', { name: 'What the note is about' })
+    .querySelectorAll('.ref')
+  expect([...chips].map((c) => c.textContent)).toEqual(['take 1', 'take 2'])
 })

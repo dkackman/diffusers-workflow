@@ -28,6 +28,7 @@ from ...assets import is_asset_reference
 from ...runs import MANIFEST_FILE_NAME
 from ...security import SecurityError
 from ...workspace import Workspace
+from ..changes import ChangeRoute
 from ..deps import selected_workspace
 from ..exports import export_directory
 from ..http_security import ACTIVE_DOCUMENT_TYPES
@@ -39,7 +40,7 @@ from ..outputs import (
     zip_download,
 )
 
-router = APIRouter()
+router = APIRouter(route_class=ChangeRoute)
 
 
 def _sandbox_active_content(response):

@@ -1,21 +1,31 @@
 <script lang="ts">
   import ClampedText from '../ui/ClampedText.svelte'
-  import { formatExact, formatMtime } from '../format'
+  import Time from '../ui/Time.svelte'
   import { foldChanges, stateChange, who } from './planChanges'
+  import { lineOf, type PlanChange, type Since } from './planDiff'
   import type { LedgerHistoryEntry } from '../types'
 
   // The request's history, newest first: the agent's `why` on each write
   // is the only thing it ever says to the user, so its latest leads. A run
-  // of the user's own writes is one line until asked for
+  // of the user's own writes is one line until asked for. Under an agent
+  // write read while the page was open, what it changed (`diffs`); above
+  // them all, what changed since this browser last looked (`since`)
   let {
     history,
     revision,
     heading = true,
+    diffs = {},
+    since = null,
+    ondismiss,
   }: {
     history: LedgerHistoryEntry[]
     revision: number
     /** False inside a fold whose summary already names it */
     heading?: boolean
+    /** What each agent write changed, by the revision a read brought */
+    diffs?: Record<number, PlanChange[]>
+    since?: Since | null
+    ondismiss?: () => void
   } = $props()
 
   const FIRST = 5
@@ -28,18 +38,27 @@
   const seconds = (at: string) => Date.parse(at) / 1000
 </script>
 
+{#snippet lines(list: PlanChange[])}
+  <ul class="diff">
+    {#each list as change, i (i)}<li>{lineOf(change)}</li>{/each}
+  </ul>
+{/snippet}
+
 {#snippet line(entry: LedgerHistoryEntry)}
   {@const turned = stateChange(entry, entry.revision === oldest)}
   <div class="entry" id="plan-change-r{entry.revision}">
     <p class="head">
       <span class="num">r{entry.revision}</span>
-      <span class="muted" title={formatExact(seconds(entry.at))}>
-        {formatMtime(seconds(entry.at))}
+      <span class="muted">
+        <Time at={seconds(entry.at)} mode="exact" />
       </span>
       <span class="by">{who(entry)}</span>
       {#if turned}<span class="state">{turned}</span>{/if}
     </p>
     <p class="why">{entry.why}</p>
+    {#if diffs[entry.revision]?.length}
+      {@render lines(diffs[entry.revision])}
+    {/if}
     {#if entry.goal && entry.revision !== oldest}
       <div class="goal">
         <span class="muted">goal changed:</span>
@@ -52,6 +71,17 @@
 <section class="changes">
   {#if heading}<h2>Plan changes ({history.length})</h2>{/if}
   <p class="muted now">now at <span class="num">r{revision}</span></p>
+  {#if since}
+    <div class="since">
+      <p class="head">
+        <span>Since you last looked (r{since.from} to r{since.to})</span>
+        <button type="button" class="bare fold" onclick={() => ondismiss?.()}>
+          Dismiss
+        </button>
+      </p>
+      {@render lines(since.changes)}
+    </div>
+  {/if}
   <ol>
     {#each shown as change (change.kind === 'entry' ? change.entry.revision : change.entries[0].revision)}
       <li>
@@ -139,6 +169,17 @@
   }
   .goal {
     margin-top: var(--space-1);
+  }
+  .diff {
+    margin: var(--space-1) 0 0;
+    padding-left: var(--space-4);
+    overflow-wrap: anywhere;
+  }
+  .since {
+    margin: 0 0 var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    border-left: 2px solid var(--line);
+    font-size: var(--t-sm);
   }
   .run {
     display: flex;

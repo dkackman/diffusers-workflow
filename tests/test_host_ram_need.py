@@ -969,6 +969,7 @@ class TestInheritedHostRam:
             47000,
             "inherited",
             2,
+            "t",
         )
 
     def test_a_template_with_no_runs_gives_no_figure(self, tmp_path, monkeypatch):
@@ -986,3 +987,12 @@ class TestInheritedHostRam:
             )
             is None
         )
+
+
+def test_inherited_host_memory_names_its_example():
+    assert host_memory_block((47000, "inherited", 2, "H3-template")) == {
+        "projected_mb": 47000,
+        "basis": "inherited",
+        "runs": 2,
+        "inherited_from": "H3-template",
+    }

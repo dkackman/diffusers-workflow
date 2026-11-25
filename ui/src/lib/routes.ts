@@ -26,10 +26,58 @@ export type SharedSection = (typeof SHARED_SECTIONS)[number]
 export const SERVER_SECTIONS = ['models', 'schema', 'status'] as const
 export type ServerSection = (typeof SERVER_SECTIONS)[number]
 
+/** The one set of section names: the sidebar's items and the breadcrumb
+ * both read it, so they cannot drift. */
+export const SECTION_LABELS: {
+  ws: Record<WsSection, string>
+  shared: Record<SharedSection, string>
+  server: Record<ServerSection, string>
+  groups: { shared: string; server: string }
+} = {
+  ws: {
+    overview: 'Overview',
+    workflows: 'Workflows',
+    jobs: 'Jobs',
+    requests: 'Requests',
+    gallery: 'Gallery',
+    compare: 'Compare',
+    assets: 'Assets',
+    edit: 'Editor',
+  },
+  shared: {
+    prompts: 'Prompts',
+    'prompt-edit': 'Prompt editor',
+    assets: 'Assets',
+    examples: 'Examples',
+  },
+  server: { models: 'Models', schema: 'Schema', status: 'Status' },
+  groups: { shared: 'Shared', server: 'Server' },
+}
+
 export type RouteView =
   | { kind: 'ws'; workspace: string; section: WsSection; rest: string[] }
   | { kind: 'shared'; section: SharedSection; rest: string[] }
   | { kind: 'server'; section: ServerSection }
+  | { kind: 'missing'; path: string }
+
+/** The name a view goes by in the breadcrumb. */
+export function sectionLabel(view: RouteView): string {
+  if (view.kind === 'ws') return SECTION_LABELS.ws[view.section]
+  if (view.kind === 'shared') return SECTION_LABELS.shared[view.section]
+  if (view.kind === 'server') return SECTION_LABELS.server[view.section]
+  return 'Page not found'
+}
+
+const missing = (parts: string[]): RouteView => ({
+  kind: 'missing',
+  path: '/' + parts.join('/'),
+})
+
+/** What the router shows for a hash: its view, or `missing` for one no
+ * route (and no legacy redirect) names. */
+export function resolveView(parts: string[]): RouteView {
+  return parseView(parts) ?? missing(parts)
+}
 
 const isWs = (s: string): s is WsSection =>
   (WS_SECTIONS as readonly string[]).includes(s)
@@ -39,33 +87,41 @@ const isServer = (s: string): s is ServerSection =>
   (SERVER_SECTIONS as readonly string[]).includes(s)
 
 export function parseView(parts: string[]): RouteView | null {
-  const [group, second, third, ...rest] = parts
+  // '#/ws/studio//requests' (a doubled slash) keeps its section: the empty
+  // parts after the workspace are dropped before matching
+  const [group, second, ...tail] = parts
+  const [third, ...rest] = group === 'ws' ? tail.filter(Boolean) : tail
   if (group === 'ws' && second) {
-    // An unknown section is the overview rather than a 404: the workspace
-    // is the thing the link names, and the overview is where it starts
+    // No section is the overview; an unknown one is missing, so the URL
+    // stays as typed and the page says so
+    // A trailing slash ('#/ws/studio/') leaves an empty third part; it
+    // reads as no section, so it is the overview too
     if (third === undefined) {
       return { kind: 'ws', workspace: second, section: 'overview', rest: [] }
     }
     if (isWs(third))
       return { kind: 'ws', workspace: second, section: third, rest }
-    return { kind: 'ws', workspace: second, section: 'overview', rest: [] }
+    return missing(parts)
   }
-  if (group === 'shared' && second && isShared(second)) {
+  if (group === 'shared' && second) {
+    if (!isShared(second)) return missing(parts)
     return {
       kind: 'shared',
       section: second,
       rest: third ? [third, ...rest] : [],
     }
   }
-  if (group === 'server' && second && isServer(second)) {
-    return { kind: 'server', section: second }
+  if (group === 'server' && second) {
+    return isServer(second)
+      ? { kind: 'server', section: second }
+      : missing(parts)
   }
   return null
 }
 
 /** Where a hash that `parseView` refuses should go. `lastUsed` is the
  * workspace the scoped legacy routes land in. Null when nothing needs
- * redirecting. */
+ * redirecting, an unknown path included (it is a missing route). */
 export function legacyRedirect(
   parts: string[],
   lastUsed: string,
@@ -109,7 +165,7 @@ export function legacyRedirect(
     case 'server':
       return ['server', 'status']
     default:
-      return ws('overview')
+      return null
   }
 }
 
@@ -127,4 +183,44 @@ export function sharedHref(section: SharedSection, ...rest: string[]): string {
 }
 export function serverHref(section: ServerSection): string {
   return join(['server', section])
+}
+
+/** Where choosing workspace `name` goes from `view`: the same section of
+ * the other workspace, without what follows it (a job id names one job of
+ * this workspace). The editor and a comparison name this workspace's files,
+ * so they become the other's Workflows and Gallery; a shared or server page
+ * belongs to no workspace, so the switch lands on the overview. */
+export function switchHref(name: string, view: RouteView): string {
+  if (view.kind !== 'ws') return wsHref(name, 'overview')
+  const moved: Partial<Record<WsSection, WsSection>> = {
+    edit: 'workflows',
+    compare: 'gallery',
+  }
+  return wsHref(name, moved[view.section] ?? view.section)
+}
+
+/** A comparison of `names`: the one builder, each name one path segment
+ * (so a name holding a slash survives the round trip through `parseView`,
+ * which takes `rest` as the decoded array). */
+export function compareHref(workspace: string, names: string[]): string {
+  return wsHref(workspace, 'compare', ...names)
+}
+
+/** A file opened in the Gallery or the Assets viewer: the section's
+ * `open=<name>` deep link, which the page opens (and Back closes). */
+export function fileHref(
+  workspace: string,
+  section: 'gallery' | 'assets',
+  name: string,
+): string {
+  return `${wsHref(workspace, section)}?open=${encodeURIComponent(name)}`
+}
+
+/** A job's page. With its workspace it is a full hash; without one, only
+ * where the caller has none (the header's running link: health carries no
+ * workspace), the legacy form the job page redirects. */
+export function jobHref(id: string, workspace?: string): string {
+  return workspace
+    ? wsHref(workspace, 'jobs', id)
+    : '#/jobs/' + encodeURIComponent(id)
 }

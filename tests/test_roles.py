@@ -383,3 +383,19 @@ def test_listed_role(role, declared, consumed, listed):
 def test_listed_role_of_a_run_that_recorded_none(name, consumed, listed):
     # A run from before roles: rule 2 from the file's subfolder, then rule 4
     assert listed_role(None, False, consumed, name) == listed
+
+
+def test_a_run_that_wrote_only_a_bundle_does_not_consume(tmp_path, write_run):
+    root = str(tmp_path)
+    _producer(write_run, root)
+    write_run(
+        root,
+        "export",
+        CONSUMER,
+        [{"step": "export", "files": ["final/timeline.otioz"], "role": "final"}],
+        files=["final/timeline.otioz"],
+        inputs=[
+            {"reference": f"output:shots/{PRODUCER}/final/shot.png", "kind": "output"}
+        ],
+    )
+    assert consumed_outputs(root) == set()

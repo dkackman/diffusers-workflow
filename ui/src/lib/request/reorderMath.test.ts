@@ -6,7 +6,10 @@ import {
   moveTarget,
   moveTo,
   placeBefore,
+  runsAfter,
 } from './reorderMath'
+import { planState } from './itemState'
+import { item, request } from './fixtures'
 
 const KEYS = ['a', 'b', 'c', 'd']
 
@@ -86,4 +89,38 @@ it('a drop lands where the pointer is among the other rows', () => {
     position: 2,
     total: 4,
   })
+})
+
+const titles = (plan: ReturnType<typeof planState>) =>
+  Object.fromEntries(
+    Object.entries(runsAfter(plan)).map(([k, v]) => [k, v.map((r) => r.title)]),
+  )
+
+it('an item above its dependency runs after it', () => {
+  const plan = planState(
+    request([
+      item('cut', { title: 'The cut', depends_on: ['cast', 'score'] }),
+      item('cast', { title: 'Cast sheet' }),
+      item('score', { title: 'Score' }),
+    ]),
+  )
+  expect(titles(plan)).toEqual({ cut: ['Cast sheet', 'Score'] })
+})
+
+it('an item below its dependency has nothing', () => {
+  const plan = planState(
+    request([item('a', { title: 'A' }), item('b', { depends_on: ['a'] })]),
+  )
+  expect(runsAfter(plan)).toEqual({})
+})
+
+it('a dependency the plan no longer holds gives no hint', () => {
+  const plan = planState(
+    request([
+      item('b', { depends_on: ['gone', 'old'] }),
+      item('old', { dropped: true }),
+      item('c'),
+    ]),
+  )
+  expect(runsAfter(plan)).toEqual({})
 })

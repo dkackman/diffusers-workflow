@@ -30,6 +30,12 @@ export const PREFIXES = [
   CONSTRAINT,
 ] as const
 
+/** The characters a variable name may hold after its first letter or `_`:
+ * dw/references.py's VARIABLE_NAME_CHARACTERS, pinned by
+ * tests/test_ui_twins.py. */
+export const VARIABLE_NAME_CHARACTERS =
+  'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-'
+
 /** Joins a for_each step's name to an entry's: `<step>@<entry>`. */
 export const MEMBER_SEPARATOR = '@'
 

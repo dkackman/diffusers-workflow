@@ -1,0 +1,78 @@
+# UI glossary
+
+The words the web UI uses for each concept, and the ones it does not. The vocabulary is the spec's (`docs/superpowers/specs/2026-11-22-ui-quality-design.md`, *Vocabulary*; the ★ rows are approved by Don). The banned synonyms and their replacements are `BANNED` in `src/lib/terms.ts`. `banned_terms` in `scripts/arch-metrics.mjs` counts their matches in the source, and `scripts/copy-rules.test.ts` pins each pattern and checks that every replacement is named here.
+
+## Words
+
+| Term | Means | Say | Don't say |
+| --- | --- | --- | --- |
+| **job** ★ | One execution of a workflow | "this job", "earlier jobs"; **Run** stays the verb ("Run it here") | "run" as a noun ("this run", "Run note"), "attempt", "result (latest)" |
+| **take** ★ | A job made for a request item; used only inside a request | "latest take", "Take 1 failed: <reason>", "2 takes, none succeeded" | "result (latest)", "take" outside a request, "attempt" in request copy |
+| **attempt** | A chain segment's retry inside one job (`src/lib/chainRows.ts`), nothing else | "attempt 2" on a chain segment | "attempt" for a job. It is deliberately not banned, because the chain needs it |
+| **v2** | The version badge: the job's ordinal among this workflow's jobs in this folder. `dw/runs.py` owns the number | **v2**, titled "2nd job of this workflow in this folder" | a number the UI computes itself |
+| **file name** ★ | A workflow's name: its file name (`e2e-card`) | the file name; the JSON `id` only as secondary text on the job page | the JSON `id` as the name |
+| **Star** | Favourite a file | **Star**, "Starred <leaf>", "Unstarred <leaf>" | "star to keep" |
+| **Save as asset** ★ | Copy an output into the asset library | **Save as asset**, "Saved as asset <name>" | "Keep as asset", "keep this file as an input asset" ("keep" means keeping your copy in a conflict: **Keep mine**, **Keep both**) |
+| **Accept** ★ | Choose a take as the item's result (accepting also stars the file) | **Accept** | - |
+| **Your note** | The person's own note | "Your note on this job", "Your note on this file", "Your note on this asset", "Your note on this workspace" | "Run note" |
+| **Note for the agent** | The note channel to the agent | **Note for the agent** | - |
+| **the agent is connected** | The agent's notes channel is listening | "the agent is connected", "the agent isn't connected" | "session", "no session is listening" |
+| **Needs you** | What a request wants of the person: one sentence, the same on the list row and the request header | "Needs you: 1 waiting for your OK, 1 failed, 1 take to choose."; a held item is counted as waiting for your OK in place of ready | a held item counted as ready too |
+| **waiting for your OK** | A held item waiting for review | "<n items> waiting for your OK"; the hold text says "the agent will run it at 4:44 PM if it's connected" | "held for your review" |
+| **Examples** | Starter workflows | **Examples** everywhere (the sidebar, "start from", the read-only banner); one of them is "an example" | "starter", "the blank starter", "a template", "the template" |
+| **card** ★ | A GPU, in the queue text (a job waiting for a free card) | **card** in the queue text | "GPU" in the queue text |
+| **GPU** ★ | The hardware line | "GPU" on the hardware line | "card" on the hardware line |
+
+## Formats
+
+| Value | Format | Example | Don't write |
+| --- | --- | --- | --- |
+| An estimate | `about <m> min`, the measured value to 2 decimals | "about 3 min", "about 1.5 min" | "~3 min" (a leading tilde reads as a minus sign in the monospace font) |
+| An estimate under a minute | `under 1 min` | "under 1 min" | "<1 min", "~0.5 min" |
+| An estimate of an hour or more | `about <h> h <m> min` | "about 1 h 20 min" | "~80 min" |
+| An ETA | `about <duration> left` | "about 3 min left" | "~3 min left" |
+| Host RAM | `host RAM about <gb> GB (<basis>)` | "host RAM about 41 GB (measured)" | "~41 GB" |
+| A total | `total about <m> min` | "total about 12 min" | "~12 min total" |
+| Measured time | `formatDuration` (`src/lib/format.ts`) for a span of seconds, past a day in days and hours; `formatSpent` for minutes spent; no "about", since it is a fact | "12.3s", "4m 03s", "1h 02m", "1d 02h", "38 min" | "about 38 min" for a measured time; "26527h 00m" |
+| A time in a list | `<Time>` relative, `changed <relative>`, with the exact time (`formatExact`) as its `title` and the ISO time as its `datetime`; it ages on the shared clock; a time that does not parse reads `unknown time` | "changed 5 min ago", "changed 3 days ago", "Oct 2" past a month | "edited: 2026-11-24T12:00:00Z" |
+| A time in a detail | `<Time mode="exact">`: `Created <exact>`, `Changed <exact>` | "Created Oct 26, 2:03 PM" | a relative time on a thing being read closely |
+| A note's line | `written <relative>`, then `· changed <relative>` when it was edited, then where it stands; every note is the person's, so no `by` | "written 5 min ago · changed just now." | "Saved Oct 26, 2:03 PM", "by you" |
+| A list's order | `Name` (in folders) or `Newest` (most recently changed first, one list, a search's matches too; each entry keeps its leaf as the name and shows its folder beside it), the `sort=` in the hash | "Newest" | "Recent", "Last modified" |
+| A change the agent made | `changed <relative> by the agent`, only where the server records who (request revisions, and the note line about the agent's revision) | "changed 2 h ago by the agent" | "by AI", "by Claude" |
+| The version title | `<ordinal> job of this workflow in this folder` | "2nd job of this workflow in this folder" | "run 2", "version 2" |
+
+## Before you write markup
+
+The piece each concept is built from. Reach for it before writing new markup or a new style; paths are under `ui/`.
+
+| Concept | Use | Where |
+| --- | --- | --- |
+| A page's head (back link, h1 and tab title, count, filter, actions) | `PageHeader` | `src/lib/ui/PageHeader.svelte` |
+| A destructive action | `destroyConfirm` (a file, an asset, a workflow, a prompt, a request, a note), `serverConfirm` (a change to the server), or `undoToast` for what can be put back, each through `action()`'s `confirm` or `undo` | `src/lib/destructive.ts`, `src/lib/action.svelte.ts` |
+| A button that changes server state | `action()`, or `ActionButton` for a plain one | `src/lib/action.svelte.ts`, `src/lib/ui/ActionButton.svelte` |
+| Engine text (a traceback, a server detail) | `Details` behind a plain line; an inline failure is `ErrorLine` | `src/lib/ui/Details.svelte`, `src/lib/ui/ErrorLine.svelte` |
+| A name to type | `nameDialog` | `src/lib/confirm.svelte.ts` |
+| A switch between a few views, or a filter chip | `Segmented`; `button.togglechip` | `src/lib/ui/Segmented.svelte`; `src/patterns.css` |
+| A time (when something was created or changed) | `<Time>`, relative in a list and `mode="exact"` in a detail; never a date formatted in the markup | `src/lib/ui/Time.svelte`, `src/lib/format.ts`, `src/lib/clock.svelte.ts` |
+| A job's status | `StatusChip` | `src/lib/ui/StatusChip.svelte` |
+| A group heading that folds | `GroupHeading` | `src/lib/ui/GroupHeading.svelte` |
+| A filter that survives Back | `hashState(key, initial, codec)` | `src/lib/router.svelte.ts` |
+| A label and field grid | `.formgrid` | `src/patterns.css` |
+| A table | `table.datatable` in `.tablewrap` | `src/patterns.css` |
+| A line of tone | `.error`, `.warn`, `.bad`, `.good`, `.hint` | `src/patterns.css` |
+| The person's note | `NoteEditor`, whose draft is a `NoteDraft` | `src/lib/ui/NoteEditor.svelte`, `src/lib/noteDraft.svelte.ts` |
+| A document editor's file bar | `DocumentFileBar` | `src/lib/editor/DocumentFileBar.svelte` |
+| A file shown small | `OutputTile`, with the kinds' glyphs and the tile data from `media.ts` | `src/lib/ui/OutputTile.svelte`, `src/lib/media.ts` |
+| A file shown large | `MediaViewer`, the page's `open=` (`openInHash`/`writeOpen`) holding which | `src/lib/ui/MediaViewer.svelte`, `src/lib/mediaViewer.ts` |
+| What made a file | `RecipePanel` | `src/lib/ui/RecipePanel.svelte` |
+| A reference to copy | `ReferenceChip` | `src/lib/ui/ReferenceChip.svelte` |
+| A file to reuse | `UseAsInput` | `src/lib/gallery/UseAsInput.svelte` |
+| A file or reference to fill in | `ReferenceField` | `src/lib/ui/ReferenceField.svelte` |
+| Whether a run will work | `verdictOf`, then `PlanLines` for what a job will do; the request run dialog reads each row's refusal or gated model off the same `verdictOf` | `src/lib/runCheck.svelte.ts`, `src/lib/workflow/PlanLines.svelte`, `src/lib/request/runQueue.svelte.ts` |
+| A workflow's search | `catalogMatches` | `src/lib/workflow/catalogSearch.ts` |
+| What a request wants from the person | `needsParts` (the header's parts, each going to its first item), `needsLine` (the sentence, from the server's `needs` on the list) | `src/lib/request/standing.ts` |
+| What the agent changed in a plan | `planDiff`, said by `lineOf` | `src/lib/request/planDiff.ts` |
+| The first-run orientation | `FirstRunCard`, its link from `firstRunLink` | `src/lib/FirstRunCard.svelte`, `src/lib/firstRun.ts` |
+| The JSON editor | Monaco through `monaco.ts` only; the ESLint rule refuses the whole `monaco-editor` package | `src/lib/monaco.ts` |
+| A workspace switch | `switchHref` | `src/lib/routes.ts` |
+| A list longer than a page | `JOBS_PAGE`, `mergeListings`: show a page and say how many of how many | `src/lib/jobsListing.ts` |

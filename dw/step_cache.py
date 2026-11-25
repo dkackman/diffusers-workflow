@@ -811,6 +811,15 @@ def unseeded_cache_warnings(definition, arguments=None):
     """
     if _is_seeded(definition, arguments) or not _has_seedable_step(definition):
         return []
+    seed = definition.get("seed")
+    if references.is_ref(references.VARIABLE, seed):
+        name = references.ref_name(references.VARIABLE, seed)
+        return [
+            f"The seed variable '{name}' has no value, so each run draws a "
+            "random seed and the step cache is off - every step regenerates "
+            f"on every run. Give '{name}' a default, or pass one, to make a "
+            "repeat run reuse what it already produced"
+        ]
     return [
         "This workflow sets no 'seed', so the step cache is disabled and "
         "'cached_steps' is 0 without being probed - every step regenerates "

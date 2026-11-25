@@ -2,8 +2,8 @@
 // would queue, in plan order; which it would not and why; what becomes
 // ready once those finish; and what a plan's quote adds to a row.
 import { formatMinutes } from '../format'
-import { describePlan, type PlanLine } from '../plan'
-import type { LedgerReview, Plan } from '../types'
+import { describeEstimate, describePlan, type PlanLine } from '../plan'
+import type { LedgerReview, Plan, PlanEstimate } from '../types'
 import { CHIP, takesOf, type ItemState, type PlanState } from './itemState'
 import { clockTime } from './reviewText'
 
@@ -15,6 +15,8 @@ export type Candidate = {
   arguments: Record<string, unknown>
   /** The agent's own estimate for the item, to hold the quote against */
   planMinutes: number | null
+  /** A failed item offered again: listed apart and unticked to start */
+  optional?: boolean
 }
 /** An item left out, in words a row can show */
 export type Skip = { key: string; title: string; reason: string }
@@ -53,14 +55,25 @@ function skipReason(row: ItemState): string {
   return `${CHIP[row.display].word}: run it again from its row`
 }
 
-/** The run of everything ready, in plan order: ready items, and revised
- * ones whose dependencies are done. Done items are not listed: there is
- * nothing to say about them. */
+/** A failed item that can run again: `runnable` is the one rule the
+ * needs line counts it by (itemState.ts) */
+const retryable = (row: ItemState) => row.display === 'failed' && row.runnable
+
+/** The run of everything that can run now, in plan order: ready items, and
+ * revised ones whose dependencies are done; then the failed ones that can
+ * run again, offered unticked. Done items are not listed: there is nothing
+ * to say about them. */
 export function readyPlan(plan: PlanState): RunPlan {
   const ready = plan.live.filter((row) => row.runsNow)
-  const rest = plan.live.filter((row) => !row.runsNow && row.display !== 'done')
+  const again = plan.live.filter(retryable)
+  const rest = plan.live.filter(
+    (row) => !row.runsNow && !retryable(row) && row.display !== 'done',
+  )
   return {
-    candidates: ready.map(candidate),
+    candidates: [
+      ...ready.map(candidate),
+      ...again.map((row) => ({ ...candidate(row), optional: true })),
+    ],
     skipped: rest.map((row) => ({
       key: row.item.key,
       title: row.item.title,
@@ -86,7 +99,7 @@ export function heldPlan(plan: PlanState, keys: readonly string[]): RunPlan {
 }
 
 /** The line a held item's row carries in the dialog: running it is the
- * user's go-ahead, or, with the review over and a session listening, the
+ * user's go-ahead, or, with the review over and the agent connected, the
  * agent may be starting it already */
 export function heldLine(
   review: LedgerReview | null,
@@ -95,11 +108,11 @@ export function heldLine(
   if (!review) return null
   if (review.state === 'due' && listening)
     return {
-      text: 'Review time is up and a session is listening: it may be starting this now.',
+      text: 'Review time is up and the agent is connected: it may be starting this now.',
       tone: 'warn',
     }
   return {
-    text: `Held for review until ${clockTime(review.until)}. Running it now is your go-ahead.`,
+    text: `Waiting for your OK until ${clockTime(review.until)}. Running it now is your go-ahead.`,
     tone: 'plain',
   }
 }
@@ -160,10 +173,29 @@ export function afterwardsLine(
   return `When ${these}, ${next.length} more ${one ? 'becomes' : 'become'} ready: ${titles}. This page will not start ${one ? 'it' : 'them'} for you.`
 }
 
+/** A row's quote: the figure as `describeEstimate` reads it, or, with no
+ * figure, a plain line and the engine's reason behind it */
+export function quoteLine(estimate: PlanEstimate | null): {
+  text: string
+  tone: 'plain' | 'warn'
+  detail?: string
+} {
+  const line = describeEstimate(estimate)
+  if (estimate && estimate.basis !== 'unknown' && estimate.minutes !== null)
+    return line
+  const text = 'No time estimate for this workflow.'
+  if (!estimate) return { text, tone: 'plain' }
+  return {
+    text,
+    tone: 'plain',
+    detail: estimate.unpriced_reason || line.text,
+  }
+}
+
 /** A quote more than this far from the plan's own estimate is said */
 const DRIFT = 0.25
 
-/** "the plan said ~4 min" when the quote is not near what the agent
+/** "the plan said about 4 min" when the quote is not near what the agent
  * estimated for the item; null when it is, or either figure is missing */
 export function planSaid(
   planMinutes: number | null,

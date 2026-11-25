@@ -11,21 +11,22 @@
    * workflow page with its fields filled; nothing runs until Run there.
    * Continue reruns this job, behind a confirm. */
   import { api, outputUrl } from '../api'
+  import { describeError } from '../apiErrors'
   import {
-    REPAIR_TEMPLATE,
     WORKFLOW_PREFILL_KEY,
     chainModel,
     continueAction,
     continueConfirmText,
     continueValidation,
     repairAction,
-    repairModels,
+    repairTemplateModels,
     type ContinueAction,
   } from '../chainActions'
   import { confirmDialog } from '../confirm.svelte'
   import { describeEstimate } from '../plan'
   import { go } from '../router.svelte'
-  import { notify } from '../toast'
+  import { action } from '../action.svelte'
+  import { resource } from '../resource.svelte'
   import {
     attemptsText,
     chainContext,
@@ -58,28 +59,14 @@
   )
 
   // The models the repair template loads: read once there is a chain to
-  // offer it on. Unreadable, it repairs nothing
-  let models = $state<string[]>([])
+  // offer it on, and again when a workflow is saved. Unreadable, it repairs
+  // nothing
   const hasChain = $derived(tables.length > 0)
-  $effect(() => {
-    if (!hasChain) return
-    let stopped = false
-    try {
-      api
-        .getWorkflow(REPAIR_TEMPLATE)
-        .then(({ definition: repair }) => {
-          if (!stopped) models = repairModels(repair as Record<string, any>)
-        })
-        .catch(() => {
-          /* no repair template on this server */
-        })
-    } catch {
-      /* no repair template on this server */
-    }
-    return () => {
-      stopped = true
-    }
-  })
+  const modelsRead = resource(
+    () => (hasChain ? repairTemplateModels() : Promise.resolve([])),
+    { watch: ['workflows'] },
+  )
+  const models = $derived(modelsRead.data ?? [])
 
   const args = $derived(job.arguments as Record<string, unknown>)
   const repairFor = (table: ChainTable, row: ChainRow) =>
@@ -98,7 +85,6 @@
     go('ws', job.workspace, 'workflows', ...action.workflow.split('/'))
   }
 
-  let continuing = $state(false)
   let pricing = $state(false)
   // The estimate the confirm quotes: the validate route's plan for the
   // rerun's merged arguments, the figure line every plan shows. One that
@@ -112,12 +98,20 @@
     if (!asked) return describeEstimate(null).text
     try {
       const answer = await api.validate(asked)
-      if (!answer.valid) return 'none - a run would be refused'
+      if (!answer.valid) return 'none - a job would be refused'
       return describeEstimate(answer.plan?.estimate ?? null).text
     } catch (e) {
-      return `none - could not price it (${e instanceof Error ? e.message : String(e)})`
+      return `none - could not price it (${describeError(e).title})`
     }
   }
+
+  const rerunChain = action(
+    async (action: ContinueAction) => {
+      const next = await api.rerunJob(job.id, { arguments: action.arguments })
+      go('ws', job.workspace, 'jobs', next.id)
+    },
+    { doing: 'continue the chain' },
+  )
 
   async function continueChain(table: ChainTable, action: ContinueAction) {
     pricing = true
@@ -127,16 +121,7 @@
     const ok = await confirmDialog(continueConfirmText(table, estimate), {
       confirmLabel: 'Continue',
     })
-    if (!ok) return
-    continuing = true
-    try {
-      const next = await api.rerunJob(job.id, { arguments: action.arguments })
-      go('ws', job.workspace, 'jobs', next.id)
-    } catch (e) {
-      notify.error(e instanceof Error ? e.message : String(e))
-    } finally {
-      continuing = false
-    }
+    if (ok) await rerunChain.run(action)
   }
 
   const fileUrl = (path: string) => outputUrl(path, job.id, job.workspace)
@@ -192,7 +177,7 @@
 
   const measureLabel = (row: ChainRow) =>
     row.measureState === 'resumed'
-      ? 'not recorded - resumed from an earlier run'
+      ? 'not recorded - resumed from an earlier job'
       : row.measureState === 'not-recorded'
         ? 'not recorded'
         : 'nothing measured'
@@ -212,12 +197,12 @@
       <div class="continue">
         <button
           class="quiet"
-          disabled={continuing || pricing}
+          disabled={rerunChain.busy || pricing}
           onclick={() => continueChain(table, more)}
           title="queue this job again, resuming from segment {table.rows
             .length} and rendering the rest of the plan"
         >
-          {continuing
+          {rerunChain.busy
             ? 'Queueing…'
             : pricing
               ? 'Pricing…'
@@ -225,8 +210,8 @@
         </button>
       </div>
     {/if}
-    <div class="scroll">
-      <table>
+    <div class="tablewrap">
+      <table class="datatable">
         <thead>
           <tr>
             <th scope="col">#</th>
@@ -325,10 +310,8 @@
 
 <style>
   h2 {
-    display: flex;
     flex-wrap: wrap;
     align-items: baseline;
-    gap: 0.5rem;
   }
   .step {
     font-size: 0.85em;
@@ -343,24 +326,14 @@
   .mono {
     font-family: var(--font-mono);
   }
-  .scroll {
-    overflow-x: auto;
-  }
   table {
-    border-collapse: collapse;
-    width: 100%;
     font-size: 0.85rem;
   }
   th,
   td {
-    text-align: left;
     vertical-align: top;
-    padding: 0.35rem 0.5rem;
-    border-bottom: 1px solid var(--line);
   }
   th {
-    font-weight: 600;
-    color: var(--muted);
     white-space: nowrap;
   }
   .thumb video {
@@ -410,6 +383,7 @@
     box-shadow: inset 3px 0 0 var(--bad);
   }
   .measure.warn {
+    color: inherit;
     box-shadow: inset 3px 0 0 var(--warn);
   }
   .muted {

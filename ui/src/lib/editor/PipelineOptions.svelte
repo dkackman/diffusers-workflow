@@ -6,6 +6,10 @@
   import ArgumentsEditor from './ArgumentsEditor.svelte'
   import ComponentEditor from './ComponentEditor.svelte'
   import LorasEditor from './LorasEditor.svelte'
+  import { latestOnly } from '../latest'
+  import { sleep } from '../poll'
+  import { resource } from '../resource.svelte'
+  import { slotsFrom } from './componentSlots'
   import {
     ATTENTION_BACKENDS,
     CACHE_TYPES,
@@ -34,10 +38,63 @@
 
   // ---- optional blocks: components, loras, scheduler, acceleration ----
 
-  const activeSlots = $derived(
-    COMPONENT_SLOTS.filter((slot) => pipeline && slot in pipeline),
-  )
+  // The pipeline's own option keys (schema $defs/pipeline); any other key
+  // whose value carries from_pretrained_arguments is a component the engine
+  // loads under that name
+  const OPTION_KEYS = new Set([
+    'configuration',
+    'shared_components',
+    'reused_components',
+    'scheduler',
+    'audio_scheduler',
+    'controlnet',
+    'loras',
+    'ip_adapter',
+    'from_pretrained_arguments',
+    'remote_text_encoder',
+    'seed',
+    'chain',
+    'arguments',
+  ])
+  const activeSlots = $derived.by(() => {
+    if (!pipeline) return []
+    const known: readonly string[] = COMPONENT_SLOTS
+    const extra = Object.keys(pipeline).filter(
+      (key) =>
+        !known.includes(key) &&
+        !OPTION_KEYS.has(key) &&
+        pipeline[key] !== null &&
+        typeof pipeline[key] === 'object' &&
+        'from_pretrained_arguments' in pipeline[key],
+    )
+    return [...known.filter((slot) => slot in pipeline), ...extra]
+  })
   let addSlot = $state('')
+
+  // The pipeline class's own constructor names its components; a modular
+  // pipeline or an unknown class keeps the schema's list. Debounced like
+  // ArgumentsEditor's: the class name arrives keystroke by keystroke
+  const classTyping = latestOnly()
+  const classLookup = resource(
+    async () => {
+      const wanted = pipeline?.configuration?.component_type
+      const current = classTyping()
+      if (!wanted) return null
+      await sleep(300)
+      return current() ? classDescription(wanted, 'init') : null
+    },
+    { watch: [] },
+  )
+  const pipelineSlots = $derived(
+    slotsFrom(
+      classLookup.status === 'ready' ? (classLookup.data ?? null) : null,
+    ),
+  )
+  const offeredSlots = $derived(
+    (pipelineSlots ?? [...COMPONENT_SLOTS]).filter(
+      (slot) => !activeSlots.includes(slot),
+    ),
+  )
 
   function addComponent() {
     if (!addSlot) return
@@ -90,20 +147,24 @@
     }
   }
 
-  let compatibles = $state<string[]>([])
-  $effect(() => {
-    compatibles = []
-    const schedulerType = pipeline?.scheduler?.configuration?.scheduler_type
-    // Only complete-looking names - prefixes typed on the way to a real one
-    // would each fire a doomed lookup
-    if (!schedulerType || !schedulerType.endsWith('Scheduler')) return
-    const timer = setTimeout(() => {
-      classDescription(schedulerType, 'init').then(
-        (d) => (compatibles = d?.compatibles ?? []),
-      )
-    }, 300)
-    return () => clearTimeout(timer)
-  })
+  // Only complete-looking names - prefixes typed on the way to a real one
+  // would each fire a doomed lookup. A scheduler's compatibles never change
+  // while the server runs, so the lookup watches nothing
+  const typing = latestOnly()
+  const schedulerLookup = resource(
+    async () => {
+      const schedulerType = pipeline?.scheduler?.configuration?.scheduler_type
+      const current = typing()
+      if (!schedulerType || !schedulerType.endsWith('Scheduler')) return []
+      await sleep(300)
+      if (!current()) return []
+      return (await classDescription(schedulerType, 'init'))?.compatibles ?? []
+    },
+    { watch: [] },
+  )
+  const compatibles = $derived(
+    schedulerLookup.status === 'ready' ? (schedulerLookup.data ?? []) : [],
+  )
 </script>
 
 <details open={activeSlots.length > 0 || openSection === 'components'}>
@@ -113,6 +174,11 @@
   </summary>
   <div class="section">
     {#each activeSlots as slot (slot)}
+      {#if pipelineSlots && !pipelineSlots.includes(slot)}
+        <span class="warn">
+          not a component of {configuration.component_type}
+        </span>
+      {/if}
       <ComponentEditor
         {slot}
         bind:component={pipeline[slot]}
@@ -123,7 +189,7 @@
     <div class="addrow">
       <select bind:value={addSlot}>
         <option value="">add component…</option>
-        {#each COMPONENT_SLOTS.filter((slot) => !activeSlots.includes(slot)) as slot (slot)}
+        {#each offeredSlots as slot (slot)}
           <option value={slot}>{slot}</option>
         {/each}
       </select>
@@ -194,7 +260,7 @@
     openSection === 'scheduler'}
 >
   <summary><Timer size={13} /> scheduler</summary>
-  <div class="section grid2">
+  <div class="section formgrid">
     <label for={'sched-' + index}>replace scheduler</label>
     <input
       id={'sched-' + index}
@@ -220,7 +286,7 @@
     openSection === 'acceleration'}
 >
   <summary><Zap size={13} /> acceleration</summary>
-  <div class="section grid2">
+  <div class="section formgrid">
     <label for={'cache-' + index}>cache</label>
     <div class="inline-row">
       <input
@@ -344,16 +410,6 @@
   .subhead {
     font-weight: 600;
   }
-  .grid2 {
-    display: grid;
-    grid-template-columns: 150px minmax(0, 1fr);
-    gap: 0.5rem 0.7rem;
-    align-items: center;
-  }
-  .grid2 > label {
-    font-weight: 600;
-    color: var(--muted);
-  }
   .check {
     width: auto;
     justify-self: start;
@@ -369,14 +425,7 @@
   .num {
     max-width: 110px;
   }
-  @container (max-width: 400px) {
-    .grid2 {
-      grid-template-columns: minmax(0, 1fr);
-      gap: 0.2rem;
-    }
-  }
   .hint {
-    font-size: 0.75rem;
     margin-top: 0.3rem;
   }
 </style>

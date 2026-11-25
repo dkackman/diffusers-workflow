@@ -4,7 +4,11 @@
   // suits someone who knows the name; this suits picking by what it shows.
   import { untrack } from 'svelte'
   import Modal from '../ui/Modal.svelte'
-  import { assetThumbnailUrl, galleryThumbnailUrl } from '../apiUrls'
+  import Segmented from '../ui/Segmented.svelte'
+  import GroupHeading from '../ui/GroupHeading.svelte'
+  import { collapsedState } from '../collapsed.svelte'
+  import OutputTile from '../ui/OutputTile.svelte'
+  import { assetMedia, outputMedia, type MediaFile } from '../media'
   import { assetLibrary, ensureAssetLibrary } from '../assetlib.svelte'
   import {
     ensureOutputLibrary,
@@ -13,11 +17,12 @@
     outputLibrary,
     outputNamed,
   } from '../outputlib.svelte'
-  import { hasThumbnail } from '../refcomplete.svelte'
   import { ASSET, OUTPUT, reference, referenceName } from '../references'
-  import { leafName } from '../names'
+  import { kindWithArticle } from '../referenceField'
   import { matchesWords } from '../ui/suggest'
+  import { compareNames } from '../names'
   import type { AssetFile } from '../types'
+  import { workspace } from '../workspace.svelte'
 
   type Tab = 'assets' | 'outputs'
 
@@ -43,7 +48,6 @@
     examples: 'Examples',
   }
   const ORDER: AssetFile['origin'][] = ['workspace', 'common', 'examples']
-  const GLYPHS: Record<string, string> = { audio: '♪' }
 
   const currentAsset = $derived(referenceName(current, ASSET))
   const currentOutput = $derived(referenceName(current, OUTPUT))
@@ -77,10 +81,8 @@
 
   type Tile = {
     key: string
-    caption: string
+    file: MediaFile
     sub: string
-    thumb?: string
-    glyph: string
     current: boolean
     pick: () => string
   }
@@ -99,15 +101,11 @@
       label: LIBRARY_LABELS[origin],
       tiles: matching
         .filter((asset) => asset.origin === origin)
-        .sort((a, b) => a.name.localeCompare(b.name))
+        .sort((a, b) => compareNames(a.name, b.name))
         .map((asset) => ({
           key: asset.name,
-          caption: leafName(asset.name),
+          file: assetMedia(asset, assetLibrary.workspace ?? workspace.current),
           sub: asset.folder,
-          thumb: hasThumbnail(asset)
-            ? assetThumbnailUrl(asset.name)
-            : undefined,
-          glyph: GLYPHS[asset.kind] ?? '¶',
           current: asset.name === currentAsset,
           pick: () => reference(ASSET, asset.name),
         })),
@@ -130,14 +128,10 @@
         .filter((file) => file.folder === folder)
         .map((file) => ({
           key: file.name,
-          caption: leafName(file.name),
+          file: outputMedia(file, outputLibrary.workspace ?? workspace.current),
           sub: [file.version ? `v${file.version}` : '', file.subfolder]
             .filter(Boolean)
             .join(' · '),
-          thumb: hasThumbnail(file)
-            ? galleryThumbnailUrl(file.name)
-            : undefined,
-          glyph: GLYPHS[file.kind] ?? '¶',
           current: file.name === marked,
           pick: () =>
             reference(OUTPUT, (followLatest && latestName(file)) || file.name),
@@ -147,7 +141,15 @@
 
   const sections = $derived(tab === 'assets' ? assetSections : outputSections)
   const listing = $derived(tab === 'assets' ? assetLibrary : outputLibrary)
-  const what = $derived(tab === 'assets' ? 'the asset library' : 'earlier runs')
+  // A section the person shut stays shut next time, except while a search is
+  // on: a shut section hiding matches would make the search look broken
+  // and per workspace and tab, since a library's names are its own
+  const shut = $derived(
+    collapsedState(`collapsed-media-picker:${workspace.current}:${tab}`),
+  )
+  const closed = (key: string) => !query && shut.has(key)
+  const searching = 'Showing every match while the search is on'
+  const what = $derived(tab === 'assets' ? 'the asset library' : 'earlier jobs')
 
   function choose(tile: Tile) {
     onpick(tile.pick())
@@ -158,25 +160,16 @@
 
 <Modal bind:open label="choose a file" large>
   <div class="head">
-    <h2>Choose {kind === 'image' ? 'an image' : `a ${kind ?? 'file'}`}</h2>
-    <div class="tabs" role="group" aria-label="where to choose from">
-      <button
-        class="quiet"
-        class:on={tab === 'assets'}
-        aria-pressed={tab === 'assets'}
-        onclick={() => (tab = 'assets')}
-      >
-        Assets
-      </button>
-      <button
-        class="quiet"
-        class:on={tab === 'outputs'}
-        aria-pressed={tab === 'outputs'}
-        onclick={() => (tab = 'outputs')}
-      >
-        Earlier runs
-      </button>
-    </div>
+    <h2>Choose {kindWithArticle(kind)}</h2>
+    <Segmented
+      label="where to choose from"
+      value={tab}
+      options={[
+        { value: 'assets', label: 'Assets' },
+        { value: 'outputs', label: 'Earlier jobs' },
+      ]}
+      onselect={(picked) => (tab = picked as typeof tab)}
+    />
     <input
       class="search"
       placeholder="search…"
@@ -205,28 +198,37 @@
     {/if}
     {#each sections as section (section.key)}
       <h3 class="library">
-        {section.label} <span class="muted">({section.tiles.length})</span>
+        <GroupHeading
+          label={section.label}
+          count={section.tiles.length}
+          collapsed={closed(section.key)}
+          ontoggle={() => shut.toggle(section.key)}
+          disabled={!!query}
+          title={query ? searching : undefined}
+        />
       </h3>
-      <div class="grid">
-        {#each section.tiles as tile (tile.key)}
-          <button
-            class="tile"
-            class:current={tile.current}
-            aria-current={tile.current ? 'true' : undefined}
-            onclick={() => choose(tile)}
-            title={tile.key}
-            aria-label="choose {tile.key}"
-          >
-            {#if tile.thumb}
-              <img src={tile.thumb} alt="" loading="lazy" />
-            {:else}
-              <span class="glyph" aria-hidden="true">{tile.glyph}</span>
-            {/if}
-            <span class="caption">{tile.caption}</span>
-            {#if tile.sub}<span class="folder muted">{tile.sub}</span>{/if}
-          </button>
-        {/each}
-      </div>
+      {#if !closed(section.key)}
+        <div class="grid">
+          {#each section.tiles as tile (tile.key)}
+            {#snippet folder()}<span class="folder">{tile.sub}</span>{/snippet}
+            {#snippet here()}<span class="tile-mark here">
+                current
+              </span>{/snippet}
+            <OutputTile
+              file={tile.file}
+              size="strip"
+              alt=""
+              active={tile.current}
+              aria-current={tile.current ? 'true' : undefined}
+              onclick={() => choose(tile)}
+              title={tile.key}
+              aria-label="choose {tile.key}"
+              badges={tile.current ? here : undefined}
+              meta={tile.sub ? folder : undefined}
+            />
+          {/each}
+        </div>
+      {/if}
     {/each}
   </div>
   <div class="ui-actions">
@@ -244,14 +246,6 @@
   }
   .head h2 {
     margin: 0;
-  }
-  .tabs {
-    display: flex;
-    gap: var(--space-1);
-  }
-  .tabs .on {
-    border-color: var(--accent);
-    color: var(--ink);
   }
   .latest {
     display: flex;
@@ -283,56 +277,15 @@
   }
   .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    grid-template-columns: repeat(auto-fill, 96px);
     gap: var(--space-2);
   }
-  .tile {
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-    padding: 0 0 var(--space-1);
-    border: 1px solid var(--line);
-    border-radius: var(--radius-frame);
-    background: var(--panel);
-    color: var(--ink);
-    overflow: hidden;
-    text-align: left;
-    cursor: pointer;
-  }
-  .tile:hover,
-  .tile:focus-visible {
-    border-color: var(--accent);
-    filter: none;
-  }
-  .tile.current {
-    border-color: var(--accent);
-    box-shadow: inset 0 0 0 1px var(--accent);
-  }
-  .tile img,
-  .glyph {
-    display: block;
-    width: 100%;
-    height: 96px;
-    object-fit: cover;
-    background: var(--sunk);
-  }
-  .glyph {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1.6rem;
-    color: var(--muted);
-  }
-  .caption,
+  /* Where it is in its library: the folder, or which run */
   .folder {
-    padding: 0 var(--space-2);
+    display: block;
     font-family: var(--font-mono);
-    font-size: 0.75rem;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-  }
-  .folder {
-    font-size: 0.7rem;
   }
 </style>

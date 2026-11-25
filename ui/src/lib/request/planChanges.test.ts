@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
 import { afterEach, expect, it } from 'vitest'
 import PlanChanges from './PlanChanges.svelte'
 import { entry } from './fixtures'
+import { formatExact, formatMtime } from '../format'
 
 afterEach(cleanup)
 
@@ -60,4 +61,26 @@ it('says a changed goal, and who closed or reopened the request', () => {
   expect(
     [...container.querySelectorAll('.by')].map((e) => e.textContent),
   ).toEqual(['you', 'you', 'agent', 'agent'])
+})
+
+it('each revision says when, exact, with the exact time to the second on hover', () => {
+  const first = entry(1, 'agent', 'opened')
+  const { container } = render(PlanChanges, { history: [first], revision: 1 })
+  const time = container.querySelector('#plan-change-r1 time') as HTMLElement
+  const at = Date.parse(first.at) / 1000
+  expect(time.textContent?.trim()).toBe(formatMtime(at))
+  expect(time.getAttribute('title')).toBe(formatExact(at))
+})
+
+it('a revision whose stored time does not parse still renders', () => {
+  const { container } = render(PlanChanges, {
+    history: [entry(1, 'agent', 'opened', { at: 'legacy' })],
+    revision: 1,
+  })
+  const head = container.querySelector('#plan-change-r1 .head') as HTMLElement
+  expect(head.textContent).toContain('unknown time')
+  expect(container.querySelector('#plan-change-r1 .why')?.textContent).toBe(
+    'opened',
+  )
+  expect(head.querySelector('[datetime]')).toBeNull()
 })

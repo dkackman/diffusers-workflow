@@ -61,7 +61,6 @@
     overflow-wrap: anywhere;
   }
   .hint {
-    font-size: 0.75rem;
     margin-top: 0.3rem;
   }
 </style>

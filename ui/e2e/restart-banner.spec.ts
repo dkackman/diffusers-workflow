@@ -18,6 +18,9 @@ test('a restart banner previews the batch it offers to rerun', async ({
     page.locator('.reason', { hasText: 'server restart:' }),
   ).toHaveCount(2)
 
+  // other journeys may have queued reruns of their own: count, don't assume none
+  const reruns = page.locator('[title^="a rerun of"]')
+  const before = await reruns.count()
   await banner.getByRole('button', { name: 'Rerun…' }).click()
   const dialog = page.getByRole('alertdialog')
   await expect(dialog).toBeVisible()
@@ -28,5 +31,5 @@ test('a restart banner previews the batch it offers to rerun', async ({
   await expect(dialog).toHaveCount(0)
   // nothing was queued: the banner still stands and no rerun row appeared
   await expect(banner).toHaveCount(1)
-  await expect(page.locator('[title^="a rerun of"]')).toHaveCount(0)
+  await expect(reruns).toHaveCount(before)
 })

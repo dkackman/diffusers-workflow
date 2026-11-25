@@ -8,8 +8,15 @@ import type {
   WorkflowDefinition,
 } from './types'
 import { getApiToken } from './token'
-import { ApiError, errorCode, errorDetail, errorPayload } from './apiErrors'
-import { scoped } from './apiUrls'
+import {
+  ApiError,
+  NetworkError,
+  errorCode,
+  errorDetail,
+  errorPayload,
+} from './apiErrors'
+import { outputUrl, scoped } from './apiUrls'
+import { reportResponse, reportUnreachable } from './connection.svelte'
 
 /** A JSON body sent with `method`, and any extra `headers` */
 export const jsonInit = (
@@ -37,9 +44,40 @@ export function preconditionHeaders(
   return headers
 }
 
+/** The fetch, with a request that never arrived told to `connection` and
+ * rethrown as a NetworkError; an abort is the caller's own doing, not an
+ * outage. */
+async function reach(url: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init)
+  } catch (e) {
+    if (!(e instanceof TypeError)) throw e
+    reportUnreachable()
+    throw new NetworkError(e.message)
+  }
+}
+
+/** The ApiError a failed response carries: the server's detail, code and
+ * status. */
+async function refusal(response: Response): Promise<ApiError> {
+  let detail = response.statusText
+  let code: string | undefined
+  let held: Record<string, unknown> | undefined
+  try {
+    const payload = await response.json()
+    detail = errorDetail(payload, detail)
+    code = errorCode(payload)
+    held = errorPayload(payload)
+  } catch {
+    /* not json */
+  }
+  return new ApiError(detail, response.status, code, held)
+}
+
 /** A request with the bearer token, scoped to the picker's workspace
  * unless `scope` is false, failing with an ApiError that carries the
- * server's detail and status. Under every JSON call and file download. */
+ * server's detail and status. Under every JSON call and file download, so
+ * every answer (and every request that never arrived) tells `connection`. */
 async function send(
   path: string,
   init: RequestInit = {},
@@ -48,24 +86,15 @@ async function send(
   const token = getApiToken()
   const headers = new Headers(init.headers)
   if (token) headers.set('Authorization', `Bearer ${token}`)
-  const response = await fetch(scope ? scoped(path) : path, {
+  const response = await reach(scope ? scoped(path) : path, {
     ...init,
     headers,
   })
-  if (!response.ok) {
-    let detail = response.statusText
-    let code: string | undefined
-    let held: Record<string, unknown> | undefined
-    try {
-      const payload = await response.json()
-      detail = errorDetail(payload, detail)
-      code = errorCode(payload)
-      held = errorPayload(payload)
-    } catch {
-      /* not json */
-    }
-    throw new ApiError(detail, response.status, code, held)
-  }
+  // A 401 to the token this request was sent with says nothing about one
+  // accepted since: it must not lock the app again
+  if (response.status !== 401 || getApiToken() === token)
+    reportResponse(response.status)
+  if (!response.ok) throw await refusal(response)
   return response
 }
 
@@ -79,6 +108,42 @@ export async function fetchJson<T>(
 ): Promise<{ body: T; response: Response }> {
   const response = await send(path, init, options?.scope !== false)
   return { body: await response.json(), response }
+}
+
+/** A text response - a saved output file, a gallery text file - through
+ * the same path as every JSON call, so one that never arrived is a
+ * NetworkError and `connection` hears of it. `path` is used as given when
+ * `scope` is false: a file URL already names its workspace. Revalidated
+ * ('no-cache'), never a cached copy: a Replace or a rewrite keeps the URL
+ * and changes the bytes. */
+export async function fetchText(
+  path: string,
+  options?: { scope?: boolean },
+): Promise<string> {
+  const init: RequestInit = { cache: 'no-cache' }
+  return (await send(path, init, options?.scope !== false)).text()
+}
+
+/** Fetch the text of a saved output file - how an enhancement's result
+ * comes back, since the manifest only names files. `workspace` names the
+ * job's own workspace, for the same reason `outputUrl` takes one: the file
+ * has to be read from where the job wrote it, not from whatever the picker
+ * says now. */
+export async function fetchOutputText(
+  path: string,
+  workspace?: string,
+): Promise<string> {
+  const name = path.split('/').pop() ?? ''
+  try {
+    return await fetchText(outputUrl(path, undefined, workspace), {
+      scope: false,
+    })
+  } catch (e) {
+    // A refusal names the file; one that never arrived stays a NetworkError
+    if (e instanceof ApiError)
+      throw new ApiError(`Could not read ${name}`, e.status, e.code)
+    throw e
+  }
 }
 
 /** PUT a JSON body under `pre`, returning the reply and the ETag of what

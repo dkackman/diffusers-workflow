@@ -19,6 +19,8 @@ export function holdLayer(): () => void {
   }
 }
 
-export function overlayOpen(): boolean {
-  return open > 0
+/** Whether more than `own` overlays are open: an overlay asking whether one
+ * is open above itself (the media viewer) passes the layer it holds. */
+export function overlayOpen(own = 0): boolean {
+  return open > own
 }

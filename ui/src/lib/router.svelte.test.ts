@@ -1,19 +1,34 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { api } from './test/apiMock'
 
-vi.mock('./api', () => ({
-  api: { listWorkspaces: vi.fn(() => new Promise(() => {})) },
-}))
+vi.mock('./api', async () => (await import('./test/apiMock')).apiModule())
+api.listWorkspaces.mockImplementation(() => new Promise(() => {}))
 vi.mock('./toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
 
+// Each test loads its own router, and an earlier test's would still hear
+// every hashchange and popstate and stamp the shared history with its own
+// count - so the history listeners a test adds are removed after it
+const listeners: Array<[string, EventListenerOrEventListenerObject]> = []
+const addListener = window.addEventListener.bind(window)
 beforeEach(() => {
   localStorage.clear()
+  sessionStorage.clear()
   // replaceState moves no hash event into the next test, as `location.hash = ''` does
   history.replaceState(null, '', location.pathname + location.search)
+  vi.spyOn(window, 'addEventListener').mockImplementation(
+    (type: string, listener: EventListenerOrEventListenerObject, options) => {
+      if (type === 'hashchange' || type === 'popstate' || type === 'pagehide')
+        listeners.push([type, listener])
+      addListener(type, listener, options)
+    },
+  )
 })
-// each test's module keeps its hashchange listener, so its guards are dropped
 const removers: Array<() => void> = []
 afterEach(() => {
   removers.splice(0).forEach((remove) => remove())
+  for (const [type, listener] of listeners.splice(0))
+    window.removeEventListener(type, listener)
+  vi.restoreAllMocks()
   vi.resetModules()
 })
 async function loadRouter() {
@@ -34,17 +49,18 @@ async function loadRouter() {
 // navigation is `nav(change, n)`: run `change`, wait for its `n` hashchange
 // events (a declined one is two: the change, then the router's undo), then for
 // the router's promise chain, which is all microtasks and so drained before
-// the next timer.
+// the next timer. A traversal between two entries of the same hash raises
+// no hashchange, only a popstate: `nav(change, n, 'popstate')` waits for that.
 const flush = () => new Promise((r) => setTimeout(r, 0))
-function nav(change: () => void, events = 1) {
+function nav(change: () => void, events = 1, type = 'hashchange') {
   return new Promise<void>((resolve) => {
     let left = events
     const on = () => {
       if (--left > 0) return
-      window.removeEventListener('hashchange', on)
+      window.removeEventListener(type, on)
       void flush().then(() => resolve())
     }
-    window.addEventListener('hashchange', on)
+    window.addEventListener(type, on)
     change()
   })
 }
@@ -289,4 +305,478 @@ it('renameRoute renames the entry in place and asks the guards for the new path'
   await go('#/ws/studio/edit', 2)
   expect(asked).toBe(1)
   expect(location.hash).toBe('#/ws/studio/edit/mine')
+})
+
+// a second navigation while a guard is asking, and a declined replace
+
+it('a second navigation while a guard asks is not lost', async () => {
+  const { route, addLeaveGuard } = await loadRouter()
+  await go('#/ws/studio/overview')
+  let answer: (ok: boolean) => void = () => {}
+  const remove = addLeaveGuard(() => new Promise<boolean>((r) => (answer = r)))
+  await go('#/ws/studio/jobs/a')
+  await go('#/ws/studio/jobs/b')
+  expect(route.view).toMatchObject({ section: 'overview' })
+  answer(true)
+  await flush()
+  remove()
+  expect(route.parts).toEqual(['ws', 'studio', 'jobs', 'b'])
+  expect(location.hash).toBe('#/ws/studio/jobs/b')
+  // settled on b's own entry: Back from it is a, not overview
+  await nav(() => history.back())
+  expect(route.parts).toEqual(['ws', 'studio', 'jobs', 'a'])
+})
+
+it('declining after two navigations walks back to the committed entry', async () => {
+  const { route, addLeaveGuard } = await loadRouter()
+  await go('#/ws/studio/overview')
+  const parts = [...route.parts]
+  let answer: (ok: boolean) => void = () => {}
+  addLeaveGuard(() => new Promise<boolean>((r) => (answer = r)))
+  await go('#/ws/studio/jobs/a')
+  await go('#/ws/studio/jobs/b')
+  const walk = vi.spyOn(history, 'go')
+  await nav(() => answer(false))
+  expect(walk).toHaveBeenCalledTimes(1)
+  expect(walk).toHaveBeenCalledWith(-2)
+  walk.mockRestore()
+  expect(location.hash).toBe('#/ws/studio/overview')
+  expect(route.parts).toEqual(parts)
+})
+
+it('a declined replaceRoute puts the committed hash back in place', async () => {
+  const { route, addLeaveGuard, replaceRoute } = await loadRouter()
+  await go('#/ws/studio/overview')
+  const stamped = history.state
+  const depth = history.length
+  addLeaveGuard(() => false)
+  const walk = vi.spyOn(history, 'go')
+  await nav(() => replaceRoute('#/ws/studio/jobs/j1'))
+  expect(walk).not.toHaveBeenCalled()
+  walk.mockRestore()
+  expect(location.hash).toBe('#/ws/studio/overview')
+  expect(history.state).toEqual(stamped)
+  expect(history.length).toBe(depth)
+  expect(route.view).toMatchObject({ section: 'overview' })
+})
+
+it('an allowed replaceRoute replaces the entry without a new one', async () => {
+  const { route, addLeaveGuard, replaceRoute } = await loadRouter()
+  await go('#/ws/studio/overview')
+  const stamped = history.state
+  const depth = history.length
+  addLeaveGuard(() => true)
+  await nav(() => replaceRoute('#/ws/studio/jobs/j1'))
+  expect(location.hash).toBe('#/ws/studio/jobs/j1')
+  expect(route.view).toMatchObject({ section: 'jobs', rest: ['j1'] })
+  expect(history.length).toBe(depth)
+  expect(history.state).toEqual(stamped)
+})
+
+it('a replaceRoute to the current hash leaves the next push a push', async () => {
+  const { addLeaveGuard, replaceRoute } = await loadRouter()
+  await go('#/ws/studio/overview')
+  replaceRoute('#/ws/studio/overview')
+  addLeaveGuard(() => false)
+  const walk = vi.spyOn(history, 'go')
+  await go('#/ws/studio/jobs/j1', 2)
+  expect(walk).toHaveBeenCalledTimes(1)
+  expect(walk).toHaveBeenCalledWith(-1)
+  expect(location.hash).toBe('#/ws/studio/overview')
+})
+
+it('a push while a replace is asked about is a push, and a decline walks it back', async () => {
+  const { route, addLeaveGuard, replaceRoute } = await loadRouter()
+  await go('#/ws/studio/overview')
+  const stamped = history.state
+  const depth = history.length
+  let answer: (ok: boolean) => void = () => {}
+  const remove = addLeaveGuard(() => new Promise<boolean>((r) => (answer = r)))
+  await nav(() => replaceRoute('#/ws/studio/jobs/r'))
+  await go('#/ws/studio/jobs/c')
+  const walk = vi.spyOn(history, 'go')
+  await nav(() => answer(false))
+  expect(walk).toHaveBeenCalledTimes(1)
+  expect(walk).toHaveBeenCalledWith(-1)
+  walk.mockRestore()
+  remove()
+  // the replaced entry is the committed one again, and c is its forward entry
+  expect(location.hash).toBe('#/ws/studio/overview')
+  expect(history.state).toEqual(stamped)
+  expect(history.length).toBe(depth + 1)
+  expect(route.view).toMatchObject({ section: 'overview' })
+  await nav(() => history.forward())
+  expect(route.parts).toEqual(['ws', 'studio', 'jobs', 'c'])
+  await nav(() => history.back())
+  expect(route.parts).toEqual(['ws', 'studio', 'overview'])
+})
+
+it('a declined walk back onto a same-hash entry does not swallow the next link', async () => {
+  const { route, addLeaveGuard } = await loadRouter()
+  await go('#/ws/studio/edit')
+  await go('#/ws/studio/overview')
+  await go('#/ws/studio/edit')
+  let answer: (ok: boolean) => void = () => {}
+  const remove = addLeaveGuard(() => new Promise<boolean>((r) => (answer = r)))
+  await nav(() => history.back())
+  await nav(() => history.back())
+  // the walk is +2 between two entries of the same hash: no hashchange
+  const walk = vi.spyOn(history, 'go')
+  await nav(() => answer(false), 1, 'popstate')
+  expect(walk).toHaveBeenCalledWith(2)
+  walk.mockRestore()
+  remove()
+  expect(location.hash).toBe('#/ws/studio/edit')
+  await go('#/ws/studio/jobs/x')
+  expect(location.hash).toBe('#/ws/studio/jobs/x')
+  expect(route.parts).toEqual(['ws', 'studio', 'jobs', 'x'])
+})
+
+it('an allowed answer that ends back on the committed entry is no navigation', async () => {
+  const { route, addLeaveGuard } = await loadRouter()
+  await go('#/ws/studio/overview')
+  const parts = route.parts
+  let answer: (ok: boolean) => void = () => {}
+  addLeaveGuard(() => new Promise<boolean>((r) => (answer = r)))
+  await go('#/ws/studio/jobs/a')
+  await nav(() => history.back())
+  answer(true)
+  await flush()
+  expect(location.hash).toBe('#/ws/studio/overview')
+  expect(route.parts).toBe(parts)
+})
+
+// hashState: a list's filters live in the hash's query, one box per key
+
+/** Make boxes inside an effect root, as a component's init would. The
+ * helper is loaded after the reset, with the router's own copy of Svelte;
+ * `settleBoxes` settles the boxes' effects in that copy */
+let settleBoxes = () => {}
+async function boxes<T>(make: () => T): Promise<T> {
+  const { inEffectRoot } = await import('./test/effectRoot.svelte')
+  const root = inEffectRoot(make)
+  removers.push(root.stop)
+  settleBoxes = root.flush
+  return root.made
+}
+
+it('hashState writes its key and keeps the others', async () => {
+  const { hashState, hashQuery, codec } = await loadRouter()
+  await go('#/ws/studio/gallery?req=r1&q=cat')
+  const { q, starred } = await boxes(() => ({
+    q: hashState('q', ''),
+    starred: hashState('starred', false, codec.flag),
+  }))
+  expect(q.value).toBe('cat')
+  expect(starred.value).toBe(false)
+  starred.value = true
+  settleBoxes()
+  expect(hashQuery()).toEqual({ req: 'r1', q: 'cat', starred: '1' })
+  q.value = ''
+  settleBoxes()
+  expect(location.hash).toBe('#/ws/studio/gallery?req=r1&starred=1')
+})
+
+it('hashState follows Back', async () => {
+  const { hashState } = await loadRouter()
+  await go('#/ws/studio/gallery')
+  const { q } = await boxes(() => ({ q: hashState('q', '') }))
+  q.value = 'cat'
+  settleBoxes()
+  expect(location.hash).toBe('#/ws/studio/gallery?q=cat')
+  await go('#/ws/studio/gallery/a.png')
+  expect(q.value).toBe('')
+  await nav(() => history.back())
+  settleBoxes()
+  expect(location.hash).toBe('#/ws/studio/gallery?q=cat')
+  expect(q.value).toBe('cat')
+})
+
+it('a hash with no query resets every box', async () => {
+  const { hashState, codec } = await loadRouter()
+  await go('#/ws/studio/gallery?q=cat&roles=final,intermediate&starred=1')
+  const box = await boxes(() => ({
+    q: hashState('q', ''),
+    roles: hashState<string[]>('roles', ['final'], codec.list),
+    starred: hashState('starred', false, codec.flag),
+  }))
+  expect(box.roles.value).toEqual(['final', 'intermediate'])
+  expect(box.starred.value).toBe(true)
+  await go('#/ws/studio/gallery')
+  settleBoxes()
+  expect(box.q.value).toBe('')
+  expect(box.roles.value).toEqual(['final'])
+  expect(box.starred.value).toBe(false)
+  // a box at its initial value writes nothing, so the link stays bare
+  expect(location.hash).toBe('#/ws/studio/gallery')
+})
+
+it('a list is written with a plain comma', async () => {
+  const { hashState, codec } = await loadRouter()
+  await go('#/ws/studio/gallery')
+  const { roles } = await boxes(() => ({
+    roles: hashState<string[]>('roles', ['final'], codec.list),
+  }))
+  roles.value = ['final', 'intermediate']
+  settleBoxes()
+  expect(location.hash).toBe('#/ws/studio/gallery?roles=final,intermediate')
+})
+
+it('an unknown value reads as the initial one', async () => {
+  const { hashState, codec } = await loadRouter()
+  await go('#/ws/studio/gallery?sort=sideways&roles=bogus,intermediate')
+  const box = await boxes(() => ({
+    sort: hashState('sort', 'newest', codec.oneOf(['newest', 'oldest'])),
+    roles: hashState<string[]>(
+      'roles',
+      ['final'],
+      codec.someOf(['final', 'intermediate'], ['final']),
+    ),
+  }))
+  expect(box.sort.value).toBe('newest')
+  // an unknown role is dropped; none known left reads as the initial list
+  expect(box.roles.value).toEqual(['intermediate'])
+  await go('#/ws/studio/gallery?sort=oldest&roles=bogus')
+  settleBoxes()
+  expect(box.sort.value).toBe('oldest')
+  expect(box.roles.value).toEqual(['final'])
+})
+
+// Scroll: Back and Forward go back to where each entry was left, even on
+// the same path; a new path starts at the top; typing a filter or a rename
+// never moves the page
+
+function scrolled(y: number) {
+  Object.defineProperty(window, 'scrollY', { value: y, configurable: true })
+}
+function pageHeight(px: number) {
+  Object.defineProperty(document.documentElement, 'scrollHeight', {
+    value: px,
+    configurable: true,
+  })
+}
+// window.scrollTo as a browser does it: scrollY follows
+function spyScroll() {
+  return vi
+    .spyOn(window, 'scrollTo')
+    .mockImplementation((_x?: unknown, y?: unknown) => scrolled(Number(y)))
+}
+// jsdom has no ResizeObserver: this one is fired by hand, and says whether
+// it is still connected
+const observers = new Set<() => void>()
+class FakeResizeObserver {
+  constructor(private readonly callback: () => void) {}
+  observe() {
+    observers.add(this.callback)
+  }
+  disconnect() {
+    observers.delete(this.callback)
+  }
+}
+const resized = () => [...observers].forEach((callback) => callback())
+beforeEach(() => vi.stubGlobal('ResizeObserver', FakeResizeObserver))
+afterEach(() => {
+  observers.clear()
+  vi.unstubAllGlobals()
+  vi.useRealTimers()
+  scrolled(0)
+  pageHeight(0)
+})
+
+async function leftAt(y: number, from: string, to: string) {
+  await go(from)
+  const at = (history.state as { dwIndex: number }).dwIndex
+  scrolled(y)
+  await go(to)
+  return at
+}
+
+it('restoreScroll waits for the page to be tall enough, and stops on a user scroll', async () => {
+  const { restoreScroll } = await loadRouter()
+  const at = await leftAt(900, '#/ws/studio/jobs', '#/ws/studio/jobs/j1')
+  const scrollTo = spyScroll()
+  // the list is still loading: as far down as the page goes, never the top
+  pageHeight(innerHeight + 300)
+  restoreScroll(at)
+  expect(scrollTo).toHaveBeenLastCalledWith(0, 300)
+  pageHeight(innerHeight + 2000)
+  resized()
+  expect(scrollTo).toHaveBeenLastCalledWith(0, 900)
+  // there, it lets go of the document
+  expect(observers.size).toBe(0)
+
+  // a wheel turned while it waits is the user's: the restore lets go
+  pageHeight(innerHeight + 300)
+  restoreScroll(at)
+  window.dispatchEvent(new WheelEvent('wheel'))
+  expect(observers.size).toBe(0)
+
+  // so is a scrollbar click no event announces: the page is not where the
+  // restore put it, and its height does not explain it
+  scrollTo.mockClear()
+  restoreScroll(at)
+  scrolled(120)
+  pageHeight(innerHeight + 2000)
+  resized()
+  expect(scrollTo).toHaveBeenCalledTimes(1)
+  expect(observers.size).toBe(0)
+})
+
+it('restoreScroll turns scroll anchoring off while it runs, and back on however it ends', async () => {
+  const { restoreScroll, stopRestore } = await loadRouter()
+  const at = await leftAt(900, '#/ws/studio/jobs', '#/ws/studio/jobs/j1')
+  spyScroll()
+  const anchoring = () => document.documentElement.style.overflowAnchor
+  // a banner shown above the list while it loads would otherwise make the
+  // browser shift the page, which reads as the user's scroll
+  pageHeight(innerHeight + 300)
+  restoreScroll(at)
+  expect(anchoring()).toBe('none')
+  pageHeight(innerHeight + 2000)
+  resized()
+  expect(anchoring()).toBe('')
+
+  // a restore that ends on the user's scroll, or on a new navigation, too
+  pageHeight(innerHeight + 300)
+  restoreScroll(at)
+  expect(anchoring()).toBe('none')
+  window.dispatchEvent(new WheelEvent('wheel'))
+  expect(anchoring()).toBe('')
+
+  restoreScroll(at)
+  stopRestore()
+  expect(anchoring()).toBe('')
+})
+
+it('restoreScroll waits for a slow list: it grows tall after more than a second, and Back still lands', async () => {
+  const { placeScroll } = await loadRouter()
+  const scrollTo = spyScroll()
+  await leftAt(900, '#/ws/studio/jobs', '#/ws/studio/jobs/j1')
+  placeScroll()
+  pageHeight(innerHeight + 100)
+  await nav(() => history.back())
+  // the clock is faked only once the traversal has landed: jsdom's own
+  // hashchange, and nav's flush, run on real timers
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  placeScroll()
+  expect(scrollTo).toHaveBeenLastCalledWith(0, 100)
+  vi.advanceTimersByTime(3000)
+  pageHeight(innerHeight + 2000)
+  resized()
+  expect(scrollTo).toHaveBeenLastCalledWith(0, 900)
+  expect(observers.size).toBe(0)
+})
+
+it('restoreScroll gives up after about 10 s, and a new navigation ends it', async () => {
+  const { placeScroll, stopRestore } = await loadRouter()
+  spyScroll()
+  await leftAt(900, '#/ws/studio/jobs', '#/ws/studio/jobs/j1')
+  placeScroll()
+  pageHeight(innerHeight + 100)
+  await nav(() => history.back())
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  placeScroll()
+  expect(observers.size).toBe(1)
+  vi.advanceTimersByTime(9_000)
+  expect(observers.size).toBe(1)
+  vi.advanceTimersByTime(1_000)
+  expect(observers.size).toBe(0)
+  vi.useRealTimers()
+
+  scrolled(900)
+  await nav(() => history.forward())
+  placeScroll()
+  await nav(() => history.back())
+  placeScroll()
+  expect(observers.size).toBe(1)
+  scrolled(900)
+  await go('#/ws/studio/gallery')
+  expect(observers.size).toBe(0)
+  placeScroll()
+
+  // and the shell's unmount ends one too
+  await nav(() => history.back())
+  placeScroll()
+  expect(observers.size).toBe(1)
+  stopRestore()
+  expect(observers.size).toBe(0)
+})
+
+it('typing a filter or a rename never moves the page; a new path starts at the top', async () => {
+  const { placeScroll, setHashQuery, renameRoute } = await loadRouter()
+  await go('#/ws/studio/jobs')
+  const scrollTo = spyScroll()
+  placeScroll()
+  scrollTo.mockClear()
+  scrolled(900)
+  setHashQuery({ status: 'failed' })
+  placeScroll()
+  // a pushed query on the same path is a fresh entry with no place of its own
+  await go('#/ws/studio/jobs?status=queued')
+  placeScroll()
+  expect(scrollTo).not.toHaveBeenCalled()
+  // a rename (an editor's first save) is the same page under a new name
+  renameRoute('#/ws/studio/edit/a.json')
+  placeScroll()
+  expect(scrollTo).not.toHaveBeenCalled()
+  // a pushed new path starts at the top
+  await go('#/ws/studio/jobs/j1')
+  placeScroll()
+  expect(scrollTo).toHaveBeenLastCalledWith(0, 0)
+})
+
+it('Back and Forward between two queries on the same path restore each entry', async () => {
+  const { placeScroll } = await loadRouter()
+  const scrollTo = spyScroll()
+  pageHeight(innerHeight + 5000)
+  await go('#/ws/studio/jobs')
+  placeScroll()
+  scrollTo.mockClear()
+  scrolled(1200)
+  await go('#/ws/studio/jobs?req=r1')
+  placeScroll()
+  expect(scrollTo).not.toHaveBeenCalled()
+  scrolled(300)
+  await nav(() => history.back())
+  placeScroll()
+  expect(scrollTo).toHaveBeenLastCalledWith(0, 1200)
+  await nav(() => history.forward())
+  placeScroll()
+  expect(scrollTo).toHaveBeenLastCalledWith(0, 300)
+})
+
+it("a reload restores the entry's scroll", async () => {
+  const first = await loadRouter()
+  await go('#/ws/studio/jobs')
+  first.placeScroll()
+  scrolled(700)
+  // the page goes away: the entry keeps its index in history.state
+  window.dispatchEvent(new Event('pagehide'))
+  vi.resetModules()
+  const scrollTo = spyScroll()
+  pageHeight(innerHeight + 5000)
+  const { placeScroll } = await loadRouter()
+  placeScroll()
+  expect(scrollTo).toHaveBeenLastCalledWith(0, 700)
+})
+
+it('storage that throws keeps scrolls in memory', async () => {
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    throw new Error('blocked')
+  })
+  vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+    throw new Error('blocked')
+  })
+  const { placeScroll } = await loadRouter()
+  const scrollTo = spyScroll()
+  pageHeight(innerHeight + 5000)
+  await go('#/ws/studio/jobs')
+  placeScroll()
+  scrolled(400)
+  await go('#/ws/studio/jobs/j1')
+  placeScroll()
+  scrolled(0)
+  await nav(() => history.back())
+  placeScroll()
+  expect(scrollTo).toHaveBeenLastCalledWith(0, 400)
 })

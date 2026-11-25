@@ -1,4 +1,4 @@
-import { assetThumbnailUrl, galleryThumbnailUrl } from './apiUrls'
+import { assetMedia, outputMedia } from './media'
 import { assetLibrary, ensureAssetLibrary } from './assetlib.svelte'
 import { ensureOutputLibrary, outputLibrary } from './outputlib.svelte'
 import { promptLibrary } from './promptlib.svelte'
@@ -6,6 +6,7 @@ import { ASSET, OUTPUT, PROMPT, reference, referenceName } from './references'
 import { leafName } from './names'
 import { formatMtime } from './format'
 import type { AssetFile, GalleryFile } from './types'
+import { workspace } from './workspace.svelte'
 import { matchesWords, type SuggestItem } from './ui/suggest'
 
 // How much of a prompt's text a row shows: enough to recognize it by
@@ -14,14 +15,6 @@ const DETAIL_CHARS = 90
 const BADGES: Partial<Record<AssetFile['origin'], string>> = {
   common: 'shared',
   examples: 'example',
-}
-// What stands in for a picture where the server makes no thumbnail
-const GLYPHS: Record<string, string> = { audio: '♪', lut: '¶', text: '¶' }
-
-/** Whether the server renders a thumbnail of `asset`: an image, or a
- * video's first frame. */
-export function hasThumbnail(file: { kind: string }): boolean {
-  return file.kind === 'image' || file.kind === 'video'
 }
 
 /** The first line of a prompt's text, cut to a row's width. */
@@ -99,8 +92,7 @@ export function assetChoices(
   return ranked(found, query).map((asset) => ({
     value: asset.name,
     label: asset.name,
-    thumb: hasThumbnail(asset) ? assetThumbnailUrl(asset.name) : undefined,
-    glyph: GLYPHS[asset.kind],
+    media: assetMedia(asset, assetLibrary.workspace ?? workspace.current),
     badge: BADGES[asset.origin],
   }))
 }
@@ -114,8 +106,7 @@ export function outputRow(file: GalleryFile, value = file.name): SuggestItem {
     detail: [file.subfolder, formatMtime(file.mtime)]
       .filter(Boolean)
       .join(' · '),
-    thumb: hasThumbnail(file) ? galleryThumbnailUrl(file.name) : undefined,
-    glyph: GLYPHS[file.kind],
+    media: outputMedia(file, outputLibrary.workspace ?? workspace.current),
     badge: file.version ? `v${file.version}` : undefined,
   }
 }
@@ -139,7 +130,7 @@ export function outputChoices(
 // that has not started one yet
 const LIBRARIES: Array<[string, string]> = [
   [ASSET, 'a file in the asset library'],
-  [OUTPUT, 'a file an earlier run wrote'],
+  [OUTPUT, 'a file an earlier job wrote'],
   [PROMPT, "a stored prompt's text"],
 ]
 

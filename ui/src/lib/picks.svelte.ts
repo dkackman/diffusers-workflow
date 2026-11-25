@@ -1,4 +1,11 @@
 import { SvelteSet } from 'svelte/reactivity'
+import { action } from './action.svelte'
+import { describeError } from './apiErrors'
+import type { UndoTarget } from './destructive'
+import { notify } from './toast'
+
+/** A star Undo over files whose star someone else changed meanwhile */
+export const STAR_CHANGED = 'Nothing undone: the star was changed since.'
 
 /** A tick-the-grid selection, for a contact sheet with bulk actions.
  *
@@ -36,6 +43,93 @@ export class Picks {
   /** The selection in the order the grid shows it. */
   get names(): string[] {
     return this.#order().filter((name) => this.#names.has(name))
+  }
+
+  /** The bulk bar's Download: the picked names as one zip from `archive`
+   * (the gallery's or the asset library's route). Call it once, at setup:
+   * the handle's action makes a double click fetch one, and with nothing
+   * picked `run` asks for nothing */
+  download(archive: (names: string[]) => Promise<unknown>, noun: string) {
+    const downloading = action((picked: string[]) => archive(picked), {
+      doing: `download the picked ${noun}`,
+    })
+    return {
+      get busy() {
+        return downloading.busy
+      },
+      run: () => {
+        const picked = this.names
+        if (picked.length) void downloading.run(picked)
+      },
+    }
+  }
+
+  /** The bulk bar's Star and Unstar: `set` each pick to `next`, one batch
+   * per click (the handle's action drops a double click). Failures are one
+   * toast naming the files. The Undo puts each file back as `was` read it
+   * before, not to `!next` - a mixed selection has files on both sides -
+   * and only the files that were set and whose star `was` still reads as
+   * this set it (another writer's star is left), and only in the place it
+   * was made (`target`). With nothing set, no Undo is offered. */
+  star(
+    set: (name: string, next: boolean) => Promise<unknown>,
+    noun: string,
+    opts: {
+      was?: (name: string) => boolean
+      /** Told after each write lands, so a page can hold it as its own */
+      applied?: (name: string, next: boolean) => void
+      target?: UndoTarget
+    } = {},
+  ) {
+    const was = opts.was ?? (() => false)
+    const put = async (name: string, next: boolean) => {
+      await set(name, next)
+      opts.applied?.(name, next)
+    }
+    const files = (n: number) => `${noun}${n === 1 ? '' : 's'}`
+    const starring = action(
+      async (picked: string[], next: boolean) => {
+        const before = Object.fromEntries(
+          picked.map((name) => [name, was(name)]),
+        )
+        const verb = next ? 'star' : 'unstar'
+        const done = await setEach(picked, () => next, put, verb, files)
+        return done.length ? { done, next, before } : null
+      },
+      {
+        doing: `${noun} star`,
+        undo: ({ done, next, before }) => ({
+          message: `${next ? 'Starred' : 'Unstarred'} ${done.length} ${files(done.length)}`,
+          revert: async () => {
+            // Only the files this set changed, and only while they still read
+            // as it left them: a stale view then writes nothing it should not
+            const set = done.filter((name) => before[name] !== next)
+            const still = set.filter((name) => was(name) === next)
+            const left = set.length - still.length
+            if (left && !still.length) return notify.error(STAR_CHANGED)
+            if (!still.length) return
+            await setEach(still, (name) => before[name], put, 'put back', files)
+            if (left) {
+              const m = `${left} ${files(left)}`
+              const k = `${still.length} ${files(still.length)}`
+              const verb =
+                left === 1 ? 'was left as it is' : 'were left as they are'
+              notify.success(`Undid ${k}; ${m} changed since and ${verb}.`)
+            }
+          },
+          target: opts.target,
+        }),
+      },
+    )
+    return {
+      get busy() {
+        return starring.busy
+      },
+      run: (next: boolean) => {
+        const picked = this.names
+        if (picked.length) void starring.run(picked, next)
+      },
+    }
   }
 
   toggle(name: string, shift: boolean): void {
@@ -90,23 +184,62 @@ export class Picks {
   }
 }
 
+/** A name a bulk action could not act on, and why */
+export interface Failure {
+  name: string
+  error: unknown
+}
+
 /** Run one request per name, in order, collecting what would not go.
  *
  * Sequential rather than parallel: the order makes the log readable, and a
  * selection of hundreds walking through the browser's six connections is
- * not meaningfully slower than flooding them. Returns the names that
- * failed, for `keepFailed`. */
+ * not meaningfully slower than flooding them. Returns each name that
+ * failed with its error, for `keepFailed` and `reportFailures`. */
 export async function actOnEach(
   names: string[],
   act: (name: string) => Promise<unknown>,
-): Promise<string[]> {
-  const failed: string[] = []
+): Promise<Failure[]> {
+  const failed: Failure[] = []
   for (const name of names) {
     try {
       await act(name)
-    } catch {
-      failed.push(name)
+    } catch (error) {
+      failed.push({ name, error })
     }
   }
   return failed
+}
+
+/** Set each of `names` to `value(name)` through `put`, with one toast
+ * naming what would not go (`verb`); the names that were set */
+async function setEach(
+  names: string[],
+  value: (name: string) => boolean,
+  put: (name: string, next: boolean) => Promise<void>,
+  verb: string,
+  files: (n: number) => string,
+): Promise<string[]> {
+  const failures = await actOnEach(names, (name) => put(name, value(name)))
+  reportFailures(verb, failures, names.length, files(names.length))
+  const bad = failures.map((f) => f.name)
+  return names.filter((name) => !bad.includes(name))
+}
+
+/** One toast for a bulk action's failures, as a single one would say it:
+ * "Couldn't delete 2 of 5 files: <why the first failed>", its remedy, and
+ * each name with its reason in Copy details */
+export function reportFailures(
+  verb: string,
+  failed: Failure[],
+  total: number,
+  noun: string,
+): void {
+  if (!failed.length) return
+  notify.failure(
+    `${verb} ${failed.length} of ${total} ${noun}`,
+    failed[0].error,
+    undefined,
+    failed.map((f) => `${f.name}: ${describeError(f.error).title}`).join('\n'),
+  )
 }

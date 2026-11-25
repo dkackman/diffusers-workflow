@@ -1,0 +1,160 @@
+// @vitest-environment node
+// The copy rules: what each banned term catches and spares, and that the
+// glossary names every replacement. `banned_terms` in arch-metrics.mjs counts
+// the matches in the source; this file pins the patterns themselves, and
+// its last case is the phase gate: no copy in the source breaks them.
+import { readdirSync, readFileSync } from 'node:fs'
+import { dirname, join, relative } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { describe, expect, it } from 'vitest'
+import { BANNED } from '../src/lib/terms'
+import { measure } from './arch-metrics.mjs'
+
+const UI = join(dirname(fileURLToPath(import.meta.url)), '..')
+
+const SAMPLES: Record<string, { bad: string[]; good: string[] }> = {
+  tilde: { bad: ['~3 min', '· ~'], good: ['about 3 min', '~/.cache'] },
+  'keep-asset': {
+    bad: ['Keep as asset', 'keep this file as an input asset'],
+    good: ['Keep mine', 'Keep both', 'Keep editing'],
+  },
+  'run-noun': {
+    bad: ['this run used', 'earlier runs', 'Run note'],
+    good: [
+      'Run it here',
+      'the pipeline runs once',
+      'nothing runs until you press Run',
+    ],
+  },
+  session: { bad: ['No session is listening'], good: ['sessionStorage'] },
+  starter: { bad: ['the blank starter'], good: ['workflows/templates'] },
+  'star-keep': {
+    bad: ['Star to keep it', 'star to keep the take'],
+    good: ['Star', 'Keep starred files', 'the stars to keep'],
+  },
+  'latest-result': {
+    bad: ['Result (latest)', 'the take: result (latest)'],
+    good: ['latest take', 'the latest result'],
+  },
+  'held-review': {
+    bad: ['held for your review', 'Held for your review.'],
+    good: ['waiting for your OK', 'held for review by an agent'],
+  },
+}
+
+/** `text` holds `term` whole: not inside a longer word or hyphenated name */
+const hasTerm = (text: string, term: string) =>
+  new RegExp(
+    `(?<![\\w-])${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`,
+  ).test(text)
+
+const rule = (id: string) => {
+  const found = BANNED.find((b) => b.id === id)
+  if (!found) throw new Error(`no banned term ${id}`)
+  return found
+}
+
+describe('the banned terms', () => {
+  it('each rule catches what it bans and spares what it allows', () => {
+    for (const [id, { bad, good }] of Object.entries(SAMPLES)) {
+      const { pattern } = rule(id)
+      for (const text of bad)
+        expect(pattern.test(text), `${id}: ${text}`).toBe(true)
+      for (const text of good)
+        expect(pattern.test(text), `${id}: ${text}`).toBe(false)
+    }
+  })
+
+  it('every banned term has sample rows', () => {
+    expect(Object.keys(SAMPLES).sort()).toEqual(BANNED.map((b) => b.id).sort())
+  })
+
+  it("every banned term's replacement is in GLOSSARY.md, as a whole term", () => {
+    const glossary = readFileSync(join(UI, 'GLOSSARY.md'), 'utf8')
+    for (const { id, use } of BANNED)
+      expect(hasTerm(glossary, use), `${id}: ${use}`).toBe(true)
+  })
+
+  it('a term inside a longer word is not the term', () => {
+    expect(hasTerm('a jobs list', 'job')).toBe(false)
+    expect(hasTerm('Starred files', 'Star')).toBe(false)
+    expect(hasTerm('one job, then', 'job')).toBe(true)
+    expect(hasTerm('**Star** a file', 'Star')).toBe(true)
+  })
+})
+
+describe('the source', () => {
+  it('no copy breaks the glossary', async () => {
+    const found: string[] = (await measure()).detail.banned_terms
+    const use = new Map(BANNED.map((b) => [b.id, b.use]))
+    const lines = found.map(
+      (at) => `${at}: use "${use.get(at.split(' ').pop()!)}"`,
+    )
+    expect(
+      found,
+      `copy that breaks ui/GLOSSARY.md:\n${lines.join('\n')}`,
+    ).toEqual([])
+  }, 60_000)
+})
+
+// A date is formatted in one file, src/lib/format.ts, so every page says a
+// time the same way (and through `<Time>` in markup). What formats a date:
+// Date's toLocaleDateString/toLocaleTimeString, Intl.DateTimeFormat and
+// RelativeTimeFormat, a toLocaleString on a `new Date(...)` (one level of
+// nested parentheses inside), on a name the same file declares a Date
+// (`d = new Date(`, `when: Date`), or given date or time options. A number's
+// toLocaleString (a count) is not a date and passes. Out of reach: a Date
+// a function returns into a name with no type written beside it.
+const DATE_FORMATTING = [
+  /\.toLocale(Date|Time)String\s*\(/,
+  /\bIntl\s*\.\s*(DateTimeFormat|RelativeTimeFormat)\b/,
+  /\bnew Date\((?:[^()]|\([^()]*\))*\)\s*\.toLocaleString\s*\(/,
+  /\.toLocaleString\s*\([^)]*\b(dateStyle|timeStyle|weekday|month|hour|minute)\b/,
+]
+/** The names a source declares as a Date: assigned one, or typed one */
+const dateNames = (text: string) =>
+  [...text.matchAll(/\b(\w+)\s*(?::\s*Date\b|=\s*new Date\b)/g)].map(
+    ([, name]) => name,
+  )
+const formatsDate = (text: string) =>
+  DATE_FORMATTING.some((p) => p.test(text)) ||
+  dateNames(text).some((name) =>
+    new RegExp(`\\b${name}\\s*\\.\\s*toLocaleString\\s*\\(`).test(text),
+  )
+const DATE_HOME = 'src/lib/format.ts'
+
+describe('dates', () => {
+  it('a date formatted outside format.ts is caught, a number is not', () => {
+    for (const text of [
+      'new Date(until).toLocaleTimeString(undefined, { hour: "2-digit" })',
+      'date.toLocaleDateString()',
+      'new Intl.DateTimeFormat(undefined, { dateStyle: "short" })',
+      'new Date(at * 1000).toLocaleString()',
+      'when.toLocaleString(undefined, {\n  month: "short",\n})',
+      'const started = new Date(at * 1000)\nstarted.toLocaleString()',
+      'function say(when: Date) {\n  return when.toLocaleString()\n}',
+      'new Date(Number(stamp)).toLocaleString()',
+      'new Intl.RelativeTimeFormat(undefined, { numeric: "auto" })',
+    ])
+      expect(formatsDate(text), text).toBe(true)
+    for (const text of [
+      "rows.length.toLocaleString('en-US')",
+      'bytes.toLocaleString()',
+      'n.toLocaleString(undefined, { maximumFractionDigits: 1 })',
+      'const total = rows.length\ntotal.toLocaleString()',
+      'const started = new Date(at * 1000)\nfiles.toLocaleString()',
+    ])
+      expect(formatsDate(text), text).toBe(false)
+  })
+
+  it('no date is formatted outside format.ts', () => {
+    const src = join(UI, 'src')
+    const found = readdirSync(src, { recursive: true, encoding: 'utf8' })
+      .filter((file) => /\.(ts|svelte)$/.test(file))
+      .filter((file) => !/\.test\.ts$|(^|\/)generated\//.test(file))
+      .map((file) => relative(UI, join(src, file)))
+      .filter((file) => file !== DATE_HOME)
+      .filter((file) => formatsDate(readFileSync(join(UI, file), 'utf8')))
+    expect(found, `format the date through ${DATE_HOME}`).toEqual([])
+  })
+})

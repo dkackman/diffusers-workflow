@@ -106,16 +106,26 @@ def _update(directory, change):
         _store(directory, notes, starred)
 
 
-def set_run_note(directory, note):
-    note = clean_note(note)
-    _update(directory, lambda notes, _starred: notes.__setitem__("run", note))
-    return note
-
-
-def set_file_note(directory, name, note):
+def set_run_note(directory, note, expect=None):
+    """`expect`, when given, is called under the lock with the note as it
+    stands, and refuses the write by raising - a caller's precondition."""
     note = clean_note(note)
 
     def change(notes, _starred):
+        if expect:
+            expect(notes["run"])
+        notes["run"] = note
+
+    _update(directory, change)
+    return note
+
+
+def set_file_note(directory, name, note, expect=None):
+    note = clean_note(note)
+
+    def change(notes, _starred):
+        if expect:
+            expect(notes["files"].get(name))
         if note is None:
             notes["files"].pop(name, None)
         else:
@@ -163,10 +173,12 @@ def read_workspace_note(root):
     return note if isinstance(note, str) and note.strip() else None
 
 
-def set_workspace_note(root, note):
+def set_workspace_note(root, note, expect=None):
     note = clean_note(note)
     path = os.path.join(root, WORKSPACE_FILE_NAME)
     with _lock(root):
+        if expect:
+            expect(read_workspace_note(root))
         if note is None:
             try:
                 os.remove(path)
