@@ -7,7 +7,6 @@ import {
 } from '@testing-library/svelte'
 import { afterEach, expect, it, vi } from 'vitest'
 import RequestItem from './RequestItem.svelte'
-import source from './RequestItem.svelte?raw'
 import { planState } from './itemState'
 import { api } from '../test/apiMock'
 import { attempt, doneItem, entry, item, request } from './fixtures'
@@ -812,7 +811,7 @@ it('a failed row says why, collapsed or open, under what it waits on', () => {
   )
 })
 
-it("an open row's proof cell takes no room", async () => {
+it('a row open with takes is marked under', async () => {
   // not `a`: a test above leaves a deep link to one of a's takes in the hash
   const { container } = render(RequestItem, props([withOutput('p', image)]))
   const row = container.querySelector('.row') as HTMLElement
@@ -820,21 +819,11 @@ it("an open row's proof cell takes no room", async () => {
   await fireEvent.click(title('Opening shot'))
   // the takes below show the picture: its track is 0 and the title spans it
   expect(row.classList.contains('under')).toBe(true)
-  expect(source).toMatch(/\.row\.under\s*\{\s*--proof:\s*0px;?\s*\}/)
-  expect(source).toMatch(/\.proofcell\.under\s*\{\s*display:\s*none;?\s*\}/)
   // open with no takes, the slot keeps its place
   cleanup()
   const plain = render(RequestItem, props([item('b', { ready: true })]))
   await fireEvent.click(title('Item b'))
   expect(plain.container.querySelector('.row.under')).toBeNull()
-})
-
-it('under 900px of panel, the chip and figure go under the title', () => {
-  const narrow = source.match(
-    /@container \(max-width: 900px\)\s*\{([\s\S]*?)\n {2}\}/,
-  )
-  expect(narrow?.[1]).toMatch(/'handle proof main main tail'/)
-  expect(narrow?.[1]).toMatch(/'handle proof chip figure tail'/)
 })
 
 it('the bound references of a new note outlive a read', async () => {

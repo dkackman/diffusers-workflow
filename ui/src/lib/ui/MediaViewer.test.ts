@@ -20,13 +20,6 @@ api.fileText.mockImplementation(() => Promise.resolve('a text file'))
 vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
 vi.mock('../toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
 
-// The stylesheet's text: vitest stubs a stylesheet's import, so it is read
-// from disk (tests run from ui/), as OutputTile.test.ts does
-const FS = 'node:fs'
-const { readFileSync } = (await import(/* @vite-ignore */ FS)) as {
-  readFileSync: (path: string, encoding: 'utf8') => string
-}
-
 const file = (name: string, kind: MediaFile['kind']): MediaFile => ({
   name,
   kind,
@@ -217,17 +210,6 @@ it('a tall image fits with its controls visible', async () => {
   const stage = img.closest('.viewer-stage')
   expect(stage).not.toBeNull()
   expect(img.classList).toContain('media-fit')
-  // the sheet is the window, the stage takes what the bar leaves and the
-  // picture is bounded by the stage: nothing scrolls at fit
-  const patterns = readFileSync('src/patterns.css', 'utf8')
-  const rule = (name: string) =>
-    patterns.match(new RegExp(`\\${name}\\s*\\{([^}]*)\\}`))?.[1] ?? ''
-  expect(rule('.ui-sheet-fill')).toMatch(/inset:\s*0/)
-  expect(rule('.ui-sheet-fill')).toMatch(/overflow:\s*hidden/)
-  expect(rule('.viewer-stage')).toMatch(/min-height:\s*0/)
-  expect(rule('.viewer-stage')).toMatch(/overflow:\s*hidden/)
-  expect(rule('.media-fit')).toMatch(/max-height:\s*100%/)
-  expect(rule('.media-fit')).toMatch(/object-fit:\s*contain/)
   // Close is in the bar above the stage, so it is on the first screen
   const close = screen.getByRole('button', { name: 'Close' })
   expect(

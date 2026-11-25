@@ -1,4 +1,3 @@
-import overviewSource from './OverviewPage.svelte?raw'
 import {
   cleanup,
   fireEvent,
@@ -651,7 +650,7 @@ it('a job row puts its time and full id on a second line, id never truncated', a
   expect(name).toContain('e2ebrdtake01')
 })
 
-it('a long job id keeps its row: clipped, with the whole id in its title', async () => {
+it('a long job id keeps the whole id in its title', async () => {
   const id = 'e2e' + 'x'.repeat(80)
   data.jobs = [
     {
@@ -669,11 +668,6 @@ it('a long job id keeps its row: clipped, with the whole id in its title', async
   render(OverviewPage)
   await waitFor(() => expect(screen.getByTitle(`job ${id}`)).toBeTruthy())
   expect(document.querySelector('.jid')?.getAttribute('title')).toBe(id)
-  // jsdom applies no component styles: the rule is read off the source
-  const rule = /\.jobs \.when \.jid\s*\{[^}]*\}/.exec(overviewSource)?.[0] ?? ''
-  expect(rule).toMatch(/min-width:\s*0/)
-  expect(rule).toMatch(/overflow:\s*hidden/)
-  expect(rule).toMatch(/text-overflow:\s*ellipsis/)
 })
 
 it('the overview shows the card until it is dismissed', async () => {

@@ -7,11 +7,24 @@ import {
   waitFor,
 } from '@testing-library/svelte'
 
-vi.mock('./lib/statusPoll', () => ({ startStatusPoll: () => () => {} }))
+const shell = vi.hoisted(() => ({
+  stopPoll: vi.fn(),
+  startStatusPoll: vi.fn(),
+  followJobs: vi.fn(async () => {}),
+  apiReads: [] as string[],
+}))
+vi.mock('./lib/statusPoll', () => ({
+  startStatusPoll: shell.startStatusPoll,
+}))
+vi.mock('./lib/finishAlert', async (original) => ({
+  ...(await original<typeof import('./lib/finishAlert')>()),
+  followJobs: shell.followJobs,
+}))
 vi.mock('./lib/api', async (original) => {
   const real = await original<typeof import('./lib/api')>()
   const never = () => new Promise(() => {})
-  return { ...real, api: new Proxy({}, { get: () => never }) }
+  const get = (_: object, key: string) => (shell.apiReads.push(key), never)
+  return { ...real, api: new Proxy({}, { get }) }
 })
 vi.mock('./lib/toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
 
@@ -58,6 +71,10 @@ const memory = {
 } as unknown as MemoryInfo
 
 beforeEach(() => {
+  shell.startStatusPoll.mockReset().mockReturnValue(shell.stopPoll)
+  shell.stopPoll.mockClear()
+  shell.followJobs.mockClear()
+  shell.apiReads.length = 0
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
   localStorage.clear()
   at('#/zzz')
@@ -68,6 +85,33 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   document.body.innerHTML = ''
+})
+
+it('runs the one status poll, and reads no status of its own', async () => {
+  vi.useFakeTimers()
+  try {
+    const { unmount } = render(App)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(shell.startStatusPoll).toHaveBeenCalledTimes(1)
+    expect(shell.apiReads).not.toContain('health')
+    expect(shell.apiReads).not.toContain('memory')
+    unmount()
+    expect(shell.stopPoll).toHaveBeenCalledTimes(1)
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+it('each status reading moves the watched jobs on', async () => {
+  render(App)
+  const reading = health('j2')
+  connection.health = reading
+  await waitFor(() =>
+    expect(shell.followJobs).toHaveBeenLastCalledWith(
+      reading,
+      expect.anything(),
+    ),
+  )
 })
 
 it('a navigation closes the status and token popovers', async () => {

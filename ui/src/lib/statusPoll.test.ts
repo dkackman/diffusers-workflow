@@ -7,8 +7,6 @@ import {
 } from './statusPoll'
 import { connection } from './connection.svelte'
 import { attentionBackends } from './attentionBackends.svelte'
-import app from '../App.svelte?raw'
-import statusPoll from './statusPoll.ts?raw'
 
 function setHidden(hidden: boolean) {
   Object.defineProperty(document, 'visibilityState', {
@@ -42,20 +40,18 @@ it('started in a hidden tab, it fires at once', () => {
   stop()
 })
 
-it('is the timer the app shell polls its status with', () => {
-  expect(app).toMatch(/\$effect\(\(\) => startStatusPoll\(\)\)/)
-  expect(statusPoll).toMatch(/return pollStatus\(checkNow\)/)
-  // and the shell keeps no timer, and no status read, of its own for it
-  expect(app).not.toMatch(/\bpoll\(|api\.(health|memory)\(/)
-})
-
-it('starting it reads the status at once', () => {
-  const fetch = vi.fn(() => new Promise(() => {}))
+it('starting it reads the status at once, then on each tick, hidden', async () => {
+  const fetch = vi.fn(() => answer(200, { workers: [], devices: [] }))
   vi.stubGlobal('fetch', fetch)
+  setHidden(true)
   const stop = startStatusPoll()
   // memory and health, each read apart
   expect(fetch).toHaveBeenCalledTimes(2)
+  await vi.advanceTimersByTimeAsync(STATUS_POLL_MS)
+  expect(fetch).toHaveBeenCalledTimes(4)
   stop()
+  await vi.advanceTimersByTimeAsync(STATUS_POLL_MS)
+  expect(fetch).toHaveBeenCalledTimes(4)
 })
 
 function answer(status: number, body: unknown) {

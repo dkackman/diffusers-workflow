@@ -15,7 +15,6 @@ import { api } from './api'
 import { notify } from './toast'
 import { checkNow } from './statusPoll'
 import { connection } from './connection.svelte'
-import app from '../App.svelte?raw'
 
 let news: MockInstance<typeof notify.news>
 const goTo = vi.hoisted(() => vi.fn())
@@ -81,8 +80,6 @@ describe('followJobs', () => {
     await checkNow()
     await effect()
     expect(news).toHaveBeenCalledTimes(1)
-    expect(app).toMatch(/followJobs\(\s*info/)
-    expect(app).toContain('connection.health')
   })
 })
 
