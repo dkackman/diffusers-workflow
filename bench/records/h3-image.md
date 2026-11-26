@@ -307,7 +307,7 @@ Stage A of #1680 (#1729). Host: mini-ai, Apple M5 Pro, 64 GB unified memory, tor
 
 | Arm | Job | Result |
 |---|---|---|
-| t2i 2048x2048, cold, seed 1317 | `872ea59cbdcb` | cancelled: 0 of 6 denoise steps after ~29 min (#1744) |
+| t2i 2048x2048, cold, seed 1317 | `872ea59cbdcb` | failed (#1744): 0 of 6 denoise steps; cancel requested at ~21 min and never honoured; still `running` at ~2 h 00 min (15:22 UTC) |
 | t2i 2048x2048, warm | none | skipped: time stop (cold arm past 20 min) |
 | edit, 3 references | none | skipped: time stop |
 | t2i near 16:9 | none | skipped: time stop |
@@ -341,10 +341,21 @@ no downloads.
     adaptation, so every int8 linear runs `torch._int_mm` on the CPU.
   - The text-encoder folder, saved with `use_quantized_matmul: false`, ran its step in
     ~3 s.
-- **The cancel.**
-  - Requested at about +21 min. The job was still `running` at the stage hand-off (job
-    time ~29 min), because cancel waits for a denoise-step boundary (noted in #1744).
-  - The record ends there. It holds no finish time.
+- **The cancel was never honoured.**
+  - Requested at about +21 min and again at ~2 h. At 2026-11-26 15:22 UTC (job time
+    ~2 h 00 min) `get_job` still reads `status: running`, `cancel_requested: true`,
+    `denoise_step: null`, `finished_at: null`; the events after +32.9 s are only
+    `phase_stall` warnings. Cancel waits for a denoise-step boundary, and the first step
+    never ends (#1744).
+  - The job has no final status. It ends only when the worker is stopped.
+  - #1746 (on `develop` since `72f7ff94`) terminates a worker whose cancel no step
+    boundary honours, but mini-ai runs a `dw.serve` started 2026-11-25 23:37, before
+    that fix.
+  - **It blocks deploys.** `scripts/deploy.sh` refuses to restart while a job is
+    running, so mini-ai's checkout is at `f48a6071` and its server is older. That is why
+    #1739's save fix isn't live there yet, and why `bench/h3-image-mps-t2i` and
+    `bench/h3-image-mps-edit3` aren't saved: `save_workflow` into `bench` still refuses
+    the asset-folder path (retried 15:20 UTC).
 
 ### Look
 
@@ -354,7 +365,8 @@ There is no still, so nothing was compared against lem's baseline `3eec967fe939`
 
 - **Runs used `inline_workflow`** from this branch, not a saved `bench/h3-image-mps-t2i`:
   `save_workflow` refuses the bench asset-folder path that validate and run accept
-  (#1739).
+  (#1739). The fix is on `develop`, but mini-ai's server predates it (see *The cancel*),
+  so both files are saved once mini-ai restarts.
 - **The edit arm's third reference** is `bench/runner.png`. lem's
   `parhelion/kf-open.png` isn't on mini-ai.
 - **The edit file is untested**: its arm was skipped. It will hit #1744 the same way.
