@@ -158,6 +158,7 @@ dw-validate = "dw.validate:main"
 dw-serve = "dw.serve:main"
 dw-test = "dw.test:main"
 dw-mcp = "dw_mcp.__main__:main"
+dw = "dw.setup_cli:main"
 
 [tool.ruff]
 target-version = "py312"
