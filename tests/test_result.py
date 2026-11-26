@@ -20,6 +20,7 @@ from dw.previous_results import get_previous_results
 from dw.media_types import AudioVideo
 from dw.content_types import guess_extension
 from dw.output_extraction import get_artifact_list
+from dw import result as result_module
 from dw.result import Result
 from dw.writers import as_audio_track, normalize_audio
 from dw.security import SecurityError
@@ -1780,7 +1781,7 @@ class TestVideoFrameRate:
 
         def save():
             with (
-                patch("dw.result.export_to_video") as export,
+                patch.object(result_module, "export_to_video") as export,
                 tempfile.TemporaryDirectory() as temp_dir,
             ):
                 result.save(temp_dir, "test")
@@ -1794,7 +1795,7 @@ class TestVideoFrameRate:
 
         def save():
             with (
-                patch("dw.result.export_to_gif") as export,
+                patch.object(result_module, "export_to_gif") as export,
                 tempfile.TemporaryDirectory() as temp_dir,
             ):
                 result.save(temp_dir, "test")
