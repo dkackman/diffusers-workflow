@@ -245,8 +245,9 @@ NOTES_URL = "/api/workspaces/{name}/request-notes"
 def _note_ref_check(request, name):
     """`(request_id, ref) -> the ref to store`, or LedgerError
     `invalid_note_ref`. A ref naming only its item needs no job. Otherwise
-    `ref.job` must be linked to `ref.item`; `ref.output` must be a file the
-    gallery shows from that finished job's manifest, its kind stored."""
+    `ref.job` must be linked to `ref.item`; `ref.output` must be a file of
+    that finished job's manifest that `shown_outputs` lists, its kind
+    stored."""
     manager = request.app.state.job_manager
 
     def refused(why):

@@ -57,5 +57,6 @@ def sometimes(description: str | None = None) -> Any:
 
 # A job's states, shared by the job models and the ledger's attempts
 JobStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
-# What a client renders an output as (dw/server/outputs.py: MEDIA_KINDS)
+# What a client renders an output as (dw/server/outputs.py: MEDIA_KINDS, and
+# UNLISTED_TEXT_KINDS for a ledger proof or note reference)
 OutputKind = Literal["image", "video", "audio", "text"]

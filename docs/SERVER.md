@@ -1400,7 +1400,9 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
 
   Wherever it appears, `output` is `{name, kind}` - the gallery name of the
   one file that stands for the job, and `image`, `video`, `audio` or
-  `text` - or null.
+  `text` - or null. A job that wrote no image, video, audio or `.txt` gets
+  its JSON (or `.csv`, `.tsv`, `.md`, `.srt`, `.vtt`) file as `text`; the
+  gallery still does not list it. Any other file type leaves null.
 
   **Reading a request and the list.** The request view and each list row
   carry `spent_minutes` and `remaining_minutes`. A list row also carries

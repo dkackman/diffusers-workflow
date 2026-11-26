@@ -41,6 +41,7 @@ class Scripts:
         self.count = 0
         self.fail_next = False
         self.gate = None  # a threading.Event: the run waits for it
+        self.filename = "still.png"  # the one file a run writes
 
     def __call__(self, command):
         self.count += 1
@@ -55,7 +56,7 @@ class Scripts:
         rel = f"server_test/{rid}"
         run_dir = os.path.join(output_dir, "server_test", rid)
         os.makedirs(run_dir, exist_ok=True)
-        with open(os.path.join(run_dir, "still.png"), "wb") as file:
+        with open(os.path.join(run_dir, self.filename), "wb") as file:
             file.write(b"an image")
         with open(os.path.join(run_dir, "manifest.json"), "w") as file:
             json.dump(
@@ -64,7 +65,7 @@ class Scripts:
                     "version": 4,
                     "status": "completed",
                     "workflow": {"identity": "server_test"},
-                    "steps": [{"step": "gen", "files": ["still.png"]}],
+                    "steps": [{"step": "gen", "files": [self.filename]}],
                 },
                 file,
             )
@@ -81,7 +82,7 @@ class Scripts:
             "message": "ok",
             "run_count": 1,
             "manifest": [
-                {"step": "gen", "files": [os.path.join(run_dir, "still.png")]}
+                {"step": "gen", "files": [os.path.join(run_dir, self.filename)]}
             ],
         }
 

@@ -8,7 +8,7 @@ import shutil
 import pytest
 
 from dw import ledger
-from dw.server.outputs import proof_output
+from dw.server.outputs import proof_output, shown_outputs
 from dw.workspace import REQUESTS_FILE_NAME
 
 from .test_ledger import item, plan, write
@@ -52,6 +52,24 @@ class TestProofOutput:
         assert proof_output(manifest) == {"name": "r/1/still.png", "kind": "image"}
         assert proof_output(manifest[:1]) == {"name": "r/1/say.txt", "kind": "text"}
 
+    def test_a_job_that_wrote_only_json_stands_by_it(self):
+        manifest = [{"step": "check", "role": "final", "files": ["r/1/check.0-0.json"]}]
+        assert proof_output(manifest) == {
+            "name": "r/1/check.0-0.json",
+            "kind": "text",
+        }
+
+    def test_a_final_json_stands_before_an_intermediate_one(self):
+        manifest = [
+            {"step": "a", "role": "intermediate", "files": ["r/1/a.json"]},
+            {"step": "b", "role": "final", "files": ["r/1/b.json"]},
+        ]
+        assert proof_output(manifest)["name"] == "r/1/b.json"
+
+    def test_a_note_may_name_the_json_a_job_wrote(self):
+        manifest = [{"step": "check", "files": ["r/1/check.json", "r/1/a.bin"]}]
+        assert shown_outputs(manifest) == {"r/1/check.json": "text"}
+
     def test_final_entries_with_nothing_to_show_fall_back_on_the_rest(self):
         manifest = [
             {"step": "gen", "role": "intermediate", "files": ["r/1/still.png"]},
@@ -70,6 +88,8 @@ class TestProofOutput:
             [{"files": ["/srv/outputs/r/1/still.png"]}],
             [{"files": ["../r/1/still.png"]}],
             [{"files": ["r/../../still.png"]}],
+            [{"files": ["/srv/outputs/r/1/check.json"]}],
+            [{"files": ["../r/1/check.json"]}],
         ],
     )
     def test_nothing_to_show_is_none_and_never_a_path_outside(self, manifest):
@@ -247,6 +267,31 @@ class TestOverHttp:
         planned.manager.jobs.pop(done["id"])
         assert items_of(planned)["a"]["result"]["output"] == proof
         assert listed(planned)["cover"] == [proof]
+
+    def test_a_job_that_wrote_only_json_is_proof_and_notable(self, planned):
+        planned.script.filename = "check.json"
+        done = finish(planned, submit(planned))
+        name = done["manifest"][0]["files"][0]
+        proof = {"name": name, "kind": "text"}
+        a = items_of(planned)["a"]
+        assert a["attempts"][0]["output"] == proof
+        assert a["result"]["output"] == proof
+        assert listed(planned)["cover"] == [proof]
+        # the name opens as a file of the workspace's outputs
+        assert planned.get(f"/outputs/{name}").status_code == 200
+        r = planned.post(
+            f"/api/workspaces/{WS}/request-notes",
+            json={
+                "request": "cats",
+                "item": "a",
+                "text": "this check",
+                "refs": [{"job": done["id"], "output": name}],
+            },
+        )
+        assert r.status_code == 200, r.text
+        assert items_of(planned)["a"]["notes"][0]["refs"][0]["kind"] == "text"
+        planned.manager.jobs.clear()
+        assert items_of(planned)["a"]["result"]["output"] == proof
 
     def test_no_absolute_path_reaches_a_read(self, planned):
         finish(planned, submit(planned))
