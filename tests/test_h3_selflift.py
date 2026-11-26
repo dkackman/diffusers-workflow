@@ -113,7 +113,7 @@ def test_the_run_refuses_with_the_flag_off(flag_off):
     pipeline = stock_t2va()
     insert_selflift(pipeline)
     step = SimpleNamespace(name="render", pipeline=pipeline, configuration={})
-    with pytest.raises(ValueError, match=f"Step 'render': .*{FLAG}=1"):
+    with pytest.raises(ValueError, match=f".*{FLAG}=1"):
         Pipeline._check_selflift(step, call())
 
 

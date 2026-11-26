@@ -852,9 +852,7 @@ def test_the_run_time_check_refuses_a_graph_without_the_windows():
     pipeline = minimax.MiniMaxH3Blocks().get_workflow("t2va").init_pipeline()
     insert_audio_hold(pipeline)
     step = SimpleNamespace(name="refine", pipeline=pipeline, configuration={})
-    with pytest.raises(
-        ValueError, match="Step 'refine': .*no denoise loop that windows"
-    ):
+    with pytest.raises(ValueError, match=".*no denoise loop that windows"):
         Pipeline._check_refine(step, refine())
     insert_refine_windows(pipeline)
     assert Pipeline._check_refine(step, refine()) is None
@@ -874,7 +872,7 @@ def test_the_run_time_check_refuses_the_old_name():
     old[h3_rules.OLD_REFINE_WINDOWS_INPUT] = {}
     with pytest.raises(
         ValueError,
-        match=r"Step 'refine': experimental_refine_windows is now refine_windows",
+        match=r"^experimental_refine_windows is now refine_windows",
     ):
         Pipeline._check_refine(step, old)
 

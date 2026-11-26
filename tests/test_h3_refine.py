@@ -596,7 +596,7 @@ class TestOneOwnerOfTheRules:
         assert problems
         with pytest.raises(ValueError) as raised:
             Pipeline._check_refine(refining, arguments)
-        assert str(raised.value) == f"Step 'video': {problems[0]}"
+        assert str(raised.value) == problems[0]
 
 
 # 10. refine_tiles (#1043)
@@ -984,7 +984,7 @@ class TestSigmaListRuntime:
     def test_a_broken_rule_raises(self, refining, overrides, fragment):
         with pytest.raises(ValueError, match="refine_sigmas") as raised:
             Pipeline._check_refine(refining, runtime_arguments(**explicit(**overrides)))
-        assert str(raised.value).startswith("Step 'video': ")
+        assert not str(raised.value).startswith("Step ")
 
     def test_sigmas_without_a_strength_raise(self, refining):
         with pytest.raises(ValueError, match="refine_sigmas schedules"):
@@ -1007,7 +1007,7 @@ class TestSigmaListOneOwner:
         assert any(fragment in problem for problem in problems)
         with pytest.raises(ValueError) as raised:
             Pipeline._check_refine(refining, arguments)
-        assert str(raised.value) == f"Step 'video': {problems[0]}"
+        assert str(raised.value) == problems[0]
 
     @pytest.mark.parametrize("overrides, fragment", BROKEN)
     def test_the_static_messages_are_the_owners(self, overrides, fragment):

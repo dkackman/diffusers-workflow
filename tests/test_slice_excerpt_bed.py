@@ -294,3 +294,24 @@ class TestRefusalsNameTheBed:
         label = workflow_run.failed_step_label(caught.value)
         assert label == "Step 'bed_slice': "
         assert 'past_end\' "excerpt"' in str(caught.value)
+
+    def test_an_h3_run_refusal_is_labelled_once_with_the_step_name(self, monkeypatch):
+        # The H3 wrappers raise without a label of their own: `self.name` is
+        # the model's name, not the step's, and run_step is the one labeller
+        from types import SimpleNamespace
+
+        from dw import workflow_run
+        from dw.pipeline_processors.pipeline import Pipeline
+
+        model = SimpleNamespace(name="vendor/model", pipeline=object(), base_dir=None)
+
+        def refuse(*args, **kwargs):
+            Pipeline._with_held_audio(model, {"hold_audio": "t.wav"})
+
+        monkeypatch.setattr(workflow_run, "_start_step", refuse)
+        with pytest.raises(ValueError) as caught:
+            workflow_run.run_step(None, None, 0, {"name": "render"}, None)
+        message = workflow_run.failed_step_label(caught.value) + str(caught.value)
+        assert message.startswith("Step 'render': hold_audio is a MiniMax-H3")
+        assert message.count("Step '") == 1
+        assert "vendor/model" not in message

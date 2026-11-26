@@ -616,7 +616,7 @@ def test_the_run_time_check_refuses_with_the_flag_off(flag_off):
     insert_audio_hold(pipeline)
     insert_refine_windows(pipeline)
     step = SimpleNamespace(name="gen", pipeline=pipeline, configuration={})
-    with pytest.raises(ValueError, match=f"Step 'gen': .*{HYBRID_WINDOWS_ENV_VAR}"):
+    with pytest.raises(ValueError, match=f".*{HYBRID_WINDOWS_ENV_VAR}"):
         Pipeline._check_refine(step, generate())
 
 
