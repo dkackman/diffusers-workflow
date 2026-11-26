@@ -14,7 +14,6 @@
   import { api, outputUrl } from '../api'
   import { describeError } from '../apiErrors'
   import {
-    WORKFLOW_PREFILL_KEY,
     chainModel,
     continueAction,
     continueConfirmText,
@@ -23,6 +22,7 @@
     repairTemplateModels,
     type ContinueAction,
   } from '../chainActions'
+  import { WORKFLOW_PREFILL_KEY } from '../workflowPrefill'
   import { confirmDialog } from '../confirm.svelte'
   import { describeEstimate } from '../plan'
   import { go, goCarrying } from '../router.svelte'

@@ -1,7 +1,7 @@
 // Use as input (GA-10): from a file, a workspace workflow that takes its
 // kind, opened with the argument filled in as `output:<name>`. The
 // workflow page reads the fill once (WORKFLOW_PREFILL_KEY).
-import { WORKFLOW_PREFILL_KEY } from '../chainActions'
+import { WORKFLOW_PREFILL_KEY } from '../workflowPrefill'
 import { mediaKindByName, type MediaKind } from '../mediaArguments'
 import { compareNames } from '../names'
 import { OUTPUT, reference } from '../references'

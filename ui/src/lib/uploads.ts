@@ -2,13 +2,13 @@
 // existing asset is never replaced without asking (one dialog per batch),
 // and a file the server would refuse is never sent.
 
-import { api } from '../api'
-import { UPLOAD_EXTENSIONS } from '../assetlib.svelte'
-import { chooseDialog } from '../confirm.svelte'
-import { isExists, keepBoth } from '../documentSave'
-import { describeError } from '../apiErrors'
-import { notify } from '../toast'
-import type { Uploaded } from '../types'
+import { api } from './api'
+import { UPLOAD_EXTENSIONS } from './assetlib.svelte'
+import { chooseDialog } from './confirm.svelte'
+import { isExists, keepBoth } from './documentSave'
+import { describeError } from './apiErrors'
+import { notify } from './toast'
+import type { Uploaded } from './types'
 
 export { UPLOAD_EXTENSIONS }
 

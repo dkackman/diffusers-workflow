@@ -1,6 +1,6 @@
 import { afterEach, expect, it } from 'vitest'
 import { inputTargets, useAsInput } from './useAsInput'
-import { WORKFLOW_PREFILL_KEY } from '../chainActions'
+import { WORKFLOW_PREFILL_KEY } from '../workflowPrefill'
 import type { WorkflowCard } from '../types'
 
 const card = (names: string[], writable = true) =>

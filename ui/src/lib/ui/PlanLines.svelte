@@ -3,7 +3,7 @@
   // run check and the editor's validation both show a plan this way
   import { describePlan, planSummary } from '../plan'
   import type { Plan } from '../types'
-  import Details from '../ui/Details.svelte'
+  import Details from './Details.svelte'
 
   let { plan, open = false }: { plan: Plan; open?: boolean } = $props()
 </script>

@@ -13,7 +13,7 @@
   } from '../editor'
   import { keepsNull } from './commit'
   import { VARIABLE_TYPES, asType, inferValue, typeOf } from './variableTypes'
-  import { isFreeText } from '../workflow/runForm'
+  import { isFreeText } from '../editor'
   import { promptLibrary } from '../promptlib.svelte'
   import { promptTooltip } from '../prompts'
   import { referenceCompletions } from '../refcomplete.svelte'

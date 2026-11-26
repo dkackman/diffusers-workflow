@@ -2,21 +2,12 @@
 // is derived from the workflow and its catalog card, not declared by it, so
 // a different rule changes `essentials` alone. A draft is what was typed
 // here last: per workspace and workflow, in this browser, never sent anywhere.
-import { presetView, requiredVariables } from '../editor'
+import { isFreeText, presetView, requiredVariables } from '../editor'
 import { PROMPT, VARIABLE, referenceName } from '../references'
 import { storageGet, storageRemove, storageSet } from '../storage'
-import { WORKFLOW_PREFILL_KEY } from '../chainActions'
+import { WORKFLOW_PREFILL_KEY } from '../workflowPrefill'
 import { typedArguments } from './typedArguments'
 import type { WorkflowCard, WorkflowDefinition } from '../types'
-
-/** Free text: a string default that is empty, holds whitespace, or is a
- * prompt: reference. A dtype or a backend name is not. */
-export function isFreeText(value: unknown): boolean {
-  return (
-    typeof value === 'string' &&
-    (value.trim() === '' || /\s/.test(value) || value.startsWith(PROMPT))
-  )
-}
 
 /** The arguments a Run sends: the overrides typed as their declared
  * defaults, blanks dropped, so a blank field leaves the workflow's own

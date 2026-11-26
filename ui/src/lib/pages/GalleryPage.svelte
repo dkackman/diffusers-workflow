@@ -32,7 +32,7 @@
   import { now } from '../clock.svelte'
   import GalleryFind, { findState } from '../gallery/GalleryFind.svelte'
   import GalleryCell from '../gallery/GalleryCell.svelte'
-  import RequestFilter from '../gallery/RequestFilter.svelte'
+  import RequestFilter from '../request/RequestFilter.svelte'
   import RoleChips from '../gallery/RoleChips.svelte'
   import GalleryAside from '../gallery/GalleryAside.svelte'
   import { SAVING_ASSET, saveAsAsset } from '../gallery/saveAsAsset'

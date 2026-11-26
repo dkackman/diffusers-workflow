@@ -24,7 +24,7 @@
     savePromptAt,
     watchPrompt,
     withSavedPrompt,
-  } from '../promptFile'
+  } from '../editor/promptFile'
   import { resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
   import LoadFailed from '../ui/LoadFailed.svelte'

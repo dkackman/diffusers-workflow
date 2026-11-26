@@ -56,7 +56,6 @@ const PAGE_TABLE: Record<string, Freshness[]> = {
   // description never changes while the server runs
   'editor/PipelineOptions.svelte': [{ watch: [] }, { watch: [] }],
   'editor/StepEditor.svelte': [{ watch: ['workflows'] }],
-  'gallery/RequestFilter.svelte': [{ watch: ['requests'] }],
   'gallery/UseAsInput.svelte': [{ watch: ['workflows'] }],
   'job/ChainSegments.svelte': [{ watch: ['workflows'] }],
   'job/JobResults.svelte': [{ watch: ['gallery'] }],
@@ -91,6 +90,7 @@ const PAGE_TABLE: Record<string, Freshness[]> = {
   'pages/PromptEditorPage.svelte': [{ watch: ['prompts'] }],
   'pages/PromptsPage.svelte': [{ watch: ['prompts'] }],
   'pages/RequestPage.svelte': [{ watch: ['requests'], alsoLive: true }],
+  'pages/RequestRoute.svelte': [],
   'pages/RequestsPage.svelte': [{ watch: ['requests'] }],
   'pages/SchemaPage.svelte': [{ watch: [] }],
   'pages/ServerPage.svelte': [{ watch: [] }],
@@ -104,6 +104,7 @@ const PAGE_TABLE: Record<string, Freshness[]> = {
     { watch: ['workflows'] },
     { watch: ['gallery'] },
   ],
+  'request/RequestFilter.svelte': [{ watch: ['requests'] }],
   // a text file shown large, read once when shown
   'ui/MediaBody.svelte': [{ watch: [] }],
   // one of the two by the file's source; the job read once, when needed

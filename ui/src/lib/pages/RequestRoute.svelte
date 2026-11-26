@@ -1,5 +1,5 @@
 <script lang="ts">
-  import RequestPage from '../pages/RequestPage.svelte'
+  import RequestPage from './RequestPage.svelte'
   import { workspace } from '../workspace.svelte'
 
   // A page per request: another id, or another workspace, is a new page with

@@ -8,7 +8,7 @@
   import Details from '../ui/Details.svelte'
   import type { Plan } from '../types'
   import type { Verdict } from '../runCheck.svelte'
-  import PlanLines from './PlanLines.svelte'
+  import PlanLines from '../ui/PlanLines.svelte'
 
   let {
     verdict,

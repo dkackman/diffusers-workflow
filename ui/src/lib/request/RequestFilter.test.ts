@@ -7,7 +7,7 @@ import {
 } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import RequestFilter from './RequestFilter.svelte'
-import { summary } from '../request/fixtures'
+import { summary } from './fixtures'
 import { api } from '../test/apiMock'
 import { feed } from '../test/feedMock'
 import { workspace } from '../workspaceState.svelte'
