@@ -35,6 +35,9 @@ except ImportError:  # older huggingface_hub - no xet aggregation
 
 logger = logging.getLogger("dw")
 
+# What the hub names a blob by: an LFS sha256 or a git blob id
+_ETAG = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+
 
 def _resolved_cache_dir(cache_dir):
     return str(cache_dir) if cache_dir else constants.HF_HUB_CACHE
@@ -231,7 +234,9 @@ def _component_incomplete(folder, variant, class_name=None):
     return not any(f".{variant}." in name for name in weight_files)
 
 
-def repo_download_incomplete(repo_id, cache_dir=None, variant=None, skip=()):
+def repo_download_incomplete(
+    repo_id, cache_dir=None, variant=None, skip=(), unchanged=None
+):
     """Whether repo_id, though listed by `scan_models`, is left over from an
     interrupted pull rather than fully fetched (#382): a cancelled
     `snapshot_download` leaves the revision folder in place - the repo still
@@ -252,6 +257,13 @@ def repo_download_incomplete(repo_id, cache_dir=None, variant=None, skip=()):
 
     `skip` names components the load passes as None (`"safety_checker":
     null`): diffusers never fetches their folders, so they are not checked.
+
+    A component folder the `refs/main` snapshot lacks altogether is not
+    missing when another snapshot holds it whole (#1759): the hub moves
+    `main` on any commit, a load that passes the component in fetches the
+    rest and leaves its folder out, and the next load of it links the cached
+    blobs. `unchanged`, when given, is asked whether the hub still serves
+    those files (their repo-relative names) as cached.
     """
     resolved = _resolved_cache_dir(cache_dir)
     try:
@@ -292,9 +304,56 @@ def repo_download_incomplete(repo_id, cache_dir=None, variant=None, skip=()):
     for key, class_name in index_components(index).items():
         if key in skip:
             continue
-        if _component_incomplete(os.path.join(snapshot, key), variant, class_name):
+        folder = os.path.join(snapshot, key)
+        if not _component_incomplete(folder, variant, class_name):
+            continue
+        # A folder that is there but short is a pull that stopped part way
+        if os.path.exists(folder) or not _held_elsewhere(
+            repo_dir, key, variant, class_name, unchanged
+        ):
             return True
     return False
+
+
+def _held_elsewhere(repo_dir, component, variant, class_name, unchanged):
+    """Whether some snapshot of the repo holds `component` whole, and
+    `unchanged` (when given) accepts the files it holds."""
+    snapshots = os.path.join(repo_dir, "snapshots")
+    try:
+        commits = sorted(os.listdir(snapshots))
+    except OSError:
+        return False
+    for commit in commits:
+        snapshot = os.path.join(snapshots, commit)
+        folder = os.path.join(snapshot, component)
+        if _component_incomplete(folder, variant, class_name):
+            continue
+        if unchanged is None or unchanged(
+            [
+                os.path.relpath(os.path.join(root, name), snapshot).replace(os.sep, "/")
+                for root, _dirs, names in os.walk(folder)
+                for name in names
+            ]
+        ):
+            return True
+    return False
+
+
+def blob_cached(repo_id, etag, cache_dir=None):
+    """Whether the repo's `blobs/` holds the file the hub serves under `etag`
+    (an LFS file's sha256, else its git blob id). The blob is named for the
+    etag whether it is the file itself or a link into a shared store, so the
+    name is what is asked, never a snapshot link's final target."""
+    if not isinstance(etag, str) or not _ETAG.fullmatch(etag):
+        return False
+    resolved = _resolved_cache_dir(cache_dir)
+    try:
+        path = validate_path(
+            os.path.join(resolved, _repo_folder_name(repo_id), "blobs", etag), resolved
+        )
+    except SecurityError:
+        return False
+    return os.path.exists(path)
 
 
 def delete_model(repo_id, cache_dir=None):

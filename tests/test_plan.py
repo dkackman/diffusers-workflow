@@ -3,6 +3,7 @@ arguments given, fingerprinted so an acknowledgement can be bound to it."""
 
 import copy
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -3673,3 +3674,121 @@ class TestLoadBytes:
         assert skips["stable-diffusion-v1-5/stable-diffusion-v1-5"] == {
             "safety_checker"
         }
+
+
+class TestDownloadsRequiredAfterMainMoved:
+    """#1759: a pipeline load that passes `transformer` in fetches the rest of
+    a moved `main` and leaves that folder out of its snapshot. On a real cache
+    layout, with `blobs/<etag>` linking into a shared store."""
+
+    REPO = "org/moved"
+    OLD = "a" * 40
+    NEW = "b" * 40
+    FILES = {
+        "model_index.json": "1" * 40,
+        "transformer/config.json": "2" * 40,
+        "transformer/diffusion_pytorch_model.safetensors": "3" * 64,
+        "vae/config.json": "4" * 40,
+        "vae/diffusion_pytorch_model.safetensors": "5" * 64,
+    }
+
+    def cache(self, tmp_path):
+        root = tmp_path / "models--org--moved"
+        (root / "blobs").mkdir(parents=True)
+        store = tmp_path / "blobs"
+        store.mkdir()
+        index = json.dumps(
+            {
+                "transformer": ["diffusers", "SomeTransformer"],
+                "vae": ["diffusers", "AutoencoderKL"],
+            }
+        )
+        for name, etag in self.FILES.items():
+            (store / etag).write_text(index if name == "model_index.json" else "x")
+            (root / "blobs" / etag).symlink_to(store / etag)
+        for commit, skipped in ((self.OLD, ()), (self.NEW, ("transformer",))):
+            for name, etag in self.FILES.items():
+                if name.split("/")[0] in skipped:
+                    continue
+                path = root / "snapshots" / commit / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.symlink_to(root / "blobs" / etag)
+        (root / "refs").mkdir()
+        (root / "refs" / "main").write_text(self.NEW)
+        return root
+
+    def required(self, tmp_path, monkeypatch, hub=None):
+        """The repos listed; `hub` is the file list `main` serves, or None for
+        a hub that does not answer."""
+        import dw.plan_downloads
+
+        def model_info(name, **kwargs):
+            if hub is None:
+                raise OSError("offline")
+            return SimpleNamespace(
+                gated=False,
+                siblings=[
+                    SimpleNamespace(
+                        rfilename=filename,
+                        size=None,
+                        blob_id=etag,
+                        lfs=SimpleNamespace(sha256=etag) if len(etag) == 64 else None,
+                    )
+                    for filename, etag in hub.items()
+                ],
+            )
+
+        monkeypatch.setattr(dw.plan_downloads, "model_info", model_info)
+        monkeypatch.setattr(dw.plan_downloads, "_pipeline_components", lambda r: None)
+        definition = {
+            "steps": [
+                {"pipeline": {"from_pretrained_arguments": {"model_name": self.REPO}}}
+            ]
+        }
+        return [
+            entry["repo"]
+            for entry in dw.plan_downloads.downloads_required(
+                definition, None, None, str(tmp_path), True
+            )
+        ]
+
+    def test_a_component_an_older_snapshot_holds_is_no_download(
+        self, tmp_path, monkeypatch
+    ):
+        self.cache(tmp_path)
+        assert self.required(tmp_path, monkeypatch, self.FILES) == []
+
+    def test_offline_the_cached_copy_stands(self, tmp_path, monkeypatch):
+        self.cache(tmp_path)
+        assert self.required(tmp_path, monkeypatch) == []
+
+    def test_weights_the_hub_has_replaced_are_a_download(self, tmp_path, monkeypatch):
+        self.cache(tmp_path)
+        hub = {
+            **self.FILES,
+            "transformer/diffusion_pytorch_model.safetensors": "9" * 64,
+        }
+        assert self.required(tmp_path, monkeypatch, hub) == [self.REPO]
+
+    def test_a_component_no_snapshot_holds_whole_is_a_download(
+        self, tmp_path, monkeypatch
+    ):
+        root = self.cache(tmp_path)
+        weights = "transformer/diffusion_pytorch_model.safetensors"
+        (root / "snapshots" / self.OLD / weights).unlink()
+        assert self.required(tmp_path, monkeypatch, self.FILES) == [self.REPO]
+
+    def test_a_loose_file_in_a_linked_blob_store_is_no_download(
+        self, tmp_path, monkeypatch
+    ):
+        """#1392's file check, with `blobs/<etag>` itself a link."""
+        import dw.plan_downloads
+
+        self.cache(tmp_path)
+        name = "vae/diffusion_pytorch_model.safetensors"
+        monkeypatch.setattr(
+            dw.plan_downloads,
+            "get_hf_file_metadata",
+            lambda *a, **k: SimpleNamespace(etag=f'"{self.FILES[name]}"'),
+        )
+        assert dw.plan_downloads._blob_cached(self.REPO, name, str(tmp_path), True)

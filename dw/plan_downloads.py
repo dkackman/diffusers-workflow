@@ -32,7 +32,12 @@ from huggingface_hub.utils import (
     validate_repo_id,
 )
 
-from .hub_cache import index_components, repo_download_incomplete, scan_models
+from .hub_cache import (
+    blob_cached,
+    index_components,
+    repo_download_incomplete,
+    scan_models,
+)
 from .quantized_cache import _SPEC_FIELDS, _cached_file, _per_component
 from . import references
 from .realize import read_sub_workflow
@@ -71,7 +76,8 @@ def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes
     composed child) that `scan_models` does not find, plus every one it does
     find but whose cached copy is left over from an interrupted pull
     (#382) - a component the load needs is missing, or a blob is still
-    `.incomplete` - plus every `from_single_file` that is a URL, and every
+    `.incomplete` (a component folder `main`'s snapshot lacks but another
+    holds whole is not missing, #1759) - plus every `from_single_file` that is a URL, and every
     repo a task step declares through its command's `required_weights` hook
     (#975, dw/tasks/weights.py) - and the face models a checked chain's
     face_drop reads - listed once when a pipeline step loads it
@@ -112,6 +118,8 @@ def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes
                 continue
         listed_whole.add(name)
         extra = {"skip": skips[name]} if skips.get(name) else {}
+        if lookup_sizes:
+            extra["unchanged"] = _still_served(name, cache_dir)
         if name in present and not repo_download_incomplete(
             name, cache_dir, variant=variants.get(name), **extra
         ):
@@ -156,6 +164,36 @@ def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes
             }
         )
     return required
+
+
+def _still_served(repo, cache_dir):
+    """`repo_download_incomplete`'s `unchanged`: whether the hub's `main`
+    still serves each of the named files as a blob the cache holds. The file
+    list is asked once, and only if a component is held by an older snapshot.
+    When the hub does not answer, the cached copy stands."""
+    listing = []
+
+    def unchanged(filenames):
+        if not listing:
+            try:
+                info = model_info(
+                    repo, files_metadata=True, timeout=SIZE_LOOKUP_TIMEOUT
+                )
+                listing.append(
+                    {
+                        s.rfilename: s.lfs.sha256 if s.lfs else s.blob_id
+                        for s in info.siblings or []
+                    }
+                )
+            except Exception as e:
+                logger.debug(f"No file list for {repo}: {e}")
+                listing.append(None)
+        etags = listing[0]
+        return etags is None or all(
+            blob_cached(repo, etags.get(name), cache_dir) for name in filenames
+        )
+
+    return unchanged
 
 
 def repos_named(expanded, base_dir, workflow_dir):
@@ -501,14 +539,12 @@ def _blob_cached(repo, filename, cache_dir, check_hub):
             / repo_folder_name(repo_id=repo, repo_type="model")
             / "snapshots"
         )
-        blobs = set()
-        for snapshot in snapshots.iterdir() if snapshots.is_dir() else []:
-            path = snapshot / filename
-            if path.is_file():
-                blobs.add(path.resolve().name)
+        held = snapshots.is_dir() and any(
+            (snapshot / filename).is_file() for snapshot in snapshots.iterdir()
+        )
     except (OSError, ValueError):
         return False
-    if not blobs:
+    if not held:
         return False
     if check_hub:
         try:
@@ -519,7 +555,7 @@ def _blob_cached(repo, filename, cache_dir, check_hub):
             return True
         etag = etag.strip('"') if isinstance(etag, str) else ""
         if len(etag) == 64:
-            return etag in blobs
+            return blob_cached(repo, etag, cache_dir)
     return True
 
 
