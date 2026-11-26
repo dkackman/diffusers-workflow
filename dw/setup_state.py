@@ -12,6 +12,7 @@ than overwrite something the user wrote.
 
 import json
 import os
+import stat
 import sys
 import tempfile
 from collections.abc import Callable
@@ -92,6 +93,15 @@ class Manifest:
         entries = data.get("entries", [])
         if not isinstance(entries, list):
             raise SetupError(f"setup manifest {path} has no entries list")
+        for entry in entries:
+            if not (
+                isinstance(entry, dict)
+                and isinstance(entry.get("kind"), str)
+                and isinstance(entry.get("key"), str)
+            ):
+                raise SetupError(
+                    f"setup manifest {path} has a malformed entry: {entry!r}"
+                )
         return cls(path, entries)
 
     def record(self, kind: str, key: str, detail: dict) -> None:
@@ -123,6 +133,8 @@ def _write_atomic(path: Path, data: dict) -> None:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
             f.write("\n")
+        if path.exists():  # keep the target's permission bits (mkstemp makes 0600)
+            os.chmod(tmp, stat.S_IMODE(path.stat().st_mode))
         os.replace(tmp, path)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
@@ -136,6 +148,7 @@ def merge_json_file(path: Path, update: Callable[[dict], dict]) -> bool:
     before the first change and the backup is never overwritten. A file that does
     not parse raises `SetupError` and is left as it was.
     """
+    path = Path(os.path.realpath(path))  # write through a symlink, keep it a link
     current = _read_json(path, "config file")
     updated = update(json.loads(json.dumps(current)))
     if updated == current:

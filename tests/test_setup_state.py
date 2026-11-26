@@ -1,6 +1,7 @@
 """The installer's state: the install record, the setup manifest and the safe JSON merge."""
 
 import json
+import stat
 import sys
 from pathlib import Path
 
@@ -127,6 +128,33 @@ def test_merge_treats_an_empty_file_as_empty(tmp_path):
     f = tmp_path / "c.json"
     f.write_text("")
     assert setup_state.merge_json_file(f, lambda d: {**d, "a": 1})
+    assert json.loads(f.read_text()) == {"a": 1}
+
+
+def test_merge_keeps_the_permission_bits(tmp_path):
+    f = tmp_path / "c.json"
+    f.write_text('{"a": 1}')
+    f.chmod(0o644)
+    setup_state.merge_json_file(f, lambda d: {**d, "b": 2})
+    assert stat.S_IMODE(f.stat().st_mode) == 0o644
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="symlinks need privileges")
+def test_merge_writes_through_a_symlink(tmp_path):
+    real = tmp_path / "real.json"
+    real.write_text('{"a": 1}')
+    link = tmp_path / "link.json"
+    link.symlink_to(real)
+    setup_state.merge_json_file(link, lambda d: {**d, "b": 2})
+    assert link.is_symlink()
+    assert json.loads(real.read_text()) == {"a": 1, "b": 2}
+
+
+def test_a_malformed_manifest_entry_names_the_file(tmp_path):
+    f = tmp_path / "m.json"
+    f.write_text('{"entries": [{"kind": "desktop"}]}')
+    with pytest.raises(setup_state.SetupError, match="m.json"):
+        setup_state.Manifest.load(f)
 
 
 def test_merge_creates_a_missing_file(tmp_path):
