@@ -285,7 +285,7 @@ A pipeline's `from_pretrained_arguments.torch_dtype` can be diffusers' per-compo
 - **`default`** covers every component the dict doesn't name. Without it, those components load as `torch.float32`, and `validate_workflow` warns.
 - **Values** must each name a dtype. A `{}`-escaped value or an unknown name is refused, and the error names the component.
 - **Readers:**
-  - The MPS float16 warning names each float16 component.
+  - The MPS float16 warning names each float16 component. It is a `device_adjusted` job warning, and the dtype is left as asked.
   - The quantized cache keys each component on its own dtype.
   - The warm-pipeline cache keys each dict separately from the single-dtype form.
 - **Scope:** a component declared in its own `components` entry still takes its own single `torch_dtype`.
@@ -416,8 +416,8 @@ Nothing here was measured to fill these in; each is a gap, not a "no":
 
 Apple Silicon has narrower acceleration support than CUDA:
 
-- No flash-attn, Triton or bitsandbytes. Use a `native`-family `attention_backend` or leave it unset; validate warns `attention_backend_unavailable` for a CUDA-only one, and `sparse` runs dense. `compile` is skipped with a warning. A workflow that loads a bitsandbytes checkpoint (`flux2-dev`, `multi-image-reference`) or a TorchAO int4 config (`flux-torchao`) has no Mac path.
-- Workflows written for CUDA are adapted rather than refused, each change logged as a warning: a `cuda` device becomes `mps`, SDNQ's `quantization_device` and `return_device` follow it and its `use_quantized_matmul` is switched off, including one saved into a pre-quantized checkpoint (it runs through `torch._int_mm`, ~500x slower on MPS), group-offload CUDA streams are dropped, and `"offload": "sequential"` becomes `"model"`.
+- No flash-attn, Triton or bitsandbytes. Use a `native`-family `attention_backend` or leave it unset; validate warns `attention_backend_unavailable` for a CUDA-only one, and `sparse` runs dense. `compile` is skipped with a `device_adjusted` job warning. A workflow that loads a bitsandbytes checkpoint (`flux2-dev`, `multi-image-reference`) or a TorchAO int4 config (`flux-torchao`) has no Mac path.
+- Workflows written for CUDA are adapted rather than refused: a `cuda` device becomes `mps`, SDNQ's `quantization_device` and `return_device` follow it and its `use_quantized_matmul` is switched off, including one saved into a pre-quantized checkpoint (it runs through `torch._int_mm`, ~500x slower on MPS), group-offload CUDA streams are dropped, and `"offload": "sequential"` becomes `"model"`. The corrections to what a workflow asked for - matmul switched off, sequential offload made `model`, compile skipped, automatic attention slicing, RoPE precision lowered, auto CPU offload skipped - are job warnings of kind `device_adjusted` (in `get_job`'s `warnings`, not only the server log), naming what was asked, what ran and why. The device translation and the dropped stream flags are still log-only.
 - Attention slicing is automatic; see [Attention Slicing](#attention-slicing) for when to disable it.
 - `float16` can produce NaN values on Apple Silicon; use `bfloat16`. dw warns and does not override the dtype.
 - Ops the MPS backend lacks run on the CPU with `PYTORCH_ENABLE_MPS_FALLBACK=1` (set by the `fp4-fp8-for-torch-mps` package install.sh adds), and dw logs torch's warning when one does. Without it they raise.

@@ -1743,6 +1743,93 @@ class TestVideoFrameRate:
 
         assert [e for e in events if e["event"] == "warning"] == []
 
+    # --- the 8 fps fallback is a warning, not a silent choice (#1727) ---
+
+    def fps_warnings(self, action):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            action()
+        finally:
+            deactivate_context(token)
+        return [
+            e
+            for e in events
+            if e["event"] == "warning" and e.get("kind") == "video_fps_defaulted"
+        ]
+
+    def test_the_fallback_rate_warns_for_an_audio_video(self):
+        artifact = AudioVideo("frames", torch.zeros((2, 100)), 48000)
+
+        (warning,) = self.fps_warnings(
+            lambda: self.save({"content_type": "video/mp4"}, artifact)
+        )
+
+        assert warning["fps"] == 8
+        # the rule pair_audio's warning follows: the rate, what it does to
+        # a 24 fps source, and the knob that fixes it
+        assert "8 fps" in warning["message"]
+        assert "three times slow" in warning["message"]
+        assert "'fps'" in warning["message"] and "result" in warning["message"]
+
+    def test_the_fallback_rate_warns_for_a_frame_list(self):
+        result = Result({"content_type": "video/mp4"})
+        result.add_result([Image.new("RGB", (8, 8))])
+
+        def save():
+            with (
+                patch("dw.result.export_to_video") as export,
+                tempfile.TemporaryDirectory() as temp_dir,
+            ):
+                result.save(temp_dir, "test")
+            assert export.call_args.kwargs["fps"] == 8
+
+        assert len(self.fps_warnings(save)) == 1
+
+    def test_the_fallback_rate_warns_for_a_gif(self):
+        result = Result({"content_type": "image/gif"})
+        result.add_result([Image.new("RGB", (8, 8))])
+
+        def save():
+            with (
+                patch("dw.result.export_to_gif") as export,
+                tempfile.TemporaryDirectory() as temp_dir,
+            ):
+                result.save(temp_dir, "test")
+            assert export.call_args.kwargs["fps"] == 8
+
+        assert len(self.fps_warnings(save)) == 1
+
+    def test_a_declared_rate_does_not_warn_about_the_fallback(self):
+        artifact = AudioVideo("frames", torch.zeros((2, 100)), 48000)
+
+        assert (
+            self.fps_warnings(
+                lambda: self.save({"content_type": "video/mp4", "fps": 24}, artifact)
+            )
+            == []
+        )
+
+    def test_a_carried_rate_does_not_warn_about_the_fallback(self):
+        artifact = AudioVideo("frames", torch.zeros((2, 100)), 48000, fps=24)
+
+        assert (
+            self.fps_warnings(
+                lambda: self.save({"content_type": "video/mp4"}, artifact)
+            )
+            == []
+        )
+
+    def test_conforming_an_unsaved_child_does_not_warn(self):
+        # A composed child's artifact may still get its rate from the
+        # parent that writes it, so only a write warns
+        result = Result({"content_type": "video/mp4"})
+        result.add_result(AudioVideo("frames", torch.zeros((2, 100)), 48000))
+
+        assert self.fps_warnings(result.conform_artifacts) == []
+
 
 class TestFramesForEncoding:
     """What `encode_video` is handed, and why it is not the float array the

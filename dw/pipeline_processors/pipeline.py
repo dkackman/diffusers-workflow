@@ -30,7 +30,7 @@ from .components import (
 )
 from .placement import (
     apply_mps_rope_precision,
-    attention_slicing_requested,
+    apply_attention_slicing,
     place_component,
 )
 from .h3_rules import (
@@ -42,7 +42,6 @@ from .pipeline_h3 import H3Arguments, latent_anchor_source  # noqa: F401 - re-ex
 from .progress import reported_blocks, reported_progress_bars
 from .timing import denoise_start_hook, is_compiled, mark
 from .remote import remote_text_encoder
-from ..type_helpers import has_method
 from ..trust import (
     require_trusted_block,
     require_trusted_pre_load_modules,
@@ -390,28 +389,7 @@ class Pipeline(H3Arguments):
 
             # Attention slicing trades speed for memory - automatic on MPS, where
             # it is often the faster path too (see attention_slicing_requested)
-            if attention_slicing_requested(self.configuration, self.device):
-                # Modular pipelines have no attention slicing - skip rather than fail
-                if has_method(self.pipeline, "enable_attention_slicing"):
-                    if self.configuration.get("enable_attention_slicing", False):
-                        logger.debug("Enabling attention slicing for pipeline")
-                    else:
-                        # Turned on by the device, not the workflow (#1727)
-                        emit_warning(
-                            f"Turning on attention slicing on {self.device} - "
-                            "automatic on MPS, where it is often the faster "
-                            "path; set 'disable_attention_slicing' to run "
-                            "unsliced",
-                            kind="device_adjusted",
-                            setting="attention_slicing",
-                            requested=False,
-                            applied=True,
-                        )
-                    self.pipeline.enable_attention_slicing()
-                else:
-                    logger.debug(
-                        f"{type(self.pipeline).__name__} does not support attention slicing, skipping"
-                    )
+            apply_attention_slicing(self.pipeline, self.configuration, self.device)
 
             # configure components that are not shared
             self.configure_loaded_components()

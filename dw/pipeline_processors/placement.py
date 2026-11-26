@@ -7,6 +7,7 @@ from .config_objects import (
 )
 from .. import empty_device_cache, get_device_type, resolve_device
 from ..events import emit_warning
+from ..type_helpers import has_method
 
 logger = logging.getLogger("dw")
 
@@ -152,6 +153,35 @@ def attention_slicing_requested(configuration, device):
     return get_device_type(device) == "mps" and not configuration.get(
         "disable_attention_slicing", False
     )
+
+
+def apply_attention_slicing(pipeline, configuration, device):
+    """Turn on attention slicing when attention_slicing_requested says so.
+
+    Turned on by the device rather than the workflow (automatic on MPS), it
+    is a run-time correction the caller is told about (#1727); asked for
+    with 'enable_attention_slicing', it is only logged. Modular pipelines
+    have no attention slicing - skipped rather than failed."""
+    if not attention_slicing_requested(configuration, device):
+        return
+    if not has_method(pipeline, "enable_attention_slicing"):
+        logger.debug(
+            f"{type(pipeline).__name__} does not support attention slicing, skipping"
+        )
+        return
+    if configuration.get("enable_attention_slicing", False):
+        logger.debug("Enabling attention slicing for pipeline")
+    else:
+        emit_warning(
+            f"Turning on attention slicing on {device} - automatic on MPS, "
+            "where it is often the faster path; set 'disable_attention_slicing' "
+            "to run unsliced",
+            kind="device_adjusted",
+            setting="attention_slicing",
+            requested=False,
+            applied=True,
+        )
+    pipeline.enable_attention_slicing()
 
 
 def auto_cpu_offload_enabled(configuration):
