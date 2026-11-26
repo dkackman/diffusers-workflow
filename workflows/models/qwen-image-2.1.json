@@ -5,6 +5,12 @@
             "name": "RTX 3090",
             "vram_gb": 24,
             "minutes": 4.3
+        },
+        {
+            "device": "mps",
+            "name": "Apple M5 Pro (MPS)",
+            "vram_gb": 54,
+            "minutes": 15.3
         }
     ],
     "cost_drivers": [

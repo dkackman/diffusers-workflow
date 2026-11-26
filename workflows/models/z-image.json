@@ -14,7 +14,8 @@
     "id": "ZImage",
     "description": "Text-to-image with Z-Image Turbo - photorealistic output in nine steps.",
     "cost": [
-        {"device": "cuda", "name": "RTX 3090", "vram_gb": 24, "minutes": 1.4}
+        {"device": "cuda", "name": "RTX 3090", "vram_gb": 24, "minutes": 1.4},
+        {"device": "mps", "name": "Apple M5 Pro (MPS)", "vram_gb": 54, "minutes": 2.4}
     ],
     "vram_estimate": {
         "base_gb": 11.8,
