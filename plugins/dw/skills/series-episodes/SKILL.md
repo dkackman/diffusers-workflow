@@ -186,7 +186,10 @@ people - the failure mode step 0 exists to prevent. Measure it per shot with
 `integrated_lufs` (`get_gallery_metadata`), not `peak_dbfs`; the second
 half of `references/loudness.md` reads the gap. To confirm every
 line rendered rather than judging it by ear, run `templates/check-script`
-against the episode's script, per `references/check-script.md`.
+against the episode's script, per `references/check-script.md`. In a
+request, link it to its own `check-<episode item>` item (`depends_on` the
+episode), never to the episode it checks, or run it unlinked as a one-off
+(`script-to-video/references/request.md`, "Run each item").
 
 To take the project home, call `export_job` once per job of the project (each
 episode, and the cast run), then fetch each zip's `open_url` and unpack it into

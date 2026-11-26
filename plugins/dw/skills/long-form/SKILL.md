@@ -5,15 +5,15 @@ description: Use when a dw MCP server is connected and the request is longer tha
 
 # Long-form pieces on a dw server
 
-A model renders one clip at a time (the *One clip* row). This skill
-plans a longer piece per piece, scene, seam and run. The family skills
+This skill plans a piece longer than one clip (the *One clip* row) per
+piece, scene, seam and run. The family skills
 (`minimax-h3`, `ltx-2.5`, `minimax-music3`) own their templates' rules and
 prompt formats, and win. `script-to-video`,
 `storyboard` and `series-episodes` own the shot list, the boards and the
 episode cut.
 
 Each rule names its bench record (`bench/records/<name>.md` in the repo;
-`get_guide` serves the guides, not the records). *community*
+`get_guide` doesn't serve records). *community*
 marks another user's report, not a dw measurement; *pending measurement*
 has no verdict yet: quote no number for it.
 
@@ -33,13 +33,14 @@ This skill is written for dw `0.23.0-alpha.1`; `get_server_info`'s `plugin` says
 
 ## 1. Per piece: scenes first
 
-Split the piece into scenes the way a storyboard would. A scene is one place
-and one continuous moment. Give each scene a target length from the story,
-not from the model; the model ceiling only decides how the scene is rendered.
+Split the piece into scenes, as a storyboard does: one place and one
+continuous moment each. Give each scene a target length from the story;
+the model ceiling only decides how it is rendered.
 Record per scene `length_seconds` and `continuity` in the shot document's
 `<project>/scenes` (`script-to-video/references/shot-document.md`). Three or
 more jobs: open a request from the shot list
-(`script-to-video/references/request.md`).
+(`script-to-video/references/request.md`). A check or export job links to
+its own item (`check-NN`, `export`), not to what it reads.
 
 ## 2. Per scene: the rendering shape
 
@@ -116,7 +117,7 @@ Rules that bite:
   start the next shot from a fresh still of the subject. `last_frame`
   stays the LTX default (`bench/records/ltx.md`); `ltx-2.5` has the rest.
 
-Each move's class is the `class` column of
+A move's class is the `class` column of
 `cinematography/references/vocabulary.md`: `move: static` is `shot: static`
 (or `static_long`), and every `moving` id, `push-in` and `handheld` included,
 is `shot: moving`.
