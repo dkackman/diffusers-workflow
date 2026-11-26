@@ -1673,7 +1673,15 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
   accelerate, bitsandbytes, peft, safetensors and sentencepiece (`null` for
   one not installed) - for diagnosing an environment mismatch between boxes
   without shelling in; the machine's non-loopback `addresses`; a client
-  composes its URLs from an address, the port and the MCP path
+  composes its URLs from an address, the port and the MCP path; and
+  `storage`, read-only (#1457): `job_history` is `{path, size_bytes, rows,
+  oldest, newest}` - the SQLite file plus its `-wal`/`-shm` sidecars, a real
+  `COUNT(*)` of its runs, and the first and last `created_at` as epoch
+  seconds - and `logs` is `{path, size_bytes, backups, total_bytes}` - the
+  active log file, how many of its rotated backups (at most 7) are on disk,
+  and the bytes of all of them. A figure that can't be read is `null`, never
+  an error; `logs` is `null` when no log file is configured. The Status page
+  shows both as a Storage panel beside Caches
 
 ## Notes
 

@@ -38,6 +38,21 @@ const base: ServerInfo = {
     prompts: null,
     assets: '/home/don/studio/assets',
   },
+  storage: {
+    job_history: {
+      path: '/home/don/.dw/jobs.sqlite',
+      size_bytes: 3 * 1024 * 1024,
+      rows: 412,
+      oldest: 1_760_000_000,
+      newest: 1_764_000_000,
+    },
+    logs: {
+      path: '/home/don/.dw/log/dw.log',
+      size_bytes: 2048,
+      backups: 2,
+      total_bytes: 4096,
+    },
+  },
 }
 
 const state = vi.hoisted(() => ({
@@ -703,4 +718,11 @@ it('the rebind advice names an ssh tunnel as the safer way', async () => {
   expect(text).toContain(
     'Reaching it through ssh -L is the safer way: see How to use dw from another machine',
   )
+})
+
+it('shows the job history and the logs read-only beside the caches', async () => {
+  const text = await show()
+  expect(text).toContain('Storage')
+  expect(text).toMatch(/Job history\s*412 jobs · 3\.0 MB/)
+  expect(text).toMatch(/Logs\s*2 KB · 2 backups · 4 KB in all/)
 })

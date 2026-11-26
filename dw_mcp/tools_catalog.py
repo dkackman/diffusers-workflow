@@ -218,15 +218,14 @@ class CatalogTools:
         self,
         cache_entries: bool = False,
     ) -> dict:
-        """Get what this installation can do and where it keeps things:
+        """What this installation can do and where it keeps things:
         `device` (cuda, mps or cpu; bitsandbytes, torch.compile and flash
-        attention are CUDA-only), the dw `version`, and `directories`, which
-        a path passed to run_workflow or download_output is relative to
-        (this session's workspace). `trust_workflows` false (the default):
-        an out-of-ecosystem import, remote code, and media outside the
-        workspace's roots are refused.
-        `caches` sizes dw's disk caches; `cache_entries=True` lists the
-        quantized cache's entries.
+        attention are CUDA-only), `version`, and `directories`, the base of
+        a run_workflow or download_output path (this session's workspace).
+        `trust_workflows` false (default): an out-of-ecosystem import,
+        remote code, and media outside the workspace's roots are refused.
+        `caches` sizes dw's disk caches (`cache_entries=True` lists the
+        quantized one's entries); `storage`: job history and logs.
         `plugin`: a dw skill states the release it was written for; if a
         loaded dw skill states none, or one older than
         `plugin.current_from`, tell the user once that the dw plugin is out
