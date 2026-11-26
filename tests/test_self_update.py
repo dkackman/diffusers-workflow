@@ -183,6 +183,35 @@ class TestLatestVersion:
             self_update.latest_version(lambda u, t: {"info": {"version": "9"}}) is None
         )
 
+    def test_a_slow_fetch_does_not_hold_the_lock(self):
+        """#1743: a second cold read fetches for itself rather than waiting
+        behind the first read's upstream GET."""
+        import threading
+
+        entered, release = threading.Event(), threading.Event()
+        results = {}
+
+        def slow(url, timeout):
+            entered.set()
+            release.wait(10)
+            return {"info": {"version": "1.0.0"}}
+
+        first = threading.Thread(
+            target=lambda: results.update(first=self_update.latest_version(slow))
+        )
+        first.start()
+        try:
+            assert entered.wait(5)
+            started = time.monotonic()
+            second = self_update.latest_version(lambda u, t: {"info": {"version": "2"}})
+            assert second == "2" and time.monotonic() - started < 1
+        finally:
+            release.set()
+            first.join(5)
+        # The later write wins; either value is a real release
+        assert results["first"] == "1.0.0"
+        assert self_update.latest_version(lambda u, t: {"info": {}}) == "1.0.0"
+
 
 class TestDwUpdater:
     @staticmethod
