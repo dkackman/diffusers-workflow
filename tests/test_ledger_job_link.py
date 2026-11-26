@@ -618,6 +618,12 @@ def delete(client, request_id="cats", revision=1, expect=200):
     return r.json()
 
 
+def linked_jobs_of(client, name):
+    r = client.get(f"/api/gallery/{name}/metadata", params={"workspace": WS})
+    assert r.status_code == 200, r.text
+    return r.json()["linked_jobs"]
+
+
 class TestDelete:
     def test_a_request_is_deleted_at_the_revision_read(self, planned):
         write_plan(planned, request_id="dogs")
@@ -688,14 +694,71 @@ class TestDelete:
             for w in r.json()["warnings"]
         )
 
-    def test_a_request_made_again_under_the_id_takes_the_jobs_back(self, planned):
-        job = finish(planned, submit(planned))
+    def test_a_request_made_again_under_the_id_starts_with_no_attempts(self, planned):
+        old = finish(planned, submit(planned))
+        (name,) = [
+            f["name"] for f in planned.get("/api/gallery?request=cats").json()["files"]
+        ]
         delete(planned)
         again = write_plan(planned, items=[item("a")])
-        assert again["revision"] == 1 and len(again["history"]) == 1
-        (a,) = again["items"]
-        assert a["status"] == "done"
-        assert [attempt["job"] for attempt in a["attempts"]] == [job["id"]]
+        assert again["revision"] == 1 and "created" not in again
+        for body in (again, view(planned)):
+            (a,) = body["items"]
+            assert a["status"] == "planned"
+            assert a["attempts"] == [] and a["result"] is None
+            assert body["spent_minutes"] == 0
+        (row,) = planned.get(f"/api/workspaces/{WS}/requests").json()["requests"]
+        assert row["status_counts"] == {"planned": 1}
+        assert row["spent_minutes"] == 0 and row["cover"] == []
+        refused = planned.post(
+            f"/api/workspaces/{WS}/request-notes",
+            json={
+                "request": "cats",
+                "item": "a",
+                "text": "that one",
+                "refs": [{"item": "a", "job": old["id"]}],
+            },
+        )
+        assert refused.status_code == 422, refused.text
+        assert refused.json()["detail"]["code"] == "invalid_note_ref"
+        r = TestDerivedState._accept(self, planned, old["id"])
+        assert r.status_code in (400, 422), r.text
+        assert "not linked" in json.dumps(r.json())
+        (link,) = linked_jobs_of(planned, name)
+        assert link["id"] == old["id"] and link["attempt"] is None
+        # the id's filters still go by id
+        assert [
+            j["id"] for j in planned.get("/api/jobs?request=cats").json()["jobs"]
+        ] == [old["id"]]
+        assert delete(planned)["linked_jobs"] == 0
+
+    def test_the_new_instance_takes_its_own_jobs_across_a_later_write(self, planned):
+        finish(planned, submit(planned))
+        delete(planned)
+        write_plan(planned, items=[item("a")])
+        new = finish(planned, submit(planned))
+        written = write_plan(planned, revision=1, items=[item("a")])
+        (a,) = written["items"]
+        assert [attempt["job"] for attempt in a["attempts"]] == [new["id"]]
+        name = a["attempts"][0]["output"]["name"]
+        (link,) = [j for j in linked_jobs_of(planned, name) if j["id"] == new["id"]]
+        assert link["attempt"] == 1
+        assert delete(planned, revision=2)["linked_jobs"] == 1
+
+    def test_a_file_without_the_creation_stamp_reads_its_first_history_entry(
+        self, planned
+    ):
+        finish(planned, submit(planned))
+        path = os.path.join(planned.root.root, "requests.json")
+        with open(path) as handle:
+            document = json.load(handle)
+        stored = document["requests"]["cats"]
+        del stored["created"]
+        stored["history"][0]["at"] = "2999-01-01T00:00:00+00:00"
+        with open(path, "w") as handle:
+            json.dump(document, handle)
+        assert items_of(planned)["a"]["attempts"] == []
+        assert delete(planned)["linked_jobs"] == 0
 
     def test_a_named_workspace_deletes_its_own(self, planned):
         assert (

@@ -499,6 +499,33 @@ def _remaining(request, grouped, prompts=None):
     return round(total, 2)
 
 
+def _opened(request):
+    """When this instance of a request was created, as epoch seconds: the
+    stored `created`, else the first history entry's time (a file from
+    before `created`, to the second), else None."""
+    created = request.get("created")
+    if isinstance(created, (int, float)) and not isinstance(created, bool):
+        return created
+    history = request.get("history") or []
+    return _epoch(history[0].get("at")) if history else None
+
+
+def takes(request, jobs):
+    """The `jobs` linked to a request's id that are takes of this instance
+    of it: those created since it was. A job is linked by id alone, and
+    only to a request that exists, so an older one belongs to a deleted
+    request that had the id (#1761). `request` is the stored one; None (no
+    such request) keeps every job, as does a time either side lacks."""
+    since = _opened(request) if request else None
+    if since is None:
+        return list(jobs)
+    return [
+        job
+        for job in jobs
+        if job.get("created_at") is None or job["created_at"] >= since
+    ]
+
+
 def request_view(request, jobs=(), now=None, prompts=None):
     """A stored request as read: every item with its derived fields
     (`item_view`) and the request's `spent_minutes` and `remaining_minutes`.
@@ -507,6 +534,7 @@ def request_view(request, jobs=(), now=None, prompts=None):
     is an aware datetime to read the review holds at, the current time when
     omitted. `prompts` is the `name -> digest` callable rule 2 reads (None:
     rule 1 alone); wrap it in one memo per view (`dw.prompts.PromptDigests`)."""
+    jobs = takes(request, jobs)
     grouped = _jobs_by_item(jobs)
     ready = _ready(request, grouped, prompts)
     positions = {}
@@ -520,6 +548,7 @@ def request_view(request, jobs=(), now=None, prompts=None):
         ),
         "agent_wrote_at": request.get("agent_wrote_at"),
     }
+    view.pop("created", None)  # `takes` reads it; no part of the view
     now = now or datetime.now(timezone.utc)
     view["items"] = [
         item_view(
@@ -548,6 +577,7 @@ def summary_view(request, jobs=(), prompts=None, needs=False):
     as `request_view`'s. With `needs`, the row's `needs` (`needs_counts`).
     `close_proposed` is there, true, only while the agent's proposal to
     close the request waits on the user."""
+    jobs = takes(request, jobs)
     grouped = _jobs_by_item(jobs)
     counts = {}
     for item in request.get("items", []):
