@@ -242,7 +242,7 @@ def put_request(
 NOTES_URL = "/api/workspaces/{name}/request-notes"
 
 
-def _note_ref_check(request, name):
+def _note_ref_check(request, name, root):
     """`(request_id, ref) -> the ref to store`, or LedgerError
     `invalid_note_ref`. A ref naming only its item needs no job. Otherwise
     `ref.job` must be linked to `ref.item`; `ref.output` must be a file of
@@ -261,7 +261,10 @@ def _note_ref_check(request, name):
         linked = next(
             (
                 job
-                for job in manager.request_jobs(name, request_id)
+                for job in ledger.takes(
+                    ledger.read_requests(root).get(request_id),
+                    manager.request_jobs(name, request_id),
+                )
                 if job["job"] == job_id and job["item"] == item
             ),
             None,
@@ -324,7 +327,7 @@ def add_request_note(request: Request, name: str, body: NoteAdd):
             item=body.item,
             text=body.text,
             refs=[ref.model_dump(exclude_none=True) for ref in body.refs or []],
-            check_ref=_note_ref_check(request, name),
+            check_ref=_note_ref_check(request, name, root),
         ),
         f"add a note to request {body.request!r}",
     )

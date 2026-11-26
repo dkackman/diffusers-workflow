@@ -22,6 +22,12 @@ D1, D2, D3 = "d1", "d2", "d3"
 PARGS = {"prompt": "prompt:p"}
 
 
+@pytest.fixture(autouse=True)
+def _old_requests(monkeypatch):
+    """The jobs here have made-up times; the request predates them all."""
+    monkeypatch.setattr(ledger, "_created", lambda: 0)
+
+
 def prompt_item(key="a", arguments=PARGS, changed=0, **kw):
     return {
         "key": key,

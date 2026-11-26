@@ -18,6 +18,13 @@ from .test_ledger_job_link import WS, write_plan
 
 client, root, planned = link.client, link.root, link.planned
 
+
+@pytest.fixture(autouse=True)
+def _old_requests(monkeypatch):
+    """The jobs here have made-up times; the request predates them all."""
+    monkeypatch.setattr(ledger, "_created", lambda: 0)
+
+
 CASES = json.loads(
     (
         pathlib.Path(__file__).resolve().parent

@@ -1391,7 +1391,11 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
 
   **Deleting.** `DELETE` removes the ledger entry at that revision and
   answers `{id, workspace, deleted, revision, linked_jobs}`; the linked jobs
-  keep their rows, link and files.
+  keep their rows, link and files, so the job and gallery `request` filters
+  still find them. A request later created under the same id starts with no
+  attempts: only jobs created since a request was are its takes (its
+  `attempts`, status, `spent_minutes`, `accepted`, note refs and a later
+  delete's `linked_jobs`).
 
   **Reading an item.** Each item carries:
 

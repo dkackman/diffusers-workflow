@@ -349,6 +349,11 @@ Read it with `get_request(request=None)` (MCP) or `GET
 `set_request` or `PUT /api/workspaces/{name}/requests/{id}`; remove one with
 `delete_request` or `DELETE /api/workspaces/{name}/requests/{id}?revision=N`:
 
+- **Deleting and reusing an id.** A delete removes the ledger entry only; the
+  jobs linked to it keep their `request`, `item` and files. A request created
+  later under the same id starts with no attempts: a job older than the
+  request is not a take of it, though the `request` filters of the job list
+  and gallery, which go by id, still return it.
 - **Revisions.** Every write names the `revision` it was read at, or 0 to
   create. A write against any other revision is refused with 409
   `stale_revision`, carrying `current_revision`: read again, merge, write.

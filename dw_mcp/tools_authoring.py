@@ -102,8 +102,8 @@ class WorkspaceTools:
     def delete_request(
         self, request: str, revision: int, workspace: str | None = None
     ) -> dict:
-        """Delete a request from the ledger at the `revision` read. Its jobs
-        keep their link and files; refused while one is queued or running."""
+        """Delete a request at the `revision` read. Its jobs keep link and
+        files; a reused id starts empty. Refused while one is queued or running."""
         return ledger.delete_request(self.client, request, revision, workspace)
 
     def set_request(
