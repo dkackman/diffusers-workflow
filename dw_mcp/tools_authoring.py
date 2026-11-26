@@ -161,11 +161,11 @@ class AuthoringTools:
         arguments: dict | None = None,
     ) -> dict:
         """Check a workflow against the schema and real pipeline
-        signatures. Free and instant: run before run_workflow.
+        signatures. Free: run before run_workflow.
         Give exactly one of `workflow` or `name` (a stored workflow as
         `list_workflows` reports it); `run_workflow`'s `inline_workflow`
         and `workflow_path` work too. `workflow` may
-        be a JSON-encoded string. Errors come back at once with
+        be a JSON-encoded string. Errors come with
         JSON paths (VRAM ceiling: a list's largest member only). `workspace` pins this one call to another workspace
         without switching the session.
 
@@ -182,7 +182,7 @@ class AuthoringTools:
         and an `asset:`/`prompt:`/`output:` reference naming nothing this
         workspace can reach, each at `arguments.<name>`.
         `checked_arguments` says whether your values or only the stored
-        defaults were checked. A value outside a bound the workflow
+        defaults were checked. Pass every `required` variable. A value outside a bound the workflow
         declares, or the pipeline publishes, is an error here rather than a
         failed run; one the workflow rounds up comes back as a warning naming
         what it becomes.

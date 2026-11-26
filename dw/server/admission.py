@@ -48,6 +48,7 @@ from ..runs import (
     resolve_output_reference,
 )
 from ..validation import WARNING, run_checks, to_warnings
+from ..variable_constraints import omitted_required_errors
 from ..vram_estimate import required_vram_gb
 from ..workflow import Workflow, workflow_from_definition, workflow_from_file
 from ..host_memory import host_memory_stats
@@ -243,6 +244,13 @@ def admit(
                 capacity_label=capacity_label,
             )
             admission.errors = candidate.validation_errors(context=context)
+            # A stored workflow with `arguments` omitted is still asked about
+            # as something to run, and no such run supplies a required
+            # variable (#1758). An inline definition stays a document check
+            if workflow_path is not None and not supplied:
+                admission.errors += omitted_required_errors(
+                    candidate.workflow_definition
+                )
             # validation_errors reports the caller's own bad arguments (an
             # unknown name, a value that will not coerce) beside the
             # document's errors (#976), so validate and submit refuse alike;
