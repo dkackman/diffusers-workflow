@@ -946,7 +946,7 @@ class OutputDeleted(ApiModel):
     )
 
 
-# ---- preferences (dw/server/routes/preferences.py)
+# ---- preferences (dw/server/routes/system.py)
 PreferenceSource = Literal["shipped", "server"]
 PreferenceTier = Literal["draft", "standard", "best"]
 

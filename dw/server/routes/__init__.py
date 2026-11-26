@@ -17,7 +17,6 @@ from . import (
     library,
     loras,
     media,
-    preferences,
     requests,
     system,
 )
@@ -31,7 +30,6 @@ ROUTERS = (
     media.router,
     gallery.router,
     assets.router,
-    preferences.router,
 )
 
 

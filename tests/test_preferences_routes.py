@@ -1,4 +1,4 @@
-"""GET, PUT and DELETE /api/preferences (dw/server/routes/preferences.py):
+"""GET, PUT and DELETE /api/preferences (dw/server/routes/system.py):
 the overlay the server writes over the shipped ladders, its etags, and the
 refusals a PUT gets."""
 

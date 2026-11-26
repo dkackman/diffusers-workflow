@@ -512,7 +512,7 @@ def downloads_gate_check(cache_dir=None, lookup_sizes=True):
 
 # ------------------------------------------------------------------ the store
 # The server writes the overlay (GET/PUT/DELETE /api/preferences,
-# dw/server/routes/preferences.py); nothing else does. One lock per process
+# dw/server/routes/system.py); nothing else does. One lock per process
 # around read-change-write, and the write is atomic, so a reader - admission,
 # a worker - sees the old document or the new one, never half of either.
 
@@ -632,7 +632,7 @@ def resolutions(key, store, host, open_target):
     for tier in TIERS:
         if not isinstance(ladder, dict) or tier not in ladder:
             continue
-        path = references.PREFERENCE + key
+        path = references.make_ref(references.PREFERENCE, key)
         try:
             found = resolve(path, tier, host, open_target, store)
         except Exception as e:  # noqa: BLE001 - a refusal is the answer
