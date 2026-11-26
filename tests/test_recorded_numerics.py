@@ -208,3 +208,60 @@ def test_the_steps_fall_back_without_the_h3_package(monkeypatch, fresh_default):
 def test_an_unknown_attribute_still_raises():
     with pytest.raises(AttributeError):
         h3_tst.NOT_A_THING  # noqa: B018
+
+
+def _model_logs(events):
+    return [
+        e["model_name"]
+        for e in events
+        if e.get("event") == "log" and e.get("command") == "text_generation"
+    ]
+
+
+def test_the_h3_enhancer_run_names_the_model_that_ran(tmp_path):
+    """The bounce on #1728: a caller who named no model must be able to read
+    which one ran. A real run of the h3 enhance workflow - its builtin and the
+    text_generation task, only the HF loader stubbed - logs the builtin's
+    default, which is the advertised `default_model`; naming one logs that."""
+    from unittest.mock import MagicMock, patch
+
+    from dw.events import RunContext, activate_context, deactivate_context
+    from dw.server.enhancers import PRESETS, build_enhance_workflow
+    from dw.workflow import Workflow
+
+    pipe = MagicMock(return_value=[{"generated_text": "an enhanced prompt"}])
+    for named, expected in (
+        (None, PRESETS["h3"]["default_model"]),
+        ("Qwen/Qwen2.5-1.5B-Instruct", "Qwen/Qwen2.5-1.5B-Instruct"),
+    ):
+        definition = build_enhance_workflow("h3", "an idea", model_name=named)
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            with patch("dw.tasks.text_generation.hf_pipeline", return_value=pipe):
+                Workflow(
+                    definition, str(tmp_path), f"/w/workflows/{definition['id']}.json"
+                ).run({})
+        finally:
+            deactivate_context(token)
+        assert _model_logs(events) and set(_model_logs(events)) == {expected}
+
+
+def test_a_cached_text_model_still_names_itself():
+    """The name is logged every run, not only when the weights load."""
+    from unittest.mock import MagicMock, patch
+
+    from dw.events import RunContext, activate_context, deactivate_context
+    from dw.tasks.text_generation import generate_text
+
+    pipe = MagicMock(return_value=[{"generated_text": "out"}])
+    events = []
+    token = activate_context(RunContext(on_event=events.append))
+    try:
+        with patch("dw.tasks.text_generation.hf_pipeline", return_value=pipe) as loader:
+            generate_text("a", device="cpu", model_name="m/cached")
+            generate_text("b", device="cpu", model_name="m/cached")
+    finally:
+        deactivate_context(token)
+    assert loader.call_count <= 1
+    assert _model_logs(events) == ["m/cached", "m/cached"]

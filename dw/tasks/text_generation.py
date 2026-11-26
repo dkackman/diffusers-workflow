@@ -18,6 +18,7 @@ import re
 
 from huggingface_hub import get_hf_file_metadata, hf_hub_download, hf_hub_url
 from .. import preferred_task_dtype
+from ..events import emit_log, emit_phase
 from ..locations import validate_hub_repo_id
 from ..security import validate_weight_name
 from ..trust import require_trusted_generate_arguments
@@ -410,8 +411,18 @@ def generate_text(prompt, device="cpu", **kwargs):
 
     dtype = preferred_task_dtype(device)
 
+    # Every run names the model it runs, cached or not: a caller that left
+    # `model_name` to a workflow's default (the h3 enhancer, #1643) can read
+    # which repo answered from the job's events and nowhere else
+    emit_log(
+        f"text_generation: {model_name} on {device}",
+        command="text_generation",
+        model_name=model_name,
+        device=str(device),
+    )
+
     def load_pipe():
-        logger.info(f"Generating text with {model_name} on {device}")
+        emit_phase("loading", detail=model_name)
         placement = hf_pipeline_placement(device)
         if revision is not None:
             placement = {**placement, "revision": revision}
