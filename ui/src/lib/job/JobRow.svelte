@@ -7,7 +7,8 @@
   import { formatDuration, formatExact } from '../format'
   import Time from '../ui/Time.svelte'
   import { holdKind, holdText } from '../progress'
-  import { queueWait } from '../jobTimes'
+  import { elapsed, queueWait } from '../jobTimes'
+  import { serverNow } from '../connection.svelte'
   import { firstLine } from '../jobsListing'
   import { wsHref } from '../routes'
   import { versionTitle, workflowName } from '../terms'
@@ -44,10 +45,10 @@
   const requestLabel = $derived(
     job.item ? `${job.request} › ${job.item}` : (job.request ?? ''),
   )
-  const wait = $derived(queueWait(job, Date.now() / 1000))
+  const wait = $derived(queueWait(job, serverNow()))
   const duration = $derived(
     job.started_at
-      ? formatDuration((job.finished_at ?? Date.now() / 1000) - job.started_at)
+      ? formatDuration(elapsed(job.started_at, job.finished_at ?? serverNow()))
       : '',
   )
   // The row shows the compact start; hovering gives it to the second, with

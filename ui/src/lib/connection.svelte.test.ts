@@ -88,3 +88,24 @@ it('the header says offline or locked in place of idle', () => {
   expect(mod.quietWord('ok')).toBe('idle')
   expect(mod.quietWord('unknown')).toBe('idle')
 })
+
+it('takes the server clock from Date, ignoring second-sized noise', async () => {
+  vi.useFakeTimers()
+  vi.setSystemTime(new Date('2026-11-25T12:00:00Z'))
+  try {
+    const { reportServerDate, serverNow } = await import('./connection.svelte')
+    const off = () => serverNow() - Date.now() / 1000
+    const dated = (s: number) => new Date(Date.now() + s * 1000).toUTCString()
+    reportServerDate(dated(-1))
+    expect(off()).toBe(0)
+    reportServerDate(dated(-30))
+    expect(off()).toBe(-29.5)
+    reportServerDate(null)
+    reportServerDate('not a date')
+    expect(off()).toBe(-29.5)
+    reportServerDate(dated(0))
+    expect(off()).toBe(0)
+  } finally {
+    vi.useRealTimers()
+  }
+})

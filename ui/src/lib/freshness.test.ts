@@ -21,7 +21,7 @@
 // stores, which keep their own freshness (below).
 //
 // Outside this table: the app shell's status poll (statusPoll.ts, 5 s, also
-// while the tab is hidden), the linked notes' 20 s poll
+// while the tab is hidden), the notes channel's 15 s poll
 // (request/listening.svelte.ts), one job's event stream and its resource
 // (job/followJob.svelte.ts), and one request's interval, which RequestPage's
 // `alsoLive` names (request/refresh.ts).

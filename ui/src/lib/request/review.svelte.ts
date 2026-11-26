@@ -1,11 +1,12 @@
 // The countdowns of items held for review. One shared one-second ticker,
 // running only while a hold is on screen and the tab is visible (the
-// hold() pattern of NotesChannel, listening.svelte.ts). A countdown is
+// hold() pattern of NotesChannel, listening.svelte.ts; a `poll`). A countdown is
 // anchored to the moment the request was read plus the server's
 // `seconds_left`: the browser's clock is never compared with
 // `review.until`, so a skewed clock cannot make an item look due early.
 // When a countdown reaches zero the page reads the request once more, so
 // the server's own `due` replaces the local guess.
+import { poll } from '../poll'
 import type { LedgerRequest } from '../types'
 
 export const TICK_MS = 1000
@@ -19,10 +20,11 @@ export class Ticker {
   /** Date.now() at the last tick */
   now = $state(Date.now())
   #holds: { listener?: Listener }[] = []
-  #timer: ReturnType<typeof setInterval> | null = null
+  #stop: (() => void) | null = null
 
+  /** Held and on screen: a hidden tab does not tick */
   get running() {
-    return this.#timer !== null
+    return this.#stop !== null && visible()
   }
 
   /** Something on screen counts down: tick, calling `listener` each time,
@@ -31,17 +33,15 @@ export class Ticker {
   hold(listener?: Listener): () => void {
     const hold = { listener }
     this.#holds.push(hold)
-    if (this.#holds.length === 1) {
-      document.addEventListener('visibilitychange', this.#onVisibility)
-      this.#start()
-    } else if (this.running) listener?.(this.now)
+    if (this.#holds.length === 1) this.#stop = poll(this.#tick, TICK_MS)
+    else if (this.running) listener?.(this.now)
     return () => {
       const at = this.#holds.indexOf(hold)
       if (at < 0) return
       this.#holds.splice(at, 1)
       if (this.#holds.length) return
-      this.#stop()
-      document.removeEventListener('visibilitychange', this.#onVisibility)
+      this.#stop?.()
+      this.#stop = null
     }
   }
 
@@ -49,19 +49,6 @@ export class Ticker {
     this.now = Date.now()
     for (const hold of [...this.#holds]) hold.listener?.(this.now)
   }
-
-  #start() {
-    if (this.#timer !== null || !visible()) return
-    this.#tick()
-    this.#timer = setInterval(this.#tick, TICK_MS)
-  }
-
-  #stop() {
-    if (this.#timer !== null) clearInterval(this.#timer)
-    this.#timer = null
-  }
-
-  #onVisibility = () => (visible() ? this.#start() : this.#stop())
 }
 
 /** The one ticker every countdown on the page shares */
