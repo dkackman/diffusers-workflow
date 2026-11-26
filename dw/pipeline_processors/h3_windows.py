@@ -66,7 +66,7 @@ whose every forward does too. The upstream change that would replace it is a
 `components.config.max_duration` like `canvas_max_pixels`.
 
 Windowed generation (#1188, EXPERIMENTAL). `experimental_hybrid_windows`
-- `{frames, overlap, blend, positions, switch_step, handoff}`, the first four
+- `{frames, overlap, blend, positions, switch_step, handoff, anchor}`, the first four
 as `refine_windows`'s - generates a t2va take from noise as the same fused
 windows, on every step, with a held `hold_audio` track as its only audio. It
 is refused unless the process sets `DW_EXPERIMENTAL_HYBRID_WINDOWS=1`, naming
@@ -94,6 +94,22 @@ of the fusion and restored after each update - so a window wholly inside it
 is not run. Steps 1..k of the outer loop only advance the schedulers. k = 0
 is no ordered phase, every step blended; k = S is plain sequential windows,
 each finished in order with its overlap pinned to its predecessor's frames.
+
+The keystone anchor (`anchor`, S4): `"none"` (the default) touches none of
+the above; `"keystone"` makes window 1's finished first latent frame a
+keystone every later forward reads. With an ordered phase it is window 1's
+own first frame; with k = 0, `_keystone_prepass` runs window 1 alone to the
+last step first, writing nothing back. Every forward but window 1's own then
+carries the keystone's rows ahead of the window's video (`keystone_inputs`):
+the take's frame-0 positions, token tag 0, held at the clean timestep (H3's
+t = 1), and dropped from the prediction before the fuse, so the take never
+holds them. On the ordered phase's later windows the keystone attention
+(`KEYSTONE_ATTENTION`, h3_keystone_attention's K/C re-split, K the keystone
+rows and C the window's pinned overlap) runs on the blocks the transformer
+has (`_OrderedKeystoneProcessor`); window 1 and the blended steps keep the
+plain attention. On sparse attention, or a transformer with another re-split
+installed, the attention is skipped with a warning and the rows ship alone.
+Any other `anchor` is refused at validate, before the flag.
 
 The decode of a long take. The stock video decode keeps every decoded clip
 on the device and converts the whole take to float32, about 36 GB at 120 s
