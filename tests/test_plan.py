@@ -3566,6 +3566,61 @@ class TestLoadBytes:
             3 * 10**9, abs=100
         )
 
+    @staticmethod
+    def sdxl():
+        """SDXL base's shape: ONNX/OpenVINO-only folders the index omits."""
+        from types import SimpleNamespace as S
+
+        gb = 10**9
+        rows = {
+            "model_index.json": 1,
+            "sd_xl_base_1.0.safetensors": 7 * gb,
+            "unet/config.json": 1,
+            "unet/diffusion_pytorch_model.safetensors": 10 * gb,
+            "unet/diffusion_pytorch_model.fp16.safetensors": 5 * gb,
+            "unet/openvino_model.bin": 10 * gb,
+            "vae_decoder/config.json": 1,
+            "vae_decoder/model.onnx": gb,
+            "vae_decoder/openvino_model.bin": gb,
+        }
+        return [S(rfilename=n, size=sz) for n, sz in rows.items()]
+
+    @pytest.mark.parametrize("variant, expected", [(None, 10), ("fp16", 5)])
+    def test_a_folder_the_index_omits_does_not_drop_the_weights(
+        self, monkeypatch, variant, expected
+    ):
+        import dw.plan_downloads as pd
+
+        index = {"_class_name": "X", "unet": ["diffusers", "UNet2DConditionModel"]}
+        monkeypatch.setattr(pd, "_fetch_index", lambda *a, **k: index)
+        assert pd._repo_gb("org/sdxl", self.sdxl(), variant) == pytest.approx(
+            expected * 10**9 / GIB, abs=0.1
+        )
+
+    def test_an_unreadable_index_gives_no_size(self, monkeypatch):
+        import dw.plan_downloads as pd
+
+        def offline(*a, **k):
+            raise OSError("offline")
+
+        monkeypatch.setattr(pd, "_fetch_index", offline)
+        assert pd._repo_gb("org/sdxl", self.sdxl()) is None
+
+    def test_a_variant_the_repo_lacks_gives_no_size(self, monkeypatch):
+        import dw.plan_downloads as pd
+
+        monkeypatch.setattr(pd, "_fetch_index", lambda *a, **k: {"unet": ["d", "U"]})
+        assert pd._repo_gb("org/sdxl", self.sdxl(), "int8") is None
+
+    def test_a_tiny_repo_is_not_priced_at_zero(self):
+        from types import SimpleNamespace as S
+
+        from dw.plan_downloads import _repo_gb
+
+        assert (
+            _repo_gb("org/tiny", [S(rfilename="a.safetensors", size=3177927)]) == 0.01
+        )
+
     def test_a_repo_without_a_model_index_is_summed_whole(self):
         from types import SimpleNamespace as S
 

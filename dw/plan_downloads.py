@@ -56,6 +56,8 @@ CONFIGURATION_KEY = "configuration"
 REVISION_KEY = "revision"
 # The file a modular repo names its components' loading specs in
 MODULAR_INDEX = "modular_model_index.json"
+# The file a pipeline repo names its components in
+MODEL_INDEX = "model_index.json"
 
 
 class _RepoNotFound(Exception):
@@ -711,14 +713,34 @@ def _read_modular_index(base, revision, cache_dir, lookup_sizes):
 
 def _fetch_modular_index(base, revision):
     """The hub's `modular_model_index.json` for `base` at `revision`."""
+    return _fetch_index(base, MODULAR_INDEX, revision)
+
+
+def _fetch_index(repo, filename, revision=None):
+    """One of the hub's index files for `repo`, read without caching it."""
     response = get_session().get(
-        hf_hub_url(base, MODULAR_INDEX, revision=revision),
+        hf_hub_url(repo, filename, revision=revision),
         headers=build_hf_headers(),
         timeout=SIZE_LOOKUP_TIMEOUT,
         follow_redirects=True,
     )
     response.raise_for_status()
     return json.loads(response.text)
+
+
+def _pipeline_components(repo):
+    """The component names `repo`'s `model_index.json` declares - the
+    entries diffusers reads a list under - or None when it can't be read."""
+    try:
+        index = _fetch_index(repo, MODEL_INDEX)
+        return {
+            key
+            for key, value in index.items()
+            if isinstance(value, list) and key != "_class_name"
+        }
+    except Exception as e:
+        logger.debug(f"No model index for {repo}: {e}")
+        return None
 
 
 def _model_info(name, variant=None, skip=None):
@@ -752,8 +774,7 @@ def _model_info(name, variant=None, skip=None):
     except Exception as e:
         logger.debug(f"No size for {name}: {e}")
         return None, None, None
-    total = _load_bytes(info.siblings or [], variant, skip)
-    gb = round(total / GIB, 1) if total else None
+    gb = _repo_gb(name, info.siblings or [], variant, skip)
     gated = getattr(info, "gated", False) or False
     access_blocked = False
     if gated:
@@ -761,14 +782,38 @@ def _model_info(name, variant=None, skip=None):
     return gb, gated, access_blocked
 
 
-def _load_bytes(siblings, variant=None, skip=None):
+def _repo_gb(name, siblings, variant=None, skip=None):
+    """`_load_bytes` in GiB, or None when the size can't be worked out: no
+    file sizes, a `model_index.json` that can't be read, or no file set
+    diffusers would accept (a variant the repo does not have). Never 0.0,
+    which would read as nothing to fetch (#1745)."""
+    components = None
+    if any(getattr(s, "rfilename", None) == MODEL_INDEX for s in siblings):
+        components = _pipeline_components(name)
+        if components is None:
+            return None
+    try:
+        total = _load_bytes(siblings, variant, skip, components)
+    except (EnvironmentError, ValueError) as e:
+        logger.debug(f"No file set for {name}: {e}")
+        return None
+    if not total:
+        return None
+    return round(total / GIB, 1) or max(round(total / GIB, 2), 0.01)
+
+
+def _load_bytes(siblings, variant=None, skip=None, components=None):
     """Bytes a diffusers `from_pretrained` of a repo fetches, from its file
     list. A repo with a `model_index.json` is sized by the file set diffusers
     itself selects (`variant_compatible_siblings` under `_get_ignore_patterns`,
     the calls `DiffusionPipeline.download` makes): one weight format per
     component, the requested `variant` with a plain-file fallback, root
     checkpoints left out, a component named in `skip` (passed as null) left
-    out. A repo without a `model_index.json` (a modular or single-checkpoint
+    out. `components` is what the index declares: only those folders are held
+    to the one-format rule, as in `download`, so a folder the index does not
+    name (an ONNX or OpenVINO export) cannot push the selection to pickled
+    weights (#1745); None takes every folder. A repo without a
+    `model_index.json` (a modular or single-checkpoint
     repo) is summed whole, an upper bound (#1580). Diffusers is imported
     here, not at module load, to keep it off the validate import path."""
     sized = [s for s in siblings if getattr(s, "size", None)]
@@ -784,6 +829,8 @@ def _load_bytes(siblings, variant=None, skip=None):
     skip = set(skip or ())
     filenames = set(sizes)
     folders = {f.split("/")[0] for f in filenames if "/" in f}
+    if components is not None:
+        folders &= set(components)
     model_folders = {
         f.rpartition("/")[0] for f in filter_model_files(filenames)
     } & folders
