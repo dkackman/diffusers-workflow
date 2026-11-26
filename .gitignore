@@ -152,6 +152,9 @@ dw/server/ui/
 
 # the guides dw_mcp serves, copied into the package by the same script
 dw/docs/
+
+# the example catalog (workflows/, prompts/, loras/), copied in by the same script
+dw/examples/
 venv
 
 # generated media - regenerable, archived outside the repo

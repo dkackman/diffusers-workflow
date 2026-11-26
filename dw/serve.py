@@ -216,6 +216,24 @@ def configure_devices(args):
     return devices
 
 
+def packaged_examples_dir(package_dir=None):
+    """The example catalog an installed wheel carries, or None.
+
+    scripts/build_dist.sh copies the checkout's workflows/, prompts/ and
+    loras/ into dw/examples/ (as docker/Dockerfile copies them into
+    /opt/dw/examples/), so an installed server offers them read-only beside
+    the workspace's own when no --examples-dir is given. A checkout has its
+    own catalog and never uses a copy left behind by a build."""
+    from pathlib import Path
+
+    package = Path(package_dir or os.path.dirname(os.path.abspath(__file__)))
+    checkout = package.parent
+    if (checkout / "pyproject.toml").is_file() and (checkout / "workflows").is_dir():
+        return None
+    candidate = package / "examples" / "workflows"
+    return str(candidate) if candidate.is_dir() else None
+
+
 def configure_environment(args):
     """Resolve the directories and pin them in the environment.
 
@@ -236,6 +254,9 @@ def configure_environment(args):
 
     if getattr(args, "install_root", None):
         os.environ["DW_INSTALL_ROOT"] = os.path.abspath(args.install_root)
+    packaged = packaged_examples_dir() if args.examples_dirs is None else None
+    if packaged:
+        args.examples_dirs = [packaged]
     workspace = set_workspace(resolve_workspace(args.workspace))
     workflow_dir = args.workflow_dir or workspace.workflows
     output_dir = args.output_dir or workspace.outputs
