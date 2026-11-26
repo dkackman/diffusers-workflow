@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { groupWorkspaces } from './wsGroups'
+import { groupWorkspaces, splitName } from './wsGroups'
 
 const names = [
   'acorn-wars',
@@ -45,5 +45,18 @@ describe('groupWorkspaces', () => {
       open: 'h3-quality',
     })
     expect(r.entries.some((e) => e.kind === 'group')).toBe(false)
+  })
+})
+
+describe('splitName', () => {
+  it('sets the group prefix apart from the rest of the name', () => {
+    expect(splitName('regression-smoke-lem-2', 'regression')).toEqual({
+      said: 'regression-',
+      own: 'smoke-lem-2',
+    })
+  })
+  it('keeps the whole name outside a group or when nothing would be left', () => {
+    expect(splitName('h3-quality')).toEqual({ said: '', own: 'h3-quality' })
+    expect(splitName('qa-', 'qa')).toEqual({ said: '', own: 'qa-' })
   })
 })

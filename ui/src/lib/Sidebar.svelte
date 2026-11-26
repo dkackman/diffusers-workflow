@@ -25,7 +25,7 @@
   import NewWorkspace from './NewWorkspace.svelte'
   import { formatBytes } from './format'
   import { wsColor } from './wsColor'
-  import { groupWorkspaces } from './wsGroups'
+  import { groupWorkspaces, splitName } from './wsGroups'
   import { hiddenWorkspaces } from './hiddenWorkspaces.svelte'
   import { storageGet, storageSet } from './storage'
 
@@ -95,7 +95,16 @@
   let draft = $state('')
 </script>
 
-{#snippet wsRow(name: string)}
+<!-- under a group header the shared prefix is read out, not drawn: it would
+     take the width that tells the rows apart -->
+{#snippet wsName(name: string, prefix?: string)}
+  {@const { said, own } = splitName(name, prefix)}
+  <span class="name"
+    >{#if said}<span class="sr-only">{said}</span>{/if}{own}</span
+  >
+{/snippet}
+
+{#snippet wsRow(name: string, prefix?: string)}
   {#if name === expanded}
     <!-- The open workspace is one block: a --select rail and tint
                behind its name and sections, a guide line down its children,
@@ -107,7 +116,7 @@
         <span class="wsname" title={name}>
           <ChevronDown size={13} class="chev" />
           <span class="dot"></span>
-          <span class="name">{name}</span>
+          {@render wsName(name, prefix)}
           {#if workspace.usage[name]}
             <span
               class="num muted size"
@@ -152,7 +161,7 @@
     >
       <ChevronRight size={13} class="chev" />
       <span class="dot"></span>
-      <span class="name">{name}</span>
+      {@render wsName(name, prefix)}
       {#if workspace.usage[name]}
         <span class="num muted size">
           {formatBytes(workspace.usage[name].bytes)}
@@ -208,7 +217,9 @@
             </button>
             {#if isOpen}
               <div class="groupkids">
-                {#each entry.names as name (name)}{@render wsRow(name)}{/each}
+                {#each entry.names as name (name)}
+                  {@render wsRow(name, entry.prefix)}
+                {/each}
               </div>
             {/if}
           {/if}
