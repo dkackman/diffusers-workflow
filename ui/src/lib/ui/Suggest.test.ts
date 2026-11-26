@@ -25,6 +25,13 @@ it('offers the suggestions that match what was typed', async () => {
   await waitFor(() => expect(options()).toEqual(['FluxPipeline']))
 })
 
+it('matches every typed word, in any order, as the list pages do', async () => {
+  render(Suggest, { props: { id: 'cls', value: '', suggestions } })
+  const input = screen.getByRole('combobox')
+  await fireEvent.input(input, { target: { value: 'pipeline  IMAGE' } })
+  await waitFor(() => expect(options()).toEqual(['ZImagePipeline']))
+})
+
 it('takes a chosen suggestion as the value', async () => {
   const onchange = vi.fn()
   render(Suggest, { props: { id: 'cls', value: '', suggestions, onchange } })

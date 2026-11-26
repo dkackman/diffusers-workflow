@@ -19,16 +19,3 @@ export type SuggestItem = {
    * prefix - so the field keeps its focus and the list carries on */
   continues?: boolean
 }
-
-/** Whether every whitespace-separated word of `query` occurs somewhere in
- * `haystack`, ignoring case - so 'pri' finds cast/priya.png and
- * 'castle dusk' finds a prompt whose text mentions both. An empty query
- * matches everything. */
-export function matchesWords(query: string, ...haystack: string[]): boolean {
-  const text = haystack.join('\n').toLowerCase()
-  return query
-    .toLowerCase()
-    .split(/\s+/)
-    .filter(Boolean)
-    .every((word) => text.includes(word))
-}
