@@ -3544,8 +3544,11 @@ pick from. Returns a bare number, so the step takes no `result` block.
 | `max_new_tokens` | No | Default `20` |
 
 Decoding is greedy, so a score reproduces. The first number in the reply is
-the score, not clamped to `scale`; a reply with no number is refused ("could
-not parse a score"). **Example:** [best-of-n-to-video.json](../workflows/templates/best-of-n-to-video.json)
+the score, not clamped to `scale`. A reply with no number is asked once more,
+for digits only. If that reply has none either, the step still succeeds: the
+score is `low`, and the job's `warnings` carry both replies. `select` takes
+that as the worst score under `argmax` and `first_above`, and as the best under
+`argmin` and `first_below`. **Example:** [best-of-n-to-video.json](../workflows/templates/best-of-n-to-video.json)
 
 ## Composing Text
 
