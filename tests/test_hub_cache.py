@@ -7,6 +7,7 @@ import os
 import pytest
 
 from dw.hub_cache import scan_models, delete_model, repo_download_incomplete
+from dw.plan_downloads import downloads_required
 
 
 def make_repo(cache_dir, name="tiny", commit="aaaa1111", size=64):
@@ -177,6 +178,31 @@ class TestRepoDownloadIncomplete:
         index["vae"] = ["diffusers", "AutoencoderKL"]
         (snapshot / "model_index.json").write_text(json.dumps(index))
         assert repo_download_incomplete("acme/pipe", cache_dir=tmp_path) is True
+
+    @pytest.mark.parametrize(
+        "value", [[2, 5, 8, 11], ["a", "b", "c"], [None, None], []]
+    )
+    def test_an_index_entry_that_names_no_component_needs_no_folder(
+        self, tmp_path, value
+    ):
+        # Krea 2's index carries `text_encoder_select_layers`, a list of ints,
+        # which was read as a component never fetched (#1741)
+        repo = make_pipeline_repo(
+            tmp_path,
+            components={"unet": ["diffusion_pytorch_model.safetensors"]},
+        )
+        snapshot = repo / "snapshots" / "aaaa1111"
+        index = json.loads((snapshot / "model_index.json").read_text())
+        index["text_encoder_select_layers"] = value
+        (snapshot / "model_index.json").write_text(json.dumps(index))
+
+        assert repo_download_incomplete("acme/pipe", cache_dir=tmp_path) is False
+        definition = {
+            "steps": [
+                {"pipeline": {"from_pretrained_arguments": {"model_name": "acme/pipe"}}}
+            ]
+        }
+        assert downloads_required(definition, None, None, str(tmp_path), False) == []
 
     def test_a_component_key_that_leaves_the_snapshot_is_not_followed(self, tmp_path):
         # model_index.json comes from whoever published the repo: a key that
@@ -604,8 +630,6 @@ class TestSkippedComponentsInDownloadsRequired:
     }
 
     def _required(self, tmp_path, components, skipped):
-        from dw.plan_downloads import downloads_required
-
         # SD 1.5's index names safety_checker whether or not it was fetched
         repo = make_pipeline_repo(tmp_path, components=components)
         snapshot = repo / "snapshots" / "aaaa1111"

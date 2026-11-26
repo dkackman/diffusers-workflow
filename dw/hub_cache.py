@@ -148,6 +148,19 @@ def _model_repo_incomplete(snapshot):
     return _component_incomplete(snapshot, None, class_name)
 
 
+def _is_component_spec(value):
+    """Whether a model_index.json value names a component to load: a
+    [library, class] pair of strings. The index also holds list-valued
+    settings (Krea 2's `text_encoder_select_layers`) and `[null, null]` for
+    an optional component the pipeline ships without; neither has a folder
+    to fetch (#1741)."""
+    return (
+        isinstance(value, list)
+        and len(value) == 2
+        and all(isinstance(part, str) for part in value)
+    )
+
+
 def _component_incomplete(folder, variant, class_name=None):
     """Whether a diffusers pipeline component's folder is missing files a
     load would need. The rule, by `class_name` (#894):
@@ -256,7 +269,7 @@ def repo_download_incomplete(repo_id, cache_dir=None, variant=None, skip=()):
         return False
 
     for key, value in index.items():
-        if key.startswith("_") or not isinstance(value, list):
+        if key.startswith("_") or not _is_component_spec(value):
             continue
         # A component is a folder beside model_index.json. The file comes
         # from whoever published the repo, so an absolute or '..' key would
@@ -266,8 +279,7 @@ def repo_download_incomplete(repo_id, cache_dir=None, variant=None, skip=()):
             continue
         if key in skip:
             continue
-        class_name = value[1] if len(value) > 1 else None
-        if _component_incomplete(os.path.join(snapshot, key), variant, class_name):
+        if _component_incomplete(os.path.join(snapshot, key), variant, value[1]):
             return True
     return False
 
