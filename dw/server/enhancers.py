@@ -87,7 +87,8 @@ def build_enhance_workflow(preset_key, idea, model_name=None, device=None):
     Args:
         preset_key: Key into PRESETS
         idea: The idea text to expand
-        model_name: LLM repo id; the preset's default when omitted
+        model_name: LLM repo id; when omitted, the h3 builtin's own
+            `model_name` default, or t2i's `default_model`
         device: Device override for the language model; the workflow or
             task default (cpu) when omitted
 
@@ -105,17 +106,22 @@ def build_enhance_workflow(preset_key, idea, model_name=None, device=None):
     if not idea or not idea.strip():
         raise ValueError("Provide an idea to enhance")
 
-    model = model_name or preset["default_model"]
-
     if "workflow" in preset:
-        arguments = {"prompt": idea, "model_name": model}
+        # The builtin's own `model_name` variable decides when the caller
+        # names none, so the model that runs is declared in one place;
+        # `default_model` advertises it (pinned equal by
+        # tests/test_recorded_numerics.py, #1643)
+        arguments = {"prompt": idea}
+        if model_name:
+            arguments["model_name"] = model_name
         if device:
             arguments["device"] = device
         action = {"workflow": {"path": preset["workflow"], "arguments": arguments}}
     else:
         arguments = {
             "prompt": idea,
-            "model_name": model,
+            # t2i has no workflow behind it, so its default is the preset's
+            "model_name": model_name or preset["default_model"],
             "system_prompt": preset["system_prompt"],
             "max_new_tokens": 400,
         }
