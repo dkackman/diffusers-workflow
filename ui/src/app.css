@@ -19,7 +19,7 @@
  *   it in the sidebar and breadcrumb. It is identity, not state.
  *
  * Where `--live` and `--select` may appear is held by
- * scripts/design-rules.test.ts; shared classes overflow into patterns.css.
+ * scripts/design-rules.test.ts; shared component classes live in patterns.css.
  * Interactive elements are ink - the primary button is a solid ink fill,
  * links are ink with an underline - so nothing in the chrome competes.
  *
