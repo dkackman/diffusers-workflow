@@ -14,8 +14,12 @@
 // be in HELPER_EXCEPTIONS with the reason beside it. A file that has a
 // `resource(` calls each reading helper inside a resource's load, or the
 // call is in HELPER_CALL_EXCEPTIONS by file and name, so a second read
-// beside a watched one fails too. Only the script is read: a helper called
-// from the markup (an `onclick`) is out of reach. One import level is
+// beside a watched one fails too. Both scripts are read (`<script module>`
+// and the instance script), not the markup: a helper called from it (an
+// `onclick`) is out of reach. A use of a helper is a reference to its
+// top-level name, never a property key or a shadowing local of that name.
+// `declarations` must handle the same statement kinds as arch-metrics.mjs's
+// `declared`, the writes side of this walk. One import level is
 // followed: a helper that reaches the api through another module (two or
 // more levels) is out of reach here and of the metric. `.svelte.ts` stores
 // are not in this table: the metric measures their reads itself, and each one
@@ -214,9 +218,14 @@ interface Read {
   valueImports: { from: string; names: string[] }[]
 }
 
-function read(source: string): Read {
+/** A component's code: its `<script module>` and its instance script */
+function scripts(source: string): unknown[] {
   const ast = parse(source, { modern: true })
-  const script = ast.instance?.content
+  return [ast.module?.content, ast.instance?.content]
+}
+
+function read(source: string): Read {
+  const script = scripts(source)
   const calls = [...nodes(script)].filter((n) => n.type === 'CallExpression')
   const imports = [...nodes(script)].filter(
     (n) => n.type === 'ImportDeclaration',
@@ -282,27 +291,110 @@ function declarations(file: ts.SourceFile) {
   return { local, exported }
 }
 
+/** The names a binding (`x`, `{ a, b: c }`, `[d, ...e]`) introduces */
+function bindingNames(name: ts.BindingName): string[] {
+  if (ts.isIdentifier(name)) return [name.text]
+  return name.elements.flatMap((e) =>
+    ts.isOmittedExpression(e) ? [] : bindingNames(e.name),
+  )
+}
+
+/** The names statements declare directly (not in a nested block) */
+const statementNames = (statements: readonly ts.Statement[]): string[] =>
+  statements.flatMap((s) =>
+    ts.isVariableStatement(s)
+      ? s.declarationList.declarations.flatMap((d) => bindingNames(d.name))
+      : (ts.isFunctionDeclaration(s) || ts.isClassDeclaration(s)) && s.name
+        ? [s.name.text]
+        : [],
+  )
+
+/** The names a function, block, loop or catch clause declares for its own
+ * body: its parameters, and its directly declared `const`/`let`/`var`,
+ * functions and classes */
+function scopeNames(n: ts.Node): string[] {
+  if (ts.isFunctionLike(n)) {
+    const own = ts.isFunctionExpression(n) && n.name ? [n.name.text] : []
+    const body = 'body' in n ? (n.body as ts.Node | undefined) : undefined
+    return [
+      ...own,
+      ...n.parameters.flatMap((p) => bindingNames(p.name)),
+      ...(body && ts.isBlock(body) ? statementNames(body.statements) : []),
+    ]
+  }
+  if (ts.isBlock(n) || ts.isCaseBlock(n))
+    return ts.isBlock(n)
+      ? statementNames(n.statements)
+      : n.clauses.flatMap((c) => statementNames(c.statements))
+  if (
+    (ts.isForStatement(n) ||
+      ts.isForOfStatement(n) ||
+      ts.isForInStatement(n)) &&
+    n.initializer &&
+    ts.isVariableDeclarationList(n.initializer)
+  )
+    return n.initializer.declarations.flatMap((d) => bindingNames(d.name))
+  if (ts.isCatchClause(n) && n.variableDeclaration)
+    return bindingNames(n.variableDeclaration.name)
+  return []
+}
+
+/** A key, not a reference: the name side of `x.name`, or the name of a
+ * property, method or destructured property (`{ name: local }`) */
+const isKey = (id: ts.Identifier): boolean => {
+  const p = id.parent
+  return (
+    ((ts.isPropertyAccessExpression(p) ||
+      ts.isPropertyAssignment(p) ||
+      ts.isPropertyDeclaration(p) ||
+      ts.isPropertySignature(p) ||
+      ts.isMethodDeclaration(p) ||
+      ts.isMethodSignature(p) ||
+      ts.isGetAccessorDeclaration(p) ||
+      ts.isSetAccessorDeclaration(p)) &&
+      p.name === id) ||
+    (ts.isBindingElement(p) && p.propertyName === id)
+  )
+}
+
+/** The top-level names `node`'s code references: an identifier that names
+ * one, outside a key and outside a scope that declares the same name */
+function topLevelUses(node: ts.Node, local: Map<string, ts.Node>) {
+  const used = new Set<string>()
+  const visit = (n: ts.Node, shadowed: ReadonlySet<string>): void => {
+    if (ts.isIdentifier(n)) {
+      if (local.has(n.text) && !shadowed.has(n.text) && !isKey(n))
+        used.add(n.text)
+      return
+    }
+    const own = scopeNames(n)
+    const inner = own.length ? new Set([...shadowed, ...own]) : shadowed
+    ts.forEachChild(n, (c) => visit(c, inner))
+  }
+  visit(node, new Set())
+  return used
+}
+
 /** The names a .ts module exports whose code reaches an `api` read: by
  * calling one, or through another of the module's own declarations that
- * does. A read in a comment is not code, and one made through another
- * module is a second level, out of reach */
+ * does. A use is a reference to the top-level name, so a property key or a
+ * shadowing local of that name is none. A read in a comment is not code,
+ * and one made through another module is a second level, out of reach */
 function readingExports(
   source: string,
   hit: (n: ts.Node) => boolean = isApiRead,
 ): Set<string> {
-  const file = ts.createSourceFile('m.ts', source, ts.ScriptTarget.Latest)
+  const file = ts.createSourceFile('m.ts', source, ts.ScriptTarget.Latest, true)
   const { local, exported } = declarations(file)
   const reads = new Set<string>()
   const uses = new Map<string, Set<string>>()
   for (const [name, node] of local) {
-    const used = new Set<string>()
     const visit = (n: ts.Node): void => {
       if (hit(n)) reads.add(name)
-      if (ts.isIdentifier(n) && local.has(n.text)) used.add(n.text)
       ts.forEachChild(n, visit)
     }
     visit(node)
-    uses.set(name, used)
+    uses.set(name, topLevelUses(node, local))
   }
   for (let grew = true; grew;) {
     grew = false
@@ -415,7 +507,7 @@ function helperCalled(
 /** The reading helpers a file with a `resource(` calls outside every
  * resource's load: a read nothing keeps fresh, beside one that is */
 function strayHelperReads(k: string, source: string, helpers: Helpers) {
-  const script = parse(source, { modern: true }).instance?.content
+  const script = scripts(source)
   const calls = [...nodes(script)].filter((n) => n.type === 'CallExpression')
   const loads = calls
     .filter((c) => calleeName(c) === 'resource')
@@ -733,4 +825,83 @@ export const jobFor = (id: string) => api.getJob(id)`,
       'job/Beside.svelte': { jobFor: 'a click' },
     }),
   ).toEqual(['job/Spaced.svelte: jobFor'])
+})
+
+it('a use of a reading helper is a reference to it, not its name', () => {
+  const helpers = {
+    'job/probe.ts': `import { api } from '../api'
+export const jobsFor = (w: string) => api.listJobs(w)
+export const viaProperty = (o: { jobsFor: () => void }) => o.jobsFor()
+export function viaParameter(jobsFor: () => number) { return jobsFor() }
+export function viaBlock() {
+  const jobsFor = () => 1
+  return jobsFor()
+}
+export const asKey = () => ({ jobsFor: 1 })
+export const viaLocal = () => {
+  const f = jobsFor
+  return f('w')
+}
+export class Lister {
+  jobsFor() { return 1 }
+  all() { return jobsFor('w') }
+}`,
+  }
+  const names = [
+    'jobsFor',
+    'viaProperty',
+    'viaParameter',
+    'viaBlock',
+    'asKey',
+    'viaLocal',
+    'Lister',
+  ]
+  const svelte = Object.fromEntries(
+    names.map((n) => [
+      `job/${n}.svelte`,
+      `<script lang="ts">\n  import { ${n} } from './probe'\n</script>`,
+    ]),
+  )
+  expect(bareHelperReaders(svelte, helpers).sort()).toEqual([
+    'job/Lister.svelte:Lister',
+    'job/jobsFor.svelte:jobsFor',
+    'job/viaLocal.svelte:viaLocal',
+  ])
+})
+
+it("reads a component's <script module> as well as its instance script", () => {
+  const helpers = {
+    'job/probe.ts': `import { api } from '../api'
+export const jobsFor = (w: string) => api.listJobs(w)
+export const jobFor = (id: string) => api.getJob(id)`,
+  }
+  const svelte = {
+    'pages/ModuleOnly.svelte': `<script module lang="ts">
+  import { jobsFor } from '../job/probe'
+</script>
+<script lang="ts">
+  let rows = $state([])
+</script>`,
+    'job/Split.svelte': `<script module lang="ts">
+  import { jobsFor, jobFor } from './probe'
+</script>
+<script lang="ts">
+  const jobs = resource(() => jobsFor('w'), { watch: ['jobs'] })
+  void jobFor('a')
+</script>`,
+    'job/ModuleCall.svelte': `<script module lang="ts">
+  import { jobsFor, jobFor } from './probe'
+  void jobFor('a')
+</script>
+<script lang="ts">
+  const jobs = resource(() => jobsFor('w'), { watch: ['jobs'] })
+</script>`,
+  }
+  expect(bareHelperReaders(svelte, helpers)).toEqual([
+    'pages/ModuleOnly.svelte:jobsFor',
+  ])
+  expect(helperReadsOutsideResources(svelte, helpers)).toEqual([
+    'job/Split.svelte: jobFor',
+    'job/ModuleCall.svelte: jobFor',
+  ])
 })

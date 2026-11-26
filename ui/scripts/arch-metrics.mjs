@@ -684,10 +684,15 @@ const isWriteValue = (node, parent) =>
 
 const within = (range, [s, e]) => range[0] >= s && range[1] <= e
 
-/** What a top-level statement declares: a named function, or each plain
- * identifier a variable declaration binds */
+/** What a top-level statement declares: a named function or class, or each
+ * plain identifier a variable declaration binds. It handles the same
+ * statement kinds as src/lib/freshness.test.ts's `declarations` */
 function declared(decl) {
-  if (decl?.type === 'FunctionDeclaration' && decl.id)
+  if (
+    (decl?.type === 'FunctionDeclaration' ||
+      decl?.type === 'ClassDeclaration') &&
+    decl.id
+  )
     return [{ id: decl.id, node: decl }]
   if (decl?.type !== 'VariableDeclaration') return []
   return decl.declarations

@@ -398,6 +398,41 @@ export { inner as removeInner }
     ])
   })
 
+  it('unguarded_mutations counts an exported class whose method writes, as freshness counts classes', async () => {
+    const { metrics, detail } = await measured({
+      'remover.ts': `import { api } from './api'
+export class Remover {
+  run(name: string) {
+    return api.deleteOutput(name)
+  }
+}
+class Quiet {
+  run() {
+    return api.deleteOutput('q')
+  }
+}
+export const quiet = () => new Quiet()
+export class Labeller {
+  label(name: string) {
+    return name
+  }
+}
+`,
+      'a.svelte': `<script lang="ts">
+  import { Remover, Labeller, quiet } from './remover'
+  const r = new Remover()
+  const q = quiet()
+  const l = new Labeller()
+</script>
+`,
+    })
+    expect(detail.unguarded_mutations).toEqual([
+      expect.stringMatching(/a\.svelte:3 Remover$/),
+      expect.stringMatching(/a\.svelte:4 quiet$/),
+    ])
+    expect(metrics.unguarded_mutations).toBe(2)
+  })
+
   it('banned_terms skips style text and terms.ts', async () => {
     const { metrics, detail } = await measured(
       {
