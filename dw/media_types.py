@@ -164,7 +164,7 @@ class AudioTrack:
                 for a slice whose source was already this quiet (#309)
             asked_seconds: The length a slice was asked for when it kept a
                 shorter source at its own length (slice_audio's
-                `past_end: "stop"`); fade_audio carries it on, and
+                `past_end: "stop"` or `"excerpt"`); fade_audio carries it on, and
                 crossfade_audio reads it to say how far a joined piece fell
                 short of what its sections asked for
             snapped_seconds: How far slice_audio's `end_snap_seconds` moved

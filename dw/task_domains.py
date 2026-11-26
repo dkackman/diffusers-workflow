@@ -128,8 +128,13 @@ FIT_MODES = ("letterbox", "stretch", "crop")
 FIT_FILLS = ("black", "edge", "blur")
 JOIN_WINDOWS_CURVES = ("cosine", "smoothstep", "linear")
 # What slice_audio does with a slice reaching past the end of its source:
-# zero-pad it to the length asked (the default) or stop at the end
-SLICE_PAST_END_CHOICES = ("pad", "stop")
+# zero-pad it to the length asked (the default) or stop at the end - as a
+# section kept whole ("stop"), or as a window out of something longer
+# ("excerpt", #1719), which owes no warning for the source it leaves behind
+SLICE_PAST_END_CHOICES = ("pad", "stop", "excerpt")
+# The values that cut at the end rather than pad: the run and the validator
+# both read the kept length off `slice_kept_length` for these
+SLICE_STOPS_AT_END = ("stop", "excerpt")
 # Declared on each registration (`register_command(choices=...)`)
 TASK_ARGUMENT_CHOICES = RegistryTable("choices")
 # command -> its cross-argument check, `arguments -> [(argument, message)]`
@@ -974,7 +979,7 @@ def slice_region(
 
 
 def slice_kept_length(total, start, length):
-    """A `past_end: "stop"` slice's length in samples: cut at the source's
+    """A `past_end: "stop"` or `"excerpt"` slice's length in samples: cut at the source's
     end (`total`) rather than padded past it. The one rule the run and the
     validator share (#1427); never negative."""
     return max(min(length, total - start), 0)

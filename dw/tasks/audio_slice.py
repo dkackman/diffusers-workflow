@@ -1,7 +1,8 @@
 """The slice_audio task: cut a slice out of an audio track, by seconds or
 by video frames, with the warnings a slice owes its caller - a slice past
 the end of its source, a dropped tail that was likely wanted, and a
-section's tail cut while still playing.
+section's tail cut while still playing. An excerpt (`past_end: "excerpt"`)
+owes neither tail warning.
 
 Split out of `audio_utils.py`, whose `as_track` and `waveform_and_rate`
 this module reads; `audio_utils` never imports it.
@@ -13,6 +14,7 @@ from ..dsp import level_dbfs, slice_samples
 from ..events import emit_log, emit_warning
 from ..task_domains import (
     SLICE_PAST_END_CHOICES,
+    SLICE_STOPS_AT_END,
     check_arguments,
     real_number,
     slice_kept_length,
@@ -94,6 +96,14 @@ def slice_audio(
     kept part's) warns 'slice_dropped_loud_tail' whatever the tail's length:
     the section was cut while it was still playing.
 
+    'past_end' "excerpt" cuts at the end the way "stop" does - no padding,
+    logged when the source keeps it short, and a slice starting at or past
+    the end refused - but declares the slice a window out of something
+    longer, not a section: what it leaves behind is not lost, so it warns
+    neither 'slice_dropped_loud_tail' nor 'slice_trimmed_tail'. A bed taken
+    from a stretch of a cut's own sound wants this (#1719). "stop" is a
+    section kept whole; "excerpt" is a window out of something longer.
+
     'end_snap_seconds' (off by default; 0 is off too) moves an end that cuts
     into the source back to the quietest point - the lowest RMS over a
     SLICE_SNAP_WINDOW_SECONDS window - within that many seconds before it
@@ -169,15 +179,17 @@ def slice_audio(
         waveform, total, start, length, sample_rate, past_end, end_snap_seconds
     )
     _warn_on_slice_past_end(total, start, length, sample_rate)
-    _warn_on_slice_trims_tail(
-        waveform,
-        total,
-        start,
-        length,
-        sample_rate,
-        section=past_end == "stop",
-        snapped_seconds=snapped_seconds,
-    )
+    # An excerpt leaves the rest of its source behind on purpose (#1719)
+    if past_end != "excerpt":
+        _warn_on_slice_trims_tail(
+            waveform,
+            total,
+            start,
+            length,
+            sample_rate,
+            section=past_end == "stop",
+            snapped_seconds=snapped_seconds,
+        )
     if start:
         _log_slice_start(start, length, sample_rate, start_frame)
     # #309: a cut out of a source that was already near-silent (room tone,
@@ -260,13 +272,13 @@ def _end_of_slice(
     waveform, total, start, length, sample_rate, past_end, end_snap_seconds
 ):
     """(length, asked_seconds, snapped_seconds): the slice's length once a
-    `past_end: "stop"` cut and an `end_snap_seconds` move have been made,
+    `past_end: "stop"`/`"excerpt"` cut and an `end_snap_seconds` move have been made,
     the length asked for when either changed it, and how far the snap moved
     the end (None when it did not)."""
     asked_seconds = None
-    if past_end == "stop":
+    if past_end in SLICE_STOPS_AT_END:
         asked_seconds = length / float(sample_rate)
-        length = _stop_at_the_end(total, start, length, sample_rate)
+        length = _stop_at_the_end(total, start, length, sample_rate, past_end)
     snapped_seconds = None
     if end_snap_seconds:
         snapped = _snap_end_to_quiet(
@@ -327,21 +339,22 @@ def _snap_end_to_quiet(waveform, total, start, length, sample_rate, window_secon
     return cut - start
 
 
-def _stop_at_the_end(total, start, length, sample_rate):
-    """A `past_end: "stop"` slice's length: cut at the end of the source
-    rather than padded past it, and logged when that keeps it short."""
+def _stop_at_the_end(total, start, length, sample_rate, past_end="stop"):
+    """A `past_end: "stop"` or `"excerpt"` slice's length: cut at the end of
+    the source rather than padded past it, and logged when that keeps it
+    short."""
     if start >= total:
         raise ValueError(
             f"slice_audio starts {start / float(sample_rate):.2f} s in, at or "
             f"past the end of a {total / float(sample_rate):.2f} s source, so "
-            f"with 'past_end' \"stop\" there is nothing to keep"
+            f"with 'past_end' \"{past_end}\" there is nothing to keep"
         )
     kept = slice_kept_length(total, start, length)
     if kept < length:
         emit_log(
             f"slice_audio: the source ends {kept / float(sample_rate):.2f} s "
             f"in, so it is kept at that length of the "
-            f"{length / float(sample_rate):.2f} s asked ('past_end' \"stop\")",
+            f"{length / float(sample_rate):.2f} s asked ('past_end' \"{past_end}\")",
             command="slice_audio",
             seconds=round(kept / float(sample_rate), 3),
             asked_seconds=round(length / float(sample_rate), 3),
