@@ -61,6 +61,18 @@ def venv_bin(name: str, root: Path | None = None, platform: str | None = None) -
     return venv / "bin" / name
 
 
+def beside_python(name: str, platform: str | None = None) -> Path:
+    """The executable `name` beside the interpreter running now.
+
+    Everything setup registers (the service's dw-serve, Claude's dw-mcp, the
+    Update button's `dw setup`) names this, not the install root's venv: a
+    checkout running `venv/bin/dw setup` then registers its own venv, and an
+    installed copy's interpreter is the install root's venv anyway.
+    """
+    suffix = ".exe" if (platform or sys.platform) == "win32" else ""
+    return Path(sys.executable).parent / f"{name}{suffix}"
+
+
 def _read_json(path: Path, what: str) -> dict:
     try:
         text = path.read_text(encoding="utf-8")

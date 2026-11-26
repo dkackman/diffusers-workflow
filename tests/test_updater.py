@@ -16,6 +16,7 @@ from dw.server.updater import (
     build_pip_commands,
     release_floor,
 )
+from dw.server.updater import git_usable as real_git_usable
 
 
 class TestBuildPipCommands:
@@ -238,3 +239,75 @@ class TestWithoutGit:
         )
         monkeypatch.setattr("importlib.metadata.distribution", lambda name: fake)
         assert updater.diffusers_install_info()["commit"] == "b" * 40
+
+
+class TestGitUsable:
+    """The real probe (conftest pins `updater.git_usable` to True for the rest)."""
+
+    @staticmethod
+    def probe(monkeypatch, which, results):
+        ran = []
+
+        def fake_run(args, **kwargs):
+            ran.append(list(args))
+            return SimpleNamespace(returncode=results.get(args[0], 0))
+
+        monkeypatch.setattr(updater.shutil, "which", lambda name: which)
+        monkeypatch.setattr(updater.subprocess, "run", fake_run)
+        return ran
+
+    def test_an_installed_copy_always_uses_the_archive(self, tmp_path, monkeypatch):
+        (tmp_path / "install-root").mkdir(exist_ok=True)
+        (tmp_path / "install-root" / "install.json").write_text("{}")
+        ran = self.probe(monkeypatch, "/opt/homebrew/bin/git", {})
+        assert real_git_usable(platform="darwin") is False and ran == []
+
+    def test_no_git_on_path(self, monkeypatch):
+        self.probe(monkeypatch, None, {})
+        assert real_git_usable(platform="linux") is False
+
+    def test_a_working_git_counts(self, monkeypatch):
+        ran = self.probe(monkeypatch, "/usr/bin/git", {})
+        assert real_git_usable(platform="linux") is True
+        assert ran == [["/usr/bin/git", "--version"]]
+
+    def test_a_failing_git_does_not_count(self, monkeypatch):
+        self.probe(monkeypatch, "/usr/bin/git", {"/usr/bin/git": 1})
+        assert real_git_usable(platform="linux") is False
+
+    def test_the_macos_stub_is_not_run_without_the_command_line_tools(
+        self, monkeypatch
+    ):
+        ran = self.probe(monkeypatch, "/usr/bin/git", {"xcode-select": 2})
+        assert real_git_usable(platform="darwin") is False
+        assert ran == [["xcode-select", "-p"]]
+
+    def test_the_macos_stub_counts_with_the_command_line_tools(self, monkeypatch):
+        ran = self.probe(monkeypatch, "/usr/bin/git", {})
+        assert real_git_usable(platform="darwin") is True
+        assert ran == [["xcode-select", "-p"], ["/usr/bin/git", "--version"]]
+
+    def test_build_pip_commands_without_usable_git_uses_the_archive(self, monkeypatch):
+        monkeypatch.setattr(updater, "git_usable", lambda platform=None: False)
+        monkeypatch.setattr(updater, "main_commit", lambda fetch=None: "e" * 40)
+        assert build_pip_commands()[0][-1].endswith(f"{'e' * 40}.zip")
+
+
+class TestRunCommands:
+    def test_stops_at_the_first_failure_and_keeps_every_output(self, monkeypatch):
+        calls = []
+
+        def fake_run(args, **kwargs):
+            calls.append(args)
+            assert kwargs.get("shell", False) is False
+            return SimpleNamespace(
+                returncode=len(calls) - 1, stdout=f"o{len(calls)}", stderr="e"
+            )
+
+        monkeypatch.setattr(updater.subprocess, "run", fake_run)
+        result = updater.run_commands([["a"], ["b"], ["c"]])
+        assert calls == [["a"], ["b"]] and result.returncode == 1
+        assert result.stdout == "o1\no2"
+
+    def test_no_commands_succeed(self):
+        assert updater.run_commands([]).returncode == 0

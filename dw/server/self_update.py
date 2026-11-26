@@ -5,7 +5,8 @@ under a service manager that restarts it. Only that server may update itself:
 pip upgrades `diffusers-workflow[server,mcp]` in this venv with the installed
 torch pinned by a constraints file (an unpinned upgrade could swap a CUDA build
 for another), diffusers moves to main as the Update from GitHub button does,
-`dw setup` refreshes the registrations, and the server then exits with
+`dw setup` refreshes the registrations (best effort: the packages are in
+place whether or not it succeeds), and the server then exits with
 RESTART_EXIT_CODE through its normal graceful shutdown so the workers stop as
 they do on Ctrl-C. launchd KeepAlive and systemd Restart=always restart on any
 exit; Windows Task Scheduler restarts only on a non-zero one, hence 75.
@@ -17,7 +18,6 @@ this button's business.
 
 import logging
 import signal
-import subprocess
 import sys
 import tempfile
 import threading
@@ -25,9 +25,9 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from ..security import sanitize_command_args, validate_url
-from ..setup_state import read_install_record, venv_bin
-from .updater import LOG_TAIL_LINES, PIP_TIMEOUT_SECONDS, build_pip_commands
+from ..security import validate_url
+from ..setup_state import beside_python, read_install_record
+from .updater import LOG_TAIL_LINES, build_pip_commands, run_commands
 
 logger = logging.getLogger("dw")
 
@@ -138,31 +138,40 @@ def build_upgrade_commands(
     return [
         command,
         *build_pip_commands(python=python, git=git),
-        [str(venv_bin("dw")), "setup", "--yes", "--no-open", "--no-service"],
+        [str(beside_python("dw")), "setup", "--yes", "--no-open", "--no-service"],
     ]
 
 
 def _run_commands():
-    """Run each command, stopping at the first failure."""
-    commands = build_upgrade_commands(
+    """Run the pip steps, stopping at the first failure, then the
+    registration refresh. The refresh is best effort: once pip has put the
+    new packages in place the server has to restart to run them, so a
+    failed `dw setup` is logged (its output joins the log) and the run
+    still succeeds."""
+    *installs, refresh = build_upgrade_commands(
         sys.executable, installed_torch_version(), torch_index_from_record()
     )
-    stdout, stderr = [], []
-    completed = None
-    for command in commands:
-        completed = subprocess.run(
-            sanitize_command_args(command),
-            capture_output=True,
-            text=True,
-            timeout=PIP_TIMEOUT_SECONDS,
+    result = run_commands(installs)
+    if result.returncode != 0:
+        return result
+    try:
+        refreshed = run_commands([refresh])
+        failure = (
+            f"exited with code {refreshed.returncode}" if refreshed.returncode else None
         )
-        stdout.append(completed.stdout or "")
-        stderr.append(completed.stderr or "")
-        if completed.returncode != 0:
-            break
+    except Exception as e:  # a missing dw script, a timeout
+        refreshed, failure = SimpleNamespace(stdout="", stderr=""), str(e)
+    stderr = [result.stderr, refreshed.stderr]
+    if failure:
+        message = (
+            f"the registration refresh (`dw setup`) {failure}; the update is "
+            "installed - run `dw setup` again after the restart"
+        )
+        logger.warning(f"dw update: {message}")
+        stderr.append(message)
     return SimpleNamespace(
-        returncode=completed.returncode,
-        stdout="\n".join(stdout),
+        returncode=0,
+        stdout="\n".join([result.stdout, refreshed.stdout]),
         stderr="\n".join(stderr),
     )
 

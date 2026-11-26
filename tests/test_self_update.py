@@ -2,7 +2,9 @@
 latest-release lookup and the restart exit. Nothing here runs pip, reaches the
 network or stops the test process."""
 
+import sys
 import time
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -61,6 +63,53 @@ class TestUpgradeCommands:
         assert self_update.torch_index_from_record() is None
         monkeypatch.setattr(self_update, "read_install_record", lambda: None)
         assert self_update.torch_index_from_record() is None
+
+
+class TestRunCommands:
+    @staticmethod
+    def wire(monkeypatch, codes, error=None):
+        ran = []
+
+        def run_commands(commands):
+            ran.append(commands)
+            if error is not None and commands == [["dw", "setup"]]:
+                raise error
+            code = codes.pop(0)
+            return SimpleNamespace(returncode=code, stdout=f"out{code}", stderr="")
+
+        monkeypatch.setattr(
+            self_update,
+            "build_upgrade_commands",
+            lambda *a, **k: [["pip", "dw"], ["pip", "diffusers"], ["dw", "setup"]],
+        )
+        monkeypatch.setattr(self_update, "installed_torch_version", lambda: None)
+        monkeypatch.setattr(self_update, "run_commands", run_commands)
+        return ran
+
+    def test_the_refresh_runs_after_the_installs(self, monkeypatch):
+        ran = self.wire(monkeypatch, [0, 0])
+        assert self_update._run_commands().returncode == 0
+        assert ran == [[["pip", "dw"], ["pip", "diffusers"]], [["dw", "setup"]]]
+
+    def test_a_failed_install_stops_before_the_refresh(self, monkeypatch):
+        ran = self.wire(monkeypatch, [3])
+        assert self_update._run_commands().returncode == 3 and len(ran) == 1
+
+    def test_a_failed_refresh_still_succeeds_and_says_so(self, monkeypatch, caplog):
+        self.wire(monkeypatch, [0, 1])
+        result = self_update._run_commands()
+        assert result.returncode == 0
+        assert "registration refresh" in result.stderr
+        assert "registration refresh" in caplog.text
+
+    def test_a_refresh_that_cannot_start_still_succeeds(self, monkeypatch):
+        self.wire(monkeypatch, [0], error=FileNotFoundError("no dw"))
+        result = self_update._run_commands()
+        assert result.returncode == 0 and "no dw" in result.stderr
+
+    def test_the_refresh_is_the_dw_beside_the_interpreter(self, tmp_path):
+        cmds = build_upgrade_commands("/v/py", None, None, tmp_path, git=True)
+        assert Path(cmds[-1][0]).parent == Path(sys.executable).parent
 
 
 class TestInstallCommand:

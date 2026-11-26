@@ -119,6 +119,67 @@ def main_commit(fetch=None):
     return sha
 
 
+def _probe(args):
+    """Whether `args` runs and exits 0, quietly and briefly."""
+    try:
+        result = subprocess.run(
+            sanitize_command_args(args), capture_output=True, text=True, timeout=10
+        )
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return False
+    return result.returncode == 0
+
+
+def git_usable(platform=None):
+    """Whether pip can clone with git here.
+
+    An installed copy (one with an install record) always uses the archive:
+    what it installs must not depend on whether the person happens to have
+    git. Otherwise git counts only when `git --version` works. On macOS
+    /usr/bin/git is the xcrun stub on every Mac: without the Command Line
+    Tools it fails, and running it pops the Tools installer, so the stub is
+    tried only once `xcode-select -p` reports the Tools are there.
+    """
+    from ..setup_state import read_install_record
+
+    try:
+        if read_install_record() is not None:
+            return False
+    except Exception:
+        return False
+    git = shutil.which("git")
+    if git is None:
+        return False
+    if (platform or sys.platform) == "darwin" and git == "/usr/bin/git":
+        if not _probe(["xcode-select", "-p"]):
+            return False
+    return _probe([git, "--version"])
+
+
+def run_commands(commands, timeout=PIP_TIMEOUT_SECONDS):
+    """Run each command without a shell, stopping at the first failure; the
+    result carries the last command's return code and every command's
+    output."""
+    stdout, stderr = [], []
+    completed = None
+    for command in commands:
+        completed = subprocess.run(
+            sanitize_command_args(command),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        stdout.append(completed.stdout or "")
+        stderr.append(completed.stderr or "")
+        if completed.returncode != 0:
+            break
+    return SimpleNamespace(
+        returncode=completed.returncode if completed is not None else 0,
+        stdout="\n".join(stdout),
+        stderr="\n".join(stderr),
+    )
+
+
 def build_pip_commands(commit=None, revert=False, python=None, git=None):
     """The pip commands, run in order, for one of three installs: HEAD, a
     pinned commit, or a revert to the pyproject.toml release floor.
@@ -137,12 +198,16 @@ def build_pip_commands(commit=None, revert=False, python=None, git=None):
     plain install of the package name, then adds any dependency the new
     commit requires - no URL, so no second clone, and no --upgrade, so the
     git build stays.
+
+    Without git (`git_usable`, or `git=False`) the target is the GitHub
+    archive of one full commit; with no `commit` that branch reads main's
+    sha from the GitHub API, so building the commands can reach the network.
     """
     pip = [python or sys.executable, "-m", "pip", "install"]
     if revert:
         return [pip + [f"{PYPI_PACKAGE}=={release_floor()}"]]
     if git is None:
-        git = shutil.which("git") is not None
+        git = git_usable()
     if git:
         target = DIFFUSERS_GIT_URL if not commit else f"{DIFFUSERS_GIT_URL}@{commit}"
     else:
@@ -181,27 +246,8 @@ class DiffusersUpdater:
 
     @staticmethod
     def _run_pip(commit=None, revert=False):
-        """Run each command in turn, stopping at the first failure; the
-        result carries the last command's return code and every command's
-        output."""
-        stdout, stderr = [], []
-        completed = None
-        for command in build_pip_commands(commit=commit, revert=revert):
-            completed = subprocess.run(
-                sanitize_command_args(command),
-                capture_output=True,
-                text=True,
-                timeout=PIP_TIMEOUT_SECONDS,
-            )
-            stdout.append(completed.stdout or "")
-            stderr.append(completed.stderr or "")
-            if completed.returncode != 0:
-                break
-        return SimpleNamespace(
-            returncode=completed.returncode,
-            stdout="\n".join(stdout),
-            stderr="\n".join(stderr),
-        )
+        """Run the pip commands in turn (`run_commands`)."""
+        return run_commands(build_pip_commands(commit=commit, revert=revert))
 
     def start(self, on_success=None, commit=None, revert=False):
         """Begin the upgrade; returns the status dict. Raises ValueError if
