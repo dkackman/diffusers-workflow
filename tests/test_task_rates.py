@@ -76,6 +76,20 @@ class TestTheRegistry:
         assert "separate_stems" not in RATES
 
 
+def test_the_price_reads_media_by_the_location_checks_rule():
+    """One predicate owns which arguments are media: the declared-rate probe
+    asks dw/locations.py rather than writing the rule out again."""
+    import dw.plan_pricing
+    from dw.locations import is_media_argument
+
+    assert not hasattr(dw.plan_pricing, "_is_media_argument")
+    assert is_media_argument("media", "apply_lut")
+    assert not is_media_argument("media")
+    assert is_media_argument("latent_anchor")
+    assert is_media_argument("input_video")
+    assert not is_media_argument("strength", "film_grain")
+
+
 class TestThePrice:
     def test_two_steps_sum_scaled_by_the_inputs_length(self, tmp_path):
         write_wav(tmp_path / "a.wav", 62)

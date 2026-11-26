@@ -348,16 +348,6 @@ def undeclared_task_commands(definition):
     )
 
 
-def _is_media_argument(command, name):
-    from .locations import MEDIA_KEY_NAMES, MEDIA_KEY_SUFFIXES, TASK_MEDIA_ARGUMENTS
-
-    return (
-        name in MEDIA_KEY_NAMES
-        or name.endswith(MEDIA_KEY_SUFFIXES)
-        or name in TASK_MEDIA_ARGUMENTS.get(command, ())
-    )
-
-
 def _media_seconds(path, probes):
     """A probed file's length in seconds, or None, memoised in `probes`."""
     if path not in probes:
@@ -379,11 +369,12 @@ def _step_input_seconds(command, arguments, base_dir, probes):
     argument's length, a list argument summed over its entries (a join's
     `videos`), or None when none resolved. `deferred` is whether an input
     is an earlier step's output, unknown until the run."""
+    from .locations import is_media_argument
     from .probe_paths import resolve_probe_path
 
     longest, deferred = None, False
     for name, value in (arguments or {}).items():
-        if not isinstance(name, str) or not _is_media_argument(command, name):
+        if not is_media_argument(name, command):
             continue
         values = value if isinstance(value, list) else [value]
         total, found = 0.0, False

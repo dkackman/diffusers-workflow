@@ -592,11 +592,16 @@ SAFETENSORS_SUFFIX = ".safetensors"
 # ------------------------------------------------------------- validation
 
 
-def _is_media_key(key):
+def is_media_argument(key, command=None):
+    """Whether an argument names media: named like its media (MEDIA_KEY_NAMES,
+    a MEDIA_KEY_SUFFIXES ending, PIPELINE_MEDIA_ARGUMENTS), or declared by
+    `command`'s `media_arguments` (TASK_MEDIA_ARGUMENTS). The one rule the
+    location check and the declared-rate probe (dw/plan_pricing.py) share."""
     return isinstance(key, str) and (
         key in MEDIA_KEY_NAMES
         or key in PIPELINE_MEDIA_ARGUMENTS
         or key.endswith(MEDIA_KEY_SUFFIXES)
+        or (command is not None and key in TASK_MEDIA_ARGUMENTS.get(command, ()))
     )
 
 
@@ -820,7 +825,7 @@ def _named_value_errors(key, value, here, base_dir, errors, weight_rules):
 def _media_value_errors(key, value, here, base_dir, errors):
     """Check the media a key's value names: a media key's, a voice map's
     references, and a `urls` list's."""
-    if _is_media_key(key):
+    if is_media_argument(key):
         for sub_path, item in _each(value, here):
             message = _check(item, base_dir, f"'{key}'")
             if message:
