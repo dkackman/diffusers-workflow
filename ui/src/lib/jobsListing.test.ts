@@ -199,6 +199,43 @@ it('with held jobs a read is one finished page, merged into what is held', async
   expect(next.list.finished).toBe(121)
 })
 
+it('more than a page finishing between two held reads loses none', async () => {
+  // old-queued jobs sit before the newest page by creation
+  const queued = Array.from({ length: 80 }, (_, i) => job(`q${i}`, 'queued', i))
+  const old = Array.from({ length: 60 }, (_, i) =>
+    job(`d${i}`, 'succeeded', 100 + i),
+  )
+  served.jobs = [...queued, ...old]
+  served.prompts = { q0: 'a fox' }
+  const held = new Map<string, JobSummary>()
+  const known = new Map<string, string>()
+  await listWithPrompts('', none, known, 60, held)
+  served.jobs = [...queued.map((j) => ({ ...j, status: 'cancelled' })), ...old]
+  const { list } = await listWithPrompts('', none, known, 60, held)
+  expect(list.jobs).toHaveLength(140)
+  expect(list.finished).toBe(140)
+  expect(list.total).toBe(140)
+  expect(held.size).toBe(140)
+  // and the next poll is a page again
+  const from = listed.length
+  await listWithPrompts('', none, known, 60, held)
+  expect(reads(from).every((r) => r[1] === undefined || r[1] === 50)).toBe(true)
+  expect(listed.length - from).toBe(2)
+})
+
+it('a held job the server no longer has is let go', async () => {
+  served.jobs = Array.from({ length: 60 }, (_, i) =>
+    job(`d${i}`, 'succeeded', i),
+  )
+  const held = new Map<string, JobSummary>()
+  const known = new Map<string, string>()
+  await listWithPrompts('', none, known, 60, held)
+  served.jobs = served.jobs.slice(1)
+  const { list } = await listWithPrompts('', none, known, 60, held)
+  expect(list.jobs.map((j) => j.id)).not.toContain('d0')
+  expect(list.jobs).toHaveLength(59)
+})
+
 it('prompts are asked for only for jobs not yet known', async () => {
   served.jobs = [job('j1', 'running', 1), job('j2', 'succeeded', 2)]
   served.prompts = { j1: 'a fox', j2: 'a whale' }

@@ -126,7 +126,10 @@ export function heldFor(
 }
 
 /** The finished read: the newest `limit`, or only a page when `held` has the
- * rest, merged with what is held. */
+ * rest, merged with what is held. A held read whose count then differs from
+ * the server's has a gap - more finished since the last read than the page
+ * holds, or older-created ones the page does not reach - or holds jobs the
+ * server no longer has: the history is read whole again and replaces it. */
 async function readFinished(
   ws: string,
   scoped: RequestFilter,
@@ -134,12 +137,18 @@ async function readFinished(
   limit: number,
   held?: Map<string, JobSummary>,
 ) {
-  const done = await readWithPrompts(ws, scoped, known, {
-    status: 'succeeded,failed,cancelled',
+  const status = 'succeeded,failed,cancelled'
+  let done = await readWithPrompts(ws, scoped, known, {
+    status,
     limit: held?.size ? JOBS_PAGE : limit,
   })
   if (!held) return done
   for (const job of done.jobs) held.set(job.id, job)
+  if (held.size !== done.total) {
+    done = await readWithPrompts(ws, scoped, known, { status })
+    held.clear()
+    for (const job of done.jobs) held.set(job.id, job)
+  }
   return { ...done, jobs: [...held.values()] }
 }
 
@@ -152,7 +161,7 @@ async function readFinished(
  * `held` (finished jobs by id, kept by the page) is for a page that has
  * read the whole history once: while it holds some, a read asks for the
  * newest page only and merges it in, so the rest stays held and a poll
- * costs a page. The two reads go out together, the live one first: the
+ * costs a page (the history again only when that leaves a gap). The two reads go out together, the live one first: the
  * server answers a job that finishes meanwhile in one of them, and a job in
  * both is listed once (`mergeListings`). */
 export async function listWithPrompts(
