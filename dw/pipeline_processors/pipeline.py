@@ -760,7 +760,7 @@ class Pipeline(H3Arguments):
                     and "faster_cache" in "".join(traceback.format_tb(e.__traceback__))
                 ):
                     raise ValueError(
-                        f"Step '{self.name}': the faster cache failed ({e}). It "
+                        f"The faster cache failed ({e}). It "
                         f"assumes a cond/uncond batch of 2; a guidance-distilled "
                         f"model (FLUX.1-dev) needs cache.is_guidance_distilled: true"
                     ) from e

@@ -333,9 +333,9 @@ def test_take_lead_in_refuses_a_pipeline_without_h3():
         step._take_lead_in({LEAD_IN_INPUT: 1})
 
 
-def test_take_lead_in_wraps_a_rule_refusal_with_the_step_name(h3):
+def test_take_lead_in_passes_a_rule_refusal_through(h3):
     step = step_for(pipeline_of(h3))
-    with pytest.raises(ValueError, match="Step 'clip'.*must be less than 4"):
+    with pytest.raises(ValueError, match="must be less than 4"):
         step._take_lead_in({"num_inference_steps": 5, LEAD_IN_INPUT: 4})
 
 

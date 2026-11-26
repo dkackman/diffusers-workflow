@@ -183,7 +183,7 @@ class H3Arguments:
             return {k: v for k, v in arguments.items() if k != HOLD_AUDIO_INPUT}
         if not holds_audio(self.pipeline):
             raise ValueError(
-                f"Step '{self.name}': hold_audio is a MiniMax-H3 argument "
+                f"hold_audio is a MiniMax-H3 argument "
                 f"(t2va, fl2va or ref2va), and {type(self.pipeline).__name__} "
                 f"cannot hold a soundtrack"
             )
@@ -218,7 +218,7 @@ class H3Arguments:
         if isinstance(guides, (list, tuple)) and not guides:
             del arguments[GUIDES_INPUT]
             return arguments
-        where = f"Step '{self.name}': guides"
+        where = GUIDES_INPUT
         refusal = guides_refusal(self.pipeline)
         if refusal:
             raise ValueError(f"{where}: {refusal}")
@@ -267,15 +267,14 @@ class H3Arguments:
             arguments = dict(arguments)
             del arguments[GUIDE_NOISE_INPUT]
             return arguments
-        where = f"Step '{self.name}'"
         if problem:
-            raise ValueError(f"{where}: {problem}")
+            raise ValueError(problem)
         refusal = guides_refusal(self.pipeline)
         if refusal:
-            raise ValueError(f"{where}: {GUIDE_NOISE_INPUT} noises guides - {refusal}")
+            raise ValueError(f"{GUIDE_NOISE_INPUT} noises guides - {refusal}")
         if arguments.get("references") is not None:
             raise ValueError(
-                f"{where}: {GUIDE_NOISE_INPUT} cannot be combined with references - "
+                f"{GUIDE_NOISE_INPUT} cannot be combined with references - "
                 f"ref2va lays out its own conditioning; use it on t2va or fl2va"
             )
         arguments = dict(arguments)
@@ -299,15 +298,13 @@ class H3Arguments:
             if strength is None:
                 return arguments
             raise ValueError(
-                f"Step '{self.name}': {LATENT_ANCHOR_STRENGTH_INPUT} sets how far "
+                f"{LATENT_ANCHOR_STRENGTH_INPUT} sets how far "
                 f"{LATENT_ANCHOR_INPUT} goes, and there is no {LATENT_ANCHOR_INPUT}"
             )
-        where = f"Step '{self.name}': {LATENT_ANCHOR_INPUT}"
+        where = LATENT_ANCHOR_INPUT
         problem = None if strength is None else anchor_strength_problem(strength)
         if problem:
-            raise ValueError(
-                f"Step '{self.name}': {LATENT_ANCHOR_STRENGTH_INPUT}: {problem}"
-            )
+            raise ValueError(f"{LATENT_ANCHOR_STRENGTH_INPUT}: {problem}")
         refusal = anchor_refusal(self.pipeline)
         if refusal:
             raise ValueError(f"{where}: {refusal}")
@@ -347,23 +344,23 @@ class H3Arguments:
         # An inpaint pipeline's own mask_image is no regional edit
         if not edits_region(arguments, takes):
             return arguments
-        where = f"Step '{self.name}'"
+        where = SOURCE_VIDEO_INPUT
         if not takes:
             raise ValueError(
-                f"{where}: {SOURCE_VIDEO_INPUT} is a MiniMax-H3 argument (t2va, "
+                f"{SOURCE_VIDEO_INPUT} is a MiniMax-H3 argument (t2va, "
                 f"fl2va or ref2va), and {type(self.pipeline).__name__} cannot "
                 f"edit a region"
             )
         problems = mask_problems(arguments, chained=self.segment_label is not None)
         if problems:
-            raise ValueError(f"{where}: {problems[0]}")
+            raise ValueError(problems[0])
         # Decided before the mask is popped below, so an edit is never misread
         audio_pass = is_audio_pass(arguments)
         arguments = dict(arguments)
         try:
             source = guide_frames_array(arguments[SOURCE_VIDEO_INPUT])
         except ValueError as e:
-            raise ValueError(f"{where}: {SOURCE_VIDEO_INPUT} is not a video: {e}")
+            raise ValueError(f"{SOURCE_VIDEO_INPUT} is not a video: {e}")
         frames, height, width = source.shape[:3]
         fps = None
         if audio_pass:
@@ -397,7 +394,7 @@ class H3Arguments:
         )
         problems += _take_mask(arguments, where)
         if problems:
-            raise ValueError(f"{where}: {problems[0]}")
+            raise ValueError(problems[0])
         if audio_pass:
             return with_audio_pass(self.pipeline, arguments, where, fps)
         return arguments
@@ -416,14 +413,11 @@ class H3Arguments:
             return arguments, None
         arguments = dict(arguments)
         value = arguments.pop(TST_INPUT)
-        try:
-            settings = tst_settings(value)
-        except ValueError as e:
-            raise ValueError(f"Step '{self.name}': {e}") from e
+        settings = tst_settings(value)
         if settings is not None:
             refusal = tst_refusal(self.pipeline, self.configuration)
             if refusal:
-                raise ValueError(f"Step '{self.name}': {refusal}")
+                raise ValueError(refusal)
         return arguments, settings
 
     def _take_keystone_attention(self, arguments, tst=None):
@@ -449,34 +443,30 @@ class H3Arguments:
             return arguments, None
         arguments = dict(arguments)
         value = arguments.pop(KEYSTONE_ATTENTION_INPUT)
-        where = f"Step '{self.name}'"
-        try:
-            settings = keystone_attention_settings(value)
-        except ValueError as e:
-            raise ValueError(f"{where}: {e}") from e
+        settings = keystone_attention_settings(value)
         if settings is None:
             return arguments, None
         workflow = self.from_pretrained_arguments.get("workflow")
         if workflow != FL2VA:
             raise ValueError(
-                f"{where}: {KEYSTONE_ATTENTION_INPUT} runs on an H3 fl2va call, "
+                f"{KEYSTONE_ATTENTION_INPUT} runs on an H3 fl2va call, "
                 f"and this step loads {workflow!r}"
             )
         for name in (IMAGE_INPUT, GUIDES_INPUT):
             if not arguments.get(name):
                 raise ValueError(
-                    f"{where}: {KEYSTONE_ATTENTION_INPUT} re-splits attention "
+                    f"{KEYSTONE_ATTENTION_INPUT} re-splits attention "
                     f"between the keyframe and guide rows, and this call passes "
                     f"no '{name}'"
                 )
         if tst is not None:
             raise ValueError(
-                f"{where}: {KEYSTONE_ATTENTION_INPUT} does not combine with "
+                f"{KEYSTONE_ATTENTION_INPUT} does not combine with "
                 f"experimental_tst: both own the blocks' attention processor"
             )
         refusal = keystone_attention_refusal(self.pipeline, self.configuration)
         if refusal:
-            raise ValueError(f"{where}: {refusal}")
+            raise ValueError(refusal)
         return arguments, settings
 
     def _take_lead_in(self, arguments):
@@ -496,13 +486,10 @@ class H3Arguments:
         value = arguments.pop(LEAD_IN_INPUT)
         if value is not None and not _h3_transformers(self.pipeline):
             raise ValueError(
-                f"Step '{self.name}': {LEAD_IN_INPUT} is a MiniMax-H3 argument, "
+                f"{LEAD_IN_INPUT} is a MiniMax-H3 argument, "
                 f"and this pipeline has no MiniMax-H3 transformer"
             )
-        try:
-            lead_in = lead_in_count(value, self.pipeline, arguments, self.configuration)
-        except ValueError as e:
-            raise ValueError(f"Step '{self.name}': {e}") from e
+        lead_in = lead_in_count(value, self.pipeline, arguments, self.configuration)
         return arguments, lead_in
 
     def _check_selflift(self, arguments):
@@ -525,7 +512,7 @@ class H3Arguments:
             has_cache=self.configuration.get("cache") is not None,
         )
         if refusal is not None:
-            raise ValueError(f"Step '{self.name}': {refusal}")
+            raise ValueError(refusal)
 
     def _check_refine(self, arguments):
         """Refuse a `refine_strength` the H3 refine block cannot run, before the
@@ -538,7 +525,7 @@ class H3Arguments:
         """
         renamed = renamed_windows_problem(arguments)
         if renamed is not None:
-            raise ValueError(f"Step '{self.name}': {renamed}")
+            raise ValueError(renamed)
         if arguments.get(REFINE_WINDOWS_INPUT) is not None:
             # The time-windowed refine (h3_windows.py), which imports
             # diffusers, so only when a step asks for it
@@ -550,7 +537,7 @@ class H3Arguments:
                 has_cache=self.configuration.get("cache") is not None,
             )
             if refusal is not None:
-                raise ValueError(f"Step '{self.name}': {refusal}")
+                raise ValueError(refusal)
         if arguments.get(HYBRID_WINDOWS_INPUT) is not None:
             # The experimental windowed generation (#1188), behind its flag
             from .h3_windows import hybrid_refusal
@@ -561,7 +548,7 @@ class H3Arguments:
                 has_cache=self.configuration.get("cache") is not None,
             )
             if refusal is not None:
-                raise ValueError(f"Step '{self.name}': {refusal}")
+                raise ValueError(refusal)
         given = [
             name
             for name in (REFINE_STRENGTH_INPUT, REFINE_SIGMAS_INPUT, REFINE_TILES_INPUT)
@@ -569,7 +556,7 @@ class H3Arguments:
         ]
         if not given:
             return
-        where = f"Step '{self.name}': {given[0]}"
+        where = given[0]
         if not refines(self.pipeline):
             raise ValueError(
                 f"{where} is a MiniMax-H3 argument (t2va, fl2va or ref2va), and "
@@ -577,4 +564,4 @@ class H3Arguments:
             )
         problems = refine_problems(arguments)
         if problems:
-            raise ValueError(f"Step '{self.name}': {problems[0]}")
+            raise ValueError(problems[0])
