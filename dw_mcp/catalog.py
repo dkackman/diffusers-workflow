@@ -383,12 +383,12 @@ def get_gallery_metadata(
             "make a longer bed with the 'loop_audio' task instead."
         )
     if body.get("findings"):
-        # The server measured the levels against dw/audio_qc.py's thresholds;
-        # each finding says what crossed and what to do, so no number is
+        # The server measured the file against its own thresholds; each
+        # finding says what crossed and what it means, so no number is
         # restated here
         hints.append(
-            "`findings` names each level problem the server measured, with "
-            "its threshold and the fix."
+            "`findings` names what the server measured as a problem, with "
+            "its threshold and what to do."
         )
     if media and media.get("shots"):
         hints.append(

@@ -1718,6 +1718,43 @@ def test_gallery_metadata_measures_an_image_and_can_omit_the_workflow(server, tm
         assert lean["media"]["width"] == 6
 
 
+def test_gallery_metadata_reports_alpha_coverage(server, tmp_path):
+    """#1735: `mode: RGBA` only says the channel exists; a transparent
+    ground and a painted white one must read differently."""
+    from PIL import Image
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        cutout = Image.new("RGBA", (4, 4), (255, 255, 255, 0))
+        cutout.paste((200, 0, 0, 255), (0, 0, 2, 2))
+        cutout.putpixel((3, 3), (200, 0, 0, 128))
+        cutout.save(outputs / "cutout.0-0.0.png")
+        Image.new("RGBA", (4, 4), "white").save(outputs / "white.0-0.0.png")
+        palette = Image.new("P", (4, 4), 0)
+        palette.save(outputs / "key.0-0.0.png", transparency=0)
+
+        def metadata(name):
+            return client.get(f"/api/gallery/{name}/metadata").json()
+
+        body = metadata("cutout.0-0.0.png")
+        assert body["media"]["alpha"] == {
+            "min": 0,
+            "max": 255,
+            "transparent_fraction": 0.6875,
+            "partial_fraction": 0.0625,
+            "opaque_fraction": 0.25,
+        }
+        assert body["findings"] == []
+
+        opaque = metadata("white.0-0.0.png")
+        assert opaque["media"]["alpha"]["opaque_fraction"] == 1.0
+        assert opaque["media"]["alpha"]["min"] == 255
+        assert [f["rule"] for f in opaque["findings"]] == ["alpha_opaque"]
+        assert opaque["findings"][0]["severity"] == "info"
+
+        assert metadata("key.0-0.0.png")["media"]["alpha"]["max"] == 0
+
+
 def test_gallery_metadata_describes_audio_and_video(server, tmp_path):
     """A generated mp3 answered metadata: null and nothing else, so every
     duration and level check was ffprobe by hand. The route now says what

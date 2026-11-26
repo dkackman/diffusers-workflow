@@ -50,7 +50,7 @@ from ...security import (
     MAX_DECODE_PIXELS,
 )
 from ...workspace import Workspace
-from ..assess import assess, level_findings, unknown_probe
+from ..assess import alpha_findings, assess, level_findings, unknown_probe
 from ..changes import NO_CHANGE, ChangeRoute
 from ..deps import (
     selected_workspace,
@@ -125,7 +125,11 @@ def gallery_metadata(
 
     An image's `media` is its measured `{kind, width, height, mode}`,
     read from the file header (#922) - not the width/height arguments
-    the pipeline was asked for. `include_workflow=false` drops the
+    the pipeline was asked for. One with transparency data (an alpha
+    channel, or a `transparency` chunk) is also decoded and carries
+    `alpha`: `{min, max, transparent_fraction, partial_fraction,
+    opaque_fraction}` over its pixels (alpha 0, in between, 255), and
+    `findings` says `alpha_opaque` when every pixel is 255 (#1735). `include_workflow=false` drops the
     embedded `metadata.workflow` (the whole definition, often 20 KB) and
     leaves the rest of `metadata` with `workflow_omitted: true`.
 
@@ -196,7 +200,8 @@ def gallery_metadata(
         "run_id": run_id,
         "version": version,
         "media": media,
-        "findings": level_findings(media, (media or {}).get("shots")),
+        "findings": level_findings(media, (media or {}).get("shots"))
+        + alpha_findings(media),
         "role": role,
         "inputs": inputs,
         **notes,
@@ -286,21 +291,50 @@ def _provenance(request, name, ws):
 
 
 def _image_media(path):
-    """An image's `media` block - kind, pixel size and mode - read from
-    the header alone, so no pixel is decoded; None for a file Pillow cannot
-    read (#922)."""
+    """An image's `media` block - kind, pixel size and mode, read from the
+    header (#922), plus `alpha` for one with transparency data (#1735); None
+    for a file Pillow cannot read."""
     from PIL import Image
 
     try:
         with Image.open(path) as image:
-            return {
+            media = {
                 "kind": "image",
                 "width": image.width,
                 "height": image.height,
                 "mode": image.mode,
             }
+            alpha = _alpha_coverage(image)
+            if alpha:
+                media["alpha"] = alpha
+            return media
     except (OSError, ValueError, SyntaxError):
         return None
+
+
+def _alpha_coverage(image):
+    """How much of an open image is transparent: the alpha range and the
+    share of pixels at 0, between, and at 255. None without transparency
+    data (nothing is decoded then), over MAX_DECODE_PIXELS, or when the
+    pixels will not decode - the header's numbers still stand. An animated
+    file is measured on its first frame."""
+    if "A" not in image.getbands() and "transparency" not in image.info:
+        return None
+    if image.width * image.height > MAX_DECODE_PIXELS:
+        return None
+    try:
+        counts = image.convert("RGBA").getchannel("A").histogram()
+    except (OSError, ValueError, SyntaxError):
+        return None
+    total = sum(counts)
+    present = [value for value, count in enumerate(counts) if count]
+    return {
+        "min": present[0],
+        "max": present[-1],
+        "transparent_fraction": round(counts[0] / total, 6),
+        "partial_fraction": round(sum(counts[1:255]) / total, 6),
+        "opaque_fraction": round(counts[255] / total, 6),
+    }
 
 
 @router.get("/api/gallery/{name:path}/assess")

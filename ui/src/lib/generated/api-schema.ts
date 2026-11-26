@@ -641,7 +641,11 @@ export interface paths {
          *
          *     An image's `media` is its measured `{kind, width, height, mode}`,
          *     read from the file header (#922) - not the width/height arguments
-         *     the pipeline was asked for. `include_workflow=false` drops the
+         *     the pipeline was asked for. One with transparency data (an alpha
+         *     channel, or a `transparency` chunk) is also decoded and carries
+         *     `alpha`: `{min, max, transparent_fraction, partial_fraction,
+         *     opaque_fraction}` over its pixels (alpha 0, in between, 255), and
+         *     `findings` says `alpha_opaque` when every pixel is 255 (#1735). `include_workflow=false` drops the
          *     embedded `metadata.workflow` (the whole definition, often 20 KB) and
          *     leaves the rest of `metadata` with `workflow_omitted: true`.
          *
@@ -2768,7 +2772,7 @@ export interface components {
             linked_jobs: components["schemas"]["GalleryLinkedJob"][];
             /**
              * Media
-             * @description The probe of an audio or video file, or an image's kind, width, height and mode, or an .otioz's timeline (tracks, clips with durations, members); null for another file.
+             * @description The probe of an audio or video file, or an image's kind, width, height and mode (plus `alpha` coverage when it has transparency data), or an .otioz's timeline (tracks, clips with durations, members); null for another file.
              */
             media: {
                 [key: string]: unknown;

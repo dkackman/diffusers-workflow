@@ -1167,7 +1167,11 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
   the metadata route reports the file's `role` and the run's `inputs` too,
   and `findings`: each level problem the probed soundtrack shows
   (`full_scale`, `near_silent`), measured against `dw/audio_qc.py`'s
-  thresholds, in the assess route's finding shape. For an `.otioz` bundle
+  thresholds, in the assess route's finding shape. An image with an alpha
+  channel or a `transparency` chunk has `media.alpha` (`min`, `max`,
+  `transparent_fraction`, `partial_fraction`, `opaque_fraction`, over its
+  first frame), and `findings` says `alpha_opaque` (info) when every pixel is
+  opaque. For an `.otioz` bundle
   (`export_timeline`), the metadata's `media` is the timeline - `tracks`
   (clips in order with name, frames, seconds and media member),
   `has_audio_track` and `members`. Two opt-ins add to the listing, and a
