@@ -6,20 +6,29 @@
  * than the usual blue-tinted slate, and the generated images are meant to
  * be the only saturated thing in the content area.
  *
- * Colour is therefore spent on three meanings and nothing else:
+ * Colour is therefore carried only by these tokens, each with one meaning:
  *
  * - `--live` (a darkroom safelight amber) is machine state: what is
  *   running and when VRAM is under pressure.
  * - `--select` (a cool blue) is the user's place: the open workspace, the
  *   active nav section and the focus ring. It stays in the chrome - the
  *   sidebar and focus - never in a surface behind an image.
+ * - `--good` / `--bad` are an outcome: succeeded, failed, an error.
+ * - `--warn` (an ochre, a hue of its own) asks for the person's attention:
+ *   a cancelled job, a stalled run, a validation warning, unsaved edits, a
+ *   required field. It is never `--live`'s colour, so it never reads as
+ *   "running".
  * - `--finding-warn` / `--finding-info` mark an assessment finding's
  *   severity in the gallery detail: a place to look, not machine state.
  * - a workspace's own dot (`wsColor()` in src/lib/wsColor.ts) identifies
  *   it in the sidebar and breadcrumb. It is identity, not state.
  *
- * Where `--live` and `--select` may appear is held by
- * scripts/design-rules.test.ts; shared component classes live in patterns.css.
+ * scripts/design-rules.test.ts holds what it can of this: which files may
+ * use `var(--live)` and `var(--select)` - per file, not per rule, so a
+ * listed file is trusted to use them only for their meaning - that no
+ * other token takes `--live`'s value in any theme block, and that `--warn`
+ * and `--live` pass WCAG AA on `--panel` and `--panel-2`. Shared component
+ * classes live in patterns.css.
  * Interactive elements are ink - the primary button is a solid ink fill,
  * links are ink with an underline - so nothing in the chrome competes.
  *
@@ -43,11 +52,11 @@
   --muted: #6b6b6b;
   --accent: #1c1c1c;
   --accent-ink: #ffffff;
-  --live: #a85b00;
+  --live: #a35800;
   --select: #2b5fb4;
   --good: #2f6b3f;
   --bad: #a33224;
-  --warn: #a85b00;
+  --warn: #7a6000;
   --finding-warn: #a04400;
   --finding-info: #3d6470;
   color-scheme: light;
@@ -68,7 +77,7 @@
     --select: #82aaf0;
     --good: #6fbf87;
     --bad: #e3796a;
-    --warn: #e8a33d;
+    --warn: #d1b440;
     --finding-warn: #f0a05a;
     --finding-info: #8fb8c4;
     color-scheme: dark;
@@ -88,7 +97,7 @@
   --select: #82aaf0;
   --good: #6fbf87;
   --bad: #e3796a;
-  --warn: #e8a33d;
+  --warn: #d1b440;
   --finding-warn: #f0a05a;
   --finding-info: #8fb8c4;
   color-scheme: dark;
@@ -103,11 +112,11 @@
   --muted: #6b6b6b;
   --accent: #1c1c1c;
   --accent-ink: #ffffff;
-  --live: #a85b00;
+  --live: #a35800;
   --select: #2b5fb4;
   --good: #2f6b3f;
   --bad: #a33224;
-  --warn: #a85b00;
+  --warn: #7a6000;
   --finding-warn: #a04400;
   --finding-info: #3d6470;
   color-scheme: light;

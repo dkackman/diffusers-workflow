@@ -481,8 +481,7 @@
     stroke-dasharray: 4 3;
   }
   /* Fan-in is marked by its × label alone: the border belongs to run
-     state, and --warn is the same amber as --live, so a fan-in border read
-     as "running" */
+     state, so a coloured fan-in border would read as a run state */
   .node.pending {
     opacity: 0.45;
   }
