@@ -832,8 +832,6 @@ TEMPLATE_PIPELINE_KEYS = {
         "video_reference_to_video_audio": "ba9915580e6a8017d8c68efbddea776985d107222546f84cca18e319298243bf"
     },
     "minimax/dialogue-short.json": {
-        "draw_character_a": "a3861857f0d412d15cd569c065aac00fcf7c0af9c2e68a7944877c1eb0f796bf",
-        "draw_character_b": "a3861857f0d412d15cd569c065aac00fcf7c0af9c2e68a7944877c1eb0f796bf",
         "shot@cold_open": "ba9915580e6a8017d8c68efbddea776985d107222546f84cca18e319298243bf",
         "shot@deflect": "ba9915580e6a8017d8c68efbddea776985d107222546f84cca18e319298243bf",
         "shot@react": "ba9915580e6a8017d8c68efbddea776985d107222546f84cca18e319298243bf",
@@ -850,7 +848,6 @@ TEMPLATE_PIPELINE_KEYS = {
         "first_and_last_frame_to_video_audio": "0d1cd2532b5c19d97ba165ddb4c715c9ead5e05c2ab6ba4db9bb182e012ec4c0"
     },
     "minimax/generated-subject-reference.json": {
-        "draw_subject": "a3861857f0d412d15cd569c065aac00fcf7c0af9c2e68a7944877c1eb0f796bf",
         "reference_to_video_audio": "ba9915580e6a8017d8c68efbddea776985d107222546f84cca18e319298243bf",
     },
     "minimax/image-to-video.json": {
@@ -861,7 +858,6 @@ TEMPLATE_PIPELINE_KEYS = {
     },
     "minimax/music-video-cuts.json": {},
     "minimax/music-video.json": {
-        "draw_singer": "a3861857f0d412d15cd569c065aac00fcf7c0af9c2e68a7944877c1eb0f796bf",
         "write_song": "1abd10e3c899fb5bbc490baa64467ed46d5005f78fa8f94bc777f3ddcaf81fb5",
         "shot@wide_open": "ba9915580e6a8017d8c68efbddea776985d107222546f84cca18e319298243bf",
         "shot@closeup": "ba9915580e6a8017d8c68efbddea776985d107222546f84cca18e319298243bf",
@@ -897,9 +893,6 @@ TEMPLATE_PIPELINE_KEYS = {
         "shot@shot_5": "2a7fdf989a40500620fb03212502bbda8f52827f5fcd872b8fda182fab2fac77",
     },
     "minimax/storyboard.json": {
-        "board_1_launch": "a3861857f0d412d15cd569c065aac00fcf7c0af9c2e68a7944877c1eb0f796bf",
-        "board_2_gutter": "a3861857f0d412d15cd569c065aac00fcf7c0af9c2e68a7944877c1eb0f796bf",
-        "board_3_shore": "a3861857f0d412d15cd569c065aac00fcf7c0af9c2e68a7944877c1eb0f796bf",
         "voyage": "9b0899c7c69c86106cdb39d8ba401ced9db175b31b31cb1e8e04440fc1d6801b",
     },
     "minimax/video-with-audio-768p.json": {

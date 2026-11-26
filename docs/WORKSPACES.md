@@ -236,6 +236,13 @@ run fails part way, since the files it did write are on disk either way. A
 sub-workflow is part of its parent's run: it writes into the same directory and
 rolls up into the same manifest.
 
+Its `torch` block records the numerics the run's process used:
+`{version, diffusers_version, enable_tf32, cudnn_benchmark,
+cudnn_deterministic}`. These are read live from `torch.backends` rather than
+from settings, so a dependency that changed one shows up. Off CUDA the
+cuDNN/TF32 flags are recorded as they read, though nothing applies them there.
+A manifest written before the block existed has no `torch` key.
+
 A pipeline step that ran also carries `timing` in its `manifest.json` entry
 (and in the same entry of the job's manifest from the API or MCP `get_job`):
 load, encode, denoise, decode and save seconds. A reused, task or composed

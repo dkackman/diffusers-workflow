@@ -718,7 +718,7 @@ optional `device`.
 
 ### Host-RAM gate: mixed bases
 
-The RSS peak a job records is job-scoped growth over the run's baseline; the committed peak is an absolute reading of the whole worker process, a previous run's leftovers included. Nothing compares the two. The dispatcher reads a running worker's committed memory from `/proc/<pid>/status` alone (never smaps, which is slow for a large worker) and adds the driver-pinned term from the worker's last memory report.
+The RSS peak a job records (`host_memory_job_peak_rss_mb`) is job-scoped: where the job raised the worker's process-lifetime peak, the new peak minus the worker's resident size at the job's first phase boundary, and null where it raised nothing; the committed peak is an absolute reading of the whole worker process, a previous run's leftovers included. Nothing compares the two. The dispatcher reads a running worker's committed memory from `/proc/<pid>/status` alone (never smaps, which is slow for a large worker) and adds the driver-pinned term from the worker's last memory report.
 
 ### After a restart
 

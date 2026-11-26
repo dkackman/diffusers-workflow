@@ -23,7 +23,14 @@ import secrets
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from . import __version__, device_capacity_gb, get_device, get_device_type, preferences
+from . import (
+    __version__,
+    device_capacity_gb,
+    get_device,
+    get_device_type,
+    preferences,
+    torch_numerics,
+)
 from .adapter_compatibility import warn_adapters
 from .arguments import realize_args
 from .pipeline_processors.chain_rules import resume_variables
@@ -221,6 +228,9 @@ def write_run_manifest(workflow, record, status=None):
             "finished_at": (None if status == "running" else _now()),
             "dw_version": __version__,
             "device": str(get_device()),
+            # The numerics this process ran with, read live - additive, so a
+            # manifest from before it simply lacks the block (#1643)
+            "torch": torch_numerics(),
             "workflow": {
                 "id": workflow.name,
                 "file": workflow.file_spec,

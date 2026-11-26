@@ -19,7 +19,7 @@ has no verdict yet: quote no number for it.
 
 ## Before anything
 
-This skill is written for dw `0.23.0-alpha.2`; `get_server_info`'s `plugin` says whether that is current.
+This skill is written for dw `0.23.0-alpha.3`; `get_server_info`'s `plugin` says whether that is current.
 
 1. `get_server_info`: the device. H3 is CUDA-first. On a 24 GB Mac,
    `templates/minimax/chained-segments` at its defaults is refused

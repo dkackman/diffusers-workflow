@@ -14,7 +14,7 @@ short request, a layout by boxes, or a host that is too small goes to the
 
 ## Before anything
 
-This skill is written for dw `0.23.0-alpha.2`; `get_server_info`'s `plugin` says whether that is current.
+This skill is written for dw `0.23.0-alpha.3`; `get_server_info`'s `plugin` says whether that is current.
 
 1. `get_server_info`: the device and the workspace. The catalog recipe is
    CUDA only. On `cpu`, stop and use the `flux3-klein` skill.
@@ -25,9 +25,12 @@ This skill is written for dw `0.23.0-alpha.2`; `get_server_info`'s `plugin` says
      (on mini-ai it is saved as `bench/h3-image-mps-t2i` in `bench`). Never the catalog template: validate refuses it at `host_ram_gb`. Its
      two steps load one int8 model at a time (the encoder is released
      first). Measured on mini-ai (M5 Pro, 64 GB), one 2048x2048 still:
-     3.2 min with the load, peak 34.2 GB of MPS memory, a 40.4 GB job peak
-     RSS, 20.5 GB of host left. The edit with references was not measured
-     on mps. Without the folders, use the `flux3-klein` skill.
+     3.2 min with the load, peak 34.2 GB of MPS memory, and a host peak of
+     about 60 GB RSS during the `generate` load, leaving about 20 GB of the
+     64 GB. That is near the host's limit: nothing else host-heavy runs
+     beside it, and the user's other work on that Mac waits for it. The edit
+     with references was not measured on mps. Without the folders, use the
+     `flux3-klein` skill.
 2. Host RAM: the host needs about 70 GB or more, and the warm run holds
    about 64 GB (`host_ram_gb: 64`). `validate_workflow` refuses a run on a
    host whose total RAM is too small, naming `host_ram_gb`. Its
@@ -146,9 +149,11 @@ multi-reference edit of the same cast still, with the face named as kept.
 - the host-RAM floor: about 64 GB held warm, and about 120 GB with a much
   longer first run when the host has never run it;
 - `plan.host_memory`'s projected peak.
-- On `mps`, from the folders: 3.2 min a still and a 40.4 GB job peak
-  (34.2 GB of MPS memory), measured on mini-ai, in place of the CUDA host
-  floor; an edit has no mps figure.
+- On `mps`, from the folders: 3.2 min a still and a host peak of about
+  60 GB RSS during the load, about 20 GB of 64 GB left (34.2 GB of MPS
+  memory), measured on mini-ai, in place of the CUDA host floor. Say that
+  their other work on that Mac should wait for the job. An edit has no mps
+  figure.
 
 Then end the turn and wait for the user's go-ahead. Never fill in
 `acknowledged_cost` yourself before the user has said yes.

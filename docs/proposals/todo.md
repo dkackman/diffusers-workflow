@@ -991,6 +991,23 @@ remaining deferred fix is recorded in
   needs no new download. On lem it gave a 1024² RGBA cut-out. The Turbo
   catalog entry (~32.5 GB, fixed 8 sigmas) is deferred with triggers, and the
   PE enhancer is cut: `complete/qwen-image-transparent-complete.md`.
+- **Default preferences: the text-to-image ladder** (#1625, stages
+  #1710-#1712), shipped 2026-11-26. `dw/preference_defaults.json` ranks
+  `text_to_image` as draft (SD 1.5), standard (z-image, z-image-sdnq) and best
+  (H3-Image, Qwen-Image 2.1), under a variable contract its pins enforce. SD 1.5
+  gains `width`/`height`. The cuda and mps benches give every target a
+  measured `cost` on each device it runs on. The edit, image-to-image and video
+  keys are cut, each with what would bring it back:
+  `complete/preference-defaults-complete.md`.
+- **MiniMax-H3-Image on a 64 GB Mac** (#1680, stages #1729-#1730), shipped
+  2026-11-26. A bench probe on mini-ai runs H3-Image in two steps (encode,
+  release, generate) from pre-quantized int8 folders in the `bench` asset
+  library: a 2048x2048 still in 3.2 min, a host peak of about 60 GB RSS during
+  the load (`b99e189e1059`, after #1744's matmul fix; restated from 40.4 GB by
+  #1753). The skill, ACCELERATION.md and the template README
+  now state the measured mps route. The catalog templates stay CUDA only. An mps
+  template, the CUDA two-step split and the edit/warm/16:9 arms are deferred:
+  `complete/h3-image-mps-complete.md`.
 
 ## Declined
 

@@ -1,6 +1,6 @@
 {
     "id": "MiniMaxH3Storyboard",
-    "description": "One generation, three shots, from a storyboard of stills. H3 packs every reference into the same sequence it generates, so a request can hand it several images and say what each one is for: Z-Image draws three boards, and the 'ref2va' prompt makes <Picture 1> the first frame of [Shot 1] and <Picture 2> and <Picture 3> storyboard anchors for the cuts at 00:02.700 and 00:05.400. Because the cuts happen inside one in-context generation rather than between separate runs, the soundtrack - a piano score - runs unbroken across them, which no concat of separate shots can give. The boards are drawn by one Z-Image pipeline (identical configurations share a load) and 'release_pipeline' on the last frees it before H3 loads. 'reference_image_short_edge' is lowered from its 2048 default so three references fit alongside a 192-frame clip on a 24GB card.",
+    "description": "One generation, three shots, from a storyboard of stills. H3 packs every reference into the same sequence it generates, so a request can hand it several images and say what each one is for: three boards are drawn first, and the 'ref2va' prompt makes <Picture 1> the first frame of [Shot 1] and <Picture 2> and <Picture 3> storyboard anchors for the cuts at 00:02.700 and 00:05.400. Because the cuts happen inside one in-context generation rather than between separate runs, the soundtrack - a piano score - runs unbroken across them, which no concat of separate shots can give. The boards are drawn through 'portrait_workflow' (default 'preference:text_to_image', pinned at tier standard on the step: models/z-image on the shipped ladder, at that workflow's own steps and guidance, one image under the run's seed; name a workflow such as 'models/qwen-image-2.1' to draw with it instead); all three resolve to the same workflow, so they share one load, and 'release_pipeline' on the last frees it before H3 loads. 'reference_image_short_edge' is lowered from its 2048 default so three references fit alongside a 192-frame clip on a 24GB card.",
     "cost": [
         {
             "device": "cuda",
@@ -18,7 +18,8 @@
         "weights_dtype",
         "lora_model_name",
         "attention_backend",
-        "cache"
+        "cache",
+        "portrait_workflow"
     ],
     "vram_estimate": {
         "base_gb": 15.7,
@@ -54,7 +55,8 @@
         "attention_backend": "sparse",
         "sparse_tau": 0.5,
         "sparse_topk": 0.15,
-        "cache": null
+        "cache": null,
+        "portrait_workflow": "preference:text_to_image"
     },
     "variable_constraints": {
         "num_frames": {
@@ -80,22 +82,15 @@
     "steps": [
         {
             "name": "board_1_launch",
-            "pipeline": {
-                "configuration": {
-                    "component_type": "ZImagePipeline",
-                    "offload": "model"
-                },
-                "from_pretrained_arguments": {
-                    "model_name": "Tongyi-MAI/Z-Image-Turbo",
-                    "torch_dtype": "torch.bfloat16",
-                    "low_cpu_mem_usage": true
-                },
+            "workflow": {
+                "path": "variable:portrait_workflow",
                 "arguments": {
                     "prompt": "variable:board_1_launch",
-                    "num_inference_steps": 9,
-                    "guidance_scale": 0.0,
+                    "seed": "variable:seed",
+                    "num_images_per_prompt": 1,
                     "width": 960,
-                    "height": 544
+                    "height": 544,
+                    "tier": "standard"
                 }
             },
             "result": {
@@ -106,22 +101,15 @@
         },
         {
             "name": "board_2_gutter",
-            "pipeline": {
-                "configuration": {
-                    "component_type": "ZImagePipeline",
-                    "offload": "model"
-                },
-                "from_pretrained_arguments": {
-                    "model_name": "Tongyi-MAI/Z-Image-Turbo",
-                    "torch_dtype": "torch.bfloat16",
-                    "low_cpu_mem_usage": true
-                },
+            "workflow": {
+                "path": "variable:portrait_workflow",
                 "arguments": {
                     "prompt": "variable:board_2_gutter",
-                    "num_inference_steps": 9,
-                    "guidance_scale": 0.0,
+                    "seed": "variable:seed",
+                    "num_images_per_prompt": 1,
                     "width": 960,
-                    "height": 544
+                    "height": 544,
+                    "tier": "standard"
                 }
             },
             "result": {
@@ -133,22 +121,15 @@
         {
             "name": "board_3_shore",
             "release_pipeline": true,
-            "pipeline": {
-                "configuration": {
-                    "component_type": "ZImagePipeline",
-                    "offload": "model"
-                },
-                "from_pretrained_arguments": {
-                    "model_name": "Tongyi-MAI/Z-Image-Turbo",
-                    "torch_dtype": "torch.bfloat16",
-                    "low_cpu_mem_usage": true
-                },
+            "workflow": {
+                "path": "variable:portrait_workflow",
                 "arguments": {
                     "prompt": "variable:board_3_shore",
-                    "num_inference_steps": 9,
-                    "guidance_scale": 0.0,
+                    "seed": "variable:seed",
+                    "num_images_per_prompt": 1,
                     "width": 960,
-                    "height": 544
+                    "height": 544,
+                    "tier": "standard"
                 }
             },
             "result": {

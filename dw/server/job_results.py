@@ -207,8 +207,8 @@ def record_run_memory(job, info, slot, record_memory):
     # has no high-water mark, so this is a lower bound on the true peak and
     # the gate keeps a margin over it (pool.with_margin).
     #
-    # The two peaks are on different bases: the RSS peak above is job-scoped
-    # growth over the run's baseline, this one an absolute reading of the
+    # The two peaks are on different bases: the RSS peak above is job-scoped,
+    # above the worker's rss at the run's start, this one an absolute reading of the
     # whole process, a previous run's leftovers included. Nothing compares
     # the two; peaks_for_key and the fit take one basis or the other
     committed = info.get("host_memory_committed_mb")

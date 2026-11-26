@@ -32,7 +32,8 @@ def _definition(name):
 
 def _workflow(name):
     path = TEMPLATES / f"{name}.json"
-    return Workflow(_definition(name), None, str(path))
+    # an output dir: a composed step (the portraits, #1722) opens its child
+    return Workflow(_definition(name), ".", str(path))
 
 
 def _variables(name, arguments):

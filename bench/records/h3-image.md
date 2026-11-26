@@ -392,10 +392,16 @@ restart. It is the same t2i arm: 2048x2048, seed 1317, the same two int8 folders
 - **Memory.**
   - MPS allocated: 26,569 MB in `encode`, 0.5 MB after its release, then 34,249 MB in
     `generate` (34,254 MB in denoise, reserved 38,026 MB).
-  - Job peak RSS 40,402 MB. The worker's lifetime peak RSS rose from 19,527 MB to
-    59,929 MB during the `generate` load, then fell back to about 525 MB resident.
+  - **Host peak: about 60 GB RSS, during the `generate` load.** The worker's lifetime
+    peak RSS rose from 19,527 MB to 59,929 MB, then fell back to about 525 MB resident.
+    The job peak field read 40,402 MB. That is only the growth above the 19,527 MB mark
+    an earlier job left in the worker (#1754), not the job's peak (corrected by #1753).
   - Host available was lowest at 20.5 GB, during `generate` (of 64 GB). The committed
     peak came back null again. Swap was not read on this run.
+- **Rerun `608885eca475`** (#1680's final check, develop `3c0fb9ab`, 194.1 s, a fresh
+  worker): job peak RSS 59,736.5 MB, worker peak 60,197.2 MB, host available
+  19,981.9 MB at the end of the `generate` load (110.1 s). It agrees with `b99e`'s
+  worker peak within 0.4%.
 - **Look.** #1744's tester judged the still clean and coherent: the keeper in a wool coat
   on the lighthouse gallery, a storm over a grey sea, no dequantization artifacts. It was
   not compared side by side with lem's `3eec967fe939`.

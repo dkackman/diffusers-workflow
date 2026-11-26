@@ -8,6 +8,7 @@ guide layout dw/pipeline_processors/h3_guides.py. tests/test_h3_rules.py pins
 that it imports neither.
 """
 
+import functools
 import math
 import os
 from array import array
@@ -475,6 +476,41 @@ def tile_plan(width, height, tile_width, tile_height, overlap):
         for y in _axis_starts(height, tile_height, overlap)
         for x in _axis_starts(width, tile_width, overlap)
     ]
+
+
+# The figure `default_num_inference_steps` falls back to when the installed
+# diffusers declares none - diffusers' own default when this was written
+FALLBACK_NUM_INFERENCE_STEPS = 50
+
+
+@functools.cache
+def default_num_inference_steps():
+    """H3's `num_inference_steps` when a call names none: the stock timesteps
+    step's declared default, read off diffusers rather than copied (#1643).
+    Diffusers is imported here on first use, so this module stays torch- and
+    diffusers-free at import; `FALLBACK_NUM_INFERENCE_STEPS` when the
+    installed diffusers has no such step or declares no whole-number default."""
+    try:
+        from diffusers.modular_pipelines.minimax_h3 import before_denoise
+    except ImportError:
+        return FALLBACK_NUM_INFERENCE_STEPS
+    stock = getattr(before_denoise, "MiniMaxH3SetTimestepsStep", None)
+    if stock is None:
+        return FALLBACK_NUM_INFERENCE_STEPS
+    try:
+        inputs = stock().inputs
+    except Exception:  # a diffusers whose step needs arguments to build
+        return FALLBACK_NUM_INFERENCE_STEPS
+    for param in inputs:
+        default = getattr(param, "default", None)
+        if (
+            getattr(param, "name", None) == "num_inference_steps"
+            and isinstance(default, int)
+            and not isinstance(default, bool)
+            and default > 1
+        ):
+            return default
+    return FALLBACK_NUM_INFERENCE_STEPS
 
 
 def not_h3(pipeline, argument=HOLD_AUDIO_INPUT, taken_by=H3_WORKFLOWS):
