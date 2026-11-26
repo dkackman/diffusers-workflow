@@ -3871,6 +3871,11 @@ export interface components {
         /** LedgerSummary */
         LedgerSummary: {
             /**
+             * Close Proposed
+             * @description Only while the agent's proposal to close the request waits on the user.
+             */
+            close_proposed?: boolean;
+            /**
              * Cover
              * @description Up to three outputs of the latest results, newest first.
              */
@@ -4433,6 +4438,11 @@ export interface components {
         };
         /** OpenRequestSummary */
         OpenRequestSummary: {
+            /**
+             * Close Proposed
+             * @description Only while the agent's proposal to close the request waits on the user.
+             */
+            close_proposed?: boolean;
             /**
              * Cover
              * @description Up to three outputs of the latest results, newest first.

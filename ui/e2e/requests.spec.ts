@@ -877,6 +877,88 @@ test('dragging the handle moves an item, in one write', async ({ page }) => {
     .toEqual(['title', 'board', 'shot', 'cut'])
 })
 
+/** The agent proposes a close through the real route, `by: "agent"` */
+async function propose(request: APIRequestContext, reason: string) {
+  const read = await ledger(request)
+  const response = await request.put(BOARD_API, {
+    data: {
+      title: read.title,
+      goal: read.goal,
+      revision: read.revision,
+      why: 'close proposed',
+      by: 'agent',
+      items: read.items.filter((item: Stored) => !item.dropped),
+      close_proposal: { state: 'done', reason },
+    },
+  })
+  expect(response.status()).toBe(200)
+}
+
+test('the agent proposes a close: the user keeps it open with a note, then closes the next one', async ({
+  page,
+  request,
+}) => {
+  await propose(request, 'every shot has a keeper')
+  // the list says a close waits on the user
+  await page.goto('/#/ws/default/requests')
+  const row = page.getByTestId('request-row').filter({ hasText: BOARD_ID })
+  await expect(row.getByTestId('close-proposed-tag')).toHaveText(
+    'close proposed',
+  )
+
+  await page.goto(BOARD)
+  const banner = page.getByTestId('close-proposal')
+  await expect(banner).toContainText(
+    'The agent proposes to mark this done: every shot has a keeper',
+  )
+  await banner.getByRole('button', { name: 'Keep open' }).click()
+  await banner.getByRole('textbox').fill('the second shot still flickers')
+  let put = written(page)
+  await banner.getByRole('button', { name: 'Keep open' }).click()
+  expect((await put).status()).toBe(200)
+  await expect(banner).toHaveCount(0)
+  await expect(page.getByTestId('close-declined')).toHaveText(
+    'You kept this open: the second shot still flickers',
+  )
+  let stored = await ledger(request)
+  expect(stored.state).toBe('open')
+  expect(stored.close_proposal).toMatchObject({
+    outcome: 'declined',
+    note: 'the second shot still flickers',
+  })
+
+  // the next proposal replaces the line, and Close accepts it
+  await propose(request, 'the flicker is fixed')
+  await page.reload()
+  await expect(banner).toContainText('the flicker is fixed')
+  await expect(page.getByTestId('close-declined')).toHaveCount(0)
+  put = written(page)
+  await banner.getByRole('button', { name: 'Close' }).click()
+  expect((await put).status()).toBe(200)
+  await expect(banner).toHaveCount(0)
+  await expect(
+    page.getByTestId('req-head').getByTestId('state-tag'),
+  ).toHaveText('done')
+  stored = await ledger(request)
+  expect(stored.state).toBe('done')
+  expect(stored.close_proposal.outcome).toBe('accepted')
+  expect(stored.history.at(-1)).toMatchObject({ by: 'user', state: 'done' })
+
+  // the agent reopens it, as the next test expects it open
+  const reopened = await request.put(BOARD_API, {
+    data: {
+      title: stored.title,
+      goal: stored.goal,
+      revision: stored.revision,
+      why: 'reopened for the next test',
+      by: 'agent',
+      state: 'open',
+      items: stored.items.filter((item: Stored) => !item.dropped),
+    },
+  })
+  expect(reopened.status()).toBe(200)
+})
+
 test('the request can be marked done and reopened from its menu, and deleted once closed', async ({
   page,
   request,

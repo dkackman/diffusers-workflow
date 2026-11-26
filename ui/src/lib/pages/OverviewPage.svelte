@@ -12,6 +12,7 @@
   import StatusChip from '../ui/StatusChip.svelte'
   import OutputTile from '../ui/OutputTile.svelte'
   import ItemProof from '../request/ItemProof.svelte'
+  import CloseProposedTag from '../request/CloseProposedTag.svelte'
   import { outputMedia } from '../media'
   import { api } from '../api'
   import { attention, doneFigure } from '../request/attention'
@@ -255,6 +256,7 @@
           <span class="muted num" title="items done, of those in the plan">
             {doneFigure(req)}
           </span>
+          {#if req.close_proposed}<CloseProposedTag />{/if}
           {#if req.updated_at}<span class="muted reqwhen">
               <Time at={Date.parse(req.updated_at) / 1000} label="changed" />
             </span>{/if}

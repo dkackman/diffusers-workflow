@@ -102,6 +102,9 @@ export type LedgerAttempt = Schemas['LedgerAttempt']
 export type LedgerOutput = Schemas['LedgerOutput']
 export type LedgerNote = Schemas['LedgerNote']
 export type LedgerNoteRef = Schemas['LedgerNoteRef']
+/** An agent's proposal to close a request, and the user's decline of one */
+export type LedgerCloseProposal = Schemas['LedgerCloseProposal']
+export type CloseDecline = Schemas['CloseDecline']
 // The request-notes routes: a new note, a new text, what they answer, and
 // whether a notes channel is polling the workspace
 export type NoteAdd = Schemas['NoteAdd']

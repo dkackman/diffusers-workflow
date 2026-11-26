@@ -7,6 +7,7 @@
   import ItemProof from '../request/ItemProof.svelte'
   import RequestProgress from '../request/RequestProgress.svelte'
   import StateTag from '../request/StateTag.svelte'
+  import CloseProposedTag from '../request/CloseProposedTag.svelte'
   import {
     attention,
     doneFigure,
@@ -103,6 +104,7 @@
             <span class="idline">
               <code class="muted">{req.id}</code>
               <StateTag value={req.state} />
+              {#if req.close_proposed}<CloseProposedTag />{/if}
             </span>
           </span>
           <span class="attention {line.kind}">

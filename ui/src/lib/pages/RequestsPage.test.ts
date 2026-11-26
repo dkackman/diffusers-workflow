@@ -355,3 +355,18 @@ it('a row whose stored time does not parse still renders', async () => {
   expect(updated.textContent?.trim()).toBe('unknown time')
   expect(updated.querySelector('[datetime]')).toBeNull()
 })
+
+it('a row says close proposed only while the agent proposes a close', async () => {
+  data.requests = [
+    summary({ id: 'asked', title: 'Asked', close_proposed: true }),
+    summary({ id: 'plain', title: 'Plain' }),
+  ]
+  render(RequestsPage)
+  await waitFor(() => expect(rows()).toHaveLength(2))
+  const tagOf = (title: string) =>
+    rows()
+      .find((r) => r.querySelector('.title')?.textContent === title)!
+      .querySelector('[data-testid="close-proposed-tag"]')
+  expect(tagOf('Asked')?.textContent).toBe('close proposed')
+  expect(tagOf('Plain')).toBeNull()
+})

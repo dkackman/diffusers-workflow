@@ -175,9 +175,10 @@ it('an Undo the store gives up on says the plan changed, not a raw error', async
   expect(notify.failure).not.toHaveBeenCalled()
 })
 
-/** The agent abandons the request after the page marked it done: its
- * entry names the state it set, as the server's does */
-function agentAbandons(ledger: ReturnType<typeof fakeLedger>) {
+/** Another tab abandons the request after the page marked it done - only
+ * a user write closes one - and its entry names the state it set, as the
+ * server's does */
+function elsewhereAbandons(ledger: ReturnType<typeof fakeLedger>) {
   const revision = ledger.current.revision + 1
   ledger.current = {
     ...ledger.current,
@@ -185,7 +186,7 @@ function agentAbandons(ledger: ReturnType<typeof fakeLedger>) {
     revision,
     history: [
       ...ledger.current.history,
-      entry(revision, 'agent', 'abandoned', { state: 'abandoned' }),
+      entry(revision, 'user', 'abandoned', { state: 'abandoned' }),
     ],
   }
 }
@@ -200,16 +201,16 @@ async function expectUndoRefused(
   const [conflict] = store.conflicts
   expect(conflict.refusal).toBe('moved_on')
   expect(goneText(conflict)).toMatch(
-    /^Undo not applied: the agent changed the state of this request since/,
+    /^Undo not applied: another edit changed the state of this request since/,
   )
   expect(notify.failure).not.toHaveBeenCalled()
 }
 
-it('an Undo over a state the agent set since, met as a 409, writes nothing', async () => {
+it('an Undo over a state another edit set since, met as a 409, writes nothing', async () => {
   const { ledger, store } = realStore()
   await pick('Mark done')
   await vi.waitFor(() => expect(notify.undo).toHaveBeenCalledTimes(1))
-  agentAbandons(ledger)
+  elsewhereAbandons(ledger)
   const puts = ledger.puts.length
   notify.undo.mock.calls[0][1]()
   await expectUndoRefused(store, ledger)
@@ -217,12 +218,12 @@ it('an Undo over a state the agent set since, met as a 409, writes nothing', asy
   expect(ledger.puts).toHaveLength(puts + 1)
 })
 
-it('an Undo over a state the agent set since, already read, writes nothing', async () => {
+it('an Undo over a state another edit set since, already read, writes nothing', async () => {
   const { ledger, store } = realStore()
   await pick('Mark done')
   await vi.waitFor(() => expect(notify.undo).toHaveBeenCalledTimes(1))
-  agentAbandons(ledger)
-  // The page's own refresh took the agent's write: there is no 409 to meet
+  elsewhereAbandons(ledger)
+  // The page's own refresh took that write: there is no 409 to meet
   store.take(ledger.current)
   const puts = ledger.puts.length
   notify.undo.mock.calls[0][1]()

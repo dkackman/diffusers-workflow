@@ -50,6 +50,26 @@ export class FakeLedger {
     return this.#write({ items: change(this.current.items) }, 'agent', why)
   }
 
+  /** The agent proposes to close the request (set_request's propose_close) */
+  propose(reason: string, state: 'done' | 'abandoned' = 'done') {
+    const revision = this.current.revision + 1
+    const at = entry(revision, 'agent', '').at
+    return this.#write(
+      {
+        close_proposal: {
+          state,
+          reason,
+          by: 'agent',
+          at,
+          revision,
+          outcome: 'pending',
+        },
+      },
+      'agent',
+      'close proposed',
+    )
+  }
+
   /** A write made by the user outside the page's store (a note route) */
   elsewhere(why: string) {
     return this.#write({}, 'user', why)
@@ -80,12 +100,40 @@ export class FakeLedger {
         409,
         'stale_revision',
       )
+    const pending =
+      current.close_proposal?.outcome === 'pending'
+        ? current.close_proposal
+        : null
+    if (body.close_proposal && !pending)
+      throw new ApiError(
+        'there is no pending close proposal to decline',
+        422,
+        'no_close_proposal',
+      )
+    const state = body.state ?? current.state
+    const decided_at = entry(current.revision + 1, 'user', '').at
+    // A decline settles the proposal; a user close accepts it (ledger.py)
+    const close_proposal = !pending
+      ? current.close_proposal
+      : body.close_proposal
+        ? {
+            ...pending,
+            outcome: 'declined' as const,
+            decided_at,
+            ...(body.close_proposal.note
+              ? { note: body.close_proposal.note }
+              : {}),
+          }
+        : state !== 'open'
+          ? { ...pending, outcome: 'accepted' as const, decided_at }
+          : pending
     return this.#write(
       {
         title: body.title,
         goal: body.goal,
-        state: body.state ?? current.state,
+        state,
         items: merge(current, body),
+        ...(close_proposal ? { close_proposal } : {}),
       },
       'user',
       body.why,
