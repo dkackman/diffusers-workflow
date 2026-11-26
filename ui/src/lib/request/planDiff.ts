@@ -90,7 +90,8 @@ function itemDiff(key: string, was: SeenItem, now: SeenItem): PlanChange[] {
     out.push({ kind: 'renamed', key, title, was: was.title })
   if (was.dropped !== now.dropped)
     out.push({ kind: now.dropped ? 'dropped' : 'restored', key, title })
-  if (was.workflow !== now.workflow)
+  // "" and null are both no workflow, as the engine reads them
+  if ((was.workflow || null) !== (now.workflow || null))
     out.push({ kind: 'changed', key, title, what: 'workflow' })
   const names = changedArgs(was, now)
   if (names.length)

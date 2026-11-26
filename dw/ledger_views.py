@@ -341,8 +341,9 @@ def _live_keys(items):
 
 
 def item_changes(before, after):
-    """`{key: [what]}` for the items one write changed, in the kinds the web
-    UI's plan diff lists (planDiff.ts), so it can name each change's writer."""
+    """`{key: [what]}` for the items one write changed, so the web UI can name
+    each change's writer. planDiff.ts copies this rule; both are held to
+    tests/fixtures/plan_change_cases.json."""
     was = {item.get("key"): item for item in before}
     now = {item["key"]: item for item in after}
     changes = {}
@@ -354,7 +355,7 @@ def item_changes(before, after):
             what = [
                 name
                 for field, name, empty in _COMPARED
-                if (old.get(field) or empty) != (item.get(field) or empty)
+                if _typed(old.get(field) or empty) != _typed(item.get(field) or empty)
             ]
             if bool(old.get("dropped")) != bool(item.get("dropped")):
                 what.append("dropped" if item.get("dropped") else "restored")
@@ -364,6 +365,14 @@ def item_changes(before, after):
         if key not in now and not old.get("dropped"):
             changes[key] = ["dropped"]
     return changes
+
+
+def _typed(value):
+    """`value` for comparing as JSON would: `true` is not `1`, which Python's
+    `==` says it is. Arguments hold scalars only."""
+    if isinstance(value, dict):
+        return {k: (isinstance(v, bool), v) for k, v in value.items()}
+    return value
 
 
 _COMPARED = (

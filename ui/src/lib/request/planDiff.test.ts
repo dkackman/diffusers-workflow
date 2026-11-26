@@ -1,4 +1,6 @@
 import { expect, it } from 'vitest'
+import shared from '../../../../tests/fixtures/plan_change_cases.json'
+import type { LedgerItem } from '../types'
 import { entry, item, request } from './fixtures'
 import { agentChanges, lineOf, planDiff, snapshotOf } from './planDiff'
 
@@ -145,4 +147,19 @@ it('keeps the 50 newest seen-snapshots and drops the oldest', async () => {
   expect(readSnapshot('ws', 'r2')).toBeNull()
   expect(readSnapshot('ws', 'r3')).not.toBeNull()
   expect(readSnapshot('ws', `r${SEEN_KEPT + 2}`)).not.toBeNull()
+})
+
+// The engine owns this rule (item_changes); the same cases run there
+type SharedItem = Partial<LedgerItem> & { key: string }
+const stored = (items: unknown) =>
+  request(
+    (items as SharedItem[]).map((i) => item(i.key, { title: i.key, ...i })),
+  )
+
+it.each(shared.cases)('agrees with the engine: $name', (c) => {
+  const found: Record<string, string[]> = {}
+  for (const change of planDiff(stored(c.before), stored(c.after)))
+    (found[change.key] ??= []).push(change.what ?? change.kind)
+  for (const what of Object.values(found)) what.sort()
+  expect(found).toEqual(c.changes)
 })

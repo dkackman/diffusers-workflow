@@ -439,3 +439,18 @@ def test_the_ui_braces_under_the_keys_the_engine_loads_as_types():
         assert re.search(pattern, key), key
     for key in ("prompt", "my_dtypes", "type"):
         assert not re.search(pattern, key), key
+
+
+PLAN_CHANGE_CASES = json.loads(
+    (REPO / "tests" / "fixtures" / "plan_change_cases.json").read_text()
+)["cases"]
+
+
+def _stored(items):
+    return [{"title": item["key"], **item} for item in items]
+
+
+@pytest.mark.parametrize("case", PLAN_CHANGE_CASES, ids=lambda c: c["name"])
+def test_a_writes_changes_are_the_shared_cases(case):
+    found = ledger_views.item_changes(_stored(case["before"]), _stored(case["after"]))
+    assert {key: sorted(what) for key, what in found.items()} == case["changes"]

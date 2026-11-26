@@ -1,0 +1,68 @@
+{
+  "about": "What one plan write changed, {item key: [aspect]}. dw/ledger_views.py item_changes owns the rule; ui/src/lib/request/planDiff.ts planDiff copies it. tests/test_ui_twins.py and planDiff.test.ts both run every case.",
+  "cases": [
+    {
+      "name": "nothing changed",
+      "before": [{ "key": "a", "arguments": { "seed": 1 } }],
+      "after": [{ "key": "a", "arguments": { "seed": 1 } }],
+      "changes": {}
+    },
+    {
+      "name": "a new item is added, a new dropped one is nothing",
+      "before": [],
+      "after": [{ "key": "a" }, { "key": "b", "dropped": true }],
+      "changes": { "a": ["added"] }
+    },
+    {
+      "name": "dropped, restored and renamed",
+      "before": [{ "key": "a" }, { "key": "b", "dropped": true }, { "key": "c", "title": "old" }],
+      "after": [{ "key": "a", "dropped": true }, { "key": "b" }, { "key": "c", "title": "new" }],
+      "changes": { "a": ["dropped"], "b": ["restored"], "c": ["renamed"] }
+    },
+    {
+      "name": "a live item that leaves is dropped, a dropped one is nothing",
+      "before": [{ "key": "a" }, { "key": "b", "dropped": true }],
+      "after": [],
+      "changes": { "a": ["dropped"] }
+    },
+    {
+      "name": "workflow, arguments and depends_on",
+      "before": [{ "key": "a" }, { "key": "b", "workflow": "x", "arguments": { "seed": 1 } }],
+      "after": [
+        { "key": "a", "depends_on": ["b"] },
+        { "key": "b", "workflow": "y", "arguments": { "seed": 2 } }
+      ],
+      "changes": { "a": ["depends_on"], "b": ["arguments", "workflow"] }
+    },
+    {
+      "name": "an empty workflow is no workflow",
+      "before": [{ "key": "a", "workflow": "" }, { "key": "b", "workflow": null }],
+      "after": [{ "key": "a", "workflow": null }, { "key": "b", "workflow": "" }],
+      "changes": {}
+    },
+    {
+      "name": "a long argument value that changes at its end",
+      "before": [
+        { "key": "a", "arguments": { "prompt": "a long shot of a harbor at dawn, gulls over the water, fishing boats rocking at their moorings, soft fog, warm light on wet stone, wide lens, calm" } },
+        { "key": "b", "arguments": { "prompt": "a long shot of a harbor at dawn, gulls over the water, fishing boats rocking at their moorings, soft fog, warm light on wet stone, wide lens, calm" } }
+      ],
+      "after": [
+        { "key": "a", "arguments": { "prompt": "a long shot of a harbor at dawn, gulls over the water, fishing boats rocking at their moorings, soft fog, warm light on wet stone, wide lens, busy" } },
+        { "key": "b", "arguments": { "prompt": "a long shot of a harbor at dawn, gulls over the water, fishing boats rocking at their moorings, soft fog, warm light on wet stone, wide lens, calm" } }
+      ],
+      "changes": { "a": ["arguments"] }
+    },
+    {
+      "name": "a boolean is not the number it equals",
+      "before": [{ "key": "a", "arguments": { "flag": 1 } }, { "key": "b", "arguments": { "flag": false } }],
+      "after": [{ "key": "a", "arguments": { "flag": true } }, { "key": "b", "arguments": { "flag": 0 } }],
+      "changes": { "a": ["arguments"], "b": ["arguments"] }
+    },
+    {
+      "name": "a null argument differs from an absent one, argument order does not",
+      "before": [{ "key": "a" }, { "key": "b", "arguments": { "x": 1, "y": 2 } }],
+      "after": [{ "key": "a", "arguments": { "x": null } }, { "key": "b", "arguments": { "y": 2, "x": 1 } }],
+      "changes": { "a": ["arguments"] }
+    }
+  ]
+}
