@@ -139,11 +139,9 @@ export const api = {
    * readable. */
   getJobWorkflow: (id: string) =>
     request<JobWorkflow>(`/api/jobs/${segment(id)}/workflow`),
-  /** One JSON page of a job's events, after `after` (exclusive). `kinds`
-   * repeats, keeping events whose `event` or `kind` is one of them. A
-   * finished job answers from the kept tail, with a `note`; unknown: 404.
-   * Asks the `journal` alias of `event-log`: content blockers cancel a URL
-   * with `/event-log?` in it (EasyPrivacy) before it leaves the browser. */
+  /** A JSON page of job events after `after` (exclusive); `kinds` keeps those
+   * whose `event` or `kind` matches. A finished job answers from the kept
+   * tail, with a `note`; unknown: 404. Content blockers cancel `event-log?`. */
   eventLog: (
     id: string,
     {

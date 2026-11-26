@@ -203,7 +203,8 @@ function byStatus(
   return undefined
 }
 
-function classify(e: unknown, message: string, what: string): Base {
+/** A request that got no response at all */
+function byTransport(e: unknown): Base | undefined {
   if (e instanceof NetworkError) {
     return titled(
       'offline',
@@ -218,6 +219,12 @@ function classify(e: unknown, message: string, what: string): Base {
       'The server is answering. Try again; if it keeps failing, a browser extension may be blocking it.',
     )
   }
+  return undefined
+}
+
+function classify(e: unknown, message: string, what: string): Base {
+  const lost = byTransport(e)
+  if (lost) return lost
   if (e instanceof SyntaxError) {
     return titled('json', "The JSON doesn't parse")
   }

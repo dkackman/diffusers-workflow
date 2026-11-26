@@ -297,6 +297,8 @@ NOT_IN_CONTRACT = {
     # The event-log route has no response_model either; the UI's narrowed
     # `EventLogReply` in ui/src/lib/types.ts names it (#1452 plan, stage B)
     "/api/jobs/{}/event-log",
+    # Its alias, the one the UI asks (#1731)
+    "/api/jobs/{}/journal",
 }
 # The raw workflow/prompt GETs serve the file verbatim; their PUT and DELETE
 # on the same path are in the contract
