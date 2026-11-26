@@ -797,6 +797,8 @@ class Workflow:
         # Workflow never serves load_key last run's table
         self.pipeline_ownership = PipelineOwnership(prior_step_keys)
         self.manifest = []
+        # The seed of the result a composing step is handed (#1765)
+        self.result_seed = None
         # What elision dropped this run, filled by prepare_definition and
         # read by the warning pass and the manifest (#122)
         self._elided_steps = []
@@ -838,6 +840,7 @@ class Workflow:
             # Return only the last step's results for child workflows
             record.status = "completed"
             last_result = loop.last_result
+            self.result_seed = getattr(last_result, "seed", None)
             return last_result.result_list if last_result is not None else []
 
         except WorkflowCancelled:

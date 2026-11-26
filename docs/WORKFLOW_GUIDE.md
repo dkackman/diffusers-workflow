@@ -3368,6 +3368,11 @@ Omit `seed` entirely to let the workflow draw a random one at run time. The seed
 actually used - drawn or named - is recorded in its `manifest.json`, so a run you liked
 can be reproduced after the fact.
 
+An image saved with `embed_metadata` carries as `seed` the one it was rendered under: a
+`pipeline.seed`, a step's, or the one a composed child ran with. Where that differs from
+the run's own seed, `workflow_seed` holds the run's: pin that one on the embedded
+workflow to reproduce the image.
+
 Beside that manifest the run also writes `workflow.json` — the *realized*
 workflow, meaning the one that actually ran. Every mutable input is pinned into
 it: the caller's `arguments` folded into the `variables` defaults, the seed the
