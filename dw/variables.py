@@ -127,6 +127,10 @@ def replace_variables(data, variables):
                 # for (names_no_media in arguments.py). Dropping the key
                 # there turns that into a media-less stub that reaches the
                 # pipeline instead.
+                #
+                # A composed child's `seed` is held as null before this pass
+                # (dw/workflow.py: hold_null_seed_arguments), so the child
+                # takes the parent's run seed rather than its own default.
                 if resolved is None and k not in MEDIA_SOURCE_KEYS:
                     continue
                 result[k] = resolved
