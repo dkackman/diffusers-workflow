@@ -256,38 +256,7 @@ def _install(args, runner, platform: str) -> int:
     failures: list[str] = []
     record = read_install_record()
     print(f"dw {dw.__version__}; install record: {record or 'none'}")
-    answering = server_answering(args.port)
-    ours = (
-        answering
-        and not args.no_service
-        and _our_service_installed(manifest, runner, platform)
-    )
-    if answering and not ours:
-        print(
-            f"A dw server is already running at {_url(args.port)} that setup's "
-            "service did not start; no service installed."
-        )
-    if args.no_service:
-        print("service: skipped (--no-service)")
-    elif answering and not ours:
-        pass
-    elif platform not in ("darwin", "linux", "win32"):
-        print(f"service: skipped, no service manager for {platform}")
-    elif ours and not _restart_allowed(args):
-        print(
-            "service: not restarted; the running server keeps the old version "
-            "until it restarts - run dw setup again when its jobs finish"
-        )
-    else:
-        if ours:
-            print(f"The server at {_url(args.port)} is setup's service; restarting it.")
-        _step(
-            "service",
-            failures,
-            lambda: setup_service.install_service(manifest, runner, platform),
-        )
-        if platform == "linux" and "service" not in failures:
-            _linger(args, manifest, runner)
+    _service(args, manifest, runner, platform, failures)
     if args.no_desktop:
         print("Claude Desktop: skipped (--no-desktop)")
     elif platform == "linux":
@@ -328,6 +297,43 @@ def _install(args, runner, platform: str) -> int:
         _open_browser(_url(args.port))
     print(_PROMPT_DONE)
     return 1 if failures else 0
+
+
+def _service(args, manifest: Manifest, runner, platform: str, failures) -> None:
+    """Install the service, or rewrite and restart setup's own one; leave a
+    server setup's service did not start alone."""
+    answering = server_answering(args.port)
+    ours = (
+        answering
+        and not args.no_service
+        and _our_service_installed(manifest, runner, platform)
+    )
+    if answering and not ours:
+        print(
+            f"A dw server is already running at {_url(args.port)} that setup's "
+            "service did not start; no service installed."
+        )
+    if args.no_service:
+        print("service: skipped (--no-service)")
+    elif answering and not ours:
+        return
+    elif platform not in ("darwin", "linux", "win32"):
+        print(f"service: skipped, no service manager for {platform}")
+    elif ours and not _restart_allowed(args):
+        print(
+            "service: not restarted; the running server keeps the old version "
+            "until it restarts - run dw setup again when its jobs finish"
+        )
+    else:
+        if ours:
+            print(f"The server at {_url(args.port)} is setup's service; restarting it.")
+        _step(
+            "service",
+            failures,
+            lambda: setup_service.install_service(manifest, runner, platform),
+        )
+        if platform == "linux" and "service" not in failures:
+            _linger(args, manifest, runner)
 
 
 def _linger(args, manifest: Manifest, runner) -> None:
