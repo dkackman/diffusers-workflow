@@ -96,13 +96,9 @@ def slice_audio(
     kept part's) warns 'slice_dropped_loud_tail' whatever the tail's length:
     the section was cut while it was still playing.
 
-    'past_end' "excerpt" cuts at the end the way "stop" does - no padding,
-    logged when the source keeps it short, and a slice starting at or past
-    the end refused - but declares the slice a window out of something
-    longer, not a section: what it leaves behind is not lost, so it warns
-    neither 'slice_dropped_loud_tail' nor 'slice_trimmed_tail'. A bed taken
-    from a stretch of a cut's own sound wants this (#1719). "stop" is a
-    section kept whole; "excerpt" is a window out of something longer.
+    'past_end' "excerpt" stops at the end as "stop" does, but the slice is a
+    window out of something longer (a bed from a cut's own sound, #1719), so
+    it warns neither 'slice_dropped_loud_tail' nor 'slice_trimmed_tail'.
 
     'end_snap_seconds' (off by default; 0 is off too) moves an end that cuts
     into the source back to the quietest point - the lowest RMS over a
@@ -179,8 +175,7 @@ def slice_audio(
         waveform, total, start, length, sample_rate, past_end, end_snap_seconds
     )
     _warn_on_slice_past_end(total, start, length, sample_rate)
-    # An excerpt leaves the rest of its source behind on purpose (#1719)
-    if past_end != "excerpt":
+    if past_end != "excerpt":  # it leaves the rest behind on purpose
         _warn_on_slice_trims_tail(
             waveform,
             total,
