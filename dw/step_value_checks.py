@@ -237,7 +237,7 @@ def null_media_errors(workflow_definition, source_indices=None):
     return errors
 
 
-# --- select's arguments (was dw/select_validation.py, docs/proposals/score-and-select.md) --
+# --- select's arguments (was dw/select_validation.py) --
 #
 # select's own signature carries no domain - `rule` is any string, and
 # `threshold`/`index` are only meaningful for some rules - so a step whose

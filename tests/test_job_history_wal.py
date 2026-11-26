@@ -1,6 +1,5 @@
 """WAL mode on the jobs database - a real concurrency benefit (readers do
-not block behind a writer) for a near-zero-risk one-line change. See
-docs/proposals/maintenance-screen.md, "Phase 0"."""
+not block behind a writer) for a near-zero-risk one-line change."""
 
 from dw.server.job_history import JobHistory
 
