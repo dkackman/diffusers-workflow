@@ -1,0 +1,42 @@
+{
+  "clip": "/Users/don/diffusers-workspace/outputs/probe-h3-mps-prequantized/20261119-031100-f58d30b1/final/probe-h3-mps-prequantized-text_to_video_audio.0-0.0.mp4",
+  "clip_sha256": "2e1ecc63c702e6a03500f8c155b7072de4969908e5634a75c6ae8d74d995e160",
+  "frames": 124,
+  "width": 960,
+  "height": 544,
+  "fps": 24.0,
+  "strengths": {
+    "luma": 0.5,
+    "chroma": 0.5,
+    "occlusion_tolerance": 1.5
+  },
+  "filter_wall_s": 2.5,
+  "filter_cpu_s": 3.8,
+  "filter_wall_s_per_frame": 0.02,
+  "gate": {
+    "flicker_ratio_at_most": 0.9,
+    "gradient_ratio_at_least": 0.95
+  },
+  "static_share": 0.0008,
+  "moving_share": 0.9892,
+  "flicker": {
+    "before": 2.7478,
+    "after": 2.1713,
+    "ratio": 0.7902
+  },
+  "gradient_energy": {
+    "before": 8718.3328,
+    "after": 6458.6159,
+    "ratio": 0.7408
+  },
+  "edge_energy": {
+    "before": 23970.0427,
+    "after": 20673.8321,
+    "ratio": 0.8625
+  },
+  "gain": false,
+  "outputs": "/Users/don/diffusers-workspace/bench/assets/temporal-flicker-1749",
+  "host": "mini-ai.lan",
+  "cpu_threads": 15,
+  "opencv": "5.0.0"
+}
