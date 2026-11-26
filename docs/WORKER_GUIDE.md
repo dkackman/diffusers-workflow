@@ -71,7 +71,10 @@ after a CUDA error that poisons the process's context
 worker is alive; liveness is polled every second, so a dead worker is
 noticed within a second. `POST /api/jobs/{id}/cancel` cancels in place and
 keeps models cached; during a model load or a task step it takes effect
-once that finishes (a `cancel_pending` event says so).
+once that finishes (a `cancel_pending` event says so). A cancel the worker
+does not honor in time terminates it: after 30 s in a load or task step,
+300 s in any other phase (`JobManager._escalate_cancel`). The next job
+respawns it with a cold model cache.
 
 **GPU out of memory**: `POST /api/memory/clear`, a smaller or quantized
 model, offloading ([ACCELERATION.md](ACCELERATION.md)), or check for other

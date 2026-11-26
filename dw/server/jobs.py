@@ -97,6 +97,10 @@ PROOFS_KEPT = 4096
 # How long a cancel waits for a worker in a phase with no checkpoint (a model
 # load, a task) before the worker is terminated (#892)
 CANCEL_GRACE_SECONDS = 30.0
+# And in any other phase, whose checkpoint is the next step boundary: a video
+# denoise pass runs minutes, so this waits far longer than a load before a
+# pass that never ends costs the worker (#1746)
+CANCEL_STEP_GRACE_SECONDS = 300.0
 
 
 def _submitted(arguments):
@@ -832,31 +836,42 @@ class JobManager(Dispatcher, Reruns):
         return job.status
 
     def _escalate_cancel(self, slot, job):
-        """A model load or a task step never reaches the checkpoint that
-        honors a cancel, and a cold download can last hours. Once the grace
-        period has passed and the job is still in such a phase, the worker
-        is terminated and the job ends cancelled (#892); it respawns for the
-        next job."""
-        timer = threading.Timer(
-            CANCEL_GRACE_SECONDS, self._terminate_if_stuck, args=(slot, job)
-        )
+        """A cancel is honored only at a checkpoint, and none is promised: a
+        model load or a task step has none (#892), and a denoise pass may
+        never end (#1746). A job still running when its phase's grace is up
+        has its worker terminated and ends cancelled; the worker respawns
+        for the next job."""
+        self._after(CANCEL_GRACE_SECONDS, self._terminate_if_stuck, slot, job)
+
+    @staticmethod
+    def _after(seconds, action, *args):
+        timer = threading.Timer(seconds, action, args=args)
         timer.daemon = True
         timer.start()
 
-    def _terminate_if_stuck(self, slot, job):
+    def _terminate_if_stuck(self, slot, job, waited=None):
+        """`waited` is None at the first look, which spares an interruptible
+        phase until CANCEL_STEP_GRACE_SECONDS; the second look spares none."""
         with self._lock:
-            stuck = (
-                job.status == RUNNING
-                and slot.current_job_id == job.id
-                and job.phase in NON_INTERRUPTIBLE_PHASES
-            )
-        if not stuck:
-            return
+            if job.status != RUNNING or slot.current_job_id != job.id:
+                return
+            phase = job.phase
+        if waited is None:
+            if phase not in NON_INTERRUPTIBLE_PHASES:
+                self._after(
+                    max(0.0, CANCEL_STEP_GRACE_SECONDS - CANCEL_GRACE_SECONDS),
+                    self._terminate_if_stuck,
+                    slot,
+                    job,
+                    CANCEL_STEP_GRACE_SECONDS,
+                )
+                return
+            waited = CANCEL_GRACE_SECONDS
         job.add_event(
             {
                 "event": "log",
-                "message": f"Cancel still pending in phase '{job.phase}' after "
-                f"{CANCEL_GRACE_SECONDS:g}s: terminating the worker",
+                "message": f"Cancel still pending in phase '{phase}' after "
+                f"{waited:g}s: terminating the worker",
             }
         )
         try:
