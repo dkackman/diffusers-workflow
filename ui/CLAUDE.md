@@ -2,7 +2,7 @@
 
 Guidance for the web UI single-page app. Build and dev setup are in ui/README.md; the look is in the header comment of `src/app.css`; the rules the UI shares with the engine - its response contract among them - are rows in `docs/ARCHITECTURE.md`.
 
-Checks, from `ui/`: `npm run check`, `npm run lint`, `npm test`, and `npx playwright test` (its own server; never `dw.serve` on its port), whose `e2e/performance.spec.ts` budgets are raised only with Don. A test mocks `api` with `src/lib/test/apiMock.ts`, never an object of its own. Server response types come from `src/lib/generated/` - `python scripts/dump_openapi.py` then `npm run gen:api` - never written by hand.
+Checks, from `ui/`: `npm run check`, `npm run lint`, `npm test`, and `npx playwright test` (after `npm run build`; its own server; never `dw.serve` on its port), whose `e2e/performance.spec.ts` budgets are raised only with Don. A test mocks `api` with `src/lib/test/apiMock.ts`, never an object of its own. Server response types come from `src/lib/generated/` - `python scripts/dump_openapi.py` then `npm run gen:api` - never written by hand.
 
 ## Rules for new UI
 

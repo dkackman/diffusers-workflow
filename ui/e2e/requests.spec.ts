@@ -660,12 +660,23 @@ test('a drop of an item the agent changed is held back until the user answers', 
 
 test('the run dialog prices what is ready, says what will not run, and spends nothing until asked', async ({
   page,
+  request,
 }) => {
   let submitted = 0
   page.on('request', (r) => {
     if (r.method() === 'POST' && new URL(r.url()).pathname === '/api/jobs')
       submitted++
   })
+  // The plan this test counts, written here rather than left over from the
+  // specs above, so it holds when run alone (#1686): `score` out of the plan
+  // (it failed, so it would otherwise be a third run) and `cut` retitled
+  await asAgent(request, 'plan for the run dialog', (items) =>
+    items
+      .filter((item) => item.key !== 'score')
+      .map((item) =>
+        item.key === 'cut' ? { ...item, title: 'Final cut, tighter' } : item,
+      ),
+  )
   await page.goto(BOARD)
   const run = page.getByRole('button', { name: 'Run 2…' })
   const priced = page.waitForResponse(

@@ -14,6 +14,8 @@ prices from, and the developer's real one gave a box that had run a catalog
 model an inherited-cost warning CI never sees, so a spec expecting a clean
 validation passed in CI and failed locally.
 
+It refuses to start on a ui/dist older than the UI's sources (bundle_check).
+
 Extra arguments (--port ...) pass through to dw.serve. The process replaces
 itself with the server so Playwright's shutdown signal reaches it directly.
 """
@@ -30,7 +32,12 @@ import wave
 import zlib
 from datetime import datetime, timedelta, timezone
 
+from bundle_check import bundle_problem
+
 root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+problem = bundle_problem(os.path.join(root, "ui"))
+if problem:
+    sys.exit(problem)
 # playwright.config.ts makes the directory and passes it on, so a spec can
 # reach what the fixture seeds (the hub cache, to put back what a case deletes)
 scratch = os.environ.get("DW_E2E_SCRATCH") or tempfile.mkdtemp(prefix="dw-e2e-")

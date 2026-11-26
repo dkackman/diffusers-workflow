@@ -67,10 +67,16 @@ def catalog_name_from_root(path, root):
     None when the path is not under the root after all - a name that does
     not name an entry is worse than no name for anything that later joins
     on it.
+
+    Both sides are compared with their links followed: a resolved path comes
+    from the security validators, which follow them, while a root is held as
+    it was configured - so a root reached through a link (macOS's /var and
+    /tmp, a linked workspace) would otherwise name none of its own entries,
+    and its runs would join no history.
     """
     if root is None:
         return None
-    relative = os.path.relpath(path, root)
+    relative = os.path.relpath(os.path.realpath(path), os.path.realpath(root))
     if relative.startswith(".."):
         return None
     return os.path.splitext(relative)[0].replace(os.sep, "/")
