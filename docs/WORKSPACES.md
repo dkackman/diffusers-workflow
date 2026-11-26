@@ -40,6 +40,33 @@ Resolving creates nothing. `dw.serve` creates the workspace's `workflows/`
 workspaces (the `default` one, or a named one beside it), not a directory. A
 path there is refused as a workspace name rather than resolved.
 
+## An installed copy
+
+An installed copy ([INSTALL.md](INSTALL.md)) has no checkout, so rule 4 rarely
+applies. Its server is started by the service `dw setup` installs, from the
+service manager's working directory (`/` on macOS, your home on Linux), so the
+workspace is `~/diffusers-workspace` unless your home holds `workflows/`,
+`prompts/` or `outputs/`. The service does not see your shell's `DW_WORKSPACE`;
+to put the workspace elsewhere, set `"workspace"` in
+`~/.diffusers_helper/settings.json` and restart the service
+([SERVER.md](SERVER.md#the-service-dw-setup-installs)). Outputs, prompts and
+assets live under the workspace as on any other server; the models are in the
+Hugging Face cache as usual.
+
+The package carries no `workflows/` catalog, so the workflow library starts
+empty apart from dw's built-ins. To add the examples, copy them from the
+release's source archive into the workspace, where they become your own
+(writable) copies under the same names (`templates/text-to-image`):
+
+```bash
+v=0.23.0   # your dw version; `dw setup --status` prints it
+curl -L https://github.com/dkackman/diffusers-workflow/archive/refs/tags/v$v.tar.gz | tar xz
+mkdir -p ~/diffusers-workspace/{workflows,prompts,assets}
+cp -R diffusers-workflow-$v/workflows/. ~/diffusers-workspace/workflows/
+cp -R diffusers-workflow-$v/prompts/. ~/diffusers-workspace/prompts/
+cp -R diffusers-workflow-$v/assets/. ~/diffusers-workspace/assets/
+```
+
 ## Overriding one folder
 
 `--workflow-dir`, `--prompt-dir`, `--asset-dir` and `--output-dir` on

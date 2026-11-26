@@ -14,20 +14,20 @@ bash ./install.sh && source ./activate
 
 # HTTP server + web UI (http://127.0.0.1:8765, API docs at /docs)
 python -m dw.serve
+dw setup    # service + Claude registrations (docs/INSTALL.md); checkout: venv/bin/dw setup --no-service --no-desktop
+dw agent    # Claude Code with the dw-notes channel
 
 # Run a workflow - dw.run only queues the job on a running dw.serve. This
 # template uses a small, ungated model, so it needs no Hugging Face login
 python -m dw.run workflows/templates/text-to-image.json
 python -m dw.run workflows/templates/text-to-image.json prompt="a cat" num_images_per_prompt=4
 
-# A gated model (e.g. workflows/models/flux-dev.json) needs Hugging Face auth
-# first: hf auth login
+# A gated model (e.g. workflows/models/flux-dev.json) needs Hugging Face auth first: hf auth login
 
 # Validate a workflow against schema
 python -m dw.validate workflows/models/z-image.json
 
-# Unit tests - parallel across every core (pytest-xdist, `-n auto` in
-# pytest.ini); naming test files runs them in one process
+# Unit tests - parallel across every core (pytest-xdist, `-n auto` in pytest.ini); naming test files runs them in one process
 pytest tests/ -v
 pytest tests/test_security.py -v
 
@@ -70,7 +70,7 @@ The guides in `docs/`, by topic:
 
 ### Claude Code plugin
 
-`.claude-plugin/marketplace.json` publishes the `dw` plugin in `plugins/dw/`: one composition skill per model family (`minimax-h3`,
+`.claude-plugin/marketplace.json` publishes the `dw` plugin in `plugins/dw/` (it also starts the `dw` MCP server, `plugins/dw/.mcp.json`): one composition skill per model family (`minimax-h3`,
 `minimax-music3`, `ltx-2.5`, `kandinsky-6`, `flux3-klein`, `minimax-h3-image`) that chooses a template for a request's shape and
 states the family's hard rules, plus cross-cutting composition skills (`script-to-video`, `series-episodes`, `cinematography`,
 `storyboard`, `long-form`) - shapes above the families that orchestrate the decision trees, cast consistency across multiple

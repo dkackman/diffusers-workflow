@@ -1,14 +1,30 @@
 # dw plugin
 
-Skills for Claude Code that teach an agent to compose a model family's
-workflows on a [diffusers-workflow](https://github.com/dkackman/diffusers-workflow)
-server. They assume the `dw` MCP server is already registered (see the repo
-README's [Getting started](../../README.md#getting-started) and
-[docs/MCP.md](../../docs/MCP.md)); a skill's
-first move is `get_server_info`. Six skills cover one model family each; the
-last five are cross-cutting shapes that orchestrate them.
+Skills that teach an agent to compose a model family's workflows on a
+[diffusers-workflow](https://github.com/dkackman/diffusers-workflow) server, and
+the `dw` MCP server that gives it the tools. A skill's first move is
+`get_server_info`. Six skills cover one model family each; the last five are
+cross-cutting shapes that orchestrate them.
 
-Install once, from inside Claude Code:
+`dw setup` installs the plugin in Claude Code
+([docs/INSTALL.md](../../docs/INSTALL.md)). The plugin's `dw` server
+(`.mcp.json`) launches `${HOME}/.local/share/diffusers-workflow/bin/dw-mcp`, a
+shim `dw setup` writes to the installed `dw-mcp`; on a machine where setup never
+ran, that server fails to start, and a `dw` registration you added by hand
+(see [docs/MCP.md](../../docs/MCP.md#clients)) is what serves the tools. What
+loads where:
+
+| Where | Skills | The plugin's `dw` server |
+| --- | --- | --- |
+| Claude Code | yes | yes |
+| Cowork | yes | yes |
+| Claude Desktop chat | yes | no: Desktop chat uses the `dw` entry `dw setup` writes to `claude_desktop_config.json` |
+
+In Claude Desktop the plugin is added by hand, which also makes it available to
+Cowork: open Customize > Plugins (or Settings > Plugins), choose Add
+marketplace, enter `dkackman/diffusers-workflow`, and install `dw`.
+
+By hand in Claude Code, from inside a session:
 
 ```
 /plugin marketplace add dkackman/diffusers-workflow

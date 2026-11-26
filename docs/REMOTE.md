@@ -3,6 +3,12 @@
 `dw.serve` runs on the machine with the GPU; a browser and Claude Code on
 your laptop use it over the network. Nothing is installed on the laptop.
 
+`dw setup` ([INSTALL.md](INSTALL.md)) connects Claude on the machine it runs on
+only, for now; the laptop side below is by hand. On a laptop that has the `dw`
+plugin, the plugin's own `dw` server fails to start (it launches a local
+`dw-mcp` that is not there); the HTTP registration below is the one that works
+([INSTALL.md](INSTALL.md#the-plugin-without-dw-setup)).
+
 ## On the GPU box
 
 1. Install as usual (`git clone https://github.com/dkackman/diffusers-workflow.git`,

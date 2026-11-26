@@ -110,6 +110,12 @@ GUIDES = {
         "How a run's workflows, prompts, assets and outputs are rooted, and "
         "what changes when a workspace is named.",
     ),
+    "install": (
+        "INSTALL.md",
+        "The installed copy: the one-line bootstrap, dw setup's flags and what "
+        "it writes per OS and client, --status --json, updating, and "
+        "troubleshooting a broken setup.",
+    ),
     "agent-rules": (
         "AGENT_RULES.md",
         "Hard rules per model family and for pieces longer than one clip, for "
