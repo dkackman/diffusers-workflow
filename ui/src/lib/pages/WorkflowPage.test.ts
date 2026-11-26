@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/svelte'
 import { tick } from 'svelte'
 import WorkflowPage from './WorkflowPage.svelte'
 import { streamJobEvents } from '../api'
@@ -181,21 +187,16 @@ it('a proof opens its file in the gallery', async () => {
         mtime: 1,
         label: 'a.mp4',
       },
-      {
-        name: 'other/r2/b.png',
-        folder: 'other',
-        subfolder: '',
-        run_id: 'r2',
-        version: 1,
-        url: '/outputs/b.png',
-        kind: 'image',
-        size: 1,
-        mtime: 1,
-        label: 'b.png',
-      },
     ],
   } as never)
   await openPage()
+  // The server narrows to this workflow's folder and its newest six
+  expect(api.gallery).toHaveBeenLastCalledWith(
+    undefined,
+    undefined,
+    undefined,
+    { folder: 'templates/text-to-image', limit: 6 },
+  )
   const tiles = [...document.querySelectorAll('.proofs a.filetile')]
   expect(tiles.map((a) => a.getAttribute('href'))).toEqual([
     '#/ws/studio/gallery?open=templates%2Ftext-to-image%2Fr1%2Fa.mp4',
@@ -203,6 +204,28 @@ it('a proof opens its file in the gallery', async () => {
   expect(tiles[0].querySelector('.videobadge')).toBeTruthy()
   expect(tiles[0].querySelector('img')?.getAttribute('src')).toContain(
     'workspace=studio',
+  )
+})
+
+it('shows at most six proofs, whatever the listing hands back', async () => {
+  const proof = (i: number) => ({
+    name: `templates/text-to-image/r${i}/p${i}.png`,
+    folder: 'templates/text-to-image',
+    subfolder: '',
+    run_id: `r${i}`,
+    version: i,
+    url: `/outputs/p${i}.png`,
+    kind: 'image',
+    size: 1,
+    mtime: 10 - i,
+    label: `p${i}.png`,
+  })
+  api.gallery.mockResolvedValueOnce({
+    files: [1, 2, 3, 4, 5, 6, 7].map(proof),
+  } as never)
+  await openPage()
+  await waitFor(() =>
+    expect(document.querySelectorAll('.proofs a.filetile')).toHaveLength(6),
   )
 })
 

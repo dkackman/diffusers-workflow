@@ -20,7 +20,7 @@
   import { costBasisWords, costFigure, costMeasuredOn } from '../cost'
   import { action } from '../action.svelte'
   import { destroyConfirm } from '../destructive'
-  import type { GalleryFile, WorkflowDefinition } from '../types'
+  import type { WorkflowDefinition } from '../types'
   import ClampedText from '../ui/ClampedText.svelte'
   import { onDestroy, untrack } from 'svelte'
   import { resource } from '../resource.svelte'
@@ -65,18 +65,20 @@
    * catalog card shows, in the place where you decide whether to run it
    * again. A run writes to <outputs>/<identity>/<run id>/, and the gallery
    * reports that identity as `folder`, so this workflow's name matches its
-   * outputs directly. */
+   * outputs directly - and the server narrows to it: only the newest six
+   * of this folder are read, not the whole listing. */
+  const PROOFS = 6
   const proofRead = resource(
     async () => {
       const wanted = name
-      const result = await api.gallery()
-      const files = result.files.filter(
-        (file: GalleryFile) => file.folder === wanted,
-      )
+      const result = await api.gallery(undefined, undefined, undefined, {
+        folder: wanted,
+        limit: PROOFS,
+      })
       return {
         name: wanted,
         workspace: result.workspace,
-        files: files.slice(0, 6),
+        files: result.files.slice(0, PROOFS),
       }
     },
     { watch: ['gallery'] },

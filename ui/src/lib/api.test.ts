@@ -270,6 +270,22 @@ describe('gallery listing and thumbnails', () => {
     expect(calls[1][0]).toBe('/api/gallery?limit=100000')
   })
 
+  it('narrows to one folder, and to the newest few when given a limit', async () => {
+    const calls = stubFetch({ ok: true, body: {} })
+    await api.gallery(undefined, undefined, undefined, {
+      folder: 'templates/text-to-image',
+      limit: 6,
+    })
+    await api.gallery(undefined, undefined, undefined, { folder: 'ltx/Gyre' })
+    await api.gallery(undefined, undefined, undefined, { folder: '' })
+    expect(calls[0][0]).toBe(
+      '/api/gallery?folder=templates%2Ftext-to-image&limit=6',
+    )
+    expect(calls[1][0]).toBe('/api/gallery?folder=ltx%2FGyre&limit=100000')
+    // '' is the output root's own files, still a folder to narrow to
+    expect(calls[2][0]).toBe('/api/gallery?folder=&limit=100000')
+  })
+
   it("scopes a thumbnail URL to the file's own workspace when one is named", () => {
     expect(galleryThumbnailUrl('run/clip.mp4', 'studio')).toBe(
       '/api/gallery/run/clip.mp4/thumbnail?workspace=studio',

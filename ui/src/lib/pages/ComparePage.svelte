@@ -6,7 +6,13 @@
   import { Columns2, Pause, Play, X } from '@lucide/svelte'
   import { api } from '../api'
   import { untrack } from 'svelte'
-  import { hasPicture, outputMedia, viewLabels, withoutRun } from '../media'
+  import {
+    folderOf,
+    hasPicture,
+    outputMedia,
+    viewLabels,
+    withoutRun,
+  } from '../media'
   import { openInHash } from '../mediaViewer'
   import { hashQuery, replaceRoute } from '../router.svelte'
   import { resource, type Resource } from '../resource.svelte'
@@ -48,8 +54,18 @@
       const held = new Map(
         untrack(() => comparison.data ?? []).map((c) => [c.name, c]),
       )
-      const { files } = await api.gallery()
-      const byName = new Map(files.map((f) => [f.name, f]))
+      // One read per folder the names list under (usually one), not the
+      // whole listing. A folder renamed or removed lists nothing, so its
+      // names fall to the missing-file cell, as a deleted file does
+      const folders = [...new Set(wanted.map(folderOf))]
+      const listings = await Promise.all(
+        folders.map((folder) =>
+          api.gallery(undefined, undefined, undefined, { folder }),
+        ),
+      )
+      const byName = new Map(
+        listings.flatMap(({ files }) => files.map((f) => [f.name, f] as const)),
+      )
       return Promise.all(
         wanted.map((name) => {
           const file = byName.get(name) ?? null

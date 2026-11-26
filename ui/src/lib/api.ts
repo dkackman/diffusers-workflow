@@ -288,21 +288,35 @@ export const api = {
       `/api/caches/${encodeURIComponent(name)}/entries/${encodeURIComponent(entry)}`,
       { method: 'DELETE' },
     ),
-  // Loads the whole gallery in one request, like listWorkflows/listPrompts -
-  // the limit just needs to exceed any real output directory's file count.
-  // `roles` narrows server-side (repeated `role` parameters; a null role
-  // counts as final there); the page filters on the client, so asks for none
-  // `requestId` narrows to the runs whose job is linked to that
-  // requests-ledger request (in the selected workspace), and `item` to one
-  // item of it. `opts`: `prompts` (by run id), `media` (durations)
+  // With no `limit`, loads the whole gallery in one request, like
+  // listWorkflows/listPrompts - 100000 just needs to exceed any real output
+  // directory's file count. `roles` narrows server-side (repeated `role`
+  // parameters; a null role counts as final there); the page filters on the
+  // client, so asks for none. `requestId` narrows to the runs whose job is
+  // linked to that requests-ledger request (in the selected workspace), and
+  // `item` to one item of it. `opts`: `prompts` (by run id), `media`
+  // (durations), `folder` (one workflow identity's files, exactly - the
+  // gallery's `folder`, see `folderOf`) and `limit` (the newest that many).
+  // A page that needs one folder's files (WorkflowPage's proofs, Compare's
+  // lookups) asks for that folder rather than filtering the whole listing
   gallery: (
     roles?: string[],
     requestId?: string,
     item?: string,
-    opts?: { prompts?: boolean; media?: boolean },
+    opts?: {
+      prompts?: boolean
+      media?: boolean
+      folder?: string
+      limit?: number
+    },
   ) => {
     const link = linked(requestId, item)
-    const qs = queryOf({ limit: 100000, role: roles, ...link, ...opts })
+    const { limit = 100000, folder, ...flags } = opts ?? {}
+    // `folder` is sent even when '' (the root's flat files), which queryOf
+    // would drop as falsy, so it leads the query on its own
+    const rest = queryOf({ limit, role: roles, ...link, ...flags })
+    const qs =
+      folder === undefined ? rest : `${new URLSearchParams({ folder })}&${rest}`
     return request<GalleryList>(`/api/gallery?${qs}`)
   },
   // `workspace`, when given, names the file's own workspace and wins over
