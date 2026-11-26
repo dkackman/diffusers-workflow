@@ -24,6 +24,8 @@ class Fakes:
         self.out = ""
         self.manifest = None
         self.shims = []
+        self.service_installed = False
+        self.busy = False
 
 
 @pytest.fixture
@@ -109,10 +111,11 @@ def fakes(tmp_path, monkeypatch, capsys):
         (setup_service, "linger_enabled"): lambda run: f.linger_on,
         (setup_service, "enable_linger"): enable_linger,
         (setup_service, "service_status"): lambda run, platform: {
-            "installed": False,
-            "running": False,
+            "installed": f.service_installed,
+            "running": f.service_installed,
             "stops_at_logout": None,
         },
+        (setup_cli, "server_busy"): lambda port: f.busy,
         (setup_clients, "claude_cli"): lambda: f.claude_cli,
         (setup_clients, "register_desktop"): register_desktop,
         (setup_clients, "unregister_desktop"): unregister_desktop,
@@ -287,3 +290,87 @@ def test_uninstall_removes_the_shim_without_the_claude_cli(fakes):
     fakes.claude_cli = None
     fakes.run(["setup", "--uninstall", "--yes"])
     assert "shim" in fakes.removed and not fakes.manifest.has("shim", "dw-mcp")
+
+
+def _recorded_service(fakes):
+    fakes.run(["setup", "--yes", "--no-open"])
+    fakes.service_installs.clear()
+    fakes.server_answering = True
+    fakes.service_installed = True
+
+
+def test_a_rerun_rewrites_and_restarts_its_own_answering_service(fakes):
+    _recorded_service(fakes)
+    assert fakes.run(["setup", "--yes", "--no-open"]) == 0
+    assert fakes.service_installs == ["darwin"] and "restarting it" in fakes.out
+
+
+def test_a_foreign_answering_server_is_left_alone(fakes):
+    fakes.server_answering = True
+    fakes.service_installed = True  # a service, but not one setup recorded
+    fakes.run(["setup", "--yes", "--no-open"])
+    assert fakes.service_installs == [] and "did not start" in fakes.out
+
+
+def test_an_answering_server_whose_service_is_gone_is_foreign(fakes):
+    _recorded_service(fakes)
+    fakes.service_installed = False
+    fakes.run(["setup", "--yes", "--no-open"])
+    assert fakes.service_installs == []
+
+
+def test_a_busy_server_is_restarted_only_when_asked(fakes):
+    _recorded_service(fakes)
+    fakes.busy = True
+    fakes.interactive = True
+    fakes.answers = ["n"]
+    fakes.run(["setup", "--no-open"])
+    assert fakes.service_installs == [] and "not restarted" in fakes.out
+    assert "running a job" in fakes.out
+    fakes.answers = ["y"]
+    fakes.run(["setup", "--no-open"])
+    assert fakes.service_installs == ["darwin"]
+
+
+def test_a_busy_server_without_a_terminal_is_not_restarted(fakes):
+    _recorded_service(fakes)
+    fakes.busy = True
+    fakes.run(["setup", "--no-open"])
+    assert fakes.service_installs == []
+
+
+def test_yes_restarts_a_busy_server_after_warning(fakes):
+    _recorded_service(fakes)
+    fakes.busy = True
+    fakes.run(["setup", "--yes", "--no-open"])
+    assert fakes.service_installs == ["darwin"] and "running a job" in fakes.out
+
+
+def test_server_busy_reads_health(monkeypatch):
+    import io
+
+    class Response(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    bodies = {
+        "idle": b'{"current_job": null, "queued": 0}',
+        "running": b'{"current_job": "j1", "queued": 0}',
+        "queued": b'{"current_job": null, "queued": 2}',
+    }
+    for name, expected in (("idle", False), ("running", True), ("queued", True)):
+        monkeypatch.setattr(
+            setup_cli.urllib.request,
+            "urlopen",
+            lambda url, timeout, body=bodies[name]: Response(body),
+        )
+        assert setup_cli.server_busy(8765) is expected
+
+    def refuse(url, timeout):
+        raise OSError("refused")
+
+    monkeypatch.setattr(setup_cli.urllib.request, "urlopen", refuse)
+    assert setup_cli.server_busy(8765) is None

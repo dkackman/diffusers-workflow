@@ -294,3 +294,42 @@ def test_the_powershell_twin_follows_the_driver(driver_cuda, expected, tmp_path)
     assert f"torch index: {expected}" in result.stdout
     assert "diffusers-workflow[server,mcp]" in result.stdout
     assert f"archive/{SHA}.zip" in result.stdout
+
+
+def _pwsh_dry_run(tmp_path, helper):
+    bin_dir = _fakes(tmp_path, None, "Linux", None)
+    env = {
+        "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+        "HOME": str(tmp_path / "home"),
+        "DW_INSTALL_ROOT": str(tmp_path / "root"),
+        "DIFFUSERS_HELPER_ROOT": str(helper),
+        "DW_BOOTSTRAP_DRY_RUN": "1",
+        "DW_BOOTSTRAP_DIFFUSERS_SHA": SHA,
+    }
+    result = subprocess.run(
+        [PWSH, "-NoProfile", "-File", str(SCRIPTS / "bootstrap.ps1"), "--no-open"],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    return result.stdout
+
+
+@pytest.mark.skipif(PWSH is None, reason="pwsh not available")
+def test_the_powershell_upgrade_ends_setups_task_before_pip(tmp_path):
+    helper = tmp_path / "helper"
+    helper.mkdir()
+    (helper / "setup-manifest.json").write_text(
+        json.dumps({"entries": [{"kind": "service", "key": "dw-serve"}]})
+    )
+    lines = _pwsh_dry_run(tmp_path, helper).splitlines()
+    end = lines.index("+ schtasks /End /TN dw-serve")
+    first_pip = next(i for i, line in enumerate(lines) if " pip install " in line)
+    assert end < first_pip
+
+
+@pytest.mark.skipif(PWSH is None, reason="pwsh not available")
+def test_the_powershell_install_ends_no_task_setup_did_not_record(tmp_path):
+    assert "schtasks" not in _pwsh_dry_run(tmp_path, tmp_path / "no-helper")

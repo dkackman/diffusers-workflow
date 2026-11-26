@@ -81,6 +81,27 @@ if (-not $existing) {
     Invoke-Step uv @("venv", "--seed", "--python", "3.12", $venv)
 }
 
+# --- an upgrade: end the server setup's task runs before pip touches the venv,
+# since uv cannot replace a running dw-serve.exe; `dw setup` starts it again.
+# Only a task setup's manifest records is ended ("not running" is fine)
+$helper = if ($env:DIFFUSERS_HELPER_ROOT) { $env:DIFFUSERS_HELPER_ROOT } else { Join-Path $HOME ".diffusers_helper" }
+$manifest = Join-Path $helper "setup-manifest.json"
+$ourTask = $false
+if (Test-Path $manifest) {
+    try {
+        $entries = @((Get-Content $manifest -Raw | ConvertFrom-Json).entries)
+        $ourTask = [bool]($entries | Where-Object { $_.kind -eq "service" -and $_.key -eq "dw-serve" })
+    }
+    catch { $ourTask = $false }
+}
+if ($ourTask) {
+    if ($dry) { Write-Output "+ schtasks /End /TN dw-serve" }
+    else {
+        & schtasks /End /TN dw-serve 2>&1 | Out-Null
+        $global:LASTEXITCODE = 0
+    }
+}
+
 # --- torch, torchvision and torchaudio from one index so the builds match
 $torchArgs = @("pip", "install", "--python", $py)
 if ($TorchIndex -ne "pypi") { $torchArgs += @("--index-url", $TorchIndex) }

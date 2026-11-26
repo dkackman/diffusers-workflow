@@ -67,6 +67,41 @@ def server_answering(port: int) -> bool:
         return False
 
 
+def server_busy(port: int) -> bool | None:
+    """Whether the server is running or holding a job (`current_job` or
+    `queued` in `GET /api/health`); None when that cannot be read."""
+    try:
+        with urllib.request.urlopen(f"{_url(port)}/api/health", timeout=2) as response:  # noqa: S310
+            health = json.loads(response.read().decode("utf-8"))
+    except (OSError, urllib.error.URLError, ValueError):
+        return None
+    if not isinstance(health, dict):
+        return None
+    return bool(health.get("current_job")) or bool(health.get("queued"))
+
+
+def _our_service_installed(manifest: Manifest, runner, platform: str) -> bool:
+    """Whether the answering server is setup's own service: the manifest
+    records one and the service manager reports it installed. A re-run of
+    the bootstrap (the upgrade) then rewrites it and restarts it."""
+    if not manifest.entries("service"):
+        return False
+    try:
+        return bool(setup_service.service_status(runner, platform)["installed"])
+    except SetupError:
+        return False
+
+
+def _restart_allowed(args) -> bool:
+    if not server_busy(args.port):
+        return True
+    print(
+        "Warning: the dw server is running a job or has jobs queued; "
+        "restarting the service stops them."
+    )
+    return _confirm("Restart it now?", args.yes, default=False)
+
+
 def agent_command(extra: list[str]) -> list[str]:
     return [
         "claude",
@@ -222,23 +257,37 @@ def _install(args, runner, platform: str) -> int:
     record = read_install_record()
     print(f"dw {dw.__version__}; install record: {record or 'none'}")
     answering = server_answering(args.port)
-    if answering:
+    ours = (
+        answering
+        and not args.no_service
+        and _our_service_installed(manifest, runner, platform)
+    )
+    if answering and not ours:
         print(
-            f"A dw server is already running at {_url(args.port)}; no service installed."
+            f"A dw server is already running at {_url(args.port)} that setup's "
+            "service did not start; no service installed."
         )
     if args.no_service:
         print("service: skipped (--no-service)")
-    elif not answering:
-        if platform not in ("darwin", "linux", "win32"):
-            print(f"service: skipped, no service manager for {platform}")
-        else:
-            _step(
-                "service",
-                failures,
-                lambda: setup_service.install_service(manifest, runner, platform),
-            )
-            if platform == "linux" and "service" not in failures:
-                _linger(args, manifest, runner)
+    elif answering and not ours:
+        pass
+    elif platform not in ("darwin", "linux", "win32"):
+        print(f"service: skipped, no service manager for {platform}")
+    elif ours and not _restart_allowed(args):
+        print(
+            "service: not restarted; the running server keeps the old version "
+            "until it restarts - run dw setup again when its jobs finish"
+        )
+    else:
+        if ours:
+            print(f"The server at {_url(args.port)} is setup's service; restarting it.")
+        _step(
+            "service",
+            failures,
+            lambda: setup_service.install_service(manifest, runner, platform),
+        )
+        if platform == "linux" and "service" not in failures:
+            _linger(args, manifest, runner)
     if args.no_desktop:
         print("Claude Desktop: skipped (--no-desktop)")
     elif platform == "linux":
