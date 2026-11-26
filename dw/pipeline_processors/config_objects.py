@@ -49,9 +49,13 @@ def portable_quantization_arguments(arguments):
     if get_device_type() == "mps":
         for key in QUANTIZED_MATMUL_ARGUMENTS:
             if adapted.get(key):
-                logger.warning(
+                emit_warning(
                     f"Turning off '{key}' on MPS - without Triton it runs through "
-                    "torch._int_mm, which is far slower there than dequantizing"
+                    "torch._int_mm, which is far slower there than dequantizing",
+                    kind="device_adjusted",
+                    setting=key,
+                    requested=True,
+                    applied=False,
                 )
                 adapted[key] = False
     return adapted
@@ -87,13 +91,23 @@ def portable_loaded_components(name, loaded):
                 f"Turned off 'use_quantized_matmul' on {before - left} layers of "
                 f"{component_name}, which was saved pre-quantized with it - on "
                 "MPS it runs through torch._int_mm, which is far slower there "
-                "than dequantizing"
+                "than dequantizing",
+                kind="device_adjusted",
+                setting="use_quantized_matmul",
+                component=component_name,
+                requested=True,
+                applied=False,
             )
         if left:
             emit_warning(
                 f"{left} layers of {component_name} keep quantized matmul "
                 "(use_quantized_matmul_conv), which sdnq cannot turn off after "
-                "loading - expect them to be very slow on MPS"
+                "loading - expect them to be very slow on MPS",
+                kind="device_adjusted",
+                setting="use_quantized_matmul_conv",
+                component=component_name,
+                requested=True,
+                applied=True,
             )
 
 

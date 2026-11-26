@@ -1984,7 +1984,9 @@ class TestNoHeadroom:
         from dw.media_types import AudioVideo
         from dw.result import Result
 
-        result = Result({"content_type": "video/mp4"})
+        # A declared rate, so the 8 fps fallback warning (#1727) stays out
+        # of the headroom assertions
+        result = Result({"content_type": "video/mp4", "fps": 24})
         result.add_result(AudioVideo("frames", waveform, 48000))
         with (
             patch("dw.result.encode_video"),

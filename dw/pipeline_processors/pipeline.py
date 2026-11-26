@@ -393,7 +393,20 @@ class Pipeline(H3Arguments):
             if attention_slicing_requested(self.configuration, self.device):
                 # Modular pipelines have no attention slicing - skip rather than fail
                 if has_method(self.pipeline, "enable_attention_slicing"):
-                    logger.debug("Enabling attention slicing for pipeline")
+                    if self.configuration.get("enable_attention_slicing", False):
+                        logger.debug("Enabling attention slicing for pipeline")
+                    else:
+                        # Turned on by the device, not the workflow (#1727)
+                        emit_warning(
+                            f"Turning on attention slicing on {self.device} - "
+                            "automatic on MPS, where it is often the faster "
+                            "path; set 'disable_attention_slicing' to run "
+                            "unsliced",
+                            kind="device_adjusted",
+                            setting="attention_slicing",
+                            requested=False,
+                            applied=True,
+                        )
                     self.pipeline.enable_attention_slicing()
                 else:
                     logger.debug(

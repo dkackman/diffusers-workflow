@@ -6,6 +6,7 @@ from .config_objects import (
     get_group_offload_configuration,
 )
 from .. import empty_device_cache, get_device_type, resolve_device
+from ..events import emit_warning
 
 logger = logging.getLogger("dw")
 
@@ -126,9 +127,13 @@ def apply_mps_rope_precision(pipeline, device):
                 module.double_precision = False
                 switched += 1
         if switched:
-            logger.warning(
+            emit_warning(
                 f"Computing {switched} float64 RoPE module(s) in {component_name} in "
-                "float32 - MPS has no float64 (diffusers does the same for Wan)"
+                "float32 - MPS has no float64 (diffusers does the same for Wan)",
+                kind="device_adjusted",
+                setting="double_precision",
+                requested="float64",
+                applied="float32",
             )
 
 
@@ -194,8 +199,14 @@ def create_components_manager(configuration, device):
         # which torch does not implement for MPS. Unified memory also makes the
         # feature far less useful there than on CUDA, so skip it rather than fail.
         if get_device_type(device) == "mps":
-            logger.warning(
-                "components_manager auto CPU offload is not supported on MPS, skipping"
+            emit_warning(
+                "Skipping components_manager auto CPU offload on MPS - it needs "
+                "device memory info torch does not report there, and unified "
+                "memory leaves it little to save; components stay on the device",
+                kind="device_adjusted",
+                setting="enable_auto_cpu_offload",
+                requested=True,
+                applied=False,
             )
         else:
             offload_arguments = {}
@@ -324,7 +335,14 @@ def place_component(
     # Offloading streams a model between system memory and an accelerator - there is
     # nothing to stream to when the run is on the CPU
     if offload is not None and get_device_type(device) == "cpu":
-        logger.warning(f"Ignoring '{offload}' offload - {device} is not an accelerator")
+        emit_warning(
+            f"Ignoring '{offload}' offload - {device} is not an accelerator, so "
+            "there is nothing to offload to; the model runs without offload",
+            kind="device_adjusted",
+            setting="offload",
+            requested=offload,
+            applied=None,
+        )
         offload = None
 
     # Sequential offload streams each submodule onto the accelerator as it runs,
@@ -340,10 +358,14 @@ def place_component(
             if excluded
             else ""
         )
-        logger.warning(
+        emit_warning(
             f"Using model offload in place of sequential on {device} - sequential "
             f"streams weights per submodule, which buys back no memory on unified "
-            f"memory{ignored}"
+            f"memory{ignored}",
+            kind="device_adjusted",
+            setting="offload",
+            requested="sequential",
+            applied="model",
         )
         offload = "model"
 
