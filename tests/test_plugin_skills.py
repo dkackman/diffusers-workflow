@@ -1280,6 +1280,20 @@ class TestScriptToVideoBeatReview:
         assert "Do not render while an\nedit-list shot has no beat" in text
         assert "## Audit the auditor" in text and "workspace note" in text
 
+    def test_a_rejection_is_written_on_the_take_and_read_first(self):
+        """#1683: the agent's own verdict is appended to the run's note, and
+        read back with get_job (the note a request attempt carries is the
+        submitted one) before the next take is judged."""
+        text = _flat(open(SCRIPT_BEATS, encoding="utf-8").read())
+        assert "`rejected: <reason> - <correction>`" in text
+        assert "`set_note(<run_dir>, ...)`" in text
+        assert "send the old text back" in text
+        assert text.index("Read why earlier takes failed") < text.index("Pull frames")
+        assert "`attempts[].note` does not" in text
+        for path in (SCRIPT_REQUEST, STORYBOARD_SKILL):
+            other = _flat(open(path, encoding="utf-8").read())
+            assert "`rejected:`" in other and "`get_job`" in other
+
     def test_series_episodes_points_to_the_review(self):
         body = skill_body(SERIES_SKILL)
         assert "`script-to-video/references/beat-review.md`" in body

@@ -42,6 +42,16 @@ edit-list shot has no beat; write it first, or ask.
 
 ## The review, before the keep
 
+0. **Read why earlier takes failed**, before judging a new one. In a request,
+   `get_request` gives the item's `attempts[].job` and its `notes` (the
+   user's); without one, use the job ids you ran for the shot. Then
+   `get_job` each earlier take: its `note` holds the `rejected:` lines
+   step 5 wrote. `attempts[].note` does not (it stays as submitted), and
+   `list_jobs` cuts a note to its first line. Judge the new take against
+   those reasons too. A take that fails for the same reason again counts
+   against the same three-attempt budget, not as a fresh failure
+   (`references/fix-ladder.md`), and the correction that did not work is not
+   sent again.
 1. **Pull frames** with `get_output_frames`: **3 evenly spaced** across a
    clip by default; **5 only when the first verdict is split**. For a still,
    the image itself (`get_output_image`).
@@ -68,6 +78,15 @@ edit-list shot has no beat; write it first, or ask.
    flat against the door, the door half open"), not a list. The rerun counts
    against the shot's three-attempt budget in `SKILL.md`'s "Run and judge";
    after three, stop and ask.
+
+   **Write the verdict on the rejected take**, before the rerun, so a later
+   session can read it. `get_job` it for its `run_dir` and `note`, then
+   `set_note(<run_dir>, ...)` (`<workflow>/<run id>`) with that note plus a
+   new line `rejected: <reason> - <correction>`. `set_note` replaces the
+   whole note, so send the old text back with the new line. For example:
+
+       shot-03: the shoulder shot
+       rejected: identity_drift - name the grey coat and the scar again
 
 ## Audit the auditor
 

@@ -585,6 +585,25 @@ def test_job_note_reaches_history_run_and_rerun(client, output_root):
     assert N.read_notes(rerun_dir)["run"] == "testing"
 
 
+def test_a_line_appended_to_a_run_note_reads_back_on_the_job(client):
+    """#1683: the skills append `rejected:` lines to a take's run note and
+    read them back with get_job, in the live job and from history."""
+    job = client.post(
+        "/api/jobs", json={"workflow": valid_workflow(), "note": "tested"}
+    ).json()
+    detail = wait_for_status(client, job["id"], ["succeeded"])
+    appended = "tested\nrejected: identity_drift - name the grey coat"
+    assert (
+        client.put(
+            "/api/notes", json={"target": detail["run_dir"], "note": appended}
+        ).status_code
+        == 200
+    )
+    assert client.get(f"/api/jobs/{job['id']}").json()["note"] == appended
+    client.app.state.job_manager.jobs.pop(job["id"])
+    assert client.get(f"/api/jobs/{job['id']}").json()["note"] == appended
+
+
 def test_a_job_without_a_note_has_no_note(client, output_root):
     job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
     detail = wait_for_status(client, job["id"], ["succeeded"])
