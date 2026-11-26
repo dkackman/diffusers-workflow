@@ -259,7 +259,9 @@ class TestDocsQuoteTheTable:
         assert wording in fires_when
         numbers = [float(n) for n in re.findall(NUMBER, fires_when)]
         assert numbers[0] == rule["threshold"]
-        if rule["name"] == "seam_hole":
+        # seam_hole's voiced guard and shot_bed_drop's quiet guard are both
+        # HOLE_VOICED_DBFS; the guide states it (#1718's bounce)
+        if rule["name"] in ("seam_hole", "shot_bed_drop"):
             assert numbers[1:] == [HOLE_VOICED_DBFS]
         else:
             assert numbers[1:] == []

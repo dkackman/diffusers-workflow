@@ -1194,7 +1194,7 @@ The thresholds live in one table, `dw/assessment_rules.py`:
 | `seam_hole` | `analyze_seams` | the join's floor drops below -50 dBFS while both sides are voiced (above -30 dBFS) |
 | `seam_frame_jump` | `analyze_seams` | the picture changes more than 25x as much across the seam as inside either shot (`info`, and skipped at a shot marked `hard_cut: true`) |
 | `shot_dead_air` | `analyze_shots` | the shot holds a gap more than 0.4 seconds long below its dead-air floor (skipped inside a shot that is quiet throughout) |
-| `shot_bed_drop` | `analyze_shots` | the shot's `noise_floor_dbfs` sits more than 20 dB below the louder neighbouring shot's: the bed the shots around it carry drops out between its lines (skipped inside a shot that is quiet throughout; a deliberate scene change can trip it too) |
+| `shot_bed_drop` | `analyze_shots` | the shot's `noise_floor_dbfs` sits more than 20 dB below the louder neighbouring shot's: the bed the shots around it carry drops out between its lines (`warn`; skipped inside a shot whose RMS is at or below -30 dBFS, and in a shot marked `silent_by_design`; a deliberate scene change can trip it too) |
 | `sync_drift` | `analyze_sync_drift` | by a shot's end, the audio sits more than 40 ms off the picture |
 | `sync_length` | `analyze_sync_drift` | the soundtrack and the picture differ in length by more than 40 ms |
 | `held_frames` | `analyze_held_frames` | the picture holds a repeated frame, 13 or more times in the file (a few are normal; a static shot holds none) |
