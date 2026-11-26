@@ -938,12 +938,12 @@ it has one, otherwise from the workflow's `cost` block. Quote `minutes`;
 | `observed_minutes` | With `tempered`: the raw observed figure before the blend - the same number `list_workflows` reports as `observed_minutes` |
 | `curated_minutes` | With `tempered`: the figure it blended toward |
 | `low_confidence` | `true` when the figure is an approximation: scaled from another setting, measured at another setting of a driver nothing scales (`differs`), inherited from a template with differences, or thin history with nothing to blend toward. Validate warns when an `inherited` figure is, and never refuses; tell the user the figure is rough |
-| `scaled` | What the figure was re-priced along, in words: steps, canvas, frames or a `scales_with` driver moved off the defaults it was measured at; a checked chain's worst case; for `inherited`, more pipeline steps or frames than the template's run |
+| `scaled` | What the figure was re-priced along, in words: steps, canvas, frames or a `scales_with` driver moved off the defaults it was measured at; a checked chain's worst case; for `inherited`, more pipeline steps or frames than the template's run; for a task-only workflow priced from declared task rates, `task rates: ` and each step's fixed seconds plus seconds per input second over its input's length |
 | `per_segment` | `true` when an `observed` figure is a matched chain's, read per segment from this box's history |
 | `differs` | The drivers that moved with no rule to scale by, with `low_confidence` true; for `inherited`, what the workflow sets differently from the template (`[]` when nothing) |
 | `inherited_from` | With `inherited`, or a `withheld` figure: the catalog template whose runs priced it |
 | `withheld` | With basis `unknown`, `minutes` `null` and `inherited_from` set: why that template's runs could not be re-priced for this workflow (its size cannot be compared to the template's). Validate warns `cost estimate withheld: …`; the run has history, but no honest figure |
-| `unpriced_reason` | With basis `unknown`: why there is no price - a workflow of task steps alone, when there is no `withheld` (no pipeline to inherit from, and its length follows its input media), or a step under the experimental `experimental_hybrid_windows`, whose minutes and every `*_minutes` are `null` because nothing measures its time |
+| `unpriced_reason` | With basis `unknown`: why there is no price - `no declared rate: ` and the commands of a task-only workflow that declare no task rate, when there is no `withheld` (no pipeline to inherit from, no cost block, no runs of its own), or a step under the experimental `experimental_hybrid_windows`, whose minutes and every `*_minutes` are `null` because nothing measures its time |
 
 **Bases.** `basis` is one of:
 
@@ -965,6 +965,14 @@ it has one, otherwise from the workflow's `cost` block. Quote `minutes`;
   `cost` entry names in `scales_with` scales the same way: Music 3's
   `audio_duration`, or that field summed over `music-long`'s sections. The
   ceiling is what is quoted, so a track that ends early costs less.
+  A workflow of task steps alone, with no cost block and no runs here, is
+  `derived` from its commands' declared task rates (`register_command(cost=)`,
+  `docs/TASKS.md`): each step's fixed seconds plus seconds per second of its
+  input media's probed length, summed and rounded up to 0.1 minute, always
+  `low_confidence`. A step whose input is an earlier step's output takes the
+  longest length any step's inputs resolved to, and one with no input that
+  resolves is priced at its fixed seconds alone; each such step is named in
+  `differs`. One undeclared command leaves the whole workflow `unknown`.
 - `other_device` - no entry for the serving backend; the first entry's
   figure, which is a warning rather than a quote.
 - `inherited` - an inline workflow has no catalog name, so its price is this

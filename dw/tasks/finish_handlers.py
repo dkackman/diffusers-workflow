@@ -147,6 +147,7 @@ def _handle_sharpen(task, arguments, previous_pipelines):
 
 @register_command(
     "film_grain",
+    cost={"fixed_seconds": 2, "per_input_second": 1.5},
     implementation="dw.tasks.finish.film_grain",
     summary=(
         "Add seeded film grain to an image or a video, strongest in the "
@@ -178,6 +179,7 @@ def _handle_film_grain(task, arguments, previous_pipelines):
 
 @register_command(
     "apply_lut",
+    cost={"fixed_seconds": 2, "per_input_second": 1.5},
     implementation="dw.tasks.lut.apply_lut",
     summary=(
         "Colour an image or a video through a 3D lookup table - from a .cube "

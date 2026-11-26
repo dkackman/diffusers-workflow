@@ -85,6 +85,14 @@ def _handle_my_task(task, arguments, previous_pipelines):
 - `media_arguments` - an argument that reads a file under a name that does not
   say so (`source`, `media`, `lut`, `clip`, `track`). Validation confines it as
   it does `image` or `*_video`; an argument not listed is not path-checked.
+- `cost` - `{"fixed_seconds": F, "per_input_second": R}`: what a run takes, F
+  plus R per second of its input media, declared at about twice the slowest
+  measured rate. The plan prices a task-only workflow from these (`derived`,
+  `low_confidence`; docs/SERVER.md *Bases*) when it has no cost block and no
+  runs here. A command that consumes a device runs a model, and may not
+  declare one; a workflow with an undeclared command stays unpriced, its
+  `unpriced_reason` naming it. `RegistryTable("cost")` reads them;
+  `tests/test_task_rates.py` pins the price.
 
 `TASK_ARGUMENT_DOMAINS`, `TASK_ARGUMENT_CHOICES`, `TASK_STATIC_CHECKS`,
 `TASK_WHOLE_NUMBER_ARGUMENTS` and `TASK_MEDIA_ARGUMENTS` are read-only views of

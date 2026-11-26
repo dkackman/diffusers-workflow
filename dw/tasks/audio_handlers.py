@@ -30,6 +30,7 @@ logger = logging.getLogger("dw")
 
 @register_command(
     "fade_audio",
+    cost={"fixed_seconds": 1, "per_input_second": 0.05},
     implementation="dw.tasks.audio_utils.fade_audio",
     domains={
         "fade_in_ms": NON_NEGATIVE,
@@ -47,6 +48,7 @@ def _handle_fade_audio(task, arguments, previous_pipelines):
 
 @register_command(
     "normalize_audio",
+    cost={"fixed_seconds": 1, "per_input_second": 0.1},
     implementation="dw.tasks.audio_dynamics.normalize_audio",
     domains={
         "peak_dbfs": FINITE,
@@ -64,6 +66,7 @@ def _handle_normalize_audio(task, arguments, previous_pipelines):
 
 @register_command(
     "slice_audio",
+    cost={"fixed_seconds": 1, "per_input_second": 0.05},
     implementation="dw.tasks.audio_slice.slice_audio",
     domains={
         "start_seconds": NON_NEGATIVE,
@@ -111,6 +114,7 @@ def _handle_gain_audio(task, arguments, previous_pipelines):
 
 @register_command(
     "resample_audio",
+    cost={"fixed_seconds": 1, "per_input_second": 0.05},
     implementation="dw.tasks.audio_utils.resample_audio",
     domains={"target_sample_rate": POSITIVE, "sample_rate": POSITIVE},
     whole_numbers=("target_sample_rate",),
@@ -125,6 +129,7 @@ def _handle_resample_audio(task, arguments, previous_pipelines):
 
 @register_command(
     "pair_audio",
+    cost={"fixed_seconds": 2, "per_input_second": 0.35},
     implementation="dw.tasks.pair_audio.pair_audio",
     domains={"sample_rate": POSITIVE},
 )
@@ -199,6 +204,7 @@ def _handle_find_loop_bed(task, arguments, previous_pipelines):
 
 @register_command(
     "mix_audio",
+    cost={"fixed_seconds": 1, "per_input_second": 0.05},
     implementation="dw.tasks.audio_utils.mix_audio",
     domains={"gains": NON_NEGATIVE, "sample_rate": POSITIVE},
 )

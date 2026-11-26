@@ -9,7 +9,7 @@ generations loses that wait each time.
 ## Options
 
 A. **Task lane (the issue's first ask).** A job whose definition has no
-   pipeline step (`dw/plan.py::_unpriced_reason` already detects it) skips
+   pipeline step (`dw/plan_pricing.py::undeclared_task_commands` already detects it) skips
    `_pending`'s slot gate and runs on its own thread via a separate
    CPU-side worker (not a card's persistent worker, which is busy and
    holds the model cache). Needs: a lane worker (spawned subprocess, one at

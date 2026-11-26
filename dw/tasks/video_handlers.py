@@ -46,6 +46,7 @@ logger = logging.getLogger("dw")
 
 @register_command(
     "concat_videos",
+    cost={"fixed_seconds": 2, "per_input_second": 0.5},
     implementation="dw.tasks.concat_videos.concat_videos",
     domains={
         "trim_frames": NON_NEGATIVE,
@@ -91,6 +92,7 @@ def _handle_dissolve_videos(task, arguments, previous_pipelines):
 
 @register_command(
     "export_timeline",
+    cost={"fixed_seconds": 2, "per_input_second": 0.0},
     implementation="dw.tasks.timeline_export.export_timeline",
     summary=(
         "Write a joined video's shots as an editable OpenTimelineIO .otioz "

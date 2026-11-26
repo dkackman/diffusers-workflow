@@ -104,6 +104,28 @@ def _named_arguments(**rules):
     return {rule: tuple(names) for rule, names in rules.items() if names}
 
 
+COST_KEYS = ("fixed_seconds", "per_input_second")
+
+
+def _checked_cost(command_name, cost, consumes_device):
+    """A declared task rate as a plain dict, or None - refused when the
+    command runs a model or the rate is not two non-negative numbers."""
+    if cost is None:
+        return None
+    if consumes_device:
+        raise ValueError(
+            f"{command_name}: a command that consumes a device runs a model, "
+            "whose time the catalog measures - it may not declare a cost"
+        )
+    if not isinstance(cost, dict) or set(cost) != set(COST_KEYS):
+        raise ValueError(f"{command_name}: cost must name exactly {COST_KEYS}")
+    for key in COST_KEYS:
+        value = cost[key]
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+            raise ValueError(f"{command_name}: cost {key} must be a number >= 0")
+    return {key: float(cost[key]) for key in COST_KEYS}
+
+
 def register_command(
     command_name: str,
     implementation=None,
@@ -121,6 +143,7 @@ def register_command(
     whole_numbers=(),
     required_weights=None,
     result_content_type=None,
+    cost=None,
 ):
     """
     Decorator to register a command handler function.
@@ -199,10 +222,19 @@ def register_command(
             (`export_timeline`'s .otioz): any other is refused at validation
             (dw/scalar_result_validation.py, #1302) rather than saved as an
             extensionless file
+        cost: {"fixed_seconds": F, "per_input_second": R} - the declared rate
+            a task-only workflow's plan prices this command at before it has
+            run history of its own (`dw/plan_pricing.py` `task_rate_price`,
+            #1619): F seconds plus R seconds for every second of input media.
+            Only a command that runs no model may declare one - a model's
+            time is the catalog's to measure, so `consumes_device=True` with
+            a cost is refused here. Read as `RegistryTable("cost")`
 
     Returns:
         Decorator function
     """
+
+    cost = _checked_cost(command_name, cost, consumes_device)
 
     def decorator(func: Callable) -> Callable:
         if consumes_device:
@@ -239,6 +271,8 @@ def register_command(
             rules["static_check"] = static_check
         if required_weights:
             rules["required_weights"] = required_weights
+        if cost is not None:
+            rules["cost"] = cost
         rules.update(
             _named_arguments(
                 media_arguments=media_arguments,
