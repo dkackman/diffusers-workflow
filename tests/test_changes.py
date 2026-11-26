@@ -303,7 +303,7 @@ CASES = {
     "put_note:run": (
         lambda c, run: None,
         lambda c, run: c.put("/api/notes", json={"target": run, "note": "n"}),
-        {"gallery": 1},
+        {"gallery": 1, "requests": 1},
     ),
     "delete_output": (
         lambda c, run: None,

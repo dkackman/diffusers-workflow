@@ -57,6 +57,7 @@ from ..changes import (
     ASSETS,
     GALLERY,
     NO_CHANGE,
+    REQUESTS,
     WORKSPACES,
     Change,
     ChangeRoute,
@@ -614,7 +615,7 @@ def _note_expectation(request, target):
 
 
 @router.put("/api/notes", response_model=NoteSet, response_model_exclude_unset=True)
-@writes(ASSETS, GALLERY, WORKSPACES)
+@writes(ASSETS, GALLERY, REQUESTS, WORKSPACES)
 def put_note(
     request: Request,
     body: NoteRequest,
@@ -652,6 +653,9 @@ def put_note(
         change.only(WORKSPACES)
     elif kind == "asset":
         change.only(ASSETS).in_library(ws, root)
+    elif kind == "run":
+        # A request's `attempts[].note` is the run's note
+        change.only(GALLERY, REQUESTS)
     else:
         change.only(GALLERY)
     return {
