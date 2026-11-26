@@ -16,13 +16,24 @@ short request, a layout by boxes, or a host that is too small goes to the
 
 This skill is written for dw `0.23.0-alpha.2`; `get_server_info`'s `plugin` says whether that is current.
 
-1. `get_server_info`: the device and the workspace. The recipe is CUDA only.
-   On `mps` or `cpu`, stop and use the `flux3-klein` skill.
+1. `get_server_info`: the device and the workspace. The catalog recipe is
+   CUDA only. On `cpu`, stop and use the `flux3-klein` skill.
+   - **On `mps` under about 70 GB** (a 64 GB Mac), H3-Image runs only from
+     pre-quantized int8 folders (the text encoder and the transformer, made
+     on a CUDA host), through `bench/workflows/h3-image-mps-t2i.json`
+     copied into the workspace with its two folder paths set to that host's
+     (on mini-ai it is saved as `bench/h3-image-mps-t2i` in `bench`). Never the catalog template: validate refuses it at `host_ram_gb`. Its
+     two steps load one int8 model at a time (the encoder is released
+     first). Measured on mini-ai (M5 Pro, 64 GB), one 2048x2048 still:
+     3.2 min with the load, peak 34.2 GB of MPS memory, a 40.4 GB job peak
+     RSS, 20.5 GB of host left. The edit with references was not measured
+     on mps. Without the folders, use the `flux3-klein` skill.
 2. Host RAM: the host needs about 70 GB or more, and the warm run holds
    about 64 GB (`host_ram_gb: 64`). `validate_workflow` refuses a run on a
    host whose total RAM is too small, naming `host_ram_gb`. Its
-   `plan.host_memory` gives the projected peak. On a refusal, or a host
-   under about 70 GB, use the `flux3-klein` skill instead.
+   `plan.host_memory` gives the projected peak. On a refusal, or a CUDA
+   host under about 70 GB, use the `flux3-klein` skill instead (an `mps`
+   host: step 1).
 3. `list_workflows(shape="image")` and `list_workflows(shape="image-edit")`:
    take names, `summary` and `cost` from the listing over the names quoted
    here, then `get_workflow` on the one you chose.
@@ -81,6 +92,11 @@ it in about half the time. Quote `plan.estimate` from `validate_workflow`,
 not these figures, and add the cold first run when the host has never run
 it.
 
+On `mps`, from the folders: 3.2 min for one 2048x2048 still on mini-ai,
+the load (104 s) included, with no cold quantize. There is no mps figure
+for an edit. The bench workflow carries no cost row, so its `plan.estimate`
+is `unknown` until it has run on the host: quote the 3.2 min then.
+
 ## Prompts
 
 - **Long and literal.** The prompt is a detailed English description of the
@@ -130,6 +146,9 @@ multi-reference edit of the same cast still, with the face named as kept.
 - the host-RAM floor: about 64 GB held warm, and about 120 GB with a much
   longer first run when the host has never run it;
 - `plan.host_memory`'s projected peak.
+- On `mps`, from the folders: 3.2 min a still and a 40.4 GB job peak
+  (34.2 GB of MPS memory), measured on mini-ai, in place of the CUDA host
+  floor; an edit has no mps figure.
 
 Then end the turn and wait for the user's go-ahead. Never fill in
 `acknowledged_cost` yourself before the user has said yes.

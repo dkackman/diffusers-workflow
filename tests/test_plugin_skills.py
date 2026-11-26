@@ -1182,6 +1182,43 @@ class TestMiniMaxH3ImageSkill:
             "After the go-ahead, `run_workflow`"
         )
 
+    def test_mps_runs_from_the_prequantized_bench_workflow_as_measured(self):
+        # #1730: the mps probe ran (job b99e189e1059 on mini-ai), so the
+        # skill no longer stops on mps; it names the bench route and the
+        # measured numbers, and every doc agrees.
+        text = h3_image_text()
+        flat = " ".join(text.split())
+        assert "On `mps` or `cpu`, stop" not in flat
+        bench = "bench/workflows/h3-image-mps-t2i.json"
+        assert bench in flat
+        assert os.path.isfile(os.path.join(REPO_ROOT, bench))
+        assert "Never the catalog template" in flat
+        before = text[text.index("## Before anything") : text.index("## Which shape")]
+        cost = text[text.index("## Cost") : text.index("## Prompts")]
+        quote = text[text.index("## Quote, then wait") : text.index("## Run and judge")]
+        for section in (before, cost, quote):
+            assert "3.2 min" in section
+        assert "40.4 GB" in " ".join(quote.split())
+        readme = open(
+            os.path.join(
+                REPO_ROOT, "workflows", "templates", "minimax-h3-image", "README.md"
+            ),
+            encoding="utf-8",
+        ).read()
+        accel = open(
+            os.path.join(REPO_ROOT, "docs", "ACCELERATION.md"), encoding="utf-8"
+        ).read()
+        row = next(
+            line for line in accel.splitlines() if line.startswith("| MiniMax H3-Image")
+        )
+        for doc in (" ".join(readme.split()), row):
+            assert "3.2 min" in doc and "b99e189e1059" in doc
+            assert "untested" not in doc and "by rule" not in doc
+        record = open(
+            os.path.join(REPO_ROOT, "bench", "records", "h3-image.md"), encoding="utf-8"
+        ).read()
+        assert "b99e189e1059" in record and "190.7 s" in record
+
     def test_the_h3_skill_routes_its_picture_here_or_to_klein(self):
         flat = " ".join(skill_text(H3_SKILL).split())
         assert "`minimax-h3-image` skill (CUDA, ~70 GB RAM), else `flux3-klein`" in flat
