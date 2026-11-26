@@ -1017,6 +1017,24 @@ it('a filter over a partial page says what it searched', async () => {
   location.hash = ''
 })
 
+it("another workspace's job has no proof slot", async () => {
+  location.hash = ''
+  data.jobs = [
+    summary({ id: 'a-1', run_id: 'run-a' }),
+    summary({ id: 'b-2', run_id: 'run-a', workspace: 'elsewhere' }),
+  ]
+  data.files = [proofFile('run-a')]
+  const { container } = render(JobsPage)
+  await waitFor(() =>
+    expect(container.querySelectorAll('.row .proof img').length).toBe(1),
+  )
+  const slot = (id: string) =>
+    container.querySelector(`.row[href$="${id}"] .proof`)!
+  expect(slot('a-1').querySelector('img')).toBeTruthy()
+  // the column stays, so rows line up; nothing is drawn in it
+  expect(slot('b-2').children.length).toBe(0)
+})
+
 it('a live-only filter does not offer Search all', async () => {
   location.hash = '#/ws/default/jobs?status=running'
   data.jobs = [...finished(120), ...live(3)]

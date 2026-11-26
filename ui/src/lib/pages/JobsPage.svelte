@@ -324,7 +324,9 @@
           showWorkspace={scope === 'all' && (workspace.names?.length ?? 0) > 1}
           prompt={prompts[job.id] ?? ''}
           percent={progress[job.id] ?? null}
-          proof={proof && job.workspace === listedGallery ? proof : null}
+          proof={listedGallery && job.workspace !== listedGallery
+            ? undefined
+            : (proof ?? null)}
           onmove={move}
           busyId={moving.busy ? movingId : null}
         />
