@@ -32,7 +32,7 @@ from huggingface_hub.utils import (
     validate_repo_id,
 )
 
-from .hub_cache import repo_download_incomplete, scan_models
+from .hub_cache import index_components, repo_download_incomplete, scan_models
 from .quantized_cache import _SPEC_FIELDS, _cached_file, _per_component
 from . import references
 from .realize import read_sub_workflow
@@ -729,15 +729,10 @@ def _fetch_index(repo, filename, revision=None):
 
 
 def _pipeline_components(repo):
-    """The component names `repo`'s `model_index.json` declares - the
-    entries diffusers reads a list under - or None when it can't be read."""
+    """The component names `repo`'s `model_index.json` declares
+    (`hub_cache.index_components`), or None when it can't be read."""
     try:
-        index = _fetch_index(repo, MODEL_INDEX)
-        return {
-            key
-            for key, value in index.items()
-            if isinstance(value, list) and key != "_class_name"
-        }
+        return set(index_components(_fetch_index(repo, MODEL_INDEX)))
     except Exception as e:
         logger.debug(f"No model index for {repo}: {e}")
         return None

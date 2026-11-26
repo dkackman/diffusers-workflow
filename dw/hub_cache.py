@@ -161,6 +161,26 @@ def _is_component_spec(value):
     )
 
 
+def index_components(index):
+    """The components a parsed model_index.json declares, as
+    {folder name: class name} - the one reading of "is this index entry a
+    component", for the cached-completeness check and the plan's download
+    sizing alike (#1745). A `_`-prefixed key is metadata, a value that is not
+    a [library, class] pair is not a component (`_is_component_spec`), and a
+    key that is not a plain folder name is dropped: the file comes from
+    whoever published the repo, so an absolute or '..' key would point a
+    listdir anywhere and make validate_workflow's downloads_required a yes/no
+    oracle for directories on the box."""
+    return {
+        key: value[1]
+        for key, value in index.items()
+        if not key.startswith("_")
+        and _is_component_spec(value)
+        and os.path.basename(key) == key
+        and key not in (".", "..")
+    }
+
+
 def _component_incomplete(folder, variant, class_name=None):
     """Whether a diffusers pipeline component's folder is missing files a
     load would need. The rule, by `class_name` (#894):
@@ -268,18 +288,11 @@ def repo_download_incomplete(repo_id, cache_dir=None, variant=None, skip=()):
     except (OSError, ValueError):
         return False
 
-    for key, value in index.items():
-        if key.startswith("_") or not _is_component_spec(value):
-            continue
-        # A component is a folder beside model_index.json. The file comes
-        # from whoever published the repo, so an absolute or '..' key would
-        # point this listdir anywhere and make validate_workflow's
-        # downloads_required a yes/no oracle for directories on the box
-        if os.path.basename(key) != key or key in (".", ".."):
-            continue
+    # A component is a folder beside model_index.json
+    for key, class_name in index_components(index).items():
         if key in skip:
             continue
-        if _component_incomplete(os.path.join(snapshot, key), variant, value[1]):
+        if _component_incomplete(os.path.join(snapshot, key), variant, class_name):
             return True
     return False
 

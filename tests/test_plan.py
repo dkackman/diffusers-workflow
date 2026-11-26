@@ -3597,6 +3597,34 @@ class TestLoadBytes:
             expected * 10**9 / GIB, abs=0.1
         )
 
+    def test_a_setting_or_absent_component_is_not_a_component_folder(self, monkeypatch):
+        # A list-valued setting and a [null, null] optional component are not
+        # components, whatever folder shares their name (#1741, #1745): their
+        # pickle-only folders must not drop the safetensors of the real ones
+        from types import SimpleNamespace as S
+
+        import dw.plan_downloads as pd
+
+        gb = 10**9
+        index = {
+            "_class_name": "X",
+            "_hidden": ["diffusers", "UNet2DConditionModel"],
+            "unet": ["diffusers", "UNet2DConditionModel"],
+            "image_encoder": [None, None],
+            "select_layers": [2, 5, 8],
+        }
+        rows = {
+            "model_index.json": 1,
+            "unet/diffusion_pytorch_model.safetensors": 10 * gb,
+            "image_encoder/pytorch_model.bin": gb,
+            "select_layers/pytorch_model.bin": gb,
+        }
+        siblings = [S(rfilename=n, size=sz) for n, sz in rows.items()]
+        monkeypatch.setattr(pd, "_fetch_index", lambda *a, **k: index)
+
+        assert pd._pipeline_components("org/repo") == {"unet"}
+        assert pd._repo_gb("org/repo", siblings) >= 10 * gb / GIB - 0.1
+
     def test_an_unreadable_index_gives_no_size(self, monkeypatch):
         import dw.plan_downloads as pd
 
