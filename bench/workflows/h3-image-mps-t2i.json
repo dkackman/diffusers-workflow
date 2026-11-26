@@ -1,0 +1,130 @@
+{
+  "id": "BenchH3ImageMpsT2I",
+  "summary": "#1680 probe: H3-Image t2i on mps from pre-quantized int8 folders, one component at a time.",
+  "description": "Stage A of #1680 (#1729). The catalog template (templates/minimax-h3-image/text-to-image) needs both int8 components resident at once (~64 GB warm, host_ram_gb 64), which a 64 GB unified-memory Mac can't hold beside the OS, and on unified memory group offload frees nothing. This bench workflow cuts the H3-Image modular pipeline in two. Step 'encode' loads only the text encoder (with its tokenizer and processor) from the pre-quantized folder /Volumes/NVME/cache/h3-prequantized-int8/text_encoder, removes lm_head, truncates the language model to 51 layers (the pipeline reads hidden_states[50]), runs only the before_encode and text_encoder blocks, returns prompt_embeds and text_token_tags, and is released. Step 'generate' loads only the transformer, from /Volumes/NVME/cache/h3-prequantized-int8/transformer, and the VAE from MiniMaxAI/MiniMax-H3-Image (vae_diffusers, ~1 GB, not the int4 h3-prequantized/ VAE), runs only the denoise and decode blocks, and saves one PNG under final. The folders are dw quantized-cache entries saved on lem (sdnq 0.2.8, int8, the template's modules_to_not_convert), so no quantization_config is passed: sdnq reads each folder's own. A local path is never quantized-cache keyed (LOCAL_PATH) and nothing of 64 GiB is downloaded. On mps dw loads without quantized matmul (dequantize on use). Host-specific: the paths exist only on mini-ai, so this stays in bench, never the catalog. The sampler is fixed by the checkpoint (6 steps, guidance distilled). width and height are multiples of 32; a canvas under min_generation_area (default 4194304) is generated at that area and resized back.",
+  "variables": {
+    "prompt": "A weathered lighthouse keeper in a wool coat stands on the gallery of a white lighthouse at dusk, a storm rolling in over a grey sea behind him, wind pulling at his coat. Photographic, natural skin texture, 50 mm, eye level.",
+    "width": 2048,
+    "height": 2048,
+    "min_generation_area": 4194304,
+    "seed": 1317
+  },
+  "variable_constraints": {
+    "width": {
+      "modulus": 32,
+      "remainder": 0,
+      "reason": "MiniMax-H3-Image's canvas is a multiple of 32 (VAE compression 16 x patch 2); refused here rather than after the weights load"
+    },
+    "height": {
+      "modulus": 32,
+      "remainder": 0,
+      "reason": "MiniMax-H3-Image's canvas is a multiple of 32 (VAE compression 16 x patch 2); refused here rather than after the weights load"
+    }
+  },
+  "seed": "variable:seed",
+  "steps": [
+    {
+      "name": "encode",
+      "release_pipeline": true,
+      "pipeline": {
+        "configuration": {
+          "component_type": "ModularPipeline",
+          "pre_load_modules": [
+            "sdnq"
+          ],
+          "load_components": {
+            "names": [
+              "text_encoder",
+              "tokenizer",
+              "processor"
+            ],
+            "dtype": "torch.bfloat16",
+            "pretrained_model_name_or_path": {
+              "text_encoder": "/Volumes/NVME/cache/h3-prequantized-int8"
+            },
+            "subfolder": {
+              "text_encoder": "text_encoder"
+            }
+          },
+          "remove_blocks": [
+            "vae_encoder",
+            "denoise",
+            "decode"
+          ],
+          "components": {
+            "text_encoder": {
+              "remove_modules": [
+                "lm_head"
+              ]
+            },
+            "text_encoder.model": {
+              "truncate_layers": {
+                "language_model.layers": 51
+              }
+            }
+          }
+        },
+        "from_pretrained_arguments": {
+          "model_name": "MiniMaxAI/MiniMax-H3-Image"
+        },
+        "arguments": {
+          "prompt": "variable:prompt",
+          "output": [
+            "prompt_embeds",
+            "text_token_tags"
+          ]
+        }
+      },
+      "result": {
+        "content_type": "application/octet-stream",
+        "save": false
+      }
+    },
+    {
+      "name": "generate",
+      "release_pipeline": true,
+      "pipeline": {
+        "configuration": {
+          "component_type": "ModularPipeline",
+          "pre_load_modules": [
+            "sdnq"
+          ],
+          "load_components": {
+            "names": [
+              "transformer",
+              "vae",
+              "image_processor"
+            ],
+            "dtype": "torch.bfloat16",
+            "pretrained_model_name_or_path": {
+              "transformer": "/Volumes/NVME/cache/h3-prequantized-int8"
+            },
+            "subfolder": {
+              "transformer": "transformer"
+            }
+          },
+          "remove_blocks": [
+            "before_encode",
+            "text_encoder",
+            "vae_encoder"
+          ]
+        },
+        "from_pretrained_arguments": {
+          "model_name": "MiniMaxAI/MiniMax-H3-Image"
+        },
+        "arguments": {
+          "prompt_embeds": "previous_result:encode.prompt_embeds",
+          "text_token_tags": "previous_result:encode.text_token_tags",
+          "width": "variable:width",
+          "height": "variable:height",
+          "min_generation_area": "variable:min_generation_area",
+          "output": "images"
+        }
+      },
+      "result": {
+        "content_type": "image/png",
+        "subfolder": "final"
+      }
+    }
+  ]
+}
