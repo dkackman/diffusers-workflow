@@ -2803,9 +2803,11 @@ Guards beyond the threshold:
   `loop_audio` -> `mix_audio`.
 - `shot_bed_drop` takes the same quiet guard as `shot_dead_air`. It is the
   relative check: a gap above the -65 dBFS dead-air floor still fires it when
-  the shots either side keep a bed 20 dB louder. Its remedy is the same chain,
-  with `find_loop_bed`'s `max_bin_dbfs`, `max_mean_dbfs` and `target_bed_dbfs`
-  raised to find the loud bed; at a deliberate scene change, leave it.
+  the shots either side keep a bed 20 dB louder. Its remedy is `find_loop_bed`
+  with its `max_bin_dbfs`, `max_mean_dbfs` and `target_bed_dbfs` raised to
+  find the loud bed, its pick passed to `assemble-and-score` as
+  `bed_start_seconds`, `bed_seconds` and `bed_gain` (#1719); at a deliberate
+  scene change, leave it.
 
 A `shots` record reaching past the file's own length is a separate finding,
 `shot_span_overrun` (severity `warn`), on the shot probes (`analyze_shots`, `analyze_seams`, `analyze_sync_drift`); the record is

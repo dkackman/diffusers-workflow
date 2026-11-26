@@ -15,8 +15,10 @@ In a saved copy of `assemble-and-score`, add a `separate_stems` step on
 `world_faded`. `previous_result:<step>.vocals` is the dialogue, and a
 `mix_audio` of its `drums`, `bass` and `other` is the rest (room tone, foley,
 action sound). Then have `mixed` layer
-`[soundtrack_resampled, dialogue, rest]`, one gain each, and keep `balanced`
-after it: a dialogue gain above 1 on a stem peaking near full scale sums past
+`[soundtrack_resampled, dialogue, rest, bed]`, one gain each (`bed` is the
+template's room-tone loop, set by `bed_start_seconds`, `bed_seconds` and
+`bed_gain` from a `find_loop_bed` pick - keep it as its own entry rather than
+separating it), and keep `balanced` after it: a dialogue gain above 1 on a stem peaking near full scale sums past
 0 dBFS, which `balanced` pulls back to -3.
 
 htdemucs keeps H3 speech intact this way (#1091). A shot with little foley

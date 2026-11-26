@@ -100,9 +100,11 @@ class TestWithConcat:
 
     def test_clip_scores_through_the_assemble_and_score_chain(self):
         """assemble-and-score's own steps, in order: the joined cut's track is
-        resampled as the world audio, mixed under the score and paired back
-        onto the cut - a stills clip must not stop at resample_audio."""
-        from dw.tasks.audio_utils import mix_audio, resample_audio
+        resampled as the world audio, a bed is looped from an excerpt of it
+        (#1719), all three are mixed under the score and paired back onto the
+        cut - a stills clip must not stop at resample_audio."""
+        from dw.tasks.audio_slice import slice_audio
+        from dw.tasks.audio_utils import loop_audio, mix_audio, resample_audio
         from dw.tasks.concat_videos import concat_videos
         from dw.tasks.pair_audio import pair_audio
 
@@ -110,7 +112,11 @@ class TestWithConcat:
         cut = concat_videos([video], fps=24, sample_rate=44100)
         world = resample_audio(cut, 44100)
         score = numpy.full((2, round(3.5 * 44100)), 0.1, dtype=numpy.float32)
-        mixed = mix_audio([score, world], gains=[1.0, 1.8], sample_rate=44100)
+        bed_slice = slice_audio(
+            cut, start_seconds=0.0, duration_seconds=1.0, past_end="excerpt"
+        )
+        bed = loop_audio(resample_audio(bed_slice, 44100), target_frames=84, fps=24)
+        mixed = mix_audio([score, world, bed], gains=[1.0, 1.8, 0.0], sample_rate=44100)
         film = pair_audio(cut, mixed, sample_rate=44100, fit="video")
 
         assert len(film.frames) == 84

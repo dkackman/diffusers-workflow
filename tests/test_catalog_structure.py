@@ -686,7 +686,10 @@ COMPACT_BUDGET = 15_875
 # The shape=sequence listing to 1_650 (measured 1_642) for
 # `minimax/replace-performer` (#1374), the catalog's only sequence that recasts
 # a take.
-FILTERED_BUDGET = 1_650
+# Then to 1_675 (measured 1_656) on 2026-11-26 for assemble-and-score's
+# bed_start_seconds/bed_seconds/bed_gain (#1719): three variables in the
+# sequence listing's variable names, the template's room-tone loop.
+FILTERED_BUDGET = 1_675
 
 
 def _tokens(payload):

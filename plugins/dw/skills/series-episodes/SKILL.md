@@ -125,8 +125,12 @@ composes into, not something to re-derive:
   `fps` matching) rather than letting `assemble-and-score` pad the tail
   with silence. A dialogue episode also needs room tone under its line
   gaps: `find_loop_bed` on the recut (`output:` it, so the run's shots keep
-  every candidate inside one shot) names the stretch to `slice_audio` and
-  the `gain` to `mix_audio` it at.
+  every candidate inside one shot) names the stretch and its gain. Copy its
+  pick's `start_seconds`, `duration_seconds` and `gain` into
+  `assemble-and-score`'s `bed_start_seconds`, `bed_seconds` and `bed_gain`
+  (0, off, by default) and the template loops that stretch under the whole
+  cut. Choose the window with `find_loop_bed`, which rejects tonal windows,
+  so the bed carries no speech.
 - **match_levels**: shots generated independently drift in loudness -
   `assemble-and-score`'s `match_levels` (`"rms"` or `"peak"`) evens them
   before the cut; leaving it null only warns on a wide spread instead of
@@ -158,8 +162,8 @@ with `envelope=true`, speech from `check-script`, sung lines from
 `attribute_voices`): it measures every seam and the shots' levels, and says where to look.
 A `shot_dead_air` finding is an H3 dialogue gap (0.5-2s of near-silence
 between lines) inside one shot, not a seam problem - see `minimax-h3`'s
-room-tone bed recipe (`find_loop_bed`, then `slice_audio` -> `loop_audio` ->
-`mix_audio`) rather
+room-tone bed recipe (`find_loop_bed`, then its pick as
+`assemble-and-score`'s `bed_start_seconds`/`bed_seconds`/`bed_gain`) rather
 than treating it as a cut to fix.
 
 `output:` a shot straight from its generation run rather than downloading

@@ -318,6 +318,11 @@ class TestFindingSaysTheRemedy:
             "max_mean_dbfs",
             "target_bed_dbfs",
             "scene change",
+            # #1719: the template carries the chain, so the says names its knobs
+            "assemble-and-score",
+            "bed_start_seconds",
+            "bed_seconds",
+            "bed_gain",
         ):
             assert name in says
 
