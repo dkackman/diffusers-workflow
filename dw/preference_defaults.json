@@ -1,0 +1,42 @@
+{
+    "version": 1,
+    "contracts": {
+        "text_to_image": {
+            "required": ["prompt", "seed", "width", "height"],
+            "optional": ["num_images_per_prompt", "num_inference_steps", "guidance_scale"]
+        }
+    },
+    "preferences": {
+        "text_to_image": {
+            "draft": ["templates/text-to-image"],
+            "standard": ["models/z-image", "models/z-image-sdnq"],
+            "best": ["models/minimax-h3-image", "models/qwen-image-2.1"]
+        }
+    },
+    "declines": {
+        "templates/text-to-image": {
+            "num_inference_steps": "The SD 1.5 baseline fixes 25 steps: it is the smallest, fastest reference template, kept stable to prove the engine works.",
+            "guidance_scale": "The SD 1.5 baseline runs at the pipeline's default guidance: it is the smallest, fastest reference template, kept stable to prove the engine works."
+        },
+        "models/minimax-h3-image": {
+            "num_images_per_prompt": "MiniMax-H3-Image makes one image per run.",
+            "num_inference_steps": "MiniMax-H3-Image runs a fixed 6-step sampler with no step count.",
+            "guidance_scale": "MiniMax-H3-Image takes no guidance or negative prompt."
+        },
+        "models/qwen-image-2.1": {
+            "guidance_scale": "Qwen-Image-2.1's pipeline takes no guidance_scale, only true_cfg_scale, which the vendor recommends leaving at its default of 1.0 (off)."
+        }
+    },
+    "left_out": {
+        "text_to_image": {
+            "models/flux-dev": "FLUX.1 dev is gated and has no measured cost; Z-Image Turbo covers the standard tier in nine steps.",
+            "models/flux-dev-compile": "A torch.compile variant of models/flux-dev for CUDA, not a separate rung: the compile is skipped on MPS.",
+            "models/flux-gguf": "Takes only prompt and seed (no width or height) and needs a GGUF checkpoint_path supplied.",
+            "models/flux-krea": "A FLUX.1 Krea dev aesthetic variant with no measured cost; Z-Image Turbo covers photographic output in the standard tier.",
+            "models/flux-torchao": "Takes only prompt and seed (no width or height), and is unmeasured: the int8 variant ran at over a minute per denoising step on an RTX 3090.",
+            "models/flux2-dev": "Has no width or height variable, so it fails the contract.",
+            "models/flux3-klein": "Klein turns a short prompt into a generic picture, and its only ladder route, templates/flux3/upsample-then-generate, takes 'request', not 'prompt'. Revisit after the mps bench (#1625 Q3).",
+            "models/krea2": "Takes only prompt and seed (no width or height), so it fails the contract."
+        }
+    }
+}

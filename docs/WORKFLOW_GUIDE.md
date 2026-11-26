@@ -31,6 +31,39 @@ and carries a `configures` naming the template it is an instance of:
 }
 ```
 
+### Default preferences
+
+`dw/preference_defaults.json` ranks catalog workflows per task, for a caller
+that names a task rather than a model. It ships with the package and is beside
+`dw/workflows/`, not in a workflow library, because every `*.json` in one is
+listed as a workflow. It has one key today, `text_to_image`, with three
+tiers:
+
+| Tier | Targets, in order |
+| --- | --- |
+| `draft` | `templates/text-to-image` (SD 1.5) |
+| `standard` | `models/z-image`, `models/z-image-sdnq` |
+| `best` | `models/minimax-h3-image`, `models/qwen-image-2.1` |
+
+A target is a catalog name, or `{"workflow": <name>, "arguments": {...}}`
+when it needs a preset passed. Its arguments must be variables the workflow
+declares.
+
+Swapping one target for another is safe only if each takes the same
+variables, so every key has a **contract**. For `text_to_image` it is:
+- required: `prompt`, `seed`, `width`, `height`;
+- optional: `num_images_per_prompt`, `num_inference_steps`, `guidance_scale`.
+
+Every target declares each required variable. An optional variable a target
+doesn't take goes in `declines`, under the target's name, with the reason (H3-Image's
+fixed 6-step sampler takes no `num_inference_steps`).
+
+**A new model entry that `configures: templates/text-to-image` must be placed.**
+Put it in the `text_to_image` ladder, or in `left_out.text_to_image` with a
+one-line reason (`models/krea2` takes no `width`/`height`). It can't go in
+both. `tests/test_preference_defaults.py` refuses an entry that is in neither,
+a target that lacks a required variable, and an undeclined gap.
+
 ## Structure
 
 Every workflow is a JSON file with an `id`, optional `variables`, and a list of `steps`.
