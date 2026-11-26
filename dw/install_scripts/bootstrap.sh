@@ -170,7 +170,14 @@ main() {
   TTY_NOTE=""
   WANT_TTY=true
   for a in ${PASS[@]+"${PASS[@]}"}; do [ "$a" = "--yes" ] && WANT_TTY=false; done
-  if $WANT_TTY && (: </dev/tty) 2>/dev/null; then TTY_NOTE=" </dev/tty"; fi
+  # DW_BOOTSTRAP_TTY (test hook): 0 = /dev/tty unavailable, 1 = available,
+  # unset = probe it.
+  case "${DW_BOOTSTRAP_TTY:-}" in
+    0) HAVE_TTY=false ;;
+    1) HAVE_TTY=true ;;
+    *) if (: </dev/tty) 2>/dev/null; then HAVE_TTY=true; else HAVE_TTY=false; fi ;;
+  esac
+  if $WANT_TTY && $HAVE_TTY; then TTY_NOTE=" </dev/tty"; fi
   if [ -n "$SHA" ]; then SHA_JSON="\"$SHA\""; else SHA_JSON="null"; fi
   if [ -n "$DRY" ]; then
     echo "+ write $RECORD: {\"torch_index\": \"$TORCH_INDEX\", \"version\": \"<installed>\", \"diffusers_commit\": $SHA_JSON}"

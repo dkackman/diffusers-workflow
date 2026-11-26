@@ -83,6 +83,7 @@ def run_bootstrap(tmp_path):
             "HOME": str(home),
             "DW_INSTALL_ROOT": str(root_dir),
             "DW_BOOTSTRAP_DRY_RUN": "1",
+            "DW_BOOTSTRAP_TTY": "0",
             **(env or {}),
         }
         result = subprocess.run(
@@ -233,6 +234,19 @@ def test_the_body_runs_from_main_called_on_the_last_line():
 @needs_bash
 def test_yes_keeps_the_terminal_redirect_off_the_handoff(run_bootstrap):
     out = run_bootstrap(args=("--yes",))
+    assert out.last_line.endswith("dw setup --yes")
+    assert "/dev/tty" not in out.text
+
+
+@needs_bash
+def test_an_available_tty_is_redirected_onto_the_handoff(run_bootstrap):
+    out = run_bootstrap(env={"DW_BOOTSTRAP_TTY": "1"})
+    assert out.last_line.endswith("</dev/tty")
+
+
+@needs_bash
+def test_yes_suppresses_the_redirect_even_with_a_tty(run_bootstrap):
+    out = run_bootstrap(args=("--yes",), env={"DW_BOOTSTRAP_TTY": "1"})
     assert out.last_line.endswith("dw setup --yes")
     assert "/dev/tty" not in out.text
 
