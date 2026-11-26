@@ -6,6 +6,9 @@
     "id": "Krea2",
     "description": "Text-to-image with Krea 2 Turbo - fast, few-step photorealistic generation.",
     "configures": "templates/text-to-image",
+    "cost": [
+        {"device": "cuda", "name": "RTX 3090", "vram_gb": 24, "minutes": 1.9}
+    ],
     "seed": "variable:seed",
     "steps": [
         {

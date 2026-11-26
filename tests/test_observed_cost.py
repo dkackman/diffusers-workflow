@@ -673,6 +673,9 @@ NO_DRIVERS = {
     # `dilate` grows the mask, not the work, so nothing moves the run (#974).
     "workflows/templates/remove-object.json": "cost follows the input image",
     "workflows/templates/segment-and-remove.json": "cost follows the input image",
+    # Size, steps and batch are fixed in the step; only prompt and seed are
+    # variables, and neither moves the run (#1711).
+    "workflows/models/krea2.json": "no variable moves the cost",
 }
 
 
