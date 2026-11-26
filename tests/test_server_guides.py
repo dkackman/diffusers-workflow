@@ -260,6 +260,25 @@ class TestTheRealDocs:
     def test_install_is_a_served_guide(self):
         assert guides.GUIDES["install"][0] == "INSTALL.md"
 
+    def test_references_names_the_subsection_that_lists_every_prefix(self):
+        # #1721: "References" is contained in "Default preferences", which
+        # comes first; the exact `### References` heading must win, and it
+        # must list `preference:` beside the other prefixes, as the MCP
+        # instructions promise.
+        guide = guides.get_guide("workflows", section="References")
+
+        assert guide["section"] == "References"
+        for prefix in ("variable:", "previous_result:", "asset:", "preference:"):
+            assert f"`{prefix}`" in guide["content"]
+
+    def test_composing_points_at_the_preference_override(self):
+        composing = guides.get_guide(
+            "workflows", section="Composing a stored workflow"
+        )["content"]
+        assert "preference:<key>" in composing
+        preferences = guides.get_guide("workflows", section="Model preferences")
+        assert "Per-run override" in preferences["content"]
+
     def test_every_curated_guide_file_exists(self):
         for name in guides.GUIDES:
             assert guides.read_guide(name).strip()

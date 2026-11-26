@@ -246,10 +246,24 @@ def _extract_subsection(text, section):
 
     A `####` heading is tried only after no `###` matched, and runs to the
     next `###` or `####` heading (or the end of its `##` section).
+
+    An exact heading anywhere wins over containment: "References" names the
+    `### References` subsection, not an earlier "Default preferences" whose
+    normalized text happens to contain it (#1721).
     """
     wanted = _normalized(section)
     if not wanted:
         return None
+    for exact in (True, False):
+        found = _find_subsection(text, wanted, exact)
+        if found is not None:
+            return found
+    return None
+
+
+def _find_subsection(text, wanted, exact):
+    """The first subsection whose normalized heading equals `wanted` (or,
+    when not `exact`, contains it), as `_extract_subsection` returns it."""
     section_matches = list(SECTION_PATTERN.finditer(text))
     for pattern, heading_group in (
         (SUBSECTION_PATTERN, 1),
@@ -268,7 +282,10 @@ def _extract_subsection(text, section):
                     continue
                 heading = sub_match.group(heading_group)
                 normalized_heading = _normalized(heading)
-                if wanted != normalized_heading and wanted not in normalized_heading:
+                if exact:
+                    if wanted != normalized_heading:
+                        continue
+                elif wanted not in normalized_heading:
                     continue
                 sub_end = (
                     sub_matches[sub_index + 1].start()
