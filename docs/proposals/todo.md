@@ -1037,6 +1037,14 @@ remaining deferred fix is recorded in
   store were cut. Each comes back on its trigger (a command that keeps
   failing before it has a rate; declared rates more than 2× off on a host):
   `complete/task-rate-pricing-complete.md`.
+- **Bed drop detection and a looped bed** (#1620, stages #1718-#1719),
+  shipped 2026-11-26. `assess_output` warns `shot_bed_drop` when a shot's
+  noise floor sits more than 20 dB below its louder neighbour's.
+  `assemble-and-score` lays a looped bed from the cut's own sound
+  (`bed_start_seconds`, `bed_seconds`, `bed_gain`, off by default), and
+  `slice_audio` gains `past_end: "excerpt"`. A run failure now names its
+  step. A within-shot gap check and an outside bed asset were cut, each with
+  its trigger: `complete/shot-bed-drop-looped-bed-complete.md`.
 
 ## Declined
 
