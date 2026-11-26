@@ -34,7 +34,8 @@ and carries a `configures` naming the template it is an instance of:
 ### Default preferences
 
 `dw/preference_defaults.json` ranks catalog workflows per task, for a caller
-that names a task rather than a model. It ships with the package and is beside
+that names a task rather than a model: it is the shipped store the
+`preference:` resolver reads (*Model preferences* below). It ships with the package and is beside
 `dw/workflows/`, not in a workflow library, because every `*.json` in one is
 listed as a workflow. It has one key today, `text_to_image`, with three
 tiers:
@@ -43,11 +44,12 @@ tiers:
 | --- | --- |
 | `draft` | `templates/text-to-image` (SD 1.5) |
 | `standard` | `models/z-image`, `models/z-image-sdnq` |
-| `best` | `models/minimax-h3-image`, `models/qwen-image-2.1` |
+| `best` | `models/minimax-h3-image` (cuda only), `models/qwen-image-2.1` |
 
-A target is a catalog name, or `{"workflow": <name>, "arguments": {...}}`
-when it needs a preset passed. Its arguments must be variables the workflow
-declares.
+`default_tier` (`standard`) is the tier a step that names none gets. A target
+is a catalog name, or `{"workflow": <name>, "arguments": {...}, "devices":
+[...]}` when it needs a preset passed or runs only on some device types. Its
+arguments must be variables the workflow declares.
 
 Swapping one target for another is safe only if each takes the same
 variables, so every key has a **contract**. For `text_to_image` it is:
@@ -1096,7 +1098,7 @@ so the step asks for a job and the server picks the model:
   "arguments": { "prompt": "variable:prompt", "tier": "best" } } }
 ```
 
-`workflows/preferences.json` (shipped) maps a key to the tiers `draft`,
+`dw/preference_defaults.json` (shipped; *Default preferences* above) maps a key to the tiers `draft`,
 `standard` and `best`; each tier is an ordered list of catalog workflows, each a
 name or `{workflow, devices, arguments}`. A server overlays it key by key with
 `~/.diffusers_helper/preferences.json`; an overlay key replaces the whole
@@ -1107,10 +1109,14 @@ shipped key.
   (shipped `standard`). The step's `tier` argument is dropped unless the
   resolved target declares a `tier` variable.
 - **Fit**: the first target that fits the host runs. A target is skipped when
-  its `devices` exclude the host, it declares more host RAM than the host has,
-  its `cost` VRAM on this device exceeds the smallest card, or it is a gated
-  repo the server has no access to. A model not yet downloaded is only a note,
-  and a target with no `cost` entry is not skipped.
+  its `devices` exclude the host, its declared `host_ram_gb` plus the host-RAM
+  gate's margin exceeds the host's RAM (the verdict admission refuses on), the
+  VRAM it needs on this device type exceeds the smallest card (its
+  `vram_estimate` when it declares one, else its smallest `cost` entry for this
+  device, `cuda:0` counting as `cuda`: the figure dispatch uses), or it is a
+  gated repo the server has no access to. A model not yet downloaded is only a
+  note, and a target with neither a `vram_estimate` nor a `cost` entry for this
+  device is not skipped.
 - **Arguments**: the step's arguments over the target entry's `arguments` over
   the child's defaults.
 - **Where it resolves**: right after expansion, so validation, the plan,

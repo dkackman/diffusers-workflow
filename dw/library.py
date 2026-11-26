@@ -29,7 +29,6 @@ import logging
 import os
 
 from . import references
-from .preferences import SHIPPED_PATH as _SHIPPED_PREFERENCES
 from .security import (
     InvalidInputError,
     PathTraversalError,
@@ -331,9 +330,7 @@ def workflow_names(root):
     """Workflow names under a root, as relative paths without .json.
 
     A file symlink resolving outside the root is not a name here: a listing
-    opens every file it names, and reads by name already refuse the link.
-    Nor is the shipped preferences file (dw/preferences.py): data that sits
-    at the top of the examples tree, not a workflow."""
+    opens every file it names, and reads by name already refuse the link."""
     names = []
     if not os.path.isdir(root):
         return names
@@ -342,8 +339,6 @@ def workflow_names(root):
             if file_name.endswith(".json"):
                 path = os.path.join(directory, file_name)
                 if not contained(path, root):
-                    continue
-                if os.path.realpath(path) == str(_SHIPPED_PREFERENCES):
                     continue
                 relative = os.path.relpath(path, root)
                 names.append(relative[: -len(".json")].replace(os.sep, "/"))

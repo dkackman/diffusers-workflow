@@ -35,7 +35,7 @@ Mapped checkpoint pages are not charged: they are page cache, which
 MemAvailable counts as free. Two workers loading different checkpoints evict
 and re-read each other's pages - a slowdown, not an OOM. The figure is a
 peak as recorded, a lower bound; the gate adds its margin
-(`pool.with_margin`).
+(`dw/host_ram_declared.py`: `with_margin`).
 """
 
 import hashlib
@@ -43,8 +43,11 @@ import json
 import logging
 
 from ..host_memory_projection import projected_mb, releases_between_iterations
+
+# The declaration and its refusal live in dw/host_ram_declared.py (the
+# preference resolver reads them too); re-exported for this module's callers
+from ..host_ram_declared import declared_mb, host_too_small  # noqa: F401
 from ..presets import effective_variables
-from .pool import with_margin
 from ..variables import VariableNotFoundError, replace_variables
 from ..vram_estimate import pipeline_identity
 from ..vram_inheritance import _found
@@ -91,42 +94,6 @@ def memory_key(definition, arguments=None):
         parts[key] = sorted(_found(steps, key, {}))
     text = json.dumps(parts, sort_keys=True, default=str)
     return hashlib.sha256(text.encode()).hexdigest()[:32]
-
-
-def declared_mb(definition, arguments=None):
-    """The host RAM (MB) the definition declares for the run (`host_ram_gb`,
-    a number or a `variable:` reference a presets bundle sets), or None when
-    it declares none or the figure does not resolve to a positive number
-    (#1227)."""
-    if not isinstance(definition, dict) or "host_ram_gb" not in definition:
-        return None
-    variables = effective_variables(definition, arguments)
-    try:
-        value = replace_variables({"v": definition["host_ram_gb"]}, variables)["v"]
-    except VariableNotFoundError:
-        return None
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
-        return None
-    return float(value) * 1024.0
-
-
-def host_too_small(definition, arguments, total_mb):
-    """The refusal for a run whose declared host RAM (with the gate's margin)
-    exceeds the machine's total RAM - it could never start, however long it
-    waited - or None. No declaration or no reading of the host: no refusal.
-    Only the declaration refuses; an observed peak only ever delays (#1227)."""
-    declared = declared_mb(definition, arguments)
-    if declared is None or not total_mb:
-        return None
-    needed = with_margin(declared)
-    if needed <= total_mb:
-        return None
-    return (
-        f"this run declares about {declared / 1024:.0f} GB of host RAM "
-        f"({needed / 1024:.0f} GB with the gate's margin) and this host has "
-        f"{total_mb / 1024:.0f} GB in total; choose a lighter tier or weights "
-        "dtype, or run it on a larger host"
-    )
 
 
 def projected_peak(definition, arguments, history, *, rows=None, list_entries=None):
