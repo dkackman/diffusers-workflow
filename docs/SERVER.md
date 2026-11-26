@@ -1722,6 +1722,45 @@ the gallery listing carries `"starred": true` on a starred file. Only a file
 in a run directory can be starred: a flat-layout file has no run directory
 and answers 409, and a run, asset or workspace target is a 400.
 
+## Preferences
+
+A `preference:<key>` reference ([WORKFLOW_GUIDE.md](WORKFLOW_GUIDE.md))
+resolves through a ladder: tier (`draft`, `standard`, `best`) -> an ordered
+list of targets, the first that fits this host wins. A target is a catalog
+workflow name, or `{"workflow": ..., "arguments": {...}, "devices": [...]}`.
+dw ships ladders (`dw/preference_defaults.json`). This server's own
+overlay, `preferences.json` in the settings directory, replaces whole keys
+and is written only by these routes:
+
+- `GET /api/preferences?key=&resolve=` answers `{default_tier, etag,
+  preferences: {key: {source, etag, ladder}}}`. `source` is `shipped`, or
+  `server` when the overlay replaces the key. `resolve=true` adds
+  `resolutions`, this host's pick per tier (`target`, `skipped` with each
+  reason, `line`), or the `error` validate would give. Resolution here judges
+  the device and smallest card only: it makes no Hub calls, so a gated or
+  undownloaded target shows up only in a validate plan. `key=` reads one key
+  (an unknown one is a 404) and puts its etag in the `ETag` header. MCP's
+  `get_preferences` is this with `resolve=true`.
+- `PUT /api/preferences/{key}` with the ladder as the body
+  (`{"best": ["models/z-image"]}`) replaces the key's ladder, or adds a key.
+  The answer is the key as GET gives it, with `resolutions`. It is a 422 when
+  the ladder is the wrong shape, names a workflow the catalog does not hold
+  (every one named), or gives a target arguments its workflow refuses. A
+  ladder nothing on this host fits is stored: its `resolutions` show the
+  refusal, and validate gives the same refusal.
+- `DELETE /api/preferences/{key}` resets a key to what ships
+  (`removed: false`, `source: shipped`). A key only the server had is gone
+  (`removed: true`), and an unknown key is a 404.
+- `PUT /api/preferences` with `{"default_tier": ...}` sets the tier a
+  reference without `tier` resolves at. Its etag is the top-level `etag` GET
+  answers.
+
+Every write takes an opt-in `If-Match`, checked under the overlay's lock. A
+stale one answers **412** `stale_write` with the current `etag` and writes
+nothing. (The note routes answer 409.) A write lands atomically. A job
+already queued keeps the target its admission pinned, and only a later
+submit or validate sees the change.
+
 ## Security model
 
 The server is built to serve **your own GPU to your own browser**, not the

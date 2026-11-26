@@ -9,7 +9,18 @@ not in `ROUTERS`: it sits after `/mcp`) and the UI mount. `media` precedes
 the greedy `DELETE /api/gallery/{name:path}`.
 """
 
-from . import assets, files, gallery, jobs, library, loras, media, requests, system
+from . import (
+    assets,
+    files,
+    gallery,
+    jobs,
+    library,
+    loras,
+    media,
+    preferences,
+    requests,
+    system,
+)
 
 ROUTERS = (
     jobs.router,
@@ -20,6 +31,7 @@ ROUTERS = (
     media.router,
     gallery.router,
     assets.router,
+    preferences.router,
 )
 
 

@@ -944,3 +944,69 @@ class OutputDeleted(ApiModel):
     run_swept: str | None = Field(
         description="The run directory the delete emptied and removed, if any."
     )
+
+
+# ---- preferences (dw/server/routes/preferences.py)
+PreferenceSource = Literal["shipped", "server"]
+PreferenceTier = Literal["draft", "standard", "best"]
+
+
+class PreferenceResolution(ApiModel):
+    """This host's pick at one tier, or why there is none."""
+
+    target: str = sometimes("The workflow this host resolves the tier to.")
+    skipped: list[Any] = sometimes(
+        "Each earlier target passed over, with the reason (mps-only, ...)."
+    )
+    notes: list[str] = sometimes()
+    line: str = sometimes("The line a validate plan prints for this pick.")
+    error: str = sometimes("The refusal validate would give at this tier.")
+
+
+class PreferenceEntry(ApiModel):
+    source: PreferenceSource = Field(
+        description="`server` when this server's overlay replaces the shipped key."
+    )
+    etag: str = Field(
+        description="What `If-Match` on PUT or DELETE /api/preferences/{key} names."
+    )
+    ladder: dict[str, Any] = Field(
+        description="Tier -> the ordered targets, first that fits this host wins."
+    )
+    resolutions: dict[str, PreferenceResolution] = sometimes(
+        "With `resolve=true`: this host's pick per tier."
+    )
+
+
+class PreferencesRead(ApiModel):
+    default_tier: PreferenceTier = Field(
+        description="The tier a `preference:` reference without `tier` resolves at."
+    )
+    etag: str = Field(
+        description="What `If-Match` on PUT /api/preferences names, over `default_tier`."
+    )
+    preferences: dict[str, PreferenceEntry]
+
+
+class PreferenceSet(PreferenceEntry):
+    key: str
+
+
+class PreferenceReset(ApiModel):
+    key: str
+    removed: bool = Field(
+        description="True when the key was the server's own and is now gone."
+    )
+    source: PreferenceSource = sometimes()
+    etag: str = sometimes()
+    ladder: dict[str, Any] = sometimes()
+    resolutions: dict[str, PreferenceResolution] = sometimes()
+
+
+class DefaultTierWrite(ApiModel):
+    default_tier: PreferenceTier
+
+
+class DefaultTierSet(ApiModel):
+    default_tier: PreferenceTier
+    etag: str

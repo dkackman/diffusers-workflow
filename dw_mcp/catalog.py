@@ -191,6 +191,15 @@ def get_server_info(client):
     return client.get_json("/api/server")
 
 
+def get_preferences(client, key=None):
+    """The `preference:` ladders, merged (shipped, with this server's own
+    replacing whole keys), and this host's pick per tier."""
+    params = {"resolve": "true"}
+    if key:
+        params["key"] = key
+    return client.get_json("/api/preferences", params=params)
+
+
 def list_jobs(client, limit=20, status=None, workspace=None, request=None):
     """The live queue plus recent history, newest first and bounded.
 

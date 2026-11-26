@@ -508,3 +508,140 @@ def downloads_gate_check(cache_dir=None, lookup_sizes=True):
         return None, "will download its weights"
 
     return check
+
+
+# ------------------------------------------------------------------ the store
+# The server writes the overlay (GET/PUT/DELETE /api/preferences,
+# dw/server/routes/preferences.py); nothing else does. One lock per process
+# around read-change-write, and the write is atomic, so a reader - admission,
+# a worker - sees the old document or the new one, never half of either.
+
+import threading  # noqa: E402
+
+_overlay_lock = threading.Lock()
+
+
+def _overlay_document(path):
+    """The overlay as {"default_tier"?, "preferences": {...}}, {} when absent."""
+    document = _read(path) or {}
+    entries = document.get("preferences")
+    return {
+        **(
+            {"default_tier": document["default_tier"]}
+            if document.get("default_tier") in TIERS
+            else {}
+        ),
+        "preferences": dict(entries) if isinstance(entries, dict) else {},
+    }
+
+
+def _store_overlay(path, document):
+    """Write the overlay, or remove it when it holds nothing."""
+    from .runs import write_json_atomic
+
+    if not document.get("preferences") and "default_tier" not in document:
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
+        return
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    write_json_atomic(str(path), document)
+
+
+def update_overlay(change, overlay=None, shipped=None):
+    """Read the merged store and the overlay, let `change(merged, document)`
+    edit the overlay document in place (raising refuses the write - the
+    caller's preconditions run here, under the lock), write it, and return
+    the merged store after the write."""
+    path = overlay or overlay_path()
+    with _overlay_lock:
+        merged = load_preferences(shipped=shipped, overlay=path)
+        document = _overlay_document(path)
+        change(merged, document)
+        _store_overlay(path, document)
+        return load_preferences(shipped=shipped, overlay=path)
+
+
+def check_ladder(key, ladder, open_target):
+    """Refuse a ladder a PUT may not store, with PreferenceError: a bad key
+    name, a value that is not {tier: [target, ...]}, an unknown tier, an
+    empty rung, a target of the wrong shape, a stale target (every one in
+    the ladder named) or target arguments its workflow refuses. Whether a
+    target fits this host is not a refusal here: that is resolution's, at
+    validate, which names every skip."""
+    from .library import SubWorkflowNotFound
+    from .security import SecurityError
+    from .variables import argument_errors
+
+    check_key(key)
+    if not isinstance(ladder, dict) or not ladder:
+        raise PreferenceError(
+            f"Preference '{key}': a ladder is an object of tiers "
+            f"({', '.join(TIERS)}), each an ordered list of targets"
+        )
+    stale = []
+    for tier, entries in ladder.items():
+        check_tier(tier)
+        if not isinstance(entries, list) or not entries:
+            raise PreferenceError(
+                f"Preference '{key}' tier {tier}: a rung is a non-empty list of targets"
+            )
+        for entry in entries:
+            if isinstance(entry, dict):
+                extra = set(entry) - {"workflow", "arguments", "devices"}
+                if extra:
+                    raise PreferenceError(
+                        f"Preference '{key}' tier {tier}: a target takes only "
+                        f"workflow, arguments and devices, not {', '.join(sorted(extra))}"
+                    )
+            name, arguments, _devices = _target(entry, key, tier)
+            try:
+                definition, _child = open_target(name)
+            except SubWorkflowNotFound:
+                stale.append(name)
+                continue
+            except (SecurityError, InvalidInputError) as e:
+                raise PreferenceError(
+                    f"Preference '{key}' tier {tier}: target '{name}' is refused: {e}"
+                ) from e
+            bad = argument_errors(definition, arguments)
+            if bad:
+                raise PreferenceError(
+                    f"Preference '{key}' tier {tier}: target '{name}' arguments "
+                    "are refused: "
+                    + "; ".join(f"{error['path']}: {error['message']}" for error in bad)
+                )
+    if stale:
+        names = list(dict.fromkeys(stale))
+        raise PreferenceError(
+            f"Preference '{key}' names "
+            + ("a target" if len(names) == 1 else "targets")
+            + " not in the catalog: "
+            + ", ".join(f"'{name}'" for name in names)
+        )
+    return ladder
+
+
+def resolutions(key, store, host, open_target):
+    """This host's pick at each tier of one key, as {tier: {"target",
+    "skipped", "notes", "line"} | {"error"}} - what `resolve` answers for
+    `preference:<key>`, a refusal as its message."""
+    answer = {}
+    ladder = (store.get("preferences") or {}).get(key)
+    for tier in TIERS:
+        if not isinstance(ladder, dict) or tier not in ladder:
+            continue
+        path = references.PREFERENCE + key
+        try:
+            found = resolve(path, tier, host, open_target, store)
+        except Exception as e:  # noqa: BLE001 - a refusal is the answer
+            answer[tier] = {"error": str(e)}
+            continue
+        answer[tier] = {
+            "target": found.target,
+            "skipped": found.skipped,
+            "notes": found.notes,
+            "line": found.line(),
+        }
+    return answer

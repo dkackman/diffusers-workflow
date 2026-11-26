@@ -168,6 +168,7 @@ def build_server(client):
         cat.get_memory,
         cat.get_health,
         cat.get_server_info,
+        cat.get_preferences,
         cat.list_jobs,
         cat.list_gallery,
         cat.get_gallery_metadata,

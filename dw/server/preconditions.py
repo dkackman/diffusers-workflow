@@ -62,20 +62,26 @@ def check_write_preconditions(request: Request, path: str, label: str) -> None:
         _match(request, content_etag(path), label)
 
 
-def check_if_match(request: Request, data: bytes, label: str) -> None:
+def check_if_match(
+    request: Request, data: bytes, label: str, status_code: int = 409
+) -> None:
     """`If-Match` against bytes the caller already holds - a value stored
     inside a file, such as one note in notes.json - rather than a whole
     file: a 409 `stale_write` carrying their etag unless the header names
-    it. No header, no check. Call it under the lock its write takes."""
+    it. No header, no check. Call it under the lock its write takes.
+    `status_code` is the refusal's status: the preferences routes answer
+    412 Precondition Failed, the older note routes 409."""
     if request.headers.get("if-match") is not None:
-        _match(request, content_etag_of(data), label)
+        _match(request, content_etag_of(data), label, status_code)
 
 
-def _match(request: Request, current: Optional[str], label: str) -> None:
+def _match(
+    request: Request, current: Optional[str], label: str, status_code: int = 409
+) -> None:
     tags = _tags(request.headers["if-match"])
     if current is None or not ("*" in tags or current in tags):
         raise HTTPException(
-            status_code=409,
+            status_code=status_code,
             detail={
                 "code": "stale_write",
                 "message": f"{label} changed since it was read",

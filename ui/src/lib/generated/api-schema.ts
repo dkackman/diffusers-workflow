@@ -1352,6 +1352,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Preferences
+         * @description The merged ladders - shipped, with this server's overlay replacing
+         *     whole keys - each with its `source` and etag, and `default_tier`.
+         */
+        get: operations["get_preferences_api_preferences_get"];
+        /**
+         * Put Default Tier
+         * @description Set the tier a `preference:` reference without `tier` resolves at.
+         *     `If-Match` names the etag GET /api/preferences answers beside it.
+         */
+        put: operations["put_default_tier_api_preferences_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/preferences/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put Preference
+         * @description Replace a key's ladder in this server's overlay (a new key adds one).
+         *
+         *     Refused with 422 when the ladder is the wrong shape, names a workflow
+         *     not in the catalog, or gives a target arguments it refuses; with 412
+         *     when `If-Match` no longer names the key as it stands. The answer carries
+         *     this host's pick per tier, so a ladder nothing on this host fits shows
+         *     validate's refusal now.
+         */
+        put: operations["put_preference_api_preferences__key__put"];
+        post?: never;
+        /**
+         * Delete Preference
+         * @description Reset a key to what ships: drop this server's ladder for it. A key
+         *     only the server had is gone after; one it never overrode is unchanged.
+         */
+        delete: operations["delete_preference_api_preferences__key__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/prompt-schema": {
         parameters: {
             query?: never;
@@ -2496,6 +2553,24 @@ export interface components {
              * @description `<workflow>/<run id>` of each run copied.
              */
             runs: string[];
+        };
+        /** DefaultTierSet */
+        DefaultTierSet: {
+            /**
+             * Default Tier
+             * @enum {string}
+             */
+            default_tier: "draft" | "standard" | "best";
+            /** Etag */
+            etag: string;
+        };
+        /** DefaultTierWrite */
+        DefaultTierWrite: {
+            /**
+             * Default Tier
+             * @enum {string}
+             */
+            default_tier: "draft" | "standard" | "best";
         };
         /** Deleted */
         Deleted: {
@@ -4677,6 +4752,135 @@ export interface components {
              * @description How many runs the figure is read from.
              */
             runs: number;
+        };
+        /** PreferenceEntry */
+        PreferenceEntry: {
+            /**
+             * Etag
+             * @description What `If-Match` on PUT or DELETE /api/preferences/{key} names.
+             */
+            etag: string;
+            /**
+             * Ladder
+             * @description Tier -> the ordered targets, first that fits this host wins.
+             */
+            ladder: {
+                [key: string]: unknown;
+            };
+            /**
+             * Resolutions
+             * @description With `resolve=true`: this host's pick per tier.
+             */
+            resolutions?: {
+                [key: string]: components["schemas"]["PreferenceResolution"];
+            };
+            /**
+             * Source
+             * @description `server` when this server's overlay replaces the shipped key.
+             * @enum {string}
+             */
+            source: "shipped" | "server";
+        };
+        /** PreferenceReset */
+        PreferenceReset: {
+            /** Etag */
+            etag?: string;
+            /** Key */
+            key: string;
+            /** Ladder */
+            ladder?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Removed
+             * @description True when the key was the server's own and is now gone.
+             */
+            removed: boolean;
+            /** Resolutions */
+            resolutions?: {
+                [key: string]: components["schemas"]["PreferenceResolution"];
+            };
+            /**
+             * Source
+             * @enum {string}
+             */
+            source?: "shipped" | "server";
+        };
+        /**
+         * PreferenceResolution
+         * @description This host's pick at one tier, or why there is none.
+         */
+        PreferenceResolution: {
+            /**
+             * Error
+             * @description The refusal validate would give at this tier.
+             */
+            error?: string;
+            /**
+             * Line
+             * @description The line a validate plan prints for this pick.
+             */
+            line?: string;
+            /** Notes */
+            notes?: string[];
+            /**
+             * Skipped
+             * @description Each earlier target passed over, with the reason (mps-only, ...).
+             */
+            skipped?: unknown[];
+            /**
+             * Target
+             * @description The workflow this host resolves the tier to.
+             */
+            target?: string;
+        };
+        /** PreferenceSet */
+        PreferenceSet: {
+            /**
+             * Etag
+             * @description What `If-Match` on PUT or DELETE /api/preferences/{key} names.
+             */
+            etag: string;
+            /** Key */
+            key: string;
+            /**
+             * Ladder
+             * @description Tier -> the ordered targets, first that fits this host wins.
+             */
+            ladder: {
+                [key: string]: unknown;
+            };
+            /**
+             * Resolutions
+             * @description With `resolve=true`: this host's pick per tier.
+             */
+            resolutions?: {
+                [key: string]: components["schemas"]["PreferenceResolution"];
+            };
+            /**
+             * Source
+             * @description `server` when this server's overlay replaces the shipped key.
+             * @enum {string}
+             */
+            source: "shipped" | "server";
+        };
+        /** PreferencesRead */
+        PreferencesRead: {
+            /**
+             * Default Tier
+             * @description The tier a `preference:` reference without `tier` resolves at.
+             * @enum {string}
+             */
+            default_tier: "draft" | "standard" | "best";
+            /**
+             * Etag
+             * @description What `If-Match` on PUT /api/preferences names, over `default_tier`.
+             */
+            etag: string;
+            /** Preferences */
+            preferences: {
+                [key: string]: components["schemas"]["PreferenceEntry"];
+            };
         };
         /** PromptCard */
         PromptCard: {
@@ -7468,6 +7672,146 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PipelineDescription"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_preferences_api_preferences_get: {
+        parameters: {
+            query?: {
+                /** @description One key only */
+                key?: string | null;
+                /** @description Add this host's pick per tier to each key */
+                resolve?: boolean;
+                workspace?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreferencesRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_default_tier_api_preferences_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DefaultTierWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DefaultTierSet"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_preference_api_preferences__key__put: {
+        parameters: {
+            query?: {
+                workspace?: string | null;
+            };
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    [key: string]: unknown;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreferenceSet"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_preference_api_preferences__key__delete: {
+        parameters: {
+            query?: {
+                workspace?: string | null;
+            };
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreferenceReset"];
                 };
             };
             /** @description Validation Error */

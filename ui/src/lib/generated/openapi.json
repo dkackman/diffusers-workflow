@@ -674,6 +674,49 @@
         "title": "CopiedItems",
         "type": "object"
       },
+      "DefaultTierSet": {
+        "additionalProperties": false,
+        "properties": {
+          "default_tier": {
+            "enum": [
+              "draft",
+              "standard",
+              "best"
+            ],
+            "title": "Default Tier",
+            "type": "string"
+          },
+          "etag": {
+            "title": "Etag",
+            "type": "string"
+          }
+        },
+        "required": [
+          "default_tier",
+          "etag"
+        ],
+        "title": "DefaultTierSet",
+        "type": "object"
+      },
+      "DefaultTierWrite": {
+        "additionalProperties": false,
+        "properties": {
+          "default_tier": {
+            "enum": [
+              "draft",
+              "standard",
+              "best"
+            ],
+            "title": "Default Tier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "default_tier"
+        ],
+        "title": "DefaultTierWrite",
+        "type": "object"
+      },
       "Deleted": {
         "additionalProperties": false,
         "properties": {
@@ -5728,6 +5771,205 @@
           "runs"
         ],
         "title": "PlanHostMemory",
+        "type": "object"
+      },
+      "PreferenceEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "etag": {
+            "description": "What `If-Match` on PUT or DELETE /api/preferences/{key} names.",
+            "title": "Etag",
+            "type": "string"
+          },
+          "ladder": {
+            "additionalProperties": true,
+            "description": "Tier -> the ordered targets, first that fits this host wins.",
+            "title": "Ladder",
+            "type": "object"
+          },
+          "resolutions": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/PreferenceResolution"
+            },
+            "description": "With `resolve=true`: this host's pick per tier.",
+            "title": "Resolutions",
+            "type": "object"
+          },
+          "source": {
+            "description": "`server` when this server's overlay replaces the shipped key.",
+            "enum": [
+              "shipped",
+              "server"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "etag",
+          "ladder"
+        ],
+        "title": "PreferenceEntry",
+        "type": "object"
+      },
+      "PreferenceReset": {
+        "additionalProperties": false,
+        "properties": {
+          "etag": {
+            "title": "Etag",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "ladder": {
+            "additionalProperties": true,
+            "title": "Ladder",
+            "type": "object"
+          },
+          "removed": {
+            "description": "True when the key was the server's own and is now gone.",
+            "title": "Removed",
+            "type": "boolean"
+          },
+          "resolutions": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/PreferenceResolution"
+            },
+            "title": "Resolutions",
+            "type": "object"
+          },
+          "source": {
+            "enum": [
+              "shipped",
+              "server"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "removed"
+        ],
+        "title": "PreferenceReset",
+        "type": "object"
+      },
+      "PreferenceResolution": {
+        "additionalProperties": false,
+        "description": "This host's pick at one tier, or why there is none.",
+        "properties": {
+          "error": {
+            "description": "The refusal validate would give at this tier.",
+            "title": "Error",
+            "type": "string"
+          },
+          "line": {
+            "description": "The line a validate plan prints for this pick.",
+            "title": "Line",
+            "type": "string"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "skipped": {
+            "description": "Each earlier target passed over, with the reason (mps-only, ...).",
+            "items": {},
+            "title": "Skipped",
+            "type": "array"
+          },
+          "target": {
+            "description": "The workflow this host resolves the tier to.",
+            "title": "Target",
+            "type": "string"
+          }
+        },
+        "title": "PreferenceResolution",
+        "type": "object"
+      },
+      "PreferenceSet": {
+        "additionalProperties": false,
+        "properties": {
+          "etag": {
+            "description": "What `If-Match` on PUT or DELETE /api/preferences/{key} names.",
+            "title": "Etag",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "ladder": {
+            "additionalProperties": true,
+            "description": "Tier -> the ordered targets, first that fits this host wins.",
+            "title": "Ladder",
+            "type": "object"
+          },
+          "resolutions": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/PreferenceResolution"
+            },
+            "description": "With `resolve=true`: this host's pick per tier.",
+            "title": "Resolutions",
+            "type": "object"
+          },
+          "source": {
+            "description": "`server` when this server's overlay replaces the shipped key.",
+            "enum": [
+              "shipped",
+              "server"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "etag",
+          "ladder",
+          "key"
+        ],
+        "title": "PreferenceSet",
+        "type": "object"
+      },
+      "PreferencesRead": {
+        "additionalProperties": false,
+        "properties": {
+          "default_tier": {
+            "description": "The tier a `preference:` reference without `tier` resolves at.",
+            "enum": [
+              "draft",
+              "standard",
+              "best"
+            ],
+            "title": "Default Tier",
+            "type": "string"
+          },
+          "etag": {
+            "description": "What `If-Match` on PUT /api/preferences names, over `default_tier`.",
+            "title": "Etag",
+            "type": "string"
+          },
+          "preferences": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/PreferenceEntry"
+            },
+            "title": "Preferences",
+            "type": "object"
+          }
+        },
+        "required": [
+          "default_tier",
+          "etag",
+          "preferences"
+        ],
+        "title": "PreferencesRead",
         "type": "object"
       },
       "PromptCard": {
@@ -11165,6 +11407,243 @@
           }
         },
         "summary": "Pipeline Description"
+      }
+    },
+    "/api/preferences": {
+      "get": {
+        "description": "The merged ladders - shipped, with this server's overlay replacing\nwhole keys - each with its `source` and etag, and `default_tier`.",
+        "operationId": "get_preferences_api_preferences_get",
+        "parameters": [
+          {
+            "description": "One key only",
+            "in": "query",
+            "name": "key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "One key only",
+              "title": "Key"
+            }
+          },
+          {
+            "description": "Add this host's pick per tier to each key",
+            "in": "query",
+            "name": "resolve",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Add this host's pick per tier to each key",
+              "title": "Resolve",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreferencesRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Preferences"
+      },
+      "put": {
+        "description": "Set the tier a `preference:` reference without `tier` resolves at.\n`If-Match` names the etag GET /api/preferences answers beside it.",
+        "operationId": "put_default_tier_api_preferences_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DefaultTierWrite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DefaultTierSet"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Default Tier"
+      }
+    },
+    "/api/preferences/{key}": {
+      "delete": {
+        "description": "Reset a key to what ships: drop this server's ladder for it. A key\nonly the server had is gone after; one it never overrode is unchanged.",
+        "operationId": "delete_preference_api_preferences__key__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreferenceReset"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Preference"
+      },
+      "put": {
+        "description": "Replace a key's ladder in this server's overlay (a new key adds one).\n\nRefused with 422 when the ladder is the wrong shape, names a workflow\nnot in the catalog, or gives a target arguments it refuses; with 412\nwhen `If-Match` no longer names the key as it stands. The answer carries\nthis host's pick per tier, so a ladder nothing on this host fits shows\nvalidate's refusal now.",
+        "operationId": "put_preference_api_preferences__key__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "description": "Tier -> an ordered list of targets: a workflow name, or {workflow, arguments?, devices?}",
+                "title": "Ladder",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreferenceSet"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Preference"
       }
     },
     "/api/prompt-schema": {
