@@ -395,6 +395,13 @@ def _effective_values(definition, supplied):
     return effective
 
 
+def value_paths(definition, supplied):
+    """(path, string) for every string a run would use, in
+    `_effective_values` order - what an error about one points at."""
+    for path, value in _effective_values(definition, supplied):
+        yield from _string_leaves(value, path)
+
+
 def _string_leaves(value, path):
     """Every string in `value`, paired with the path it sits at.
 

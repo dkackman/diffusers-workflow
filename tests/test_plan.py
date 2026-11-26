@@ -2770,6 +2770,12 @@ class TestMissingRepoErrors:
         assert error["path"] == "model_name"
         assert "'org/typo'" in error["message"]
 
+    def test_the_path_is_where_the_repo_is_written(self):
+        required = [{"repo": "org/typo", "not_found": True}]
+        written = [("variables.model", "org/typo"), ("steps[0].x", "org/typo")]
+        [error] = missing_repo_errors(required, written)
+        assert error["path"] == "variables.model"
+
     def test_unknown_is_not_an_error(self):
         required = [
             {"repo": "org/offline", "gb": None, "gated": None, "access_blocked": None}

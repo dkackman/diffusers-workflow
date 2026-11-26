@@ -52,6 +52,7 @@ from ..admission import (
     bound_plan_for,
     check_bound_acknowledgement,
     validation_plan,
+    value_paths,
 )
 from ..catalog import catalog_name_for, resolve_workflow_reference
 from ..deps import (
@@ -1006,7 +1007,10 @@ def _annotate_plan(state, answer, admission, workspace, source, catalog_name):
     answer["warnings"] += gate_warnings(answer["plan"]["downloads_required"])
     # A model_name the hub says does not exist fails the run at that
     # step, so it fails validation here, where it costs nothing
-    missing = missing_repo_errors(answer["plan"]["downloads_required"])
+    missing = missing_repo_errors(
+        answer["plan"]["downloads_required"],
+        value_paths(admission.workflow.workflow_definition, admission.arguments or {}),
+    )
     if missing:
         answer["valid"] = False
         answer["errors"] = missing

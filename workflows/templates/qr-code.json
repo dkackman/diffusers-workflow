@@ -5,7 +5,7 @@
             "seed": null
         },
         "id": "qr_code",
-        "description": "Generates a scannable artistic QR code with an SD 2.1 ControlNet.",
+        "description": "Generates a scannable artistic QR code with an SD 1.5 ControlNet. It loads with 'safety_checker': null, as the text-to-image template does: SD 1.5's checker returns a solid black image on some ordinary seeds.",
         "seed": "variable:seed",
         "steps": [
             {
@@ -49,13 +49,14 @@
                             "component_type": "ControlNetModel"
                         },
                         "from_pretrained_arguments": {
-                            "model_name": "DionTimmer/controlnet_qrcode-control_v11p_sd21",
+                            "model_name": "DionTimmer/controlnet_qrcode-control_v1p_sd15",
                             "torch_dtype": "torch.float16"
                         }
                     },
                     "from_pretrained_arguments": {
-                        "model_name": "stabilityai/stable-diffusion-2-1",
-                        "torch_dtype": "torch.float16"
+                        "model_name": "stable-diffusion-v1-5/stable-diffusion-v1-5",
+                        "torch_dtype": "torch.float16",
+                        "safety_checker": null
                     },
                     "arguments": {
                         "prompt": "green vines",
@@ -65,7 +66,7 @@
                         "width": 768,
                         "height": 768,
                         "guidance_scale": 20,
-                        "controlnet_conditioning_scale": 1.75,
+                        "controlnet_conditioning_scale": 1.5,
                         "strength": 0.9,
                         "num_inference_steps": 150
                     }
