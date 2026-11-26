@@ -546,6 +546,21 @@ def configure_torch(settings, device_type):
     logging.debug(f"Applied {torch_flags_report()}")
 
 
+def torch_numerics():
+    """The numeric settings this process runs with, as a run manifest records
+    them (#1643): torch and diffusers versions and the three flags
+    `configure_torch` applies, read back live from `torch.backends` as
+    `torch_flags_report` reads them - a dict, not that string. Off CUDA the
+    cuDNN/TF32 flags are recorded as read, whatever they are."""
+    return {
+        "version": str(torch.__version__),
+        "diffusers_version": str(diffusers.__version__),
+        "enable_tf32": bool(torch.backends.cuda.matmul.allow_tf32),
+        "cudnn_benchmark": bool(torch.backends.cudnn.benchmark),
+        "cudnn_deterministic": bool(torch.backends.cudnn.deterministic),
+    }
+
+
 def torch_flags_report():
     """The PyTorch flags this process runs with, read back from
     `torch.backends` rather than from settings - so a dependency that

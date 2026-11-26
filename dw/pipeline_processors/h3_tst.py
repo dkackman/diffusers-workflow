@@ -108,7 +108,11 @@ from ..step_passes import (
     pipeline_step_passes,
     step_list_passes,
 )
-from .h3_rules import REFINE_WINDOWS_ENV_VAR, not_h3
+from .h3_rules import (
+    REFINE_WINDOWS_ENV_VAR,
+    default_num_inference_steps,
+    not_h3,
+)
 
 logger = logging.getLogger("dw")
 
@@ -599,9 +603,13 @@ def _report(label, settings, states):
     )
 
 
-# H3's `num_inference_steps` default (diffusers' input template), used when a
-# call names none
-DEFAULT_STEPS = 50
+def __getattr__(name):
+    """`DEFAULT_STEPS`, H3's `num_inference_steps` default used when a call
+    names none - read off the block on first use, not copied
+    (`h3_rules.default_num_inference_steps`), so import stays cheap."""
+    if name == "DEFAULT_STEPS":
+        return default_num_inference_steps()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def _evaluations(num_inference_steps):
@@ -611,7 +619,9 @@ def _evaluations(num_inference_steps):
     `dw.step_passes.pipeline_step_passes`'; a step-list pipeline never gets
     here (`step_list_refusal`)."""
     return pipeline_step_passes(
-        None, {STEPS_KEY: num_inference_steps}, default=DEFAULT_STEPS
+        None,
+        {STEPS_KEY: num_inference_steps},
+        default=default_num_inference_steps(),
     )
 
 

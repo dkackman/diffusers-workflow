@@ -42,7 +42,7 @@ from ..events import emit_log
 from ..for_each import render_path
 from ..sparse_attention import forward_arg
 from ..step_passes import pipeline_step_passes
-from .h3_rules import not_h3
+from .h3_rules import default_num_inference_steps, not_h3
 
 logger = logging.getLogger("dw")
 
@@ -51,9 +51,15 @@ TURBO_ADAPTER = "turbo"
 # The cache a lead-in refuses: its first-block residual threshold sees the
 # adapter switch as a large change, and cached steps would skip the switch
 FIRST_BLOCK_CACHE = "first_block"
-# H3's `num_inference_steps` default (diffusers' input template), used when a
-# call names none - the same figure as h3_tst.DEFAULT_STEPS
-DEFAULT_STEPS = 50
+
+
+def __getattr__(name):
+    """`DEFAULT_STEPS`, H3's `num_inference_steps` default used when a call
+    names none - the same figure as h3_tst.DEFAULT_STEPS, read off the block
+    on first use (`h3_rules.default_num_inference_steps`)."""
+    if name == "DEFAULT_STEPS":
+        return default_num_inference_steps()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def _unresolved(value):
@@ -74,7 +80,9 @@ def evaluations(pipeline, arguments):
     """The transformer evaluations a call runs: a step list's `len - 1`, or
     `num_inference_steps` N read as N - 1, H3's default when it names none.
     `pipeline` is a loaded pipeline or, at validate, the step's block."""
-    return pipeline_step_passes(pipeline, arguments, default=DEFAULT_STEPS)
+    return pipeline_step_passes(
+        pipeline, arguments, default=default_num_inference_steps()
+    )
 
 
 def count_problem(value, total):
