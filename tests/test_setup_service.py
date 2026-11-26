@@ -23,6 +23,26 @@ class FakeRunner:
         return subprocess.CompletedProcess(args, rc, out, "boom" if rc else "")
 
 
+class SystemdRunner(FakeRunner):
+    """Answers is-enabled by whether an enable has succeeded."""
+
+    def __init__(self, enable_rc=0):
+        super().__init__()
+        self.enabled = False
+        self.enable_rc = enable_rc
+
+    def __call__(self, args):
+        if args[:3] == ["systemctl", "--user", "is-enabled"]:
+            self.calls.append(list(args))
+            rc = 0 if self.enabled else 1
+            return subprocess.CompletedProcess(args, rc, "", "")
+        if args[:3] == ["systemctl", "--user", "enable"]:
+            self.calls.append(list(args))
+            self.enabled = self.enable_rc == 0
+            return subprocess.CompletedProcess(args, self.enable_rc, "", "boom")
+        return super().__call__(args)
+
+
 @pytest.fixture
 def fake_runner():
     return FakeRunner()
@@ -74,9 +94,8 @@ def test_serve_command_binds_loopback_with_mcp_and_managed(home):
     assert cmd[0].startswith(str(home / "root"))
 
 
-def test_installing_twice_on_linux_enables_once_and_records_once(
-    home, fake_runner, manifest
-):
+def test_installing_twice_on_linux_enables_once_and_records_once(home, manifest):
+    fake_runner = SystemdRunner()
     setup_service.install_service(manifest, fake_runner, platform="linux")
     setup_service.install_service(manifest, fake_runner, platform="linux")
     enable = ["systemctl", "--user", "enable", "--now", "dw-serve"]
@@ -85,6 +104,18 @@ def test_installing_twice_on_linux_enables_once_and_records_once(
     assert len(manifest.entries("service")) == 1
     unit = home / ".config" / "systemd" / "user" / "dw-serve.service"
     assert "--managed" in unit.read_text()
+
+
+def test_a_failed_enable_is_retried_not_restarted(home, manifest):
+    runner = SystemdRunner(enable_rc=1)
+    with pytest.raises(SetupError, match="enable"):
+        setup_service.install_service(manifest, runner, platform="linux")
+    runner.enable_rc = 0
+    setup_service.install_service(manifest, runner, platform="linux")
+    enable = ["systemctl", "--user", "enable", "--now", "dw-serve"]
+    assert runner.calls.count(enable) == 2
+    assert ["systemctl", "--user", "restart", "dw-serve"] not in runner.calls
+    assert runner.enabled
 
 
 def test_a_foreign_unit_is_not_overwritten(home, fake_runner, manifest):
@@ -110,7 +141,29 @@ def test_a_failed_bootstrap_is_a_setup_error(home, manifest):
     runner = FakeRunner()
     runner.by_command[("launchctl", "bootstrap")] = (5, "")
     with pytest.raises(SetupError, match="bootstrap"):
-        setup_service.install_service(manifest, runner, platform="darwin")
+        setup_service.install_service(
+            manifest, runner, platform="darwin", sleep=lambda _s: None
+        )
+    assert not manifest.has("service", "com.github.dkackman.dw-serve")
+
+
+def test_bootstrap_is_retried_after_an_async_bootout(home, manifest):
+    class Flaky(FakeRunner):
+        def __call__(self, args):
+            if args[:2] == ["launchctl", "bootstrap"]:
+                n = sum(1 for c in self.calls if c[:2] == ["launchctl", "bootstrap"])
+                self.by_command[("launchctl", "bootstrap")] = (5 if n == 0 else 0, "")
+            return super().__call__(args)
+
+    runner = Flaky()
+    sleeps = []
+    setup_service.install_service(
+        manifest, runner, platform="darwin", sleep=sleeps.append
+    )
+    boots = [c for c in runner.calls if c[:2] == ["launchctl", "bootstrap"]]
+    assert len(boots) == 2
+    assert len(sleeps) == 1
+    assert manifest.has("service", "com.github.dkackman.dw-serve")
 
 
 def test_install_on_windows_creates_and_runs_the_task(home, fake_runner, manifest):

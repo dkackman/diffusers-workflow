@@ -14,6 +14,7 @@ import plistlib
 import subprocess
 import sys
 import tempfile
+import time
 from collections.abc import Callable
 from pathlib import Path
 from xml.sax.saxutils import escape
@@ -171,8 +172,15 @@ def _write_ours(path: Path, content: bytes, recorded: bool) -> None:
     path.write_bytes(content)
 
 
+BOOTSTRAP_ATTEMPTS = 5
+BOOTSTRAP_DELAY = 1.0
+
+
 def install_service(
-    manifest: Manifest, runner: Runner, platform: str = sys.platform
+    manifest: Manifest,
+    runner: Runner,
+    platform: str = sys.platform,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> str:
     _check_platform(platform)
     name = _name(platform)
@@ -182,15 +190,26 @@ def install_service(
         path = _plist_path()
         _log_dir().mkdir(parents=True, exist_ok=True)
         _write_ours(path, launchd_plist(command, _log_dir()), recorded)
-        manifest.record("service", name, {"platform": platform, "path": str(path)})
-        manifest.save()
         domain = f"gui/{_uid()}"
         runner(
             ["launchctl", "bootout", f"{domain}/{SERVICE_LABEL}"]
         )  # may not be loaded
-        _run(
-            runner, ["launchctl", "bootstrap", domain, str(path)], "launchctl bootstrap"
-        )
+        # bootout is asynchronous: bootstrap can fail (exit 5) while the old
+        # job is still tearing down, so retry a few times.
+        for attempt in range(BOOTSTRAP_ATTEMPTS):
+            try:
+                _run(
+                    runner,
+                    ["launchctl", "bootstrap", domain, str(path)],
+                    "launchctl bootstrap",
+                )
+                break
+            except SetupError:
+                if attempt == BOOTSTRAP_ATTEMPTS - 1:
+                    raise
+                sleep(BOOTSTRAP_DELAY)
+        manifest.record("service", name, {"platform": platform, "path": str(path)})
+        manifest.save()
         return f"started the launchd agent {SERVICE_LABEL} ({path})"
     if platform == "linux":
         path = _unit_path()
@@ -200,7 +219,10 @@ def install_service(
         _run(
             runner, ["systemctl", "--user", "daemon-reload"], "systemctl daemon-reload"
         )
-        if recorded:
+        # decide from systemd, not the manifest: a failed enable leaves the
+        # service recorded but never enabled
+        enabled = runner(["systemctl", "--user", "is-enabled", name]).returncode == 0
+        if enabled:
             _run(runner, ["systemctl", "--user", "restart", name], "systemctl restart")
             return f"restarted the systemd user unit {name} ({path})"
         _run(
