@@ -135,6 +135,18 @@ licence. Two concepts are reimplemented in `crop_face_track`
 follow when several faces are visible (`select`), and staying lost after a lost
 face track rather than jumping to another face. No code was adapted.
 
+### [Alex240z/ComfyUI-H3-ReTime](https://github.com/Alex240z/ComfyUI-H3-ReTime)
+
+A ComfyUI node pack for MiniMax H3 takes, under the MIT licence. Its
+`H3TemporalStabilizer` node, read at `ce5fe07`, gave the flow-compensated
+temporal IIR that the temporal flicker probe
+([bench/temporal_flicker.py](../bench/temporal_flicker.py);
+[#1747](https://github.com/dkackman/diffusers-workflow/issues/1747)) reimplements.
+It works in YCbCr with separate luma and chroma strengths, uses DIS optical flow
+at reduced scale to warp each neighbour, gives no weight to pixels that fail a
+forward-backward consistency check, and averages a forward and a backward pass.
+No code was adapted.
+
 ### [knoic/ComfyUI-MiniMaxH3-PrefixStream](https://github.com/knoic/ComfyUI-MiniMaxH3-PrefixStream)
 
 A ComfyUI node pack for MiniMax H3 prefix streaming, under the MIT licence. It

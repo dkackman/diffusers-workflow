@@ -43,6 +43,8 @@ A new `records/*.md` owes its row in a family's `plugins/dw/skills/<family>/refe
 
 `held_frames.py scan <workspace root>` lists every video in Don's workspaces (read-only; the JSON goes to `/tmp`), finds the H3 ones from each run's `workflow.json`, and counts held frames - a frame repeating its predecessor while the picture around it moves, the 12-shown-as-24 judder; `report` prints the tables and `file` measures loose clips. Its record is `records/held-frames.md` (#1527, #1551).
 
+`temporal_flicker.py run <clip> --out-dir <dir>` runs the flow-compensated temporal IIR over a clip on the CPU (DIS flow, forward-backward consistency mask, forward and backward passes averaged), measures flicker on the static region and gradient energy on what moves, before and after, and writes the before/after/side-by-side videos and a JSON record; `report` prints the table. Its record is `records/temporal-flicker.md` (#1747, #1749).
+
 ## Measures
 
 `python bench/driver.py measure <record>` re-measures a record's succeeded runs; `report` prints them as a table. Each run's `measures`:
