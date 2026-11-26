@@ -8,7 +8,11 @@
             "name": "RTX 3090",
             "vram_gb": 24,
             "minutes": 21.2,
-            "video_reference_exponent": 2.0
+            "video_reference_exponent": 2.0,
+            "first_at_shape": {
+                "minutes": 6.0,
+                "keys": ["width", "height", "weights_dtype", "attention_backend"]
+            }
         }
     ],
     "host_ram_gb": "variable:host_ram_gb",

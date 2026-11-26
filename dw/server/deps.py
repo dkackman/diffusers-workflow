@@ -12,7 +12,7 @@ from typing import Optional
 
 from fastapi import HTTPException, Request
 
-from .. import references
+from .. import disk_caches, references
 from ..adapter_compatibility import catalog_index
 from ..lora_catalog import entry_errors
 from ..presets import PRESETS_KEY, effective_variables
@@ -612,10 +612,11 @@ def observed_for_name(
 
 def seen_shapes_for_name(state, name, definition, keys, *, workspace=None, card=None):
     """The shapes (#1615) this card has run `name` at, for `first_at_shape`
-    `keys`, read from the job rows `ObservedCosts` already holds: succeeded,
-    non-partial runs on a card of this card's name, scoped by `workspace` as
-    `observed_for_name` scopes them. None when the server keeps no history -
-    the term then has nothing to judge by and adds nothing."""
+        `keys`, read from the job rows `ObservedCosts` already holds: succeeded,
+        non-partial runs on a card of this card's name, scoped by `workspace` as
+        `observed_for_name` scopes them, and only those that finished after the
+    `triton` cache's newest clear. None when the server keeps no history -
+        the term then has nothing to judge by and adds nothing."""
     costs = getattr(state, "observed_costs", None)
     if not costs:
         return None
@@ -623,6 +624,7 @@ def seen_shapes_for_name(state, name, definition, keys, *, workspace=None, card=
         definition,
         costs.rows_on_card(name, workspace=workspace, card=card),
         keys,
+        since=disk_caches.last_cleared("triton"),
     )
 
 

@@ -182,16 +182,20 @@ def _was_partial(definition, row_arguments):
     )
 
 
-def seen_shapes(definition, rows, keys):
+def seen_shapes(definition, rows, keys, *, since=None):
     """The shapes (#1615) `rows` - runs of the workflow `definition` - ran
     at, for `first_at_shape.keys` `keys`: each succeeded, full run's
     `run_shapes` at its own stored arguments, presets resolved. A partial
     chain (`_was_partial`) is left out: it may not have reached every shape
-    its arguments name."""
+    its arguments name. With `since` (the `triton` cache's last clear,
+    `disk_caches.last_cleared`), a row that finished at or before it is left
+    out too: the kernels it autotuned were cleared. No `since`, every row."""
     from ..plan_pricing import run_shapes
 
     shapes = set()
     for row in rows:
+        if since is not None and (row.get("finished_at") or 0) <= since:
+            continue
         try:
             row_arguments = json.loads(row.get("arguments") or "{}")
         except (TypeError, ValueError):
