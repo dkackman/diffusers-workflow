@@ -116,8 +116,9 @@ def client(root, tmp_path):
 
 
 def write_plan(client, request_id="cats", revision=0, items=None, **fields):
+    by = fields.pop("by", "agent")
     body = plan(revision=revision, items=items, **fields)
-    body["by"] = "agent"
+    body["by"] = by
     r = client.put(f"/api/workspaces/{WS}/requests/{request_id}", json=body)
     assert r.status_code == 200, r.text
     return r.json()
@@ -191,7 +192,7 @@ class TestAdmission:
         assert planned.manager.jobs == {}
 
     def test_a_closed_request(self, planned):
-        write_plan(planned, revision=1, state="done")
+        write_plan(planned, revision=1, state="done", by="user")
         r = planned.post(
             "/api/jobs",
             json={"workflow": valid_workflow(), "request": "cats", "item": "a"},
@@ -247,7 +248,7 @@ class TestRerun:
     def test_a_rerun_into_a_closed_request_runs_with_a_warning(self, planned):
         job = submit(planned)
         finish(planned, job)
-        write_plan(planned, revision=1, state="done")
+        write_plan(planned, revision=1, state="done", by="user")
         r = planned.post(f"/api/jobs/{job['id']}/rerun", json={})
         assert r.status_code == 201, r.text
         rerun = r.json()

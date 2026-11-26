@@ -845,7 +845,7 @@ def test_a_closed_request_drops_its_hold_bookkeeping(client, clock, mono):
     client.now = moment(0)
     watch = watching(client, mono)
     stored = store._load(client.root)["lighthouse"]
-    write(client, state="done", revision=stored["revision"])
+    write(client, state="done", revision=stored["revision"], by="user")
     watch.poll(client)
     assert "lighthouse" not in watch._due_at
     assert "lighthouse" not in watch._due_told

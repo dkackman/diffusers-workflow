@@ -109,7 +109,7 @@ def put(client, workspace, request_id, state="open"):
     if state != "open":
         r = client.put(
             f"/api/workspaces/{workspace}/requests/{request_id}",
-            json={**body, "revision": 1, "state": state},
+            json={**body, "revision": 1, "state": state, "by": "user"},
         )
         assert r.status_code == 200, r.text
 

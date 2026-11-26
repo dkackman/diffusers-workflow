@@ -1297,9 +1297,18 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
 
   - `title`, `goal`, `items`, `revision` (the one read, 0 to create) and
     `why`.
-  - Optionally `prompt` (create only), `state` (`open`, `done`, `abandoned` -
-    a user's write closes and reopens), `purge` (keys of left-out items to
-    remove for good) and `by` (`user`, the default, or `agent`).
+  - Optionally `prompt` (create only), `state` (`open`, `done`, `abandoned`;
+    a write with `by: "agent"` may reopen, but a close from it is 422
+    `close_needs_user`), `close_proposal`, `purge` (keys of left-out items
+    to remove for good) and `by` (`user`, the default, or `agent`).
+  - `close_proposal` is `{state, reason}` or null from an agent (propose or
+    withdraw; 422 `request_closed` when the request is not open after the
+    write) and `{outcome: "declined", note?}` from the user (422
+    `no_close_proposal` when none is pending). A user write that closes the
+    request settles a pending proposal as accepted. Left out, the stored one
+    stays. `GET` of one request returns it when there is one; the write's
+    history entry carries `close`. The rules are in
+    [WORKSPACES.md](WORKSPACES.md#requests).
   - A `notes` field, on the request or an item, is ignored on write: notes
     have their own routes (below), and a whole-plan write keeps the stored
     ones.

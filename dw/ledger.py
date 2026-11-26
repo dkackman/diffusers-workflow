@@ -424,8 +424,15 @@ _BODY_FIELDS = frozenset(
         "notes",
         "next_note",
         "agent_wrote_at",
+        "close_proposal",
     )
 )
+
+# A body that leaves `close_proposal` out keeps the stored one; `None` is
+# the agent's withdrawal, so the two are told apart
+_LEFT_OUT = object()
+CLOSED_STATES = ("done", "abandoned")
+MAX_CLOSE_REASON_LENGTH = 200
 
 
 def _check_body(body):
@@ -464,12 +471,13 @@ def _check_body(body):
         "prompt": prompt,
         "state": state,
         "items": raw_items,
+        "close_proposal": body.get("close_proposal", _LEFT_OUT),
     }
 
 
-def _check_against(requests, request_id, write):
+def _check_against(requests, request_id, write, by):
     """The stored request a write replaces (None to create), refusing a
-    stale revision, a full ledger and a changed prompt."""
+    stale revision, an agent's close, a full ledger and a changed prompt."""
     current = requests.get(request_id)
     current_revision = current.get("revision", 0) if current else 0
     if write["revision"] != current_revision:
@@ -481,7 +489,8 @@ def _check_against(requests, request_id, write):
             code="stale_revision",
             current_revision=current_revision,
         )
-    _check_room(requests, current, write["state"])
+    _check_close(current, write["state"], by)
+    _check_room(requests, current, write["state"], by)
     if (
         current is not None
         and write["prompt"] is not None
@@ -496,7 +505,21 @@ def _check_against(requests, request_id, write):
     return current
 
 
-def _check_room(requests, current, state):
+def _check_close(current, state, by):
+    """Refuse (422 `close_needs_user`) an agent write that closes the
+    request, or changes how it was closed: only the user closes. Leaving
+    `state` out, or sending the stored one, passes, and so does `open`."""
+    was = current.get("state") if current else "open"
+    if by == "agent" and state in CLOSED_STATES and state != was:
+        raise LedgerError(
+            "only the user closes a request - propose it with close_proposal "
+            "{state, reason} and the user accepts or declines it in the UI",
+            status=422,
+            code="close_needs_user",
+        )
+
+
+def _check_room(requests, current, state, by="user"):
     """Refuse (409 `ledger_full`) a write that would add an open request
     past MAX_REQUESTS or a closed one past MAX_CLOSED_REQUESTS. Only a
     request entering a side counts - creating, closing, reopening - so one
@@ -509,8 +532,13 @@ def _check_room(requests, current, state):
     held = sum((r.get("state") == "open") == is_open for r in requests.values())
     if is_open and held >= MAX_REQUESTS:
         raise LedgerError(
-            f"a workspace holds at most {MAX_REQUESTS} open requests - close "
-            "one (state done or abandoned) or delete one to make room",
+            f"a workspace holds at most {MAX_REQUESTS} open requests - "
+            + (
+                "propose a close or delete one"
+                if by == "agent"
+                else "close one (state done or abandoned) or delete one"
+            )
+            + " to make room",
             status=409,
             code="ledger_full",
         )
@@ -712,6 +740,97 @@ def _history(current, write, state, revision, by, at):
     return history
 
 
+def _agent_proposal(sent, state, at, revision):
+    """The agent's `{state, reason}` as stored, pending; refused (422
+    `request_closed`) on a request this write leaves closed."""
+    if set(sent) != {"state", "reason"}:
+        raise LedgerError(
+            "the agent proposes a close as close_proposal {state, reason}"
+        )
+    if sent["state"] not in CLOSED_STATES:
+        raise LedgerError("close_proposal state must be done or abandoned")
+    if state != "open":
+        raise LedgerError(
+            f"the request is already {state} - there is nothing to propose",
+            status=422,
+            code="request_closed",
+        )
+    reason = _text(
+        sent["reason"],
+        "close_proposal reason",
+        MAX_CLOSE_REASON_LENGTH,
+        one_line=True,
+    )
+    return {
+        "state": sent["state"],
+        "reason": reason,
+        "by": "agent",
+        "at": at,
+        "revision": revision,
+        "outcome": "pending",
+    }
+
+
+def _user_decline(sent, stored, at):
+    """The pending proposal settled as declined by the user, with an
+    optional one-line note; refused (422 `no_close_proposal`) when nothing
+    is pending."""
+    if sent.get("outcome") != "declined" or not set(sent) <= {"outcome", "note"}:
+        raise LedgerError(
+            "the user settles a close proposal as close_proposal "
+            '{outcome: "declined", note} - or closes the request with state'
+        )
+    if not stored or stored.get("outcome") != "pending":
+        raise LedgerError(
+            "there is no pending close proposal to decline",
+            status=422,
+            code="no_close_proposal",
+        )
+    declined = {**stored, "outcome": "declined", "decided_at": at}
+    note = sent.get("note")
+    if note is not None and note != "":
+        declined["note"] = _text(
+            note, "close_proposal note", MAX_CLOSE_REASON_LENGTH, one_line=True
+        )
+    return declined
+
+
+def _close_proposal(current, write, state, by, at, revision):
+    """`(proposal, event)`: the close proposal this write leaves stored
+    (None for none) and the history `close` it records, if any. A body that
+    leaves the field out, or sends the stored one back, keeps it; the agent
+    proposes (`close_proposed`, replacing any earlier one) or withdraws one
+    pending with null (`close_withdrawn`); the user declines one pending
+    (`close_declined`), and the user's close accepts one pending
+    (`close_accepted`), whatever state the user picks."""
+    stored = (current or {}).get("close_proposal")
+    sent = write["close_proposal"]
+    proposal, event = stored, None
+    if sent is _LEFT_OUT or (sent is not None and sent == stored):
+        pass
+    elif sent is None:
+        if by == "agent" and stored and stored.get("outcome") == "pending":
+            proposal, event = None, "close_withdrawn"
+    elif not isinstance(sent, dict):
+        raise LedgerError("close_proposal must be an object or null")
+    elif by == "agent":
+        proposal = _agent_proposal(sent, state, at, revision)
+        event = "close_proposed"
+    else:
+        proposal, event = _user_decline(sent, stored, at), "close_declined"
+    was = (current or {}).get("state", "open")
+    if (
+        by == "user"
+        and state in CLOSED_STATES
+        and was == "open"
+        and proposal
+        and proposal.get("outcome") == "pending"
+    ):
+        proposal = {**proposal, "outcome": "accepted", "decided_at": at}
+        event = "close_accepted"
+    return proposal, event
+
+
 def _record_changes(history, before, after):
     """Put on the newest history entry which items this write changed, and
     drop that from all but the newest MAX_CHANGED_HISTORY entries."""
@@ -736,7 +855,10 @@ def put_request(
 
     `body` holds title, goal, items, revision and why, and optionally
     prompt, state and `purge` (keys of items this plan leaves out,
-    removed for good even though jobs link to them). `linked_jobs(request_id, key)` lists the jobs linked
+    removed for good even though jobs link to them) and `close_proposal`.
+    Only the user closes a request: an agent's `state` done or abandoned
+    is 422 `close_needs_user`, and the agent proposes the close instead
+    (`_close_proposal`). `linked_jobs(request_id, key)` lists the jobs linked
     to an item as `{job, status, run_id, created_at, workflow, arguments,
     prompt_digests}`;
     `accepted` must name one of them that succeeded, and the rest say
@@ -759,7 +881,7 @@ def put_request(
 
     with _writing(root):
         requests = _load(root)
-        current = _check_against(requests, request_id, write)
+        current = _check_against(requests, request_id, write, by)
         at = _now()
         revision = write["revision"] + 1
         state = write["state"] or (current or {}).get("state") or "open"
@@ -789,6 +911,11 @@ def put_request(
             ),
             "history": _history(current, write, state, revision, by, at),
         }
+        proposal, event = _close_proposal(current, write, state, by, at, revision)
+        if proposal is not None:
+            request["close_proposal"] = proposal
+        if event:
+            request["history"][-1]["close"] = event
         if current is not None:  # nothing diffs against a request's first write
             _record_changes(request["history"], current["items"], request["items"])
         requests[request_id] = request

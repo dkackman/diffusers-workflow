@@ -2365,6 +2365,38 @@ export interface components {
             /** Kind */
             kind: string;
         };
+        /**
+         * CloseDecline
+         * @description The user's decline of a pending close proposal.
+         */
+        CloseDecline: {
+            /**
+             * Note
+             * @description Optional; one line, at most 200
+             */
+            note?: string | null;
+            /**
+             * Outcome
+             * @constant
+             */
+            outcome: "declined";
+        };
+        /**
+         * CloseProposalWrite
+         * @description The agent's proposal to close a request; the user accepts or declines it.
+         */
+        CloseProposalWrite: {
+            /**
+             * Reason
+             * @description One line, at most 200
+             */
+            reason: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "done" | "abandoned";
+        };
         /** CompareRequest */
         CompareRequest: {
             /**
@@ -3395,6 +3427,45 @@ export interface components {
              */
             status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
         };
+        /** LedgerCloseProposal */
+        LedgerCloseProposal: {
+            /** At */
+            at: string;
+            /**
+             * By
+             * @constant
+             */
+            by: "agent";
+            /**
+             * Decided At
+             * @description When the user accepted or declined it.
+             */
+            decided_at?: string;
+            /**
+             * Note
+             * @description The user's note on a decline.
+             */
+            note?: string;
+            /**
+             * Outcome
+             * @description pending until the user closes the request (accepted) or keeps it open (declined).
+             * @enum {string}
+             */
+            outcome: "pending" | "accepted" | "declined";
+            /** Reason */
+            reason: string;
+            /**
+             * Revision
+             * @description The revision that proposed it.
+             */
+            revision: number;
+            /**
+             * State
+             * @description The state the agent proposes closing to.
+             * @enum {string}
+             */
+            state: "done" | "abandoned";
+        };
         /** LedgerDeleted */
         LedgerDeleted: {
             /** Deleted */
@@ -3430,6 +3501,12 @@ export interface components {
             changed?: {
                 [key: string]: ("added" | "dropped" | "restored" | "renamed" | "workflow" | "arguments" | "depends_on")[];
             };
+            /**
+             * Close
+             * @description What this revision did to the close proposal.
+             * @enum {string}
+             */
+            close?: "close_proposed" | "close_withdrawn" | "close_declined" | "close_accepted";
             /**
              * Goal
              * @description The goal, when this revision changed it.
@@ -3625,6 +3702,8 @@ export interface components {
              * @description When the agent last wrote the plan; null when it never has.
              */
             agent_wrote_at: string | null;
+            /** @description The agent's latest proposal to close the request, and the user's answer; only the user closes. */
+            close_proposal?: components["schemas"]["LedgerCloseProposal"];
             /** Goal */
             goal: string;
             /** History */
@@ -4577,6 +4656,11 @@ export interface components {
              * @enum {string}
              */
             by: "agent" | "user";
+            /**
+             * Close Proposal
+             * @description Only the user closes a request. The agent proposes a close with {state, reason}, or withdraws one pending with null; the user declines one pending with {outcome: "declined", note} (422 `no_close_proposal` when none is), and a user's state done or abandoned accepts it. Left out, the stored proposal is kept
+             */
+            close_proposal?: components["schemas"]["CloseProposalWrite"] | components["schemas"]["CloseDecline"] | null;
             /**
              * Goal
              * @description What done looks like

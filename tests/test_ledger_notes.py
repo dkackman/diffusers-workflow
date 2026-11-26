@@ -413,7 +413,7 @@ def test_a_failed_check_ref_stores_nothing(tmp_path):
 
 def test_a_note_on_a_closed_request_is_allowed(tmp_path):
     root = planned(tmp_path)
-    write(tmp_path, plan(revision=1, state="done"))
+    write(tmp_path, plan(revision=1, state="done"), by="user")
     assert add(root)["revision"] == 3
 
 

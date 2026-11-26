@@ -149,7 +149,7 @@ def test_changed_arguments_after_a_take_read_revised(done, clock):
 
 def test_a_revised_item_in_a_closed_request_is_not_ready(done, clock):
     clock.at(100)
-    view = done.put(items(a_args=NEW_ARGS), state="done")
+    view = done.put(items(a_args=NEW_ARGS), state="done", by="user")
     assert by_key(view)["a"]["status"] == "revised"
     assert by_key(view)["a"]["ready"] is False
 

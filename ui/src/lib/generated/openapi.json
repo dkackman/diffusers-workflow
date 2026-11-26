@@ -495,6 +495,59 @@
         "title": "ClassList",
         "type": "object"
       },
+      "CloseDecline": {
+        "additionalProperties": false,
+        "description": "The user's decline of a pending close proposal.",
+        "properties": {
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional; one line, at most 200",
+            "title": "Note"
+          },
+          "outcome": {
+            "const": "declined",
+            "title": "Outcome",
+            "type": "string"
+          }
+        },
+        "required": [
+          "outcome"
+        ],
+        "title": "CloseDecline",
+        "type": "object"
+      },
+      "CloseProposalWrite": {
+        "additionalProperties": false,
+        "description": "The agent's proposal to close a request; the user accepts or declines it.",
+        "properties": {
+          "reason": {
+            "description": "One line, at most 200",
+            "title": "Reason",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "done",
+              "abandoned"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "reason"
+        ],
+        "title": "CloseProposalWrite",
+        "type": "object"
+      },
       "CompareRequest": {
         "properties": {
           "at": {
@@ -2969,6 +3022,68 @@
         "title": "LedgerAttempt",
         "type": "object"
       },
+      "LedgerCloseProposal": {
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "title": "At",
+            "type": "string"
+          },
+          "by": {
+            "const": "agent",
+            "title": "By",
+            "type": "string"
+          },
+          "decided_at": {
+            "description": "When the user accepted or declined it.",
+            "title": "Decided At",
+            "type": "string"
+          },
+          "note": {
+            "description": "The user's note on a decline.",
+            "title": "Note",
+            "type": "string"
+          },
+          "outcome": {
+            "description": "pending until the user closes the request (accepted) or keeps it open (declined).",
+            "enum": [
+              "pending",
+              "accepted",
+              "declined"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "revision": {
+            "description": "The revision that proposed it.",
+            "title": "Revision",
+            "type": "integer"
+          },
+          "state": {
+            "description": "The state the agent proposes closing to.",
+            "enum": [
+              "done",
+              "abandoned"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "reason",
+          "by",
+          "at",
+          "revision",
+          "outcome"
+        ],
+        "title": "LedgerCloseProposal",
+        "type": "object"
+      },
       "LedgerDeleted": {
         "additionalProperties": false,
         "properties": {
@@ -3039,6 +3154,17 @@
             "description": "What this revision changed, by item key. Kept on the newest few revisions that changed an item.",
             "title": "Changed",
             "type": "object"
+          },
+          "close": {
+            "description": "What this revision did to the close proposal.",
+            "enum": [
+              "close_proposed",
+              "close_withdrawn",
+              "close_declined",
+              "close_accepted"
+            ],
+            "title": "Close",
+            "type": "string"
           },
           "goal": {
             "anyOf": [
@@ -3452,6 +3578,10 @@
             ],
             "description": "When the agent last wrote the plan; null when it never has.",
             "title": "Agent Wrote At"
+          },
+          "close_proposal": {
+            "$ref": "#/components/schemas/LedgerCloseProposal",
+            "description": "The agent's latest proposal to close the request, and the user's answer; only the user closes."
           },
           "goal": {
             "title": "Goal",
@@ -5655,6 +5785,21 @@
             ],
             "title": "By",
             "type": "string"
+          },
+          "close_proposal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CloseProposalWrite"
+              },
+              {
+                "$ref": "#/components/schemas/CloseDecline"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only the user closes a request. The agent proposes a close with {state, reason}, or withdraws one pending with null; the user declines one pending with {outcome: \"declined\", note} (422 `no_close_proposal` when none is), and a user's state done or abandoned accepts it. Left out, the stored proposal is kept",
+            "title": "Close Proposal"
           },
           "goal": {
             "description": "What done looks like",
