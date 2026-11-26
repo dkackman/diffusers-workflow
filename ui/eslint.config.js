@@ -93,6 +93,14 @@ const feedSyntax = [
     message: feedMessage,
   },
 ]
+// A repeating timer is a `poll` (src/lib/poll.ts), which alone keeps the
+// hidden-tab, pending-skip and rejection promises: `setInterval` is named
+// nowhere else, in any spelling. Pinned by scripts/lint-rules.test.ts
+const timerMessage = 'A repeating timer is poll() (src/lib/poll.ts)'
+const timerSyntax = [
+  "Identifier[name='setInterval']",
+  "MemberExpression > Literal.property[value='setInterval']",
+].map((selector) => ({ selector, message: timerMessage }))
 // Destroying something the person made asks one way: destroyConfirm (the
 // P5 policy) names it, counts it, says how many are starred and puts the
 // button in danger, so no other module writes a Delete or Remove button of
@@ -118,8 +126,14 @@ const destroySyntax = [
 ].map((selector) => ({ selector, message: destroyMessage }))
 /** The no-restricted-syntax options for a block, listed whole for the same
  * reason as `restricted` */
-const syntax = ({ feed = false, message = false, destroy = true }) => [
+const syntax = ({
+  feed = false,
+  message = false,
+  destroy = true,
+  timers = true,
+}) => [
   'error',
+  ...(timers ? timerSyntax : []),
   ...(feed ? feedSyntax : []),
   ...(message ? messageSyntax : []),
   ...(destroy ? destroySyntax : []),
@@ -226,6 +240,16 @@ export default ts.config(
         feed: true,
         message: true,
         destroy: false,
+      }),
+    },
+  },
+  {
+    files: ['src/lib/poll.ts'],
+    rules: {
+      'no-restricted-syntax': syntax({
+        feed: true,
+        message: true,
+        timers: false,
       }),
     },
   },

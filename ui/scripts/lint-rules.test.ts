@@ -280,3 +280,41 @@ export const menu = [{ label: 'Delete', value: 'x' }]`
     ),
   ).toEqual([])
 })
+
+// The timer rule (eslint.config.js): a repeating timer is poll()'s
+/** The messages of the timer rule `code` breaks, linted as `file` */
+async function timerErrors(code: string, file: string): Promise<string[]> {
+  const [result] = await eslint.lintText(code, { filePath: join(UI, file) })
+  return result.messages
+    .filter((m) => m.message.includes('A repeating timer is poll()'))
+    .map((m) => m.ruleId ?? '')
+}
+
+it.each([
+  'setInterval(() => {}, 1000)',
+  'window.setInterval(() => {}, 1000)',
+  "globalThis['setInterval'](() => {}, 1000)",
+  'export const every = setInterval',
+])('%s fails lint outside poll.ts', async (code) => {
+  for (const file of [
+    'src/lib/pages/Probe.ts',
+    'src/lib/ui/Probe.ts',
+    'src/lib/resource.svelte.ts',
+    'src/lib/apiErrors.ts',
+    'src/lib/destructive.ts',
+  ])
+    expect(await timerErrors(code, file), file).toEqual([
+      'no-restricted-syntax',
+    ])
+  expect(await timerErrors(code, 'src/lib/poll.ts')).toEqual([])
+})
+
+it('a component setting an interval fails lint; a one-shot delay passes', async () => {
+  const code = `<script lang="ts">\n  $effect(() => {\n    const t = setInterval(() => {}, 1000)\n    return () => clearInterval(t)\n  })\n</script>\n`
+  expect(await timerErrors(code, 'src/lib/job/Probe.svelte')).toEqual([
+    'no-restricted-syntax',
+  ])
+  expect(
+    await timerErrors('setTimeout(() => {}, 300)', 'src/lib/pages/Probe.ts'),
+  ).toEqual([])
+})

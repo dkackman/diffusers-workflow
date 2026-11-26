@@ -16,6 +16,9 @@
   import { formatBytes, formatDuration, formatExact } from '../format'
   import Time from '../ui/Time.svelte'
   import { notify } from '../toast'
+  import { poll } from '../poll'
+  import { elapsed } from '../jobTimes'
+  import { serverNow } from '../connection.svelte'
   import { holdKind, holdText } from '../progress'
   import { versionTitle, workflowName } from '../terms'
   import type { JobDetail, LedgerRequest } from '../types'
@@ -63,17 +66,19 @@
 
   // Start to finish off the job record's own clocks. A running job's
   // figure counts up on a one-second tick; the record only changes when the
-  // status does, so it cannot drive the count itself
-  let now = $state(Date.now() / 1000)
+  // status does, so it cannot drive the count itself. `now` is the server's
+  // clock (its stamps are what it is compared with), and only a started job
+  // ticks
+  let now = $state(serverNow())
+  const counting = $derived(running && !!job?.started_at && !job.finished_at)
   $effect(() => {
-    if (!running) return
-    const tick = setInterval(() => (now = Date.now() / 1000), 1000)
-    return () => clearInterval(tick)
+    if (!counting) return
+    return poll(() => (now = serverNow()), 1000)
   })
   const took = $derived.by(() => {
     if (!job?.started_at) return null
     const end = job.finished_at ?? (running ? now : null)
-    return end === null ? null : end - job.started_at
+    return end === null ? null : elapsed(job.started_at, end)
   })
 
   // The file the job ran names it; the JSON id beside it only when it says
@@ -100,9 +105,9 @@
   const cancel = action(() => api.cancelJob(jobId), {
     doing: () => `cancel ${leaf}`,
     confirm: () =>
-      job?.started_at && now - job.started_at > CANCEL_ASKS_AFTER_S
+      job?.started_at && elapsed(job.started_at, now) > CANCEL_ASKS_AFTER_S
         ? {
-            message: `Cancel ${leaf}? It has run for ${formatDuration(now - job.started_at)}; the work so far is lost.`,
+            message: `Cancel ${leaf}? It has run for ${formatDuration(elapsed(job.started_at, now))}; the work so far is lost.`,
             confirmLabel: 'Cancel job',
             cancelLabel: 'Keep running',
             danger: true,
