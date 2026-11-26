@@ -2,9 +2,18 @@
 presets, LoRAs, the asset library, the requests ledger, and one gallery file's marks
 and request links. Part of the UI response contract `api_models.py` re-exports."""
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Discriminator,
+    Field,
+    Tag,
+    ValidationError,
+    field_validator,
+)
+from pydantic_core import PydanticCustomError
 
 from .api_models_base import ApiModel, JobStatus, OutputKind, sometimes
 from ..ledger import MAX_CLOSE_REASON_LENGTH, MAX_TITLE_LENGTH, MAX_WHY_LENGTH
@@ -659,6 +668,30 @@ class CloseDecline(BaseModel):
     )
 
 
+def _close_form(value):
+    """Which form a `close_proposal` body is checked as: the user's decline
+    when it says `outcome`, else the agent's proposal. Checked as one form,
+    a bad body is told what that form wants - not both forms' errors."""
+    if isinstance(value, CloseDecline) or (
+        isinstance(value, dict) and "outcome" in value
+    ):
+        return "decline"
+    return "propose"
+
+
+CLOSE_FORMS = {
+    "propose": "the agent proposes a close as {state: done|abandoned, reason} "
+    "(set_request's propose_close)",
+    "decline": 'the user declines a close proposal as {outcome: "declined", note}',
+}
+
+CloseProposalBody = Annotated[
+    Annotated[CloseProposalWrite, Tag("propose")]
+    | Annotated[CloseDecline, Tag("decline")],
+    Discriminator(_close_form),
+]
+
+
 class RequestWrite(BaseModel):
     """One request's whole plan."""
 
@@ -682,7 +715,7 @@ class RequestWrite(BaseModel):
         description="Keys of stored items this plan leaves out, removed for "
         "good instead of kept as dropped; their jobs keep their link and files",
     )
-    close_proposal: CloseProposalWrite | CloseDecline | None = Field(
+    close_proposal: CloseProposalBody | None = Field(
         default=None,
         description="Only the user closes a request. The agent proposes a "
         "close with {state, reason}, or withdraws one pending with null; the "
@@ -693,6 +726,21 @@ class RequestWrite(BaseModel):
     by: Literal["agent", "user"] = Field(
         default="user", description="Who wrote this revision; the UI is the user"
     )
+
+    @field_validator("close_proposal", mode="wrap")
+    @classmethod
+    def _one_close_form(cls, value, handler):
+        """A malformed `close_proposal` is one 422 at `close_proposal`
+        saying which form it was read as and each field at fault."""
+        try:
+            return handler(value)
+        except ValidationError as e:
+            faults = []
+            for error in e.errors():
+                path = [str(p) for p in error["loc"] if p not in CLOSE_FORMS]
+                faults.append(f"{'.'.join(path) or 'value'}: {error['msg']}")
+            text = f"{CLOSE_FORMS[_close_form(value)]} - {'; '.join(faults)}"
+            raise PydanticCustomError("close_proposal", "{text}", {"text": text})
 
 
 class NoteRefWrite(BaseModel):

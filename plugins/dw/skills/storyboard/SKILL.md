@@ -14,7 +14,7 @@ from `cinematography`; the shot list's fields from `script-to-video`.
 
 ## Before anything
 
-This skill is written for dw `0.23.0-alpha.1`; `get_server_info`'s `plugin` says whether that is current.
+This skill is written for dw `0.23.0-alpha.2`; `get_server_info`'s `plugin` says whether that is current.
 
 1. `get_server_info`: Klein needs a CUDA card (`flux3-klein`'s rules apply:
    16 steps, no guidance, sides in multiples of 16, gated license). Board

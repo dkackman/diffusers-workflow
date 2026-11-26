@@ -9,7 +9,7 @@ H3 generates video and audio together. Every template fits a 24 GB card.
 
 ## Before anything
 
-This skill is written for dw `0.23.0-alpha.1`; `get_server_info`'s `plugin` says whether that is current.
+This skill is written for dw `0.23.0-alpha.2`; `get_server_info`'s `plugin` says whether that is current.
 
 1. `get_server_info`: the device (H3 is CUDA) and the workspace.
 2. `list_workflows` with `shape` "shot", "sequence" and "audio": the family's templates by name,

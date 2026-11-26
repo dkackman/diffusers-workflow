@@ -224,6 +224,44 @@ def test_the_route_refuses_unknown_proposal_fields(client):  # noqa: F811
     assert r.status_code == 422, r.text
 
 
+@pytest.mark.parametrize(
+    "sent, form, fault",
+    [
+        ({"state": "open", "reason": "x"}, "{state: done|abandoned, reason}", "state"),
+        (
+            {"state": "closed", "reason": "x"},
+            "{state: done|abandoned, reason}",
+            "state",
+        ),
+        ({"state": "done"}, "{state: done|abandoned, reason}", "reason"),
+        ({"reason": "x"}, "{state: done|abandoned, reason}", "state"),
+        ({**PROPOSAL, "colour": "red"}, "{state: done|abandoned, reason}", "colour"),
+        ({**PROPOSAL, "by": "user"}, "{state: done|abandoned, reason}", "by"),
+        ({"outcome": "accepted"}, '{outcome: "declined", note}', "outcome"),
+        ({"outcome": "declined", "x": 1}, '{outcome: "declined", note}', "x"),
+    ],
+)
+def test_a_malformed_proposal_is_one_error_naming_its_form(
+    client,  # noqa: F811
+    sent,
+    form,
+    fault,
+):
+    """Checked as the one form its keys say it is (#1716's bounce): an
+    agent's bad proposal is not told the decline's `outcome` is required."""
+    put(client, plan(items=[item("a")]), "agent")
+    r = put(client, plan(revision=1, items=[item("a")], close_proposal=sent), "agent")
+    assert r.status_code == 422, r.text
+    [error] = r.json()["detail"]
+    assert error["loc"][-1] == "close_proposal"
+    assert form in error["msg"]
+    assert f"- {fault}: " in error["msg"]
+    other = "outcome" if "state" in form else "state"
+    assert f"{other}: " not in error["msg"]
+    if "state" in form:
+        assert "propose_close" in error["msg"]
+
+
 # --- MCP -----------------------------------------------------------------------
 
 
@@ -260,5 +298,12 @@ async def test_set_request_says_only_the_user_closes():
     tool = tools["set_request"]
     assert "propose_close" in tool.input_schema["properties"]
     assert "propose_close" not in tool.input_schema.get("required", [])
+    # typed `{state, reason} | null`, and no `{}` sentinel default shown
+    schema = tool.input_schema["properties"]["propose_close"]
+    proposal, null = schema["anyOf"]
+    assert null == {"type": "null"}
+    assert proposal["properties"]["state"]["enum"] == ["done", "abandoned"]
+    assert sorted(proposal["required"]) == ["reason", "state"]
+    assert "default" not in schema
     for words in ("`open` reopens", "only the user", "close_proposal.outcome"):
         assert words in tool.description, words

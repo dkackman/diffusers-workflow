@@ -4660,7 +4660,7 @@ export interface components {
              * Close Proposal
              * @description Only the user closes a request. The agent proposes a close with {state, reason}, or withdraws one pending with null; the user declines one pending with {outcome: "declined", note} (422 `no_close_proposal` when none is), and a user's state done or abandoned accepts it. Left out, the stored proposal is kept
              */
-            close_proposal?: components["schemas"]["CloseProposalWrite"] | components["schemas"]["CloseDecline"] | null;
+            close_proposal?: (components["schemas"]["CloseProposalWrite"] | components["schemas"]["CloseDecline"]) | null;
             /**
              * Goal
              * @description What done looks like

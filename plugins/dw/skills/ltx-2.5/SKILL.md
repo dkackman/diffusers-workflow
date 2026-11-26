@@ -11,7 +11,7 @@ schedule that is not a knob (except refine-in-place's `strength`, 0 preserve
 
 ## Before anything
 
-This skill is written for dw `0.23.0-alpha.1`; `get_server_info`'s `plugin` says whether that is current.
+This skill is written for dw `0.23.0-alpha.2`; `get_server_info`'s `plugin` says whether that is current.
 
 1. `get_server_info`: the device and workspace. On `mps` they run
    slower than CUDA `cost` says (only text-to-video has run
