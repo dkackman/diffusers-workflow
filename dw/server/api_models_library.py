@@ -607,6 +607,9 @@ class LedgerSummary(ApiModel):
     spent_minutes: int | float
     remaining_minutes: int | float
     updated_at: str | None
+    close_proposed: bool = sometimes(
+        "Only while the agent's proposal to close the request waits on the user."
+    )
     needs: dict[str, int] = sometimes(
         "Only with needs=true: how many items want the user, by reason - held, ready, "
         "failed (can run again), revised, choose, accepted_missing - and notes_waiting."

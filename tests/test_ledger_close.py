@@ -180,6 +180,20 @@ def test_a_malformed_proposal_is_refused(tmp_path, sent):
     refused(tmp_path, plan(revision=1, close_proposal=sent))
 
 
+def test_the_list_row_says_a_close_is_proposed_only_while_pending(tmp_path):
+    from dw import ledger_views
+
+    def row():
+        return ledger_views.summary_view(ledger.get_request(str(tmp_path), "cats"))
+
+    opened(tmp_path)
+    assert "close_proposed" not in row()
+    write(tmp_path, plan(revision=1, close_proposal=PROPOSAL))
+    assert row()["close_proposed"] is True
+    write(tmp_path, plan(revision=2, close_proposal={"outcome": "declined"}), by="user")
+    assert "close_proposed" not in row()
+
+
 def test_a_file_without_a_proposal_still_reads(tmp_path):
     opened(tmp_path)
     view = ledger.get_request(str(tmp_path), "cats")
@@ -207,6 +221,8 @@ def test_the_route_carries_the_handshake(client):  # noqa: F811
 
     read = client.get(f"/api/workspaces/{WS}/requests/cats")
     assert read.json()["close_proposal"]["outcome"] == "pending"
+    listed = client.get(f"/api/workspaces/{WS}/requests").json()["requests"]
+    assert listed[0]["close_proposed"] is True
 
     accepted = put(client, plan(revision=2, items=[item("a")], state="done"), "user")
     assert accepted.status_code == 200, accepted.text

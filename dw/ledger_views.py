@@ -538,9 +538,16 @@ def request_view(request, jobs=(), now=None, prompts=None):
     return view
 
 
+def _close_proposed(request):
+    proposal = request.get("close_proposal")
+    return isinstance(proposal, dict) and proposal.get("outcome") == "pending"
+
+
 def summary_view(request, jobs=(), prompts=None, needs=False):
     """One row of the list: what a request is, without its items. `prompts`
-    as `request_view`'s. With `needs`, the row's `needs` (`needs_counts`)."""
+    as `request_view`'s. With `needs`, the row's `needs` (`needs_counts`).
+    `close_proposed` is there, true, only while the agent's proposal to
+    close the request waits on the user."""
     grouped = _jobs_by_item(jobs)
     counts = {}
     for item in request.get("items", []):
@@ -559,6 +566,7 @@ def summary_view(request, jobs=(), prompts=None, needs=False):
         "spent_minutes": _spent(jobs),
         "remaining_minutes": _remaining(request, grouped, prompts),
         "updated_at": history[-1].get("at") if history else None,
+        **({"close_proposed": True} if _close_proposed(request) else {}),
         **(
             {"needs": needs_counts(_needs_shape(request, grouped, prompts))}
             if needs

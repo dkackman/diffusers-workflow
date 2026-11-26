@@ -3859,6 +3859,11 @@
       "LedgerSummary": {
         "additionalProperties": false,
         "properties": {
+          "close_proposed": {
+            "description": "Only while the agent's proposal to close the request waits on the user.",
+            "title": "Close Proposed",
+            "type": "boolean"
+          },
           "cover": {
             "description": "Up to three outputs of the latest results, newest first.",
             "items": {
@@ -5181,6 +5186,11 @@
       "OpenRequestSummary": {
         "additionalProperties": false,
         "properties": {
+          "close_proposed": {
+            "description": "Only while the agent's proposal to close the request waits on the user.",
+            "title": "Close Proposed",
+            "type": "boolean"
+          },
           "cover": {
             "description": "Up to three outputs of the latest results, newest first.",
             "items": {
