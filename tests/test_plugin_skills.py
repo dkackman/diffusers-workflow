@@ -3229,7 +3229,9 @@ class TestContinuityNote:
             ), path
 
     def test_the_intents_rows_cite_the_record(self):
-        for family, count in (("flux3-klein", 3), ("minimax-h3", 1)):
+        # Klein holds R1 and R2 only: R5 is unsettled (#1704), and the format
+        # has no unsettled status, so it stays out of the index (#1705 bounce).
+        for family, count in (("flux3-klein", 2), ("minimax-h3", 1)):
             intents = os.path.join(
                 PLUGIN_DIR, "skills", family, "references", "intents.md"
             )
@@ -3240,3 +3242,4 @@ class TestContinuityNote:
             ]
             assert len(rows) == count, family
             assert all(f"`{CONTINUITY_RECORD}`" in row for row in rows), family
+            assert not any("key light" in row for row in rows), family

@@ -17,4 +17,3 @@ pattern heading that exists.
 |---|---|---|---|---|
 | Keep two people on their sides of frame from the two-shot to each single, by writing each one's side and facing in every card | `templates/flux3/text-to-image` | `cinematography/references/continuity.md` § Sides and eyelines (FLUX 3 Klein) | `bench/records/continuity-grammar.md` (PRELIMINARY) | confirmed |
 | Match eyelines across the singles: each looks toward the partner's named off-screen side | `templates/flux3/text-to-image` | `cinematography/references/continuity.md` § Sides and eyelines (FLUX 3 Klein) | `bench/records/continuity-grammar.md` (PRELIMINARY) | confirmed |
-| Hold the key light on one side of the face across a wide, a medium and a close-up by naming its side | `templates/flux3/text-to-image` | `cinematography/references/continuity.md` § Probed and not a rule | `bench/records/continuity-grammar.md` (PRELIMINARY; one seed of two, Don's look pending) | refuted |
