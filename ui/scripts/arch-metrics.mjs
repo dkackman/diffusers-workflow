@@ -9,16 +9,28 @@
 //   node scripts/arch-metrics.mjs --compare CUR BASE   the regressions
 //                                                  between two measurements
 //
+// Two kinds of metric. An enforced one rising is a regression: printed on
+// stdout as `key: base -> cur` (the line harnest's check_ui parses) and
+// --check/--compare exit 1. An ADVISORY one (files_over_size_ceiling,
+// complex_functions, long_functions, duplicate_blocks - proxies for shape,
+// not broken rules) rising is a warning: printed on stderr as
+// `warning (advisory): key: base -> cur`, then the items its detail names,
+// and the exit code does not change. Both kinds are recorded by --write.
+//
 // Counting rules, fixed so any commit measures the same way:
 // - Sources are ui/src's .ts, .svelte and .css files, tests excluded
 //   (*.test.ts, *.svelte.test.ts).
-// - files_over_size_ceiling: files above SIZE_CEILING raw lines; a .svelte
-//   file's <style> counts, since it is part of what a reader holds.
-// - complex_functions: ESLint's core `complexity` rule above
+// - files_over_size_ceiling (advisory): files above SIZE_CEILING raw
+//   lines; a .svelte file's <style> counts, since it is part of what a
+//   reader holds. Detail: `file (N lines)`.
+// - files_over_hard_ceiling (enforced): files above HARD_SIZE_CEILING raw
+//   lines, counted the same way - the outer limit a file cannot grow past.
+// - complex_functions (advisory): ESLint's core `complexity` rule above
 //   COMPLEXITY_LIMIT, script blocks only - ESLint does not see template
-//   {#if}/{#each} branching.
-// - long_functions: ESLint's `max-lines-per-function` above
-//   FUNCTION_LINE_LIMIT, blank and comment lines skipped.
+//   {#if}/{#each} branching. Detail: `file:line name (complexity)`.
+// - long_functions (advisory): ESLint's `max-lines-per-function` above
+//   FUNCTION_LINE_LIMIT, blank and comment lines skipped. Detail:
+//   `file:line name (lines)`.
 // - import_cycles / modules_in_import_cycles: strongly connected components
 //   of more than one module over relative imports, type-only imports
 //   included (they still couple the files).
@@ -79,11 +91,12 @@
 //   literal with its parts joined by "0", Svelte markup text outside
 //   <style>, and a static attribute value. Each pattern counts once per
 //   piece of copy. Detail is sorted by file, line and term.
-// - duplicate_blocks: over .svelte files, lines trimmed and their
+// - duplicate_blocks (advisory): over .svelte files, lines trimmed and their
 //   whitespace collapsed, blank and TRIVIAL_LINE lines dropped; a 6-line
 //   window whose sha1 occurs in two or more files is shared, and every line
 //   inside a shared window is counted once - lines, not runs, so a fix in
-//   the middle of a run lowers the count and never raises it.
+//   the middle of a run lowers the count and never raises it. Detail:
+//   `file: N lines (from-to, ...)`, source line ranges.
 // - raw_media: media elements outside RAW_MEDIA_OWNERS (OutputTile and
 //   MediaBody), in .svelte, .ts and .css files; a media file is shown
 //   through them. Counted forms: `<img>`, `<video>`, `<audio>`, `<source>`,
@@ -120,6 +133,7 @@ const SRC = join(UI, 'src')
 const REFERENCES_PY = join(UI, '..', 'dw', 'references.py')
 
 export const SIZE_CEILING = 600
+export const HARD_SIZE_CEILING = 900
 export const COMPLEXITY_LIMIT = 10
 export const FUNCTION_LINE_LIMIT = 60
 export const PREFIX_OWNERS = new Set(['src/lib/references.ts'])
@@ -1054,11 +1068,17 @@ export const BLOCK_LINES = 6
 export function duplicateBlocks(texts) {
   const windows = new Map()
   const owners = new Map()
+  const numbers = new Map()
   for (const [file, text] of texts) {
-    const lines = text
+    let lines = text
       .split('\n')
-      .map((l) => l.trim().replace(/\s+/g, ' '))
-      .filter((l) => l && !TRIVIAL_LINE.test(l))
+      .map((l, n) => [l.trim().replace(/\s+/g, ' '), n + 1])
+      .filter(([l]) => l && !TRIVIAL_LINE.test(l))
+    numbers.set(
+      file,
+      lines.map(([, n]) => n),
+    )
+    lines = lines.map(([l]) => l)
     const hashes = []
     for (let i = 0; i + BLOCK_LINES <= lines.length; i++) {
       const hash = createHash('sha1')
@@ -1079,10 +1099,29 @@ export function duplicateBlocks(texts) {
         for (let k = 0; k < BLOCK_LINES; k++) shared.add(i + k)
     })
     if (!shared.size) continue
-    files.push(`${relative(UI, file)}: ${shared.size} lines`)
+    const ranges = lineRanges(
+      [...shared].sort((a, b) => a - b),
+      numbers.get(file),
+    )
+    files.push(`${relative(UI, file)}: ${shared.size} lines (${ranges})`)
     lines += shared.size
   }
   return { files, lines }
+}
+
+/** Kept-line indexes (ascending) as source line ranges, `3-9, 14-20`: a
+ * run of consecutive kept lines is one range, whatever blank or trivial
+ * lines lie between them in the source */
+function lineRanges(indexes, numbers) {
+  const ranges = []
+  let start = indexes[0]
+  indexes.forEach((index, i) => {
+    if (indexes[i + 1] === index + 1) return
+    const [from, to] = [numbers[start], numbers[index]]
+    ranges.push(from === to ? `${from}` : `${from}-${to}`)
+    start = indexes[i + 1]
+  })
+  return ranges.join(', ')
 }
 
 /** The unguarded uses the lint left to resolve across modules: a use of a
@@ -1099,22 +1138,40 @@ function resolveSites(sites, known) {
   return [...writes, ...unguarded].map((s) => s.site)
 }
 
-/** What is read off each file's text: files over SIZE_CEILING, a11y
- * suppressions, the .svelte texts duplicate_blocks compares, and CSS
- * backgrounds into `rawMedia` */
+/** What is read off each file's text: files over SIZE_CEILING (as
+ * `file (N lines)` detail) and over HARD_SIZE_CEILING, a11y suppressions,
+ * the .svelte texts duplicate_blocks compares, and CSS backgrounds into
+ * `rawMedia` */
 function textFacts(files, rawMedia) {
-  let oversized = 0
+  const oversized = []
+  let overHard = 0
   let suppressions = 0
   const svelteTexts = []
   for (const file of files) {
     const text = readFileSync(file, 'utf8')
     if (file.endsWith('.svelte')) svelteTexts.push([file, text])
     rawMedia.push(...cssMedia(file, text))
-    if (text.split('\n').length - (text.endsWith('\n') ? 1 : 0) > SIZE_CEILING)
-      oversized++
+    const lines = text.split('\n').length - (text.endsWith('\n') ? 1 : 0)
+    if (lines > SIZE_CEILING)
+      oversized.push(`${relative(UI, file)} (${lines} lines)`)
+    if (lines > HARD_SIZE_CEILING) overHard++
     suppressions += (text.match(/svelte-ignore[^\n]*\ba11y_/g) ?? []).length
   }
-  return { oversized, suppressions, svelteTexts }
+  return {
+    oversized: oversized.sort(byPlace),
+    overHard,
+    suppressions,
+    svelteTexts,
+  }
+}
+
+/** One ESLint finding as `file:line name (value)`: the name is what the
+ * rule's message calls the function (`Function 'f'`, `Arrow function`),
+ * the value the first number it reports (complexity, or line count) */
+function functionSite(result, message) {
+  const name = message.message.split(' has ')[0]
+  const value = message.message.match(/\d+/)?.[0]
+  return `${relative(UI, result.filePath)}:${message.line} ${name} (${value})`
 }
 
 export async function measure(
@@ -1265,6 +1322,14 @@ export async function measure(
       (n, r) => n + r.messages.filter((m) => m.ruleId === rule).length,
       0,
     )
+  const sitesOf = (rule) =>
+    results
+      .flatMap((r) =>
+        r.messages
+          .filter((m) => m.ruleId === rule)
+          .map((m) => functionSite(r, m)),
+      )
+      .sort(byPlace)
 
   unguarded.push(...resolveSites(sites, known))
   const excepted = {
@@ -1277,13 +1342,17 @@ export async function measure(
   for (const file of scripts) graph[file] = [...new Set(imports[file] ?? [])]
   const components = cycles(graph)
 
-  const { oversized, suppressions, svelteTexts } = textFacts(files, rawMedia)
+  const { oversized, overHard, suppressions, svelteTexts } = textFacts(
+    files,
+    rawMedia,
+  )
   const duplicates = duplicateBlocks(svelteTexts)
   banned.sort(byPlace)
   rawMedia.sort(byPlace)
   return {
     metrics: {
-      files_over_size_ceiling: oversized,
+      files_over_size_ceiling: oversized.length,
+      files_over_hard_ceiling: overHard,
       complex_functions: count('complexity'),
       long_functions: count('max-lines-per-function'),
       import_cycles: components.length,
@@ -1300,6 +1369,9 @@ export async function measure(
       duplicate_blocks: duplicates.lines,
     },
     detail: {
+      files_over_size_ceiling: oversized,
+      complex_functions: sitesOf('complexity'),
+      long_functions: sitesOf('max-lines-per-function'),
       cycles: components.map((c) => c.map((f) => relative(UI, f))),
       prefix_literals: prefixHits,
       raw_error_toasts: rawToasts,
@@ -1318,10 +1390,48 @@ export async function measure(
 /** Detail order: by file, then line (numerically), then what was found */
 const byPlace = (a, b) => a.localeCompare(b, 'en', { numeric: true })
 
+/** The proxies: counts of shape, not of a broken rule. They are measured
+ * and recorded like the rest, but a rise only warns (on stderr), never
+ * fails --check or --compare */
+export const ADVISORY = new Set([
+  'files_over_size_ceiling',
+  'complex_functions',
+  'long_functions',
+  'duplicate_blocks',
+])
+
+const rises = (current, baseline) =>
+  Object.entries(current).filter(
+    ([key, value]) => key in baseline && value > baseline[key],
+  )
+
+/** The enforced metrics that rose, as `key: base -> cur` - the line
+ * harnest's check_ui and its waiver parse */
 export function regressions(current, baseline) {
-  return Object.entries(current)
-    .filter(([key, value]) => key in baseline && value > baseline[key])
+  return rises(current, baseline)
+    .filter(([key]) => !ADVISORY.has(key))
     .map(([key, value]) => `${key}: ${baseline[key]} -> ${value}`)
+}
+
+/** The advisory metrics that rose: `{ key, line }`, line as regressions
+ * words it */
+export function advisories(current, baseline) {
+  return rises(current, baseline)
+    .filter(([key]) => ADVISORY.has(key))
+    .map(([key, value]) => ({
+      key,
+      line: `${key}: ${baseline[key]} -> ${value}`,
+    }))
+}
+
+/** Each advisory rise to stderr, `warning (advisory): ...`, followed by
+ * the items detail names for it (under --compare, the current
+ * measurement's own `detail`, when it carries one) */
+function warnAdvisories(current, baseline, detail = {}) {
+  for (const { key, line } of advisories(current, baseline)) {
+    console.error(`warning (advisory): ${line}`)
+    for (const item of detail[key] ?? []) console.error(`  ${item}`)
+  }
 }
 
 async function main(argv) {
@@ -1341,6 +1451,7 @@ async function main(argv) {
     }
     const problems = regressions(current, baseline)
     for (const line of problems) console.log(line)
+    warnAdvisories(current, baseline, current.detail)
     return problems.length ? 1 : 0
   }
   const { metrics, detail } = await measure()
@@ -1351,6 +1462,7 @@ async function main(argv) {
     const baseline = JSON.parse(readFileSync(argv[1], 'utf8'))
     const problems = regressions(metrics, baseline)
     for (const line of problems) console.log(line)
+    warnAdvisories(metrics, baseline, detail)
     if (problems.length) return 1
   }
   console.log(JSON.stringify({ ...metrics, detail }, null, 2))

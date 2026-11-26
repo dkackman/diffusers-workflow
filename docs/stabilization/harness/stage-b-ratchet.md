@@ -54,7 +54,7 @@ work that makes any of those numbers worse. Requirements:
    independent of the FREEZE switch: it stays on after the freeze lifts,
    for as long as `scripts/arch_metrics.py` exists on `origin/develop`.
    Word the refusal to name each regressed metric with its before and
-   after value (`complex_functions: 21 -> 22`), then say what to do:
+   after value (`import_cycles: 0 -> 1`), then say what to do:
    bring the number back down in this session (split the function, remove
    the duplicate, reuse an existing module instead of adding one, patch
    with `patch.object` or an injected fake instead of a `patch("dw...")`

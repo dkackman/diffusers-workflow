@@ -51,15 +51,19 @@ Recorded 2026-10-01; Don ruled on both open questions the same day.
 
 **Ratchets.** `ui/scripts/arch-metrics.mjs` (Phase 0) measures `ui/src`,
 tests excluded. Every metric is lower-is-better, and `--check` against
-`baseline.json` in this directory fails the build when one gets worse. The
-counting rules are in the script's header comment. Measured 2026-10-01 at
+`baseline.json` in this directory fails the build when an enforced one gets
+worse. Since #1689 stage A, the four shape proxies (`files_over_size_ceiling`,
+`complex_functions`, `long_functions`, `duplicate_blocks`) are advisory: still
+measured and recorded, but a rise only warns on stderr, naming the files and
+functions; `files_over_hard_ceiling` (over 900 lines, held at 0) is the
+enforced size limit. The counting rules are in the script's header comment. Measured 2026-10-01 at
 develop `b290dab4`:
 
 | Ratchet | Rule | Today |
 | --- | --- | --- |
-| `files_over_size_ceiling` | files over 600 raw lines, `<style>` included | 7 |
-| `complex_functions` | ESLint `complexity` over 10, script blocks only | 14 |
-| `long_functions` | ESLint `max-lines-per-function` over 60 | 2 |
+| `files_over_size_ceiling` (advisory since #1689) | files over 600 raw lines, `<style>` included | 7 |
+| `complex_functions` (advisory since #1689) | ESLint `complexity` over 10, script blocks only | 14 |
+| `long_functions` (advisory since #1689) | ESLint `max-lines-per-function` over 60 | 2 |
 | `import_cycles` | strongly connected components over relative imports | 1 |
 | `modules_in_import_cycles` | their total size | 2 |
 | `prefix_literals` | strings starting with a reference prefix outside `src/lib/references.ts` | 29 |
@@ -82,7 +86,7 @@ Each gate is tagged `ui-stabilization-gate-N`.
 ### Gate 0 (2026-10-01, develop 367bcb57)
 
 Gate criteria:
-- **Ratchet in CI and preflight:** met. `ui/scripts/arch-metrics.mjs --check` runs in the `ui` CI job and in `npm run preflight` against `baseline.json`.
+- **Ratchet in CI and preflight:** met. `ui/scripts/arch-metrics.mjs --check` runs in the `ui` CI job and in `npm run preflight` against `baseline.json` (an advisory metric's rise warns there and does not fail, #1689).
 - **U1-U5 fixed, each with a test that failed first:** met.
   - U1 is `flow.ts`'s dangling check. Its resolver is now shared with the flow graph's chips and edges.
   - U2 is `references.ts` and `isReference`.
@@ -355,7 +359,7 @@ Gate criteria:
   - Demonstrated on a scratch worktree: renaming `HealthInfo.worker_alive` on the server failed the freshness test, then - regenerated - failed svelte-check in `StatusPopover.svelte` and `ServerPage.svelte`, the two places that read it.
 - **The harness refuses a UI ratchet rise without `arch-approved`:** met (harnest `fd527d2`, `2be80d8`, pushed).
   - `check_ui` measures `ui/` at the merge base and the work's HEAD with develop's `ui/scripts/arch-metrics.mjs` and asks its `--compare` which metrics rose; the waiver is the engine's, against `docs/stabilization/ui/baseline.json`. It fails closed on every failure it can meet (no node, no `ui/node_modules`, a crashing compare, an unreadable cached measurement, any exception).
-  - Demonstrated on dw: a 12-branch function in `ui/src/lib/format.ts` reports `complex_functions: 12 -> 13` - with an inline `eslint-disable complexity` above it too, since the metrics script no longer honours inline directives or a branch's own ignore patterns.
+  - Demonstrated on dw: a 12-branch function in `ui/src/lib/format.ts` reported `complex_functions: 12 -> 13` - with an inline `eslint-disable complexity` above it too, since the metrics script no longer honours inline directives or a branch's own ignore patterns. (Since #1689 `complex_functions` is advisory, so that rise now warns on stderr and no longer fails; an enforced key such as `raw_error_toasts: 0 -> 1` still does.)
 - **e2e before develop moves:** e2e runs on PRs into develop or master and on every push to develop (the agent loop pushes develop directly). The merge's own push ran it: GitHub CI run 37036348274 on `e578d7e4` - backend, ui (with the new "Response contract" step) and e2e all passed.
 
 The contract's rules, beside the seam map's new "The UI's response contract" row:

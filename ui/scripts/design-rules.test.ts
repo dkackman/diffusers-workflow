@@ -193,14 +193,6 @@ it('a custom property is defined by :root, its own file or its parent', () => {
   ])
 })
 
-// app.css is near its cap; a shared class that would grow it goes in patterns.css
-it('app.css stays at or under 600 lines', () => {
-  const lines = readFileSync(join(UI, 'src/app.css'), 'utf8').split('\n')
-  // a trailing newline is not a line
-  const count = lines.at(-1) === '' ? lines.length - 1 : lines.length
-  expect(count).toBeLessThanOrEqual(600)
-})
-
 // A popover or menu opened inside the viewer or a modal shows on top: it
 // closes on a press outside, so it is never left over a modal opened later.
 // A question asked from a sheet sits over that sheet
