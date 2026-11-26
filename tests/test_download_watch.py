@@ -20,6 +20,7 @@ a stub of DownloadWatch's own counting.
 
 import logging
 import os
+import threading
 import time
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -186,6 +187,39 @@ def test_publishing_a_blob_to_the_shared_store_does_not_shrink_the_total(tmp_pat
     assert sizes and sizes == sorted(sizes), f"downloaded_bytes went backwards: {sizes}"
     assert sizes[-1] == 8_000_000
     assert all(e["bytes_per_second"] >= 0 for e in progress)
+
+
+def test_bytes_written_before_the_watcher_thread_runs_are_counted(
+    tmp_path, monkeypatch
+):
+    # #1734: under load the thread can be scheduled after the download has
+    # already written. The baseline is what was cached when the watch opened,
+    # not whatever is there by the time the thread gets a turn
+    blob_dir = tmp_path / "models--some-org--some-model" / "blobs"
+    blob_dir.mkdir(parents=True)
+    (blob_dir / "cached").write_bytes(b"x" * 4096)
+    written = threading.Event()
+    run = download_watch.DownloadWatch._run
+
+    def late_run(self, *args):
+        written.wait(10)
+        run(self, *args)
+
+    monkeypatch.setattr(download_watch.DownloadWatch, "_run", late_run)
+    events = []
+
+    def body(_context):
+        (blob_dir / "etag1.a1b2c3d4.incomplete").write_bytes(b"x" * 2_000_000)
+        written.set()
+        deadline = time.monotonic() + 2
+        while not _progress(events) and time.monotonic() < deadline:
+            time.sleep(0.02)
+
+    _run_loading(events, body, str(tmp_path))
+
+    progress = _progress(events)
+    assert progress, "bytes written before the first scan were never reported"
+    assert progress[-1]["downloaded_bytes"] == 2_000_000
 
 
 def test_a_cached_load_reports_nothing(tmp_path):
