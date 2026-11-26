@@ -642,7 +642,7 @@ def _slice_seconds(entry, steps, base_dir, probe):
     length is literal (or that runs to a probed source's end), or a
     `from_file` that resolves to a probed audio file."""
     from .probe_paths import resolve_probe_path
-    from .task_domains import slice_kept_length
+    from .task_domains import SLICE_STOPS_AT_END, slice_kept_length
     from .slice_preflight import _as_number, _requested_region, _source
 
     def probed(value):
@@ -679,7 +679,7 @@ def _slice_seconds(entry, steps, base_dir, probe):
             if region is None:
                 return None
             start, length = region
-            if args.get("past_end") == "stop":
+            if args.get("past_end") in SLICE_STOPS_AT_END:
                 if source is None:
                     return None
                 length = slice_kept_length(source[0], start, length)

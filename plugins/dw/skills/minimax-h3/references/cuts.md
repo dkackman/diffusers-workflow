@@ -138,7 +138,8 @@ would skip `seam_frame_jump`).
   shots around it: level steps of 3.60-6.72 dB at all four arm B seams
   (0.35-2.39 dB in the chain), and bridge 2 near-silent at -46.1 dBFS.
   Never for dialogue; an ambient take would need `match_levels` or one bed
-  under the whole take.
+  under the whole take (`assemble-and-score`'s `bed_start_seconds`,
+  `bed_seconds` and `bed_gain`, from a `find_loop_bed` pick).
 - So an independent odd shot is a fresh render with no carry: one wrong
   subject count breaks two bridges with it. A cut still erases drift
   (above); a take that must stay continuous stays a chain.

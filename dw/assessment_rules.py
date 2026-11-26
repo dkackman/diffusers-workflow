@@ -139,10 +139,13 @@ RULES = (
             "the shot's floor sits this far below the louder neighbouring shot's -"
             " the bed the shots around it carry drops out between its lines. Lay"
             " the bed under it: run find_loop_bed on the cut with max_bin_dbfs,"
-            " max_mean_dbfs and target_bed_dbfs raised to find a loud bed, cut"
-            " that stretch with slice_audio, loop it with loop_audio and mix it"
-            " under the shot with mix_audio. Leave it at a deliberate scene"
-            " change, where the set itself goes quiet"
+            " max_mean_dbfs and target_bed_dbfs raised to find a loud bed, then"
+            " rerun assemble-and-score with its pick's start_seconds,"
+            " duration_seconds and gain as bed_start_seconds, bed_seconds and"
+            " bed_gain - the template cuts that stretch with slice_audio, loops"
+            " it with loop_audio and mixes it under the cut with mix_audio (a"
+            " hand-built cut lays the same chain itself). Leave it at a"
+            " deliberate scene change, where the set itself goes quiet"
         ),
         "unless": f"the shot's own rms is at or below {HOLE_VOICED_DBFS} dBFS",
     },

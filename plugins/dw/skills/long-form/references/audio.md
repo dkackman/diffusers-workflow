@@ -96,7 +96,11 @@ audio_duration}`. Each section is trimmed, faded and crossfaded into the next
   them. It mixes each shot's own sound beneath the score. Even the shots by
   loudness with `match_levels: lufs`; deliver at -16 LUFS with the
   template's `target_lufs: -16`, which its `balanced` step's
-  `normalize_audio` applies. `series-episodes` has the full procedure. To
+  `normalize_audio` applies. Room tone under the whole cut is the
+  template's bed: copy a `find_loop_bed` pick's `start_seconds`,
+  `duration_seconds` and `gain` into `bed_start_seconds`, `bed_seconds` and
+  `bed_gain` (0, off, by default) rather than hand-building a
+  `slice_audio` -> `loop_audio` -> `mix_audio` chain. `series-episodes` has the full procedure. To
   grade the scored cut in the same job, see `run-and-repair.md`, *Finish
   the cut in one job*.
 - **Placing the score on a beat.** `score_start_frame` is where in the

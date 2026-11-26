@@ -34,7 +34,7 @@ from .for_each import render_path
 from .media import probe_metadata
 from .probe_paths import resolve_probe_path
 from .references import iter_steps
-from .task_domains import slice_padding, slice_region
+from .task_domains import SLICE_STOPS_AT_END, slice_padding, slice_region
 
 
 def _source(path, probe):
@@ -117,10 +117,10 @@ def slice_past_end_warnings(
         task_args = task.get("arguments")
         if not isinstance(task_args, dict):
             continue
-        # A slice that stops at the end of its source pads nothing - it
-        # keeps a short source at its own length - so there is no silence
-        # to warn about
-        if task_args.get("past_end") == "stop":
+        # A slice that stops at the end of its source ("stop" or
+        # "excerpt") pads nothing - it keeps a short source at its own
+        # length - so there is no silence to warn about
+        if task_args.get("past_end") in SLICE_STOPS_AT_END:
             continue
 
         path = resolve_probe_path(task_args.get("audio"), base_dir, "an audio argument")
