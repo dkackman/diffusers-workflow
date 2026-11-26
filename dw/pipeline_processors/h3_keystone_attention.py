@@ -43,6 +43,15 @@ to be video condition rows - one condition timestep, ahead of the trailing
 target video - and the forward raises rather than guess when they are not, or
 were never published. Guide audio rows are not part of C.
 
+Per forward (#1188 S4). The hybrid windows (h3_windows.py) install the same
+processor with `per_forward=True` around their ordered phase and publish K and
+C for each forward that re-splits (`publish_window_rows`, `clear_rows` after
+it): K is the take's keystone rows, which lead the window's media, and C the
+window's pinned overlap, the leading rows of its trailing video - so audio may
+sit between them, and C is inside the target, not ahead of it. A forward with
+no rows published runs the original processor. `check_window_rows` is that
+layout's check, run before every forward that has rows.
+
 Imports diffusers only inside the processor's call, so validation can import
 this module.
 """
@@ -529,6 +538,7 @@ class _KeystoneAttentionState:
     target: int | None = None  # row the target video starts at, per forward
     op: tuple | None = None  # (name, op), picked on the first selected block
     forwards: int = 0
+    per_forward: bool = False  # rows published per forward; none = the original
     originals: list = field(default_factory=list)
     handles: list = field(default_factory=list)
 
@@ -547,6 +557,40 @@ def publish_rows(transformer, num_text, keyframe_rows, guide_rows, frame_rows=0)
     state.frame_rows = int(frame_rows)
     state.checked = None
     return rows
+
+
+def publish_window_rows(transformer, keystone_rows, held_rows, frame_rows):
+    """Hand one windowed forward's K (`keystone_rows`) and C (`held_rows`),
+    each a (start, count) row range, to a `per_forward` install on
+    `transformer`; returns them, or None when no re-split is installed.
+
+    Raises:
+        ValueError: If the install is not `per_forward`
+    """
+    state = getattr(transformer, _STATE, None)
+    if state is None:
+        return None
+    if not state.per_forward:
+        raise ValueError(
+            f"{KEYSTONE_ATTENTION_INPUT}: this re-split takes its rows from the "
+            f"guide layout, once per call, not per forward"
+        )
+    rows = tuple(
+        (int(start), int(count)) for start, count in (keystone_rows, held_rows)
+    )
+    state.rows = rows
+    state.frame_rows = int(frame_rows)
+    state.checked = None
+    return rows
+
+
+def clear_rows(transformer):
+    """Unpublish a `per_forward` install's rows: the next forward runs the
+    original processor unless rows are published for it."""
+    state = getattr(transformer, _STATE, None)
+    if state is not None and state.per_forward:
+        state.rows = None
+        state.checked = None
 
 
 def installed(transformer):
@@ -590,6 +634,55 @@ def check_rows(rows, token_tags, timestep_indices):
                 f"{KEYSTONE_ATTENTION_INPUT}: the keyframe and guide rows do not "
                 f"share one condition timestep"
             )
+
+
+def check_window_rows(rows, token_tags, timestep_indices):
+    """Raise unless a windowed forward's K and C are non-empty runs of video
+    rows (tag 0), K ahead of C, each at one timestep, and C the leading rows
+    of the trailing video. Returns C's start, the target's first row."""
+    (k0, kn), (c0, cn) = rows
+    if kn <= 0 or cn <= 0:
+        raise ValueError(
+            f"{KEYSTONE_ATTENTION_INPUT}: the window published {kn} keystone and "
+            f"{cn} held rows; it needs both"
+        )
+    tags = token_tags.reshape(-1).cpu()
+    if c0 < k0 + kn or c0 + cn > tags.numel():
+        raise ValueError(
+            f"{KEYSTONE_ATTENTION_INPUT}: the window's keystone rows {k0}-"
+            f"{k0 + kn - 1} and held rows {c0}-{c0 + cn - 1} do not lie in order "
+            f"in its {tags.numel()} rows"
+        )
+    if bool((tags[k0 : k0 + kn] != 0).any()) or bool((tags[c0:] != 0).any()):
+        raise ValueError(
+            f"{KEYSTONE_ATTENTION_INPUT}: the window's keystone rows are not "
+            f"video rows, or its held rows {c0}-{c0 + cn - 1} do not lead its "
+            f"trailing video"
+        )
+    if timestep_indices is not None:
+        indices = timestep_indices.reshape(-1).cpu()
+        for start, count, what in ((k0, kn, "keystone"), (c0, cn, "held")):
+            run = indices[start : start + count]
+            if bool((run != run[0]).any()):
+                raise ValueError(
+                    f"{KEYSTONE_ATTENTION_INPUT}: the window's {what} rows do not "
+                    f"share one timestep"
+                )
+    return c0
+
+
+def _window_pre_hook(component, args, kwargs):
+    state = getattr(component, _STATE)
+    if state.rows is None:
+        return None
+    tags = forward_arg(args, kwargs, "token_tags")
+    indices = forward_arg(args, kwargs, "timestep_indices")
+    key = (state.rows, id(tags), id(indices))
+    if state.checked != key:
+        state.target = check_window_rows(state.rows, tags, indices)
+        state.checked = key
+    state.forwards += 1
+    return None
 
 
 def _pre_hook(component, args, kwargs):
@@ -651,6 +744,14 @@ class KeystoneAttentionH3Processor:
         )
 
         state = self._state
+        if state.rows is None and state.per_forward:
+            # A forward that publishes no rows keeps the original attention
+            return self._original(
+                attn,
+                hidden_states,
+                rotary_emb=rotary_emb,
+                attention_mask=attention_mask,
+            )
         if state.rows is None:
             # The pre-hook refuses this; a direct call never reaches it
             check_rows(None, None, None)
@@ -705,6 +806,13 @@ def _h3_transformers(pipeline):
     return transformers(pipeline)
 
 
+def _sparse_problem():
+    return (
+        f"{KEYSTONE_ATTENTION_INPUT} runs on dense attention, and this "
+        f"step's transformer runs attention_backend 'sparse' - set it to null"
+    )
+
+
 def keystone_attention_refusal(pipeline, configuration=None):
     """Why this call cannot run the re-split, or None: no H3 transformer, or
     one on dw's 'sparse' processor."""
@@ -716,23 +824,39 @@ def keystone_attention_refusal(pipeline, configuration=None):
     if _sparse_configured(configuration) or any(
         is_sparse_installed(component) for _, component in transformers
     ):
-        return (
-            f"{KEYSTONE_ATTENTION_INPUT} runs on dense attention, and this "
-            f"step's transformer runs attention_backend 'sparse' - set it to null"
-        )
+        return _sparse_problem()
     return None
 
 
-def install(component, settings):
+def transformer_refusal(component):
+    """Why the re-split cannot go on this one transformer, or None: it runs
+    dw's 'sparse' processor, already has a re-split installed, or has no
+    transformer blocks to put it on."""
+    from ..sparse_attention import is_sparse_installed
+
+    if not getattr(component, "transformer_blocks", None):
+        return f"{KEYSTONE_ATTENTION_INPUT} found no transformer blocks on this transformer"
+    if is_sparse_installed(component):
+        return _sparse_problem()
+    if installed(component):
+        return f"{KEYSTONE_ATTENTION_INPUT} is already installed on this transformer"
+    return None
+
+
+def install(component, settings, per_forward=False):
     """Put the re-split processor on the settings' blocks of `component`;
-    every other block keeps its own.
+    every other block keeps its own. `per_forward`: the rows are published
+    for each forward that re-splits (`publish_window_rows`), and a forward
+    with none runs the original attention.
 
     Raises:
         ValueError: If a block is past the transformer's last
     """
     blocks = list(component.transformer_blocks)
     selected = parse_blocks(settings.blocks, len(blocks))
-    state = _KeystoneAttentionState(settings=settings, blocks=selected)
+    state = _KeystoneAttentionState(
+        settings=settings, blocks=selected, per_forward=per_forward
+    )
     # First, so a raise partway through still leaves `uninstall` its record
     setattr(component, _STATE, state)
     for index in selected:
@@ -741,7 +865,8 @@ def install(component, settings):
         blocks[index].attn.set_processor(
             KeystoneAttentionH3Processor(original, state, index)
         )
-    state.handles = [component.register_forward_pre_hook(_pre_hook, with_kwargs=True)]
+    hook = _window_pre_hook if per_forward else _pre_hook
+    state.handles = [component.register_forward_pre_hook(hook, with_kwargs=True)]
     return state
 
 

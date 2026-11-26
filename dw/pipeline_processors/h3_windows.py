@@ -105,10 +105,14 @@ the take's frame-0 positions, token tag 0, held at the clean timestep (H3's
 t = 1), and dropped from the prediction before the fuse, so the take never
 holds them. On the ordered phase's later windows the keystone attention
 (`KEYSTONE_ATTENTION`, h3_keystone_attention's K/C re-split, K the keystone
-rows and C the window's pinned overlap) runs on the blocks the transformer
-has (`_OrderedKeystoneProcessor`); window 1 and the blended steps keep the
-plain attention. On sparse attention, or a transformer with another re-split
-installed, the attention is skipped with a warning and the rows ship alone.
+rows and C the window's pinned overlap) runs: the owner installs it per
+forward for the ordered phase (`install(per_forward=True)`), each later
+window publishes its K and C to it (`publish_window_rows`, checked by the
+owner's `check_window_rows`) and clears them after, and window 1 and the
+blended steps keep the plain attention. A block in it the transformer lacks
+raises, as the owner's parse does. On a transformer the owner refuses
+(`transformer_refusal`: sparse attention, or another re-split installed) the
+attention is skipped with a warning and the rows ship alone.
 Any other `anchor` is refused at validate, before the flag.
 
 The decode of a long take. The stock video decode keeps every decoded clip
@@ -141,8 +145,8 @@ from diffusers.modular_pipelines.modular_pipeline_utils import InputParam
 
 from .. import get_device_type, references
 from ..events import emit_warning
-from ..sparse_attention import is_sparse_installed
 from . import h3_keystone_attention as keystone_attention
+from .h3_guide_steps import splice_guide_rows
 from .h3_hold_steps import (  # noqa: F401 - re-exported: the decode's and the window's names live here too
     DECODE_PIECE_CLIPS,
     DwH3LongRefineLayoutStep,
@@ -924,50 +928,34 @@ class DwH3WindowedLoopDenoiser(MiniMaxH3LoopDenoiser):
 
     def _ordered_attention(self, components, settings, plan):
         """The keystone attention for the ordered phase's later windows
-        (design 9): the re-split processor on `KEYSTONE_ATTENTION`'s blocks
-        that the transformer has, falling through to the original on every
-        forward that publishes no rows. Returns `(state, restore)`, or None
-        when it does not run - no keystone, one window, no such block, or a
-        transformer on sparse attention, which the re-split cannot run on (the
-        keystone rows still do)."""
+        (design 9): the owner's re-split (h3_keystone_attention.install,
+        `per_forward`) on `KEYSTONE_ATTENTION`'s blocks, which runs the
+        original attention on every forward that publishes no rows. Returns
+        the transformer it went on, or None when it does not run - no
+        keystone, one window, or a transformer the owner refuses (sparse
+        attention, another re-split), which a warning names; the keystone
+        rows still go in. A block the transformer lacks raises, as the owner's
+        parse does."""
         if settings["anchor"] != "keystone" or len(plan) < 2:
             return None
         transformer = getattr(components, self.transformer_name)
-        blocks = list(getattr(transformer, "transformer_blocks", ()))
-        selected = tuple(
-            index
-            for index in keystone_attention.parse_blocks(KEYSTONE_ATTENTION.blocks)
-            if index < len(blocks)
-        )
-        if not selected:
-            return None
-        if is_sparse_installed(transformer) or keystone_attention.installed(
-            transformer
-        ):
+        refusal = keystone_attention.transformer_refusal(transformer)
+        if refusal is not None:
             emit_warning(
-                f"{HYBRID_WINDOWS_INPUT} anchor keystone: the keystone "
-                f"attention runs on dense attention with no other re-split, and "
-                f"this transformer has "
-                f"{'sparse attention' if is_sparse_installed(transformer) else 'one'}"
-                f" - the windows read the keystone rows without it"
+                f"{HYBRID_WINDOWS_INPUT} anchor keystone: the windows read the "
+                f"keystone rows without the keystone attention - {refusal}"
             )
             return None
-        state = keystone_attention._KeystoneAttentionState(
-            settings=KEYSTONE_ATTENTION, blocks=selected
-        )
-        originals = []
-        for index in selected:
-            original = blocks[index].attn.processor
-            originals.append((index, original))
-            blocks[index].attn.set_processor(
-                _OrderedKeystoneProcessor(original, state, index)
+        try:
+            keystone_attention.install(
+                transformer, KEYSTONE_ATTENTION, per_forward=True
             )
-
-        def restore():
-            for index, original in originals:
-                blocks[index].attn.set_processor(original)
-
-        return state, restore
+        except ValueError as error:
+            keystone_attention.uninstall(transformer)
+            raise ValueError(
+                f"{HYBRID_WINDOWS_INPUT} anchor keystone: {error}"
+            ) from error
+        return transformer
 
     def _ordered(self, components, block_state, settings, switch):
         """The ordered phase, in host RAM. Window 1 runs every step and is
@@ -1008,7 +996,7 @@ class DwH3WindowedLoopDenoiser(MiniMaxH3LoopDenoiser):
         finally:
             scheduler._step_index = restore
             if attention is not None:
-                attention[1]()
+                keystone_attention.uninstall(attention)
 
     def _ordered_windows(
         self, components, block_state, settings, switch, plan, rebase_from, attention
@@ -1048,7 +1036,7 @@ class DwH3WindowedLoopDenoiser(MiniMaxH3LoopDenoiser):
                     audio_latents[rows[1].cpu()],
                     pinned,
                     keystone,
-                    attention[0] if attention is not None else None,
+                    attention is not None,
                 )
                 if j == switch - 1 and handoff == "x0":
                     sigma = float(scheduler.sigmas[j])
@@ -1086,14 +1074,16 @@ class DwH3WindowedLoopDenoiser(MiniMaxH3LoopDenoiser):
         audio_hidden,
         clean,
         keystone=None,
-        attention=None,
+        attention=False,
     ):
         """One window's forward at step `i` from host `hidden` rows - the
         rows `clean` (a mask over them) at the clean timestep - its video
         velocity as float32 on the host. A `keystone` goes in ahead of the
-        window's rows (`keystone_inputs`) and its velocity is dropped; an
-        `attention` state gets the keystone and the clean rows as its K and
-        C for this forward when `clean` is a leading run of the window."""
+        window's rows (`keystone_inputs`) and its velocity is dropped; under
+        `attention` (the ordered phase's per-forward re-split is installed)
+        the keystone and the clean rows are published to it as this forward's
+        K and C (h3_keystone_attention.publish_window_rows) when `clean` is a
+        leading run of the window, and cleared after."""
         transformer = getattr(components, self.transformer_name)
         accepted = inspect.signature(transformer.forward).parameters
         fields = block_state.denoiser_input_fields
@@ -1111,9 +1101,13 @@ class DwH3WindowedLoopDenoiser(MiniMaxH3LoopDenoiser):
             count = keystone.shape[0]
             hidden = torch.cat([keystone.to(device), hidden])
         pinned = int(clean.sum())
-        if attention is not None and count and pinned and bool(clean[:pinned].all()):
-            first = int(layout["video_indices"][count])
-            attention.rows = ((int(layout["video_indices"][0]), count), (first, pinned))
+        if attention and count and pinned and bool(clean[:pinned].all()):
+            keystone_attention.publish_window_rows(
+                transformer,
+                (int(layout["video_indices"][0]), count),
+                (int(layout["video_indices"][count]), pinned),
+                frame_rows=count,
+            )
         try:
             noise_pred, _ = transformer(
                 hidden_states=hidden[None],
@@ -1126,8 +1120,8 @@ class DwH3WindowedLoopDenoiser(MiniMaxH3LoopDenoiser):
                 **{k: v for k, v in layout.items() if k in accepted},
             )
         finally:
-            if attention is not None:
-                attention.rows = None
+            if attention:
+                keystone_attention.clear_rows(transformer)
         return noise_pred[0, count:].float().cpu()
 
     @staticmethod
@@ -1305,14 +1299,29 @@ def keystone_inputs(fields, layout, plan_entry, count):
     positions and video tag, unshifted - under rebased positions they land on
     the window's own first frame, as a frame-0 keyframe would - and the clean
     timestep. They are the first `count` of the new `video_indices`, so the
-    forward's video prediction leads with theirs."""
+    forward's video prediction leads with theirs.
+
+    The rows go in by the guide's splice (h3_guide_steps.splice_guide_rows): a
+    window is [text][audio][window video], a guide layout with no condition
+    rows whose text ends where its media starts, so the keystone lands as a
+    guide would. The splice carries no timesteps; the keystone's go in here, at
+    the clean timestep."""
     first = fields["video_indices"][:count]
     media = torch.cat([layout["audio_indices"], layout["video_indices"]])
     at = int(media.min())
-    position_ids = layout["position_ids"]
-    token_tags = layout["token_tags"]
-    video_indices = layout["video_indices"]
-    keystone_rows = torch.arange(at, at + count, device=video_indices.device)
+    position_ids, token_tags, video_indices, audio_indices, _, _ = splice_guide_rows(
+        (
+            layout["position_ids"],
+            layout["token_tags"],
+            layout["video_indices"],
+            layout["audio_indices"],
+            layout.get("text_indices"),
+            0,
+        ),
+        at,
+        fields["position_ids"][first],
+        int(fields["token_tags"][first[0]]),
+    )
     unique, timestep_indices = plan_entry
     timestep_indices = torch.cat(
         [
@@ -1323,41 +1332,11 @@ def keystone_inputs(fields, layout, plan_entry, count):
     )
     spliced = {
         **layout,
-        "position_ids": torch.cat(
-            [
-                position_ids[:at],
-                fields["position_ids"][first].to(position_ids),
-                position_ids[at:],
-            ]
-        ),
-        "token_tags": torch.cat(
-            [
-                token_tags[:at],
-                fields["token_tags"][first].to(token_tags),
-                token_tags[at:],
-            ]
-        ),
-        "video_indices": torch.cat([keystone_rows, video_indices + count]),
-        "audio_indices": layout["audio_indices"] + count,
+        "position_ids": position_ids,
+        "token_tags": token_tags,
+        "video_indices": video_indices,
+        "audio_indices": audio_indices,
     }
     return spliced, clean_timesteps(
-        (unique, timestep_indices), keystone_rows.to(timestep_indices.device)
+        (unique, timestep_indices), video_indices[:count].to(timestep_indices.device)
     )
-
-
-class _OrderedKeystoneProcessor(keystone_attention.KeystoneAttentionH3Processor):
-    """The keystone attention's re-split on a forward that publishes its
-    rows, the original processor on every other: the ordered phase's later
-    windows re-split, window 1 and the blended steps do not (design 9). The
-    explicit signature is the one diffusers filters a processor's kwargs by."""
-
-    def __call__(self, attn, hidden_states, rotary_emb=None, attention_mask=None):
-        if self._state.rows is None:
-            return self._original(
-                attn,
-                hidden_states,
-                rotary_emb=rotary_emb,
-                attention_mask=attention_mask,
-            )
-        self._state.forwards += 1
-        return super().__call__(attn, hidden_states, rotary_emb, attention_mask)
