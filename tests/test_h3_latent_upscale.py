@@ -590,4 +590,5 @@ class TestTargetSizeRefusedAtValidate:
         latents = torch.zeros(1, 24, 3, 34, 60)
         with pytest.raises(ValueError) as refused:
             target_latent_size(latents, width, height)
-        assert message.startswith(str(refused.value).rstrip("."))
+        # validate names the step; the run's failure names it the same way (#1719)
+        assert message.startswith("Step 'up': " + str(refused.value).rstrip("."))

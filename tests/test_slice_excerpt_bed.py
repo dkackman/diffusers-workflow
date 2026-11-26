@@ -233,3 +233,64 @@ class TestBedThroughTheRealChain:
         mixed, two_track, _ = self.run_chain(bed_gain=1.0)
         assert self.samples(mixed).shape == self.samples(two_track).shape
         assert not numpy.array_equal(self.samples(mixed), self.samples(two_track))
+
+
+class TestRefusalsNameTheBed:
+    """A refusal says which template variable or step is at fault (#1719
+    bounce, C-F1403): the caller set `bed_seconds`, not steps[5]."""
+
+    def test_validate_names_the_step_and_the_variable(self, tmp_path):
+        from dw.validation import workflow_errors
+        from dw.workflow import workflow_from_file
+
+        workflow = workflow_from_file(str(TEMPLATE), str(tmp_path))
+        errors = workflow_errors(workflow, {"bed_seconds": 0})
+        bed = [e for e in errors if "duration_seconds" in e["path"]]
+        assert bed, errors
+        assert "bed_slice" in bed[0]["message"], bed
+        assert "bed_seconds" in bed[0]["message"], bed
+
+    def test_a_literal_argument_names_only_the_step(self):
+        workflow = {
+            "steps": [
+                {
+                    "name": "bed_slice",
+                    "task": {
+                        "command": "slice_audio",
+                        "arguments": {"audio": "asset:a.wav", "duration_seconds": 0},
+                    },
+                }
+            ]
+        }
+        (error,) = task_argument_errors(workflow, written=workflow)
+        assert error["message"].startswith("Step 'bed_slice': "), error
+        assert "set by variable" not in error["message"]
+
+    def test_failed_step_label_nests_outermost_first(self):
+        from dw.workflow_run import failed_step_label, note_failed_step
+
+        error = ValueError("boom")
+        assert failed_step_label(error) == ""
+        note_failed_step(error, "bed_slice")
+        note_failed_step(error, "score")
+        assert failed_step_label(error) == "Step 'score' > 'bed_slice': "
+        assert str(error) == "boom"
+
+    def test_a_running_step_that_fails_carries_its_name(self, monkeypatch):
+        from dw import workflow_run
+
+        def refuse(*args, **kwargs):
+            slice_audio(
+                tone(3.0),
+                start_seconds=100.0,
+                duration_seconds=1.0,
+                sample_rate=RATE,
+                past_end="excerpt",
+            )
+
+        monkeypatch.setattr(workflow_run, "_start_step", refuse)
+        with pytest.raises(ValueError) as caught:
+            workflow_run.run_step(None, None, 5, {"name": "bed_slice"}, None)
+        label = workflow_run.failed_step_label(caught.value)
+        assert label == "Step 'bed_slice': "
+        assert 'past_end\' "excerpt"' in str(caught.value)

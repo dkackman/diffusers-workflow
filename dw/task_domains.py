@@ -42,8 +42,10 @@ from fractions import Fraction
 
 from .references import (
     DEFERRED,
+    VARIABLE,
     is_ref,
     iter_steps,
+    ref_name,
     render_path,
 )
 from .tasks.registry import RegistryTable
@@ -453,7 +455,7 @@ def check_arguments(command, **values):
         check_argument(command, name, value)
 
 
-def task_argument_errors(workflow_definition, source_indices=None):
+def task_argument_errors(workflow_definition, source_indices=None, written=None):
     """Every task argument outside its declared domain, as [{path, message}].
 
     The definition handed here has already been substituted and expanded, so
@@ -461,9 +463,14 @@ def task_argument_errors(workflow_definition, source_indices=None):
     `source_indices` maps each expanded step back to the step the author
     wrote, and the member is named in the message - the convention
     subfolder_errors and reference_limit_errors both follow.
+
+    A message names the step it is about, and with `written` (the definition
+    before substitution) the variable an argument was set from: a template's
+    caller set `bed_seconds`, not `steps[5]`'s `duration_seconds`, and
+    should not have to count steps to learn which one was refused (#1719).
     """
     errors = []
-    for _, _, task, source, where in iter_steps(
+    for _, step, task, source, where in iter_steps(
         workflow_definition.get("steps"), source_indices, "task"
     ):
         command = task.get("command")
@@ -475,6 +482,7 @@ def task_argument_errors(workflow_definition, source_indices=None):
         static_check = TASK_STATIC_CHECKS.get(command)
         if not domains and static_check is None:
             continue
+        found = []
         for key, domain in domains.items():
             if key not in arguments:
                 continue
@@ -487,22 +495,46 @@ def task_argument_errors(workflow_definition, source_indices=None):
             path = ("steps", source, "task", "arguments", key)
             if element_index is not None:
                 path = path + (element_index,)
+            found.append((key, path, message))
+        if static_check is not None:
+            for key, message in static_check(arguments):
+                found.append(
+                    (key, ("steps", source, "task", "arguments", key), message)
+                )
+        label = _step_label(step, where)
+        for key, path, message in found:
+            origin = _variable_origin(written, source, key)
             errors.append(
                 {
                     "path": render_path(path),
-                    "message": f"{message.rstrip('.')}{where}.",
+                    "message": f"{label}{message.rstrip('.')}{where}{origin}.",
                 }
             )
-        if static_check is not None:
-            for key, message in static_check(arguments):
-                path = ("steps", source, "task", "arguments", key)
-                errors.append(
-                    {
-                        "path": render_path(path),
-                        "message": f"{message.rstrip('.')}{where}.",
-                    }
-                )
     return errors
+
+
+def _step_label(step, where):
+    """`"Step '<name>': "`, the prefix a step's error carries - or "" for a
+    for_each member, whose `where` already names it."""
+    name = step.get("name")
+    if where or not isinstance(name, str) or not name:
+        return ""
+    return f"Step '{name}': "
+
+
+def _variable_origin(written, source, key):
+    """`" (set by variable '<name>')"` when the step the author wrote gave
+    task argument `key` as a `variable:` reference, else ""."""
+    steps = written.get("steps") if isinstance(written, dict) else None
+    if not isinstance(steps, list) or not 0 <= source < len(steps):
+        return ""
+    step = steps[source]
+    task = step.get("task") if isinstance(step, dict) else None
+    arguments = task.get("arguments") if isinstance(task, dict) else None
+    value = arguments.get(key) if isinstance(arguments, dict) else None
+    if isinstance(value, str) and is_ref(VARIABLE, value):
+        return f" (set by variable '{ref_name(VARIABLE, value)}')"
+    return ""
 
 
 # The four rules a checker and a task both apply. Each was written twice -

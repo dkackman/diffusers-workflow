@@ -147,7 +147,7 @@ class TestFillValidate:
         assert errors == [
             (
                 "fill",
-                f"fit_to_model takes 'fill' {fill!r} only with mode 'letterbox' "
+                f"Step 'fit': fit_to_model takes 'fill' {fill!r} only with mode 'letterbox' "
                 f"(it paints the letterbox's bars), got mode {mode!r}.",
             )
         ]

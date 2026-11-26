@@ -312,7 +312,9 @@ class WorkflowWorker:
             # callers, who address files by reference (GHSA-fwg5-jfjg-fxpf)
             redact = self._failure_redactor(command)
             failure = Failed(
-                message=redact(f"Workflow execution error: {str(e)}"),
+                message=redact(
+                    f"Workflow execution error: {workflow_run.failed_step_label(e)}{e}"
+                ),
                 traceback=redact(traceback.format_exc()),
                 # The files the steps before the failure wrote are on
                 # disk; reporting them is what keeps a run that died at
