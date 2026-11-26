@@ -56,7 +56,7 @@ GitHub generates notes from commits at tag time. The sections below are the hand
 
 **One-line install** (docs/INSTALL.md)
 
-- `curl -LsSf https://github.com/dkackman/diffusers-workflow/releases/latest/download/bootstrap.sh | sh`
+- `curl -LsSf https://github.com/dkackman/diffusers-workflow/releases/latest/download/bootstrap.sh | bash`
   on macOS and Linux, and the `bootstrap.ps1` line on Windows, install uv, a
   Python 3.12 venv, the right torch build, dw from PyPI and diffusers `main`
   (from a GitHub archive, so no git), then run `dw setup`. Re-running the line

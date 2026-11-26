@@ -43,7 +43,7 @@ LATEST_CACHE_SECONDS = 600
 # The one place the bootstrap one-liners live (docs/INSTALL.md repeats them)
 BOOTSTRAP_SH_URL = "https://github.com/dkackman/diffusers-workflow/releases/latest/download/bootstrap.sh"
 BOOTSTRAP_PS1_URL = "https://github.com/dkackman/diffusers-workflow/releases/latest/download/bootstrap.ps1"
-INSTALL_COMMAND_POSIX = f"curl -LsSf {BOOTSTRAP_SH_URL} | sh"
+INSTALL_COMMAND_POSIX = f"curl -LsSf {BOOTSTRAP_SH_URL} | bash"
 INSTALL_COMMAND_WINDOWS = (
     f'powershell -ExecutionPolicy ByPass -c "irm {BOOTSTRAP_PS1_URL} | iex"'
 )

@@ -39,8 +39,12 @@ content hashes and are cached as immutable for a year; `index.html` is
 
 On an installed copy ([INSTALL.md](INSTALL.md)), `dw setup` runs the server as a
 per-user service that starts at login:
-`dw-serve --host 127.0.0.1 --port 8765 --mcp --managed`, from the install's venv.
-It binds loopback with no token, as a plain `dw-serve` does.
+`dw-serve --host 127.0.0.1 --port 8765 --mcp --managed`, from the venv of the
+`dw` that ran setup, in the install root as its working directory (so the
+workspace is never your home by accident: [WORKSPACES.md](WORKSPACES.md#an-installed-copy)).
+It binds loopback with no token, as a plain `dw-serve` does. With no
+`--examples-dir` it offers the example catalog the package carries. A re-run
+of `dw setup` rewrites the service and restarts it.
 
 | | macOS | Linux | Windows |
 | --- | --- | --- | --- |
@@ -69,7 +73,9 @@ server setup's service started (`--managed`), when PyPI has a newer release
 (`POST /api/system/dw/update`) upgrades `diffusers-workflow[server,mcp]` in the
 server's venv with torch pinned to the installed build and the recorded torch
 index, moves diffusers to `main`, runs `dw setup --yes --no-open --no-service`
-to refresh the registrations, and exits with code 75 so the service manager
+to refresh the registrations (best effort: a failed refresh is logged and the
+restart still happens, since the new packages are installed), and exits with
+code 75 so the service manager
 restarts the server. The page reconnects when it is back.
 
 The update is refused (409) while a job is running or queued, while a model

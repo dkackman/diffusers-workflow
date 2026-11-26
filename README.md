@@ -65,7 +65,7 @@ starts the server at login and connects Claude Desktop and Claude Code if you ha
 them. The torch download takes a while.
 
 ```bash
-curl -LsSf https://github.com/dkackman/diffusers-workflow/releases/latest/download/bootstrap.sh | sh
+curl -LsSf https://github.com/dkackman/diffusers-workflow/releases/latest/download/bootstrap.sh | bash
 ```
 
 ```powershell
@@ -79,19 +79,27 @@ flag, checking the script's SHA-256 first, and troubleshooting are in
 **2. Open the UI.** Setup opens `http://127.0.0.1:8765`. The server runs in the
 background from now on and starts again at login.
 
-**3. Start your agent.** In a terminal, `dw agent` starts Claude Code with
+**3. Start your agent.** In a terminal, start Claude Code with
 [the notes channel](docs/MCP.md#the-notes-channel), so a note you save in the UI
-reaches the session as you save it. `dw` is in the install's venv
-(`~/.local/share/diffusers-workflow/venv/bin/dw`;
-[INSTALL.md](docs/INSTALL.md#what-the-bootstrap-installs-and-where)). Or open
+reaches the session as you save it. `dw` is not on your `PATH`, so run it from
+the install's venv
+([INSTALL.md](docs/INSTALL.md#what-the-bootstrap-installs-and-where)):
+
+```bash
+~/.local/share/diffusers-workflow/venv/bin/dw agent
+```
+
+```powershell
+& "$env:LOCALAPPDATA\diffusers-workflow\venv\Scripts\dw.exe" agent
+```
+
+Or open
 Claude Desktop, which lists dw as connected. Start a new session either way: a
 session that was already open does not see the registration.
 
 **4. Make the first image.** Ask the agent: *"Run `templates/text-to-image` with the
-prompt 'a lighthouse at dusk'."* An installed copy starts with an empty workflow
-library, so add the examples first
-([Workspaces](docs/WORKSPACES.md#an-installed-copy)); a checkout has them. The
-agent quotes the cost, and a direct ask like this one counts as the go-ahead, so it
+prompt 'a lighthouse at dusk'."* The example catalog ships with dw, so an
+installed copy and a checkout both have it. The agent quotes the cost, and a direct ask like this one counts as the go-ahead, so it
 may run straight away. The first run downloads SD 1.5 (about 4 GB), so it takes
 about a minute on a fast connection and longer on a slow one; later runs reuse it.
 The agent shows you the image, and it is in the web UI's gallery and under the

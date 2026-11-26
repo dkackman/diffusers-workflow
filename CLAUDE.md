@@ -22,12 +22,12 @@ dw agent    # Claude Code with the dw-notes channel
 python -m dw.run workflows/templates/text-to-image.json
 python -m dw.run workflows/templates/text-to-image.json prompt="a cat" num_images_per_prompt=4
 
-# A gated model (e.g. workflows/models/flux-dev.json) needs Hugging Face auth first: hf auth login
+# A gated model (workflows/models/flux-dev.json) needs `hf auth login` first
 
 # Validate a workflow against schema
 python -m dw.validate workflows/models/z-image.json
 
-# Unit tests - parallel across every core (pytest-xdist, `-n auto` in pytest.ini); naming test files runs them in one process
+# Unit tests - parallel on every core (`-n auto`); naming files runs one process
 pytest tests/ -v
 pytest tests/test_security.py -v
 

@@ -9,8 +9,9 @@ cross-cutting shapes that orchestrate them.
 `dw setup` installs the plugin in Claude Code
 ([docs/INSTALL.md](../../docs/INSTALL.md)). The plugin's `dw` server
 (`.mcp.json`) launches `${HOME}/.local/share/diffusers-workflow/bin/dw-mcp`, a
-shim `dw setup` writes to the installed `dw-mcp`; on a machine where setup never
-ran, that server fails to start, and a `dw` registration you added by hand
+shim `dw setup` writes to the `dw-mcp` beside the `dw` that ran it, whether or
+not Claude Code is installed (Claude Code and Cowork both start it); on a
+machine where setup never ran, that server fails to start, and a `dw` registration you added by hand
 (see [docs/MCP.md](../../docs/MCP.md#clients)) is what serves the tools. What
 loads where:
 

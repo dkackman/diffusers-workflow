@@ -114,7 +114,7 @@ class TestRunCommands:
 
 class TestInstallCommand:
     def test_posix_and_windows_one_liners(self):
-        assert self_update.install_command("darwin").endswith("bootstrap.sh | sh")
+        assert self_update.install_command("darwin").endswith("bootstrap.sh | bash")
         assert self_update.install_command("linux").startswith("curl -LsSf ")
         windows = self_update.install_command("win32")
         assert windows.startswith("powershell -ExecutionPolicy ByPass")

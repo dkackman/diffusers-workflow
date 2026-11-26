@@ -84,10 +84,10 @@ Which registration each Claude surface uses:
 
 | Surface | Tools from | Set up by |
 | --- | --- | --- |
-| Claude Code | the plugin's `dw` server, which launches `~/.local/share/diffusers-workflow/bin/dw-mcp` (a shim `dw setup` writes to the venv's `dw-mcp`) | `dw setup`, or [by hand](#claude-code) |
+| Claude Code | the plugin's `dw` server, which launches `~/.local/share/diffusers-workflow/bin/dw-mcp` (a shim `dw setup` writes to the `dw-mcp` beside the `dw` that ran it; Cowork starts the same shim) | `dw setup`, or [by hand](#claude-code) |
 | Cowork | the plugin's `dw` server, from the plugin installed on your claude.ai account | adding the plugin in Claude Desktop ([INSTALL.md](INSTALL.md#which-claude-uses-what)) |
 | Claude Desktop chat | `mcpServers.dw` in `claude_desktop_config.json`; Desktop chat ignores a plugin's server | `dw setup`, or [by hand](#claude-desktop) |
-| Claude Desktop, double-click | the `dw-mcp-<version>.mcpb` bundle attached to each release (also listed in the MCP Registry as `io.github.dkackman/dw`) | opening the file |
+| Claude Desktop, double-click | the `dw-mcp-<version>.mcpb` bundle attached to each release (also listed in the MCP Registry as `io.github.dkackman/dw`, once the maintainer switches publishing on) | opening the file |
 | Any other MCP host | `dw-mcp` over stdio, or `dw.serve --mcp` over HTTP | its own config ([below](#client-configuration)) |
 
 The bundle is `dw_mcp` alone, run with `uv run --frozen` from the lock made at
