@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import patch, MagicMock
 from PIL import Image
 
+from dw.events import RunContext, activate_context, deactivate_context
 from dw.tasks.judge import judge, _DEFAULT_MODEL
 
 
@@ -42,18 +43,49 @@ class TestJudge(unittest.TestCase):
 
         self.assertEqual(score, 8.0)
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
-    def test_no_number_in_reply_is_an_error(self, mock_pipeline):
-        self._mock_pipe(mock_pipeline, "I cannot judge this image.")
-
-        with self.assertRaises(ValueError) as ctx:
-            judge(
-                self._make_image(), rubric="Sharpest image", scale=[0, 10], device="cpu"
+    def _judge_collecting_warnings(self, scale=(0, 10)):
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            score = judge(
+                self._make_image(),
+                rubric="Sharpest image",
+                scale=list(scale),
+                device="cpu",
             )
+        finally:
+            deactivate_context(token)
+        return score, [e for e in events if e["event"] == "warning"]
 
-        message = str(ctx.exception)
-        self.assertIn("judge", message)
-        self.assertIn("I cannot judge this image.", message)
+    @patch("dw.tasks.text_generation.hf_pipeline")
+    def test_a_reply_with_no_number_is_asked_again_for_digits(self, mock_pipeline):
+        pipe = self._mock_pipe(mock_pipeline, "unused")
+        pipe.side_effect = [
+            [{"generated_text": "Malformed limbs."}],
+            [{"generated_text": "5."}],
+        ]
+
+        score, warnings = self._judge_collecting_warnings()
+
+        self.assertEqual(score, 5.0)
+        self.assertEqual(warnings, [])
+        asks = [c.kwargs["text"][-1]["content"][1]["text"] for c in pipe.call_args_list]
+        # Greedy decoding: the same words would only get the same reply
+        self.assertNotEqual(asks[0], asks[1])
+        self.assertIn("Sharpest image", asks[1])
+        self.assertIn("digits only", asks[1])
+
+    @patch("dw.tasks.text_generation.hf_pipeline")
+    def test_no_number_twice_scores_low_and_warns(self, mock_pipeline):
+        pipe = self._mock_pipe(mock_pipeline, "Malformed limbs.")
+
+        score, warnings = self._judge_collecting_warnings(scale=(1, 5))
+
+        self.assertEqual(score, 1.0)
+        self.assertEqual(pipe.call_count, 2)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("Malformed limbs.", warnings[0]["message"])
+        self.assertEqual(warnings[0]["score"], 1.0)
 
     @patch("dw.tasks.text_generation.hf_pipeline")
     def test_uses_default_model(self, mock_pipeline):
