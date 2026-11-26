@@ -797,6 +797,9 @@ async def job_events(request: Request, job_id: str, after: int = -1):
     )
 
 
+# The web UI's name for the same read: EasyPrivacy blocks `/event-log?`, so a
+# browser with a content blocker never sends the documented one (#1731)
+@router.get("/api/jobs/{job_id}/journal", include_in_schema=False)
 @router.get("/api/jobs/{job_id}/event-log")
 def job_event_log(
     request: Request,

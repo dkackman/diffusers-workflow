@@ -8,7 +8,7 @@ import type {
 
 // The job page's Event log (#1478), on a mocked finished job whose history
 // kept only the tail of its log: the section opens on a click, reads the
-// event-log route once, and shows the server's note above the rows.
+// journal route once, and shows the server's note above the rows.
 // Screenshots of the section in both themes land in this spec's
 // test-results folder.
 
@@ -76,7 +76,7 @@ async function mockJob(page: Page) {
       }),
   )
   await page.route(
-    (url) => url.pathname === `/api/jobs/${ID}/event-log`,
+    (url) => url.pathname === `/api/jobs/${ID}/journal`,
     (route) => {
       logCalls.push(new URL(route.request().url()).search)
       return route.fulfill({
@@ -93,6 +93,36 @@ async function mockJob(page: Page) {
   )
   return logCalls
 }
+
+// EasyPrivacy's generic rule `/event-log?`, which uBlock Origin, AdGuard and
+// the like apply to this server's own requests (#1731)
+test('the log reads past a content blocker that drops /event-log?', async ({
+  page,
+}) => {
+  await mockJob(page)
+  await page.route(/\/event-log\?/, (route) => route.abort('blockedbyclient'))
+  await page.goto(`/#/ws/default/jobs/${ID}`)
+  const section = page.getByRole('region', { name: 'Event log' })
+  await section.getByRole('button', { name: /Event log/ }).click()
+  await expect(section.locator('tbody tr')).toHaveCount(4)
+})
+
+// The same read lost on its own: the server answers, so it is not an outage
+test('one lost read is not reported as the server being down', async ({
+  page,
+}) => {
+  await mockJob(page)
+  await page.route(
+    (url) => url.pathname === `/api/jobs/${ID}/journal`,
+    (route) => route.abort('blockedbyclient'),
+  )
+  await page.goto(`/#/ws/default/jobs/${ID}`)
+  const section = page.getByRole('region', { name: 'Event log' })
+  await section.getByRole('button', { name: /Event log/ }).click()
+  await expect(section).toContainText("This request didn't get through")
+  await expect(section.getByRole('button', { name: 'Retry' })).toBeVisible()
+  await expect(page.getByText("Can't reach the server")).toHaveCount(0)
+})
 
 for (const theme of ['light', 'dark'] as const) {
   test(`event log on a finished job with a trimmed log (${theme})`, async ({
@@ -275,7 +305,7 @@ test("a running job's log shows every row and grows on Refresh", async ({
       }),
   )
   await page.route(
-    (url) => url.pathname === `/api/jobs/${LIVE}/event-log`,
+    (url) => url.pathname === `/api/jobs/${LIVE}/journal`,
     (route) => {
       const after = new URL(route.request().url()).searchParams.get('after')!
       afters.push(after)

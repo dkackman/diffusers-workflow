@@ -175,7 +175,7 @@ describe('job event log', () => {
       kinds: ['log', 'warning'],
     })
     expect(calls[0][0]).toBe(
-      '/api/jobs/j1/event-log?after=41&limit=500&kinds=log&kinds=warning',
+      '/api/jobs/j1/journal?after=41&limit=500&kinds=log&kinds=warning',
     )
     expect(calls[0][1]?.method ?? 'GET').toBe('GET')
   })
@@ -184,8 +184,8 @@ describe('job event log', () => {
     const calls = stubFetch({ ok: true, body: { events: [] } })
     await api.eventLog('j1')
     await api.eventLog('j1', { after: -1 })
-    expect(calls[0][0]).toBe('/api/jobs/j1/event-log')
-    expect(calls[1][0]).toBe('/api/jobs/j1/event-log?after=-1')
+    expect(calls[0][0]).toBe('/api/jobs/j1/journal')
+    expect(calls[1][0]).toBe('/api/jobs/j1/journal?after=-1')
   })
 
   it('fails with the 404 status for an unknown job', async () => {
@@ -303,6 +303,15 @@ describe('fetchOutputText', () => {
     await expect(fetchOutputText('/abs/outputs/gone.txt')).rejects.toThrow(
       'Could not read gone.txt',
     )
+  })
+})
+
+describe('the event log read', () => {
+  it("keeps clear of content blockers' /event-log? rule", async () => {
+    const calls = stubFetch({ ok: true, body: { events: [] } })
+    await api.eventLog('j1', { after: -1, limit: 500 })
+    expect(calls[0][0]).toContain('/api/jobs/j1/journal?after=-1&limit=500')
+    expect(calls[0][0]).not.toContain('/event-log?')
   })
 })
 
@@ -611,7 +620,7 @@ describe('an id is one path segment', () => {
   it.each([
     ['getJob', () => api.getJob(id), `/api/jobs/${encoded}`],
     ['getJobWorkflow', () => api.getJobWorkflow(id), `/workflow`],
-    ['eventLog', () => api.eventLog(id), `/event-log`],
+    ['eventLog', () => api.eventLog(id), `/journal`],
     ['rerunJob', () => api.rerunJob(id), `/rerun`],
     ['rerunRestartBatch', () => api.rerunRestartBatch(id), `-batch`],
     ['restartBatch', () => api.restartBatch(id), `/restart-batch`],

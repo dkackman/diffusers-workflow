@@ -8,6 +8,7 @@
   import { ChevronDown, ChevronRight, RefreshCw } from '@lucide/svelte'
   import { onDestroy, tick, untrack } from 'svelte'
   import { ApiError } from '../api'
+  import { onReconnect } from '../connection.svelte'
   import { formatCount, formatDuration } from '../format'
   import type { JobEvent } from '../types'
   import {
@@ -54,9 +55,14 @@
     if (loading) again = true
     else void load(lastSeq)
   })
+  // A read that failed during an outage is read again when it ends
+  const stopReconnect = onReconnect(() => {
+    if (open && error && !loading) void load(lastSeq)
+  })
   onDestroy(() => {
     destroyed = true
     spacer.cancel()
+    stopReconnect()
   })
 
   // A job queued at page load that starts later: follow it, unless the
@@ -238,7 +244,10 @@
       {:else if missing}
         <p class="muted">no event log for this job</p>
       {:else}
-        {#if error}<ErrorLine {error} doing="read the log" />{/if}
+        {#if error}
+          <ErrorLine {error} doing="read the log" />
+          <button class="quiet" onclick={() => load(lastSeq)}>Retry</button>
+        {/if}
         {#if note}<p class="muted note">{note}</p>{/if}
         {#if count}<p class="muted count">{count}</p>{/if}
         {#if loaded && !rows.length && !error}

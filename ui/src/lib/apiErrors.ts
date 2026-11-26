@@ -118,8 +118,18 @@ export class NetworkError extends TypeError {
   }
 }
 
+/** fetch's TypeError for one request while the server answers others: it
+ * was blocked or dropped on the way, so it is not an outage. */
+export class UnsentError extends TypeError {
+  constructor(message: string) {
+    super(message)
+    this.name = 'UnsentError'
+  }
+}
+
 export type ErrorKind =
   | 'offline'
+  | 'unsent'
   | 'locked'
   | 'forbidden'
   | 'no_workspace'
@@ -199,6 +209,13 @@ function classify(e: unknown, message: string, what: string): Base {
       'offline',
       "Can't reach the server",
       "Check that dw.serve is running. This page reloads when it's back.",
+    )
+  }
+  if (e instanceof UnsentError) {
+    return titled(
+      'unsent',
+      "This request didn't get through",
+      'The server is answering. Try again; if it keeps failing, a browser extension may be blocking it.',
     )
   }
   if (e instanceof SyntaxError) {

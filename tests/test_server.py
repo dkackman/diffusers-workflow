@@ -4855,6 +4855,22 @@ def test_event_log_pages_with_after_and_limit(server):
         assert rest["truncated"] is False
 
 
+def test_event_log_reads_the_same_as_journal(server):
+    """The web UI's name for the read, which content blockers let by (#1731)"""
+    with server(success_script) as client:
+        job_id = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()[
+            "id"
+        ]
+        wait_for_status(client, job_id, TERMINAL_STATES)
+        query = "?after=0&limit=2"
+        journal = client.get(f"/api/jobs/{job_id}/journal{query}")
+        assert journal.status_code == 200
+        assert (
+            journal.json() == client.get(f"/api/jobs/{job_id}/event-log{query}").json()
+        )
+        assert client.get("/api/jobs/nope/journal").status_code == 404
+
+
 def test_event_log_filters_by_kinds(server):
     with server(success_script) as client:
         job_id = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()[
