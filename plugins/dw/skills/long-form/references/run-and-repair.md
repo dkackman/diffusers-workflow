@@ -266,6 +266,76 @@ its 6 cuts (`bench/records/drill.md`, *Cold drill: the Gettysburg Address*).
    each cut, listening for a hole of silence or a step in level. Then
    `export_timeline` (below) if an editor is wanted.
 
+## Finish the cut in one job
+
+Cut, score, grade and grain in one workflow: a `workflow` step composes
+`templates/assemble-and-score` by its catalog name, and the grade runs on
+what it returns. Name the template, don't copy its steps into yours: a copy
+stops tracking the original, so a later fix to the template never reaches
+it. The palette and grain values are one grade's entry from
+`cinematography/references/grades.md` (here `teal-orange`).
+
+```json
+{
+    "id": "finished-cut",
+    "variables": {
+        "shots": ["asset:shot_1.mp4", "asset:shot_2.mp4", "asset:shot_3.mp4"],
+        "score": "asset:score.wav",
+        "total_frames": 360,
+        "score_start_frame": 0,
+        "look": ["#06222b", "#16505a", "#6f8a86", "#d49a5e", "#ffdcae"]
+    },
+    "steps": [
+        {
+            "name": "cut",
+            "workflow": {
+                "path": "templates/assemble-and-score",
+                "arguments": {
+                    "shots": "variable:shots",
+                    "score": "variable:score",
+                    "total_frames": "variable:total_frames",
+                    "score_start_frame": "variable:score_start_frame",
+                    "match_levels": "lufs"
+                }
+            },
+            "result": {"content_type": "video/mp4", "subfolder": "intermediate"}
+        },
+        {
+            "name": "graded",
+            "task": {
+                "command": "apply_lut",
+                "arguments": {"media": "previous_result:cut", "palette": "variable:look", "strength": 0.5}
+            }
+        },
+        {
+            "name": "grain",
+            "task": {
+                "command": "film_grain",
+                "arguments": {"media": "previous_result:graded", "amount": 0.03, "size": 1.0, "chroma": 0.0}
+            },
+            "result": {"content_type": "video/mp4", "subfolder": "final"}
+        }
+    ]
+}
+```
+
+- `cut` is the scored, ungraded cut, kept in `intermediate`: try a second
+  grade on it (`output:` it into the `graded-clip` recipe in
+  `cinematography/references/grades.md`) without cutting again.
+- `total_frames` is the shots' summed frame count. `score_start_frame`
+  places the score under the cut: `audio.md`, *Placing the score on a
+  beat*, says how to pick it.
+- Any other `assemble-and-score` variable goes in `cut`'s `arguments`
+  (`target_lufs`, `world_fade_out_ms`, `fps`); `validate_workflow` warns
+  about a name the template doesn't declare.
+- `apply_lut` and `film_grain` keep the cut's size, frame rate, frame
+  count, mixed audio and shot map, so `grain`'s file exports with one clip
+  per shot.
+- `validate_workflow` it first: free, and it refuses a bad palette entry
+  by name.
+- Export is a second job, not a fourth step (below): `export_timeline`
+  with `video` as an `output:` reference to `grain`'s file in `final`.
+
 ## Export the cut for an editor
 
 The `export_timeline` task writes a joined video, with its recorded shots,
@@ -276,9 +346,9 @@ one clip per shot. Rates are exact rationals: 23.976 is written as
 **Run it as a second job.** The bundle carries the video file itself, so
 `video` and `sources` take a stored file (`output:`, `asset:` or a path).
 `previous_result:` is refused at validation, even when that step saved its
-result: it hands on the clip in memory. Assemble and grade in one job, then
-run this step as its own workflow with an `output:` reference to the file the
-first job saved.
+result: it hands on the clip in memory. Assemble and grade in one job
+(*Finish the cut in one job*, above), then run this step as its own workflow
+with an `output:` reference to the file the first job saved.
 
 ```json
 { "task": { "command": "export_timeline",

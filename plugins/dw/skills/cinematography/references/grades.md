@@ -68,7 +68,9 @@ One clip, one grade. `clip` is an `asset:` or `output:` reference; `look`
 and the two grain values come from the grade's entry above. For a whole
 episode with one look across shots, use the `series-episodes` skill's
 `series-episodes/references/look.md` recipe instead, with the palette from
-here.
+here. To grade a cut as it is scored, in the same job as
+`templates/assemble-and-score`, use `long-form/references/run-and-repair.md`,
+*Finish the cut in one job*.
 
 ```json
 {

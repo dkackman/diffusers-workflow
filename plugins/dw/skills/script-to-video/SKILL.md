@@ -161,10 +161,11 @@ test frames.
 
 ## 6. Cut, score, deliver
 
-Once every shot exists, hand off to `templates/assemble-and-score` (or the
-`dw:series-episodes` five-beat procedure, if this script is one episode of
-a series) for the recut/bed/match_levels/normalize/pair pass. That skill
-owns this step; do not re-derive it.
+Once every shot exists, hand off to `templates/assemble-and-score` (or
+`dw:series-episodes`' five-beat procedure for an episode of a series) for
+the recut/bed/match_levels/normalize/pair pass; don't re-derive it. To
+grade in the same job: `long-form/references/run-and-repair.md`, *Finish
+the cut in one job*.
 
 The shots, narration, score or cues, stills and references are ingredients
 the assembly consumes: a workflow you write or copy for one sets
@@ -200,5 +201,4 @@ It adds no new mechanism to what exists: `dw:minimax-h3`, `dw:ltx-2.5`,
 `dw:series-episodes` (cast consistency and the
 recut/bed/match_levels/normalize/pair pass), `plan.estimate` and
 `acknowledged_cost` (the cost gate), and the warning kinds `dw/result.py`
-and `dw/elision.py` emit (`audio_no_headroom`, `audio_clipped`, an elision
-diagnostic).
+and `dw/elision.py` emit.

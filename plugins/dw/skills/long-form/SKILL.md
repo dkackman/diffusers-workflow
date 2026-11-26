@@ -165,19 +165,20 @@ GPU-min per minute of it: `templates/minimax/h3-seam-pass`, not a burn fix.
 
 ## 5. Per piece: the soundtrack
 
-- Under cut scenes, use one bed: `templates/assemble-and-score`. For room
-  tone under dialogue gaps, `find_loop_bed` picks a window worth looping.
+- Cut scenes: one bed, `templates/assemble-and-score` (to grade in
+  the same job: `references/run-and-repair.md`, *Finish the cut in one
+  job*). Room tone under dialogue gaps: `find_loop_bed`.
 - Across chain seams, the voice carries in the guide.
-- For music longer than one Music 3 track (300 s practical), use
+- Music longer than one Music 3 track (300 s practical):
   `templates/minimax/music-long`. The lyric, not the ceiling, sets a
   track's length, so a score past about 90 s is `music-long` sections
   too: tag-only instrumental bodies asked for 280 s and 300 s came back
   91 s (13 tags) and 62 s (9 tags) (`bench/records/drill.md`).
-- For narration longer than one TTS take (about 40 s of speech), use
-  `templates/narration-long`, or `split_takes` and then
+- Narration longer than one TTS take (about 40 s of speech):
+  `templates/narration-long`, or `split_takes`, then
   `templates/narration-from-takes` to edit the takes first.
-- To put a track under a picture, use `pair_audio`.
-- To give a finished silent picture new sound, use the H3 audio pass.
+- A track under a picture: `pair_audio`.
+- New sound for a silent picture: the H3 audio pass.
 
 `references/audio.md` has each recipe.
 
