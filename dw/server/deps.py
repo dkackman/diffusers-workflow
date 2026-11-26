@@ -613,10 +613,10 @@ def observed_for_name(
 def seen_shapes_for_name(state, name, definition, keys, *, workspace=None, card=None):
     """The shapes (#1615) this card has run `name` at, for `first_at_shape`
         `keys`, read from the job rows `ObservedCosts` already holds: succeeded,
-        non-partial runs on a card of this card's name, scoped by `workspace` as
-        `observed_for_name` scopes them, and only those that finished after the
+    non-partial runs on a card of this card's name, scoped by `workspace` as
+    `observed_for_name` scopes them, and only those that finished after the
     `triton` cache's newest clear. None when the server keeps no history -
-        the term then has nothing to judge by and adds nothing."""
+    the term then has nothing to judge by and adds nothing."""
     costs = getattr(state, "observed_costs", None)
     if not costs:
         return None
