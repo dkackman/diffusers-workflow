@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest'
-import { Picks, actOnEach } from './picks.svelte'
+import { Picks, STAR_CHANGED, actOnEach, starAction } from './picks.svelte'
 import { quiet, useQuietClock } from './test/quiet'
 
 useQuietClock()
@@ -258,4 +258,56 @@ it('a star Undo writes only over files the star changed', async () => {
     'Undid 1 file; 1 file changed since and was left as it is.',
   )
   expect(error).not.toHaveBeenCalled()
+})
+
+it('one star per file: unknown waits, a file in flight drops its second press', async () => {
+  const held: Record<string, boolean | null> = { a: false, b: false, c: null }
+  const landed: (() => void)[] = []
+  const set = vi.fn(
+    () => new Promise<void>((resolve) => void landed.push(resolve)),
+  )
+  const notifyMod = (await import('./toast')).notify
+  vi.spyOn(notifyMod, 'undo').mockImplementation(() => {})
+  const star = starAction(set, {
+    read: (n) => held[n],
+    applied: (n, next) => void (held[n] = next),
+  })
+
+  star.toggle('c')
+  star.toggle('a')
+  star.toggle('a')
+  star.toggle('b')
+
+  await vi.waitFor(() => expect(set).toHaveBeenCalledWith('b', true))
+  expect(set.mock.calls).toEqual([
+    ['a', true],
+    ['b', true],
+  ])
+  landed.forEach((land) => land())
+  await vi.waitFor(() => expect(held).toEqual({ a: true, b: true, c: null }))
+})
+
+it("one file's star Undo takes it back, and leaves one changed since", async () => {
+  const held: Record<string, boolean> = { 'run/a': false, 'run/b': false }
+  const set = vi.fn(() => Promise.resolve())
+  const notifyMod = (await import('./toast')).notify
+  const undo = vi.spyOn(notifyMod, 'undo').mockImplementation(() => {})
+  const error = vi.spyOn(notifyMod, 'error').mockImplementation(() => {})
+  undo.mockClear()
+  const star = starAction(set, {
+    read: (n) => held[n],
+    applied: (n, next) => void (held[n] = next),
+  })
+  star.toggle('run/a')
+  star.toggle('run/b')
+  await vi.waitFor(() => expect(undo).toHaveBeenCalledTimes(2))
+  expect(undo.mock.calls[0][0]).toBe('Starred a')
+
+  held['run/b'] = false // another writer
+  undo.mock.calls[0][1]()
+  undo.mock.calls[1][1]()
+
+  await vi.waitFor(() => expect(error).toHaveBeenCalledWith(STAR_CHANGED))
+  await vi.waitFor(() => expect(set).toHaveBeenCalledTimes(3))
+  expect(set).toHaveBeenLastCalledWith('run/a', false)
 })

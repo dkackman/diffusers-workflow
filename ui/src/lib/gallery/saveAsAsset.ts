@@ -7,16 +7,13 @@
 // touched (#1600). Cancel
 // or Escape at either question is an answer, not a failure: it sends
 // nothing more and reports nothing.
-import { ApiError, api } from '../api'
+import { api } from '../api'
 import { chooseDialog, nameDialog } from '../confirm.svelte'
-import { freeName } from '../documentSave'
+import { freeName, isExists, keepBoth } from '../documentSave'
 import { MAX_NAME_LENGTH, isNameSegment, leafName } from '../names'
 import { ASSET, referenceName } from '../references'
 /** What a save reads of the file: only its output name */
 type Saved = { name: string }
-
-// How many names Keep both tries before giving up, as uploads.ts does
-const KEEP_BOTH_TRIES = 20
 
 /** Why `name` will not do as an asset name, or null */
 export function assetNameError(name: string): string | null {
@@ -26,14 +23,6 @@ export function assetNameError(name: string): string | null {
   if (!isNameSegment(name))
     return 'Start with a letter, digit or _; then letters, digits, _, - and .'
   return null
-}
-
-/** keep_output's 409 for a name already in the library. Its 409 also
- * means "no asset library"; the taken one carries `code: 'exists'`
- * (dw/server/routes/assets.py). */
-function nameTaken(e: unknown): boolean {
-  if (!(e instanceof ApiError) || e.status !== 409) return false
-  return e.code === 'exists'
 }
 
 /** The name the server stores: it adds the file's extension to a name
@@ -54,25 +43,6 @@ async function kept(
     ? await api.keepOutput(file.name, name, true)
     : await api.keepOutput(file.name, name)
   return { name: referenceName(result.reference, ASSET) ?? name }
-}
-
-/** Keep both: the first free name, and the next when the listing was
- * behind the library */
-async function keepBoth(
-  file: Saved,
-  name: string,
-  existing: string[],
-): Promise<{ name: string }> {
-  const taken = new Set([...existing, name])
-  for (let tries = 1; ; tries++) {
-    const free = freeName(name, taken)
-    try {
-      return await kept(file, free)
-    } catch (e) {
-      if (!nameTaken(e) || tries >= KEEP_BOTH_TRIES) throw e
-      taken.add(free)
-    }
-  }
 }
 
 /** The library's names, read for Keep both's suggestion */
@@ -101,7 +71,8 @@ async function onTaken(
     { title: question },
   )
   if (choice === 'replace') return kept(file, name, true)
-  if (choice === 'keep-both') return keepBoth(file, stored, existing)
+  if (choice === 'keep-both')
+    return keepBoth((as) => kept(file, as), stored, new Set(existing))
   return null
 }
 
@@ -127,7 +98,7 @@ export async function saveAsAsset(
   try {
     return await kept(file, name)
   } catch (e) {
-    if (!nameTaken(e)) throw e
+    if (!isExists(e)) throw e
     return onTaken(file, name, listNames)
   }
 }

@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest'
+import { flushSync } from 'svelte'
 import { cleanup, render, screen, waitFor } from '@testing-library/svelte'
 import UseAsInput from './UseAsInput.svelte'
 import { api } from '../test/apiMock'
@@ -19,12 +20,18 @@ const file = {
 
 afterEach(cleanup)
 
+const show = () => {
+  const { component } = render(UseAsInput)
+  component.show(file)
+  flushSync()
+}
+
 it('says so plainly when no workflow takes the kind', async () => {
   api.listWorkflows.mockResolvedValue({
     workflows: ['mine/text'],
     details: { 'mine/text': { variable_names: ['prompt'], writable: true } },
   } as never)
-  render(UseAsInput, { file, open: true })
+  show()
   await waitFor(() =>
     expect(
       screen.getByText(/No workflow in this workspace takes an image\./),
@@ -40,7 +47,7 @@ it('lists a button per workflow that takes it', async () => {
     workflows: ['mine/edit'],
     details: { 'mine/edit': { variable_names: ['image'], writable: true } },
   } as never)
-  render(UseAsInput, { file, open: true })
+  show()
   await waitFor(() =>
     expect(screen.getByRole('button', { name: 'edit' })).toBeTruthy(),
   )
@@ -55,7 +62,7 @@ it('two same-leaf workflows are told apart', async () => {
       'mine/solo': { variable_names: ['image'], writable: true },
     },
   } as never)
-  render(UseAsInput, { file, open: true })
+  show()
   await waitFor(() =>
     expect(screen.getByRole('button', { name: 'people/edit' })).toBeTruthy(),
   )
