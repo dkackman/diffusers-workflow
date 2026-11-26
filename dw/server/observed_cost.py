@@ -133,7 +133,7 @@ def _is_task_only(definition):
     Such a workflow never logs a `loading` phase, so every run of it lands
     in `had_load: False` and the cold/warm split below would bucket it all
     as warm forever - silently withholding `cold_minutes`, the only figure
-    `_observed` (dw/plan.py) will quote as `basis: "observed"` (#439). A
+    `_observed` (dw/plan_pricing.py) will quote as `basis: "observed"` (#439). A
     task-only run has no model-load component to separate from its wall
     clock, so its whole duration is what a curated `cost` figure would be
     measured against, and is reported as `cold` rather than `warm`.

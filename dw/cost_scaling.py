@@ -658,7 +658,7 @@ WHOLE_TAKE_NOTE = (
 
 def observed_render_scaling(definition, variables, measured):
     """`_chain_render_scaling` for an observed or inherited estimate
-    (`dw/plan.py` `_with_worst_case`). A countable chain's is unchanged. A
+    (`dw/plan_pricing.py` `_with_worst_case`). A countable chain's is unchanged. A
     matched chain's history is per segment (`observed_cost.observed_for`
     divides each take by the segments it rendered): a probe is that many
     renders of it, and a full take, whose count only the track knows, is
