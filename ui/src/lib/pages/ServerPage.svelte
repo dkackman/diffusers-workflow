@@ -14,6 +14,8 @@
     browserUrl,
     isLoopbackBind,
     isUnauthenticatedPublicBind,
+    jobHistoryLine,
+    logsLine,
     mcpAddCommandAt,
     mcpUrlAt,
     reachedOrigin,
@@ -347,6 +349,16 @@
           <span class="muted">none configured</span>
         {/if}
       </dd>
+    </dl>
+  </div>
+
+  <div class="panel">
+    <h2>Storage</h2>
+    <dl class="kv">
+      <dt>Job history</dt>
+      <dd>{jobHistoryLine(info.storage)}</dd>
+      <dt>Logs</dt>
+      <dd>{logsLine(info.storage)}</dd>
     </dl>
   </div>
 

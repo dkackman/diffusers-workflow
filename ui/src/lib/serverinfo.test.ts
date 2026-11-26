@@ -8,6 +8,8 @@ import {
   bindSnippet,
   mcpAddCommand,
   mcpUrl,
+  jobHistoryLine,
+  logsLine,
   runtimeRows,
   runtimeText,
   TOKEN_PLACEHOLDER,
@@ -39,6 +41,16 @@ const info = (overrides: Partial<ServerInfo> = {}): ServerInfo => ({
     outputs: '/o',
     prompts: null,
     assets: null,
+  },
+  storage: {
+    job_history: {
+      path: '/d/jobs.sqlite',
+      size_bytes: 3 * 1024 * 1024,
+      rows: 412,
+      oldest: 1_760_000_000,
+      newest: 1_764_000_000,
+    },
+    logs: { path: '/d/log/dw.log', size_bytes: 2048, backups: 2, total_bytes: 4096 },
   },
   ...overrides,
 })
@@ -182,4 +194,37 @@ it('sorts packages by name after the fixed rows', () => {
     packages: { b: '1', a: '2' },
   })
   expect(rows.map((r) => r.name).slice(4)).toEqual(['a', 'b'])
+})
+
+describe('storage lines', () => {
+  it('shows the job count, size and date span', () => {
+    const line = jobHistoryLine(info().storage)
+    expect(line).toMatch(/^412 jobs · 3\.0 MB · .+ – .+$/)
+  })
+
+  it('leaves out a figure the server could not read', () => {
+    const storage = info().storage
+    expect(
+      jobHistoryLine({
+        ...storage,
+        job_history: { ...storage.job_history!, size_bytes: null, oldest: null },
+      }),
+    ).toBe('412 jobs')
+    expect(jobHistoryLine({ ...storage, job_history: null })).toBe('not open')
+  })
+
+  it('shows the log size and its backups', () => {
+    expect(logsLine(info().storage)).toBe('2 KB · 2 backups · 4 KB in all')
+  })
+
+  it('says when there is no log file', () => {
+    const storage = info().storage
+    expect(logsLine({ ...storage, logs: null })).toBe('no log file configured')
+    expect(
+      logsLine({
+        ...storage,
+        logs: { path: '/l', size_bytes: 10, backups: 0, total_bytes: 10 },
+      }),
+    ).toBe('1 KB · 0 backups')
+  })
 })

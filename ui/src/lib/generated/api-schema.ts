@@ -3249,6 +3249,34 @@ export interface components {
             /** Zip Url */
             zip_url: string;
         };
+        /** JobHistoryStorage */
+        JobHistoryStorage: {
+            /**
+             * Newest
+             * @description The newest row's created_at (epoch seconds).
+             */
+            newest: number | null;
+            /**
+             * Oldest
+             * @description The oldest row's created_at (epoch seconds).
+             */
+            oldest: number | null;
+            /**
+             * Path
+             * @description The job-history SQLite database.
+             */
+            path: string;
+            /**
+             * Rows
+             * @description Every row in the history, open jobs included: a real count, not the job listing's capped `total`.
+             */
+            rows: number | null;
+            /**
+             * Size Bytes
+             * @description The database file plus its WAL/SHM sidecars.
+             */
+            size_bytes: number | null;
+        };
         /** JobList */
         JobList: {
             /**
@@ -4020,6 +4048,29 @@ export interface components {
             root: string;
             /** Writable */
             writable: boolean;
+        };
+        /** LogStorage */
+        LogStorage: {
+            /**
+             * Backups
+             * @description Rotated backups on disk (at most 7).
+             */
+            backups: number | null;
+            /**
+             * Path
+             * @description The active log file.
+             */
+            path: string;
+            /**
+             * Size Bytes
+             * @description The active log file's size.
+             */
+            size_bytes: number | null;
+            /**
+             * Total Bytes
+             * @description The active log plus its backups.
+             */
+            total_bytes: number | null;
         };
         /** LoraEvidence */
         LoraEvidence: {
@@ -5219,6 +5270,7 @@ export interface components {
             /** Port */
             port: number;
             runtime: components["schemas"]["ServerRuntime"];
+            storage: components["schemas"]["ServerStorage"];
             /**
              * Trust Workflows
              * @description With this off, a workflow file is untrusted input: no arbitrary imports, no remote code, no location outside the workspace's roots.
@@ -5246,6 +5298,17 @@ export interface components {
             python_version: string;
             /** Torch Version */
             torch_version: string | null;
+        };
+        /**
+         * ServerStorage
+         * @description What the server's own records take on disk. Read-only: a figure that
+         *     can't be read is null, never an error on this route.
+         */
+        ServerStorage: {
+            /** @description Null when the history database is not open. */
+            job_history: components["schemas"]["JobHistoryStorage"] | null;
+            /** @description Null when no log file is configured. */
+            logs: components["schemas"]["LogStorage"] | null;
         };
         /** ShadowedAsset */
         ShadowedAsset: {

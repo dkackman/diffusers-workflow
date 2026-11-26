@@ -2387,6 +2387,73 @@
         "title": "JobExport",
         "type": "object"
       },
+      "JobHistoryStorage": {
+        "additionalProperties": false,
+        "properties": {
+          "newest": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The newest row's created_at (epoch seconds).",
+            "title": "Newest"
+          },
+          "oldest": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The oldest row's created_at (epoch seconds).",
+            "title": "Oldest"
+          },
+          "path": {
+            "description": "The job-history SQLite database.",
+            "title": "Path",
+            "type": "string"
+          },
+          "rows": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Every row in the history, open jobs included: a real count, not the job listing's capped `total`.",
+            "title": "Rows"
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The database file plus its WAL/SHM sidecars.",
+            "title": "Size Bytes"
+          }
+        },
+        "required": [
+          "path",
+          "size_bytes",
+          "rows",
+          "oldest",
+          "newest"
+        ],
+        "title": "JobHistoryStorage",
+        "type": "object"
+      },
       "JobList": {
         "additionalProperties": false,
         "properties": {
@@ -4075,6 +4142,60 @@
           "writable"
         ],
         "title": "LibraryRoot",
+        "type": "object"
+      },
+      "LogStorage": {
+        "additionalProperties": false,
+        "properties": {
+          "backups": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Rotated backups on disk (at most 7).",
+            "title": "Backups"
+          },
+          "path": {
+            "description": "The active log file.",
+            "title": "Path",
+            "type": "string"
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The active log file's size.",
+            "title": "Size Bytes"
+          },
+          "total_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The active log plus its backups.",
+            "title": "Total Bytes"
+          }
+        },
+        "required": [
+          "path",
+          "size_bytes",
+          "backups",
+          "total_bytes"
+        ],
+        "title": "LogStorage",
         "type": "object"
       },
       "LoraEvidence": {
@@ -6749,6 +6870,9 @@
           "runtime": {
             "$ref": "#/components/schemas/ServerRuntime"
           },
+          "storage": {
+            "$ref": "#/components/schemas/ServerStorage"
+          },
           "trust_workflows": {
             "description": "With this off, a workflow file is untrusted input: no arbitrary imports, no remote code, no location outside the workspace's roots.",
             "title": "Trust Workflows",
@@ -6775,7 +6899,8 @@
           "mcp",
           "addresses",
           "runtime",
-          "directories"
+          "directories",
+          "storage"
         ],
         "title": "ServerInfo",
         "type": "object"
@@ -6844,6 +6969,40 @@
           "packages"
         ],
         "title": "ServerRuntime",
+        "type": "object"
+      },
+      "ServerStorage": {
+        "additionalProperties": false,
+        "description": "What the server's own records take on disk. Read-only: a figure that\ncan't be read is null, never an error on this route.",
+        "properties": {
+          "job_history": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JobHistoryStorage"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when the history database is not open."
+          },
+          "logs": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LogStorage"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when no log file is configured."
+          }
+        },
+        "required": [
+          "job_history",
+          "logs"
+        ],
+        "title": "ServerStorage",
         "type": "object"
       },
       "ShadowedAsset": {

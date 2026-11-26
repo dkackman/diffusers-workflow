@@ -235,6 +235,40 @@ class ServerDirectories(ApiModel):
     prompts: str | None
 
 
+class JobHistoryStorage(ApiModel):
+    path: str = Field(description="The job-history SQLite database.")
+    size_bytes: int | None = Field(
+        description="The database file plus its WAL/SHM sidecars."
+    )
+    rows: int | None = Field(
+        description="Every row in the history, open jobs included: a real "
+        "count, not the job listing's capped `total`."
+    )
+    oldest: float | None = Field(
+        description="The oldest row's created_at (epoch seconds)."
+    )
+    newest: float | None = Field(
+        description="The newest row's created_at (epoch seconds)."
+    )
+
+
+class LogStorage(ApiModel):
+    path: str = Field(description="The active log file.")
+    size_bytes: int | None = Field(description="The active log file's size.")
+    backups: int | None = Field(description="Rotated backups on disk (at most 7).")
+    total_bytes: int | None = Field(description="The active log plus its backups.")
+
+
+class ServerStorage(ApiModel):
+    """What the server's own records take on disk. Read-only: a figure that
+    can't be read is null, never an error on this route."""
+
+    job_history: JobHistoryStorage | None = Field(
+        description="Null when the history database is not open."
+    )
+    logs: LogStorage | None = Field(description="Null when no log file is configured.")
+
+
 class ServerInfo(ApiModel):
     hostname: str
     version: str
@@ -251,6 +285,7 @@ class ServerInfo(ApiModel):
     addresses: list[ServerAddress]
     runtime: ServerRuntime
     directories: ServerDirectories
+    storage: ServerStorage
 
 
 class MemoryDetail(ApiModel):

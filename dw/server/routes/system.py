@@ -45,6 +45,7 @@ from ...introspection import (
     list_pipelines,
     list_tasks,
 )
+from ...log_setup import log_storage_stats
 from ...schema import SchemaSectionError, load_schema, schema_section
 from ...security import InvalidInputError, validate_commit_hash
 from ... import __version__
@@ -678,7 +679,26 @@ def server_info(request: Request, ws: Workspace = Depends(selected_workspace)):
             "outputs": ws.outputs,
             "prompts": ws.prompts,
         },
+        # What the history and the log take on disk (#1457). Read-only, and
+        # never a failure of this route: an unreadable figure is null
+        "storage": _storage(request.app.state),
     }
+
+
+def _storage(state):
+    history = getattr(getattr(state, "job_manager", None), "history", None)
+    job_history = None
+    if history is not None:
+        try:
+            job_history = history.storage_stats()
+        except Exception:
+            logger.debug("Could not read job-history storage", exc_info=True)
+    try:
+        logs = log_storage_stats()
+    except Exception:
+        logger.debug("Could not read log storage", exc_info=True)
+        logs = None
+    return {"job_history": job_history, "logs": logs}
 
 
 # --- The preferences store over HTTP: GET, PUT and DELETE /api/preferences.

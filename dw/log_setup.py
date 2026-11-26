@@ -1,4 +1,6 @@
 import logging
+import os
+
 from concurrent_log_handler import ConcurrentRotatingFileHandler
 
 LOG_LEVELS = {
@@ -39,6 +41,43 @@ def setup_logging(log_path, log_level="INFO", log_to_console=False):
         logger.addHandler(console_handler)
 
     return logger
+
+
+def log_storage_stats():
+    """The 'dw' logger's active log file and its rotated backups on disk
+    (#1457), as `{path, size_bytes, backups, total_bytes}`.
+
+    Read off the file handler `setup_logging` installed, so it names the
+    file this process actually writes. None when no log file is configured;
+    a size that can't be read is None rather than an exception."""
+    handler = next(
+        (
+            h
+            for h in logging.getLogger("dw").handlers
+            if isinstance(h, logging.FileHandler) or getattr(h, "baseFilename", None)
+        ),
+        None,
+    )
+    if handler is None:
+        return None
+    path = os.path.abspath(handler.baseFilename)
+    stats = {"path": path, "size_bytes": None, "backups": None, "total_bytes": None}
+    try:
+        size = os.path.getsize(path) if os.path.isfile(path) else 0
+        backup_sizes = [
+            os.path.getsize(f"{path}.{n}")
+            for n in range(1, int(getattr(handler, "backupCount", 0) or 0) + 1)
+            if os.path.isfile(f"{path}.{n}")
+        ]
+    except OSError:
+        logging.getLogger("dw").debug("Could not size %s", path, exc_info=True)
+        return stats
+    stats.update(
+        size_bytes=size,
+        backups=len(backup_sizes),
+        total_bytes=size + sum(backup_sizes),
+    )
+    return stats
 
 
 def set_log_level(log_level):

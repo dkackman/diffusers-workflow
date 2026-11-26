@@ -1,4 +1,5 @@
 import type { ServerAddress, ServerInfo } from './types'
+import { formatBytes, formatDay } from './format'
 
 /** The literal stand-in the copyable snippets carry in place of the API
  * token. The token is never rendered - not the value, not a prefix, not a
@@ -134,4 +135,37 @@ export function runtimeText(info: ServerInfo): string {
       (r) => `${r.name}: ${r.value ?? r.absent}`,
     ),
   ].join('\n')
+}
+
+/** The job history's storage line for the Server page: jobs, size, and the
+ * span of dates they were submitted over. A figure the server could not
+ * read is left out rather than shown as zero. */
+export function jobHistoryLine(storage: ServerInfo['storage']): string {
+  const history = storage.job_history
+  if (!history) return 'not open'
+  const parts: string[] = []
+  if (history.rows != null) {
+    parts.push(`${history.rows} ${history.rows === 1 ? 'job' : 'jobs'}`)
+  }
+  if (history.size_bytes != null) parts.push(formatBytes(history.size_bytes))
+  if (history.oldest != null && history.newest != null) {
+    parts.push(`${formatDay(history.oldest)} – ${formatDay(history.newest)}`)
+  }
+  return parts.length ? parts.join(' · ') : 'unreadable'
+}
+
+/** The log's storage line for the Server page: the active file's size and
+ * how many rotated backups sit beside it (with their total). */
+export function logsLine(storage: ServerInfo['storage']): string {
+  const logs = storage.logs
+  if (!logs) return 'no log file configured'
+  if (logs.size_bytes == null) return 'unreadable'
+  const parts = [formatBytes(logs.size_bytes)]
+  if (logs.backups != null) {
+    parts.push(`${logs.backups} ${logs.backups === 1 ? 'backup' : 'backups'}`)
+  }
+  if (logs.backups && logs.total_bytes != null) {
+    parts.push(`${formatBytes(logs.total_bytes)} in all`)
+  }
+  return parts.join(' · ')
 }

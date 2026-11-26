@@ -663,6 +663,41 @@ class JobHistory:
             ).fetchone()
         return (row["runs"], row["last_finished"]) if row else (0, None)
 
+    def storage_stats(self):
+        """What the history costs on disk (#1457): the database file with its
+        WAL/SHM sidecars, every row (a real `COUNT(*)`, not the listing's
+        capped total, #1466) and the oldest and newest row's `created_at`.
+
+        A figure that can't be read is None rather than an exception - this
+        rides on `GET /api/server`, which never fails for it."""
+        stats = {
+            "path": os.path.abspath(self.db_path),
+            "size_bytes": None,
+            "rows": None,
+            "oldest": None,
+            "newest": None,
+        }
+        try:
+            stats["size_bytes"] = sum(
+                os.path.getsize(path)
+                for path in (self.db_path, self.db_path + "-wal", self.db_path + "-shm")
+                if os.path.isfile(path)
+            )
+        except OSError:
+            logger.debug("Could not size %s", self.db_path, exc_info=True)
+        try:
+            with self._lock, self._connect() as connection:
+                row = connection.execute(
+                    "SELECT COUNT(*) AS row_count, MIN(created_at) AS oldest,"
+                    " MAX(created_at) AS newest FROM jobs"
+                ).fetchone()
+            stats.update(
+                rows=row["row_count"], oldest=row["oldest"], newest=row["newest"]
+            )
+        except sqlite3.Error:
+            logger.debug("Could not count %s", self.db_path, exc_info=True)
+        return stats
+
     def finished_runs(self):
         """Every successful, named run grouped by (workspace, workflow name),
         as the rows an observed cost is derived from.
