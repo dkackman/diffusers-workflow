@@ -47,7 +47,7 @@ const assessReply = {
       says: 'the picture jumps at the cut',
     },
   ],
-  rules_applied: ['full_scale', 'near_silent', 'shot_dead_air'],
+  rules_applied: ['full_scale', 'near_silent', 'shot_dead_air', 'shot_bed_drop'],
   rules_skipped: [],
   not_applicable: {
     analyze_seams:

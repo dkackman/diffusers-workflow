@@ -444,6 +444,30 @@ def _answer(probe, measurements, findings, shots_source, shot_dependent=()):
     }
 
 
+def _floors_below_neighbours(measured):
+    """Fill each shot's `floor_below_neighbours_db`: the louder adjacent
+    shot's `noise_floor_dbfs` minus this shot's own, unclamped, so a shot
+    whose floor sits above its neighbours' reads negative (#1620).
+
+    In a set with a loud bed the shots without dialogue keep a floor near
+    the bed, while a voiced shot whose gaps between lines fall through it
+    reads a floor far below them - a hole level alone cannot tell from a
+    dry room's pause, since in a quiet room every shot's floor is low. Null
+    for a cut of one shot, and wherever this shot's floor or both
+    neighbours' floors are null.
+    """
+    for index, shot in enumerate(measured):
+        own = shot["noise_floor_dbfs"]
+        neighbours = [
+            measured[at]["noise_floor_dbfs"]
+            for at in (index - 1, index + 1)
+            if 0 <= at < len(measured) and measured[at]["noise_floor_dbfs"] is not None
+        ]
+        if own is None or not neighbours:
+            continue
+        shot["floor_below_neighbours_db"] = dsp.rounded(max(neighbours) - own)
+
+
 def analyze_shots(video, shots=None):
     """Task command: each shot's level and spectral balance, and how far
     apart the shots sit.
@@ -454,7 +478,8 @@ def analyze_shots(video, shots=None):
 
     Returns:
         {shots: [{name, start_frame, num_frames, peak_dbfs, rms_dbfs, crest_db, low_dbfs, mid_dbfs,
-        high_dbfs, high_share, noise_floor_dbfs, dead_air_seconds, dead_air_at,
+        high_dbfs, high_share, noise_floor_dbfs, floor_below_neighbours_db,
+        dead_air_seconds, dead_air_at,
         dead_air_floor_dbfs, samples}], rms_range_db, findings, rules_applied, rules_skipped,
         shots_source}
     """
@@ -509,12 +534,15 @@ def shots_answer(media, records, source):
                 "noise_floor_dbfs": dsp.rounded(
                     measure_noise_floor(media, start, count, rms)
                 ),
+                "floor_below_neighbours_db": None,
                 "dead_air_seconds": dead_air_seconds,
                 "dead_air_at": dead_air_at,
                 "dead_air_floor_dbfs": dead_air_floor_dbfs,
                 "samples": samples_source,
             }
         )
+
+    _floors_below_neighbours(measured)
 
     voiced = [shot for shot in measured if shot["rms_dbfs"] is not None]
     rms_range = None
@@ -537,7 +565,9 @@ def shots_answer(media, records, source):
     for index, (shot, record) in enumerate(zip(measured, records)):
         # A shot that is quiet throughout, on purpose, holds no gap to find -
         # the same guard seam_hole applies to a seam's two sides (#465); a
-        # shot recorded silent_by_design is silent on purpose (#1162)
+        # shot recorded silent_by_design is silent on purpose (#1162). A
+        # quiet shot's low floor is its own level, not a hole in a bed, so
+        # shot_bed_drop takes the same guard (#1620)
         quiet = (
             shot["rms_dbfs"] is not None and shot["rms_dbfs"] <= HOLE_VOICED_DBFS
         ) or (isinstance(record, dict) and record.get("silent_by_design") is True)
@@ -551,7 +581,7 @@ def shots_answer(media, records, source):
                     "start_frame": shot["start_frame"],
                     "seconds": shot["dead_air_at"],
                 },
-                skip={"shot_dead_air"} if quiet else (),
+                skip={"shot_dead_air", "shot_bed_drop"} if quiet else (),
             )
         )
     return _answer(

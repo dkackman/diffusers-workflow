@@ -2599,6 +2599,7 @@ Each shot's level and spectral balance, and how far apart the shots sit:
 | `shots[].low_dbfs` / `mid_dbfs` / `high_dbfs` | Spectral balance (20-250 Hz / 250-4000 Hz / 4000-20000 Hz), on the same scale as `rms_dbfs` |
 | `shots[].high_share` | The share of the shot's energy above 4 kHz (the `high_dbfs` band against all three), 0-1. Null where the balance is null |
 | `shots[].noise_floor_dbfs` | The 10th percentile of the shot's 50ms window levels: the room tone plus any hiss under its quiet moments, never above `rms_dbfs`. Null under 10 windows (0.5 s), and null when that window is digital silence. In dense dialogue it may track speech tails rather than hiss. Read across a chain's segments, `high_share` and this rising together is the signature of a voice dulling and hissing; neither alone is |
+| `shots[].floor_below_neighbours_db` | The louder adjacent shot's `noise_floor_dbfs` minus this shot's, in dB, not clamped at 0 (a shot whose floor sits above its neighbours' reads negative). What `shot_bed_drop` reads: in a set with a loud bed, a voiced shot whose gaps fall through the bed reads far below shots that keep it. Null for a cut of one shot, and where this shot's floor or both neighbours' floors are null |
 | `shots[].samples` | Whether the shot's sample span was `recorded` (carried by the shot record) or `derived` (scaled from its frames) |
 | `shots[].dead_air_seconds` | The longest run of 50ms windows inside the shot at or below the `DEAD_AIR_FLOOR_DBFS` threshold (-65 dBFS) |
 | `shots[].dead_air_at` | Where that run starts, in seconds into the file |
@@ -2779,6 +2780,7 @@ its threshold, and the severity of a crossing:
 | `seam_hole` | `analyze_seams` | `floor_dbfs` | < -50.0 dBFS | warn |
 | `seam_frame_jump` | `analyze_seams` | `jump_ratio` | > 25.0 | info |
 | `shot_dead_air` | `analyze_shots` | `dead_air_seconds` | > 0.4 s | warn |
+| `shot_bed_drop` | `analyze_shots` | `floor_below_neighbours_db` | > 20.0 dB | warn |
 | `sync_drift` | `analyze_sync_drift` | `end_offset_ms` | > 40.0 ms (magnitude) | warn |
 | `sync_length` | `analyze_sync_drift` | `length_delta_ms` | > 40.0 ms (magnitude) | warn |
 | `held_frames` | `analyze_held_frames` | `held_frames` | >= 13 | warn |
@@ -2795,6 +2797,11 @@ Guards beyond the threshold:
   -30 dBFS, and for a shot record marked `silent_by_design: true`. The
   remedy for a gap it reports is a room-tone bed: `slice_audio` ->
   `loop_audio` -> `mix_audio`.
+- `shot_bed_drop` takes the same quiet guard as `shot_dead_air`. It is the
+  relative check: a gap above the -65 dBFS dead-air floor still fires it when
+  the shots either side keep a bed 20 dB louder. Its remedy is the same chain,
+  with `find_loop_bed`'s `max_bin_dbfs`, `max_mean_dbfs` and `target_bed_dbfs`
+  raised to find the loud bed; at a deliberate scene change, leave it.
 
 A `shots` record reaching past the file's own length is a separate finding,
 `shot_span_overrun` (severity `warn`), on the shot probes (`analyze_shots`, `analyze_seams`, `analyze_sync_drift`); the record is
