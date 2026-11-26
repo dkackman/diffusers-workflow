@@ -3875,6 +3875,8 @@ A validate's `downloads_required` lists `Qwen/Qwen2.5-1.5B-Instruct`, or `Huggin
 | `chat_template_kwargs` | No | Extra keyword arguments for the model's chat template (for a template that takes switches such as a thinking toggle). Values must be scalars (boolean, number, string or null), and the generation call's own keys (`images`, `tools`, `max_new_tokens`, `tokenizer_encode_kwargs`, ...) are refused |
 | `revision` | No | Model revision (branch, tag or commit) to load `model_name` at |
 
+Every run emits a `log` event naming the model it ran (`model_name`, `device`), cached or freshly loaded, so a caller that left `model_name` to a workflow's default (the `h3` enhancer) can read which one answered from `get_job_events`.
+
 `image` may also be a list of images, each sent as its own picture in the one user message. A list is one prompt over all the images, in order, and returns one answer — not one answer per image. The same holds for `judge` and `image_to_text`, which hand their `image` to this task. An empty list, or one holding only nulls, is no image.
 
 `system_prompt` may name a file in a Hugging Face repo instead of carrying the text,
