@@ -34,6 +34,7 @@ BENCH_RECORDS = sorted(glob.glob(os.path.join(REPO_ROOT, "bench", "records", "*.
 # A bench record no index row cites, and why. Each serves neither an H3 nor an
 # LTX-2.5 result, or is the bench's own infrastructure.
 EXEMPT = {
+    "continuity-grammar.md": "a prompt-grammar probe for the cross-cutting cinematography skill, which has no intents index; stage 2 (#1685) cites it in skill text",
     "h3-image.md": "MiniMax H3-Image stills: a family with no intents index",
     "longcat-avatar.md": "LongCat avatar: a family with no intents index",
     "face-encode-floor.md": "infrastructure: the face-score encode floor every face margin must clear",
