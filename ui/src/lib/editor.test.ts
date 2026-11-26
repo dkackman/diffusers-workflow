@@ -10,6 +10,7 @@ import {
   optionsWith,
   isLongText,
   isReference,
+  isFreeText,
   widgetFor,
   QUANT_PRESETS,
   presetPlaceholder,
@@ -401,4 +402,14 @@ describe('presetView and presetPlaceholder', () => {
       ).toBe(String(bundles[other][name]))
     }
   })
+})
+
+it('free text is a string that is empty, holds whitespace or is a prompt reference', () => {
+  expect(['', ' ', 'a b', 'prompt:x'].map(isFreeText)).toEqual([
+    true,
+    true,
+    true,
+    true,
+  ])
+  expect(['nf4', 3, null].map(isFreeText)).toEqual([false, false, false])
 })

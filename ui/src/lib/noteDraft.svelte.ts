@@ -8,14 +8,14 @@
 // note. What a save does stays the editor's.
 import { untrack } from 'svelte'
 import { confirmDialog } from './confirm.svelte'
-import { draftAtRisk, keepDraft, readDraft } from './request/draft'
+import { draftAtRisk, keepDraft, readDraft } from './draftStorage'
 
 /** The server's limit on a note, and where the count starts showing */
 export const NOTE_MAX = 4000
 const COUNT_FROM = NOTE_MAX * 0.9
 
 /** The draft key of the user's note on `target`, read in `workspace`.
- * Request notes keep their own keys (`draft.ts`: `draftKey`). */
+ * Request notes keep their own keys (`request/draft.ts`: `draftKey`). */
 export const noteKey = (workspace: string, target: string) =>
   `note:${workspace}:${target}`
 

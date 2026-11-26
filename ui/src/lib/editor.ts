@@ -1,6 +1,6 @@
 import { api } from './api'
 import type { PipelineDescription, PipelineParameter } from './types'
-import { ITEM, VARIABLE, isReference, reference } from './references'
+import { ITEM, PROMPT, VARIABLE, isReference, reference } from './references'
 
 export { isReference }
 
@@ -574,4 +574,13 @@ export function emptyWorkflowStep() {
     name: 'delegate',
     workflow: { path: '', arguments: {} },
   }
+}
+
+/** Free text: a string default that is empty, holds whitespace, or is a
+ * prompt: reference. A dtype or a backend name is not. */
+export function isFreeText(value: unknown): boolean {
+  return (
+    typeof value === 'string' &&
+    (value.trim() === '' || /\s/.test(value) || value.startsWith(PROMPT))
+  )
 }

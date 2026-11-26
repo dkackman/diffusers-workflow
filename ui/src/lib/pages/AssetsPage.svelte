@@ -52,7 +52,7 @@
     reportUploads,
     readListingAfterWrite,
     uploadAll,
-  } from '../assets/uploads'
+  } from '../uploads'
   import AssetViewer from '../assets/AssetViewer.svelte'
   import LibraryRow from '../assets/LibraryRow.svelte'
   import ShadowedAssets from '../assets/ShadowedAssets.svelte'

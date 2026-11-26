@@ -1,25 +1,7 @@
 import { expect, it } from 'vitest'
-import {
-  draftAtRisk,
-  draftKey,
-  keepDraft,
-  readDraft,
-  refKey,
-  refusalText,
-  saveFailure,
-} from './draft'
+import { draftKey, refKey, refusalText, saveFailure } from './draft'
+import { keepDraft, readDraft } from '../draftStorage'
 import { ApiError } from '../apiErrors'
-
-it('a draft with text that differs from the saved note is at risk', () => {
-  expect(draftAtRisk('needs more red', null)).toBe(true)
-  expect(draftAtRisk('needs more red', 'needs red')).toBe(true)
-})
-
-it('an empty, blank or unchanged draft is not', () => {
-  expect(draftAtRisk('', null)).toBe(false)
-  expect(draftAtRisk('  \n', 'kept')).toBe(false)
-  expect(draftAtRisk('kept', 'kept')).toBe(false)
-})
 
 it('a stale revision is the one refusal a reload answers', () => {
   expect(

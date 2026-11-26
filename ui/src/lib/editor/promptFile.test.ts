@@ -1,14 +1,14 @@
 import { beforeEach, expect, it, vi } from 'vitest'
 import { openPrompt, savePromptAt } from './promptFile'
-import type { DocumentEditor } from './editorShell.svelte'
-import type { PromptDefinition } from './types'
-import { api } from './test/apiMock'
-import { saveDocument } from './documentSave'
+import type { DocumentEditor } from '../editorShell.svelte'
+import type { PromptDefinition } from '../types'
+import { api } from '../test/apiMock'
+import { saveDocument } from '../documentSave'
 
-vi.mock('./api', async () => (await import('./test/apiMock')).apiModule())
+vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
 // The old mock's `savePrompt` was a bare vi.fn(): it answered undefined
 api.savePrompt.mockReturnValue(undefined)
-vi.mock('./documentSave', () => ({ saveDocument: vi.fn() }))
+vi.mock('../documentSave', () => ({ saveDocument: vi.fn() }))
 
 function fakeEditor() {
   return {

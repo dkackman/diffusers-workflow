@@ -9,7 +9,7 @@
   import { api, TERMINAL_STATUSES } from '../api'
   import { action } from '../action.svelte'
   import { codec, hashState } from '../router.svelte'
-  import RequestFilter from '../gallery/RequestFilter.svelte'
+  import RequestFilter from '../request/RequestFilter.svelte'
   import {
     JOBS_PAGE,
     heldFor,

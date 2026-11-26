@@ -44,7 +44,7 @@
   import JobsPage from './lib/pages/JobsPage.svelte'
   import JobPage from './lib/pages/JobPage.svelte'
   import RequestsPage from './lib/pages/RequestsPage.svelte'
-  import RequestRoute from './lib/request/RequestRoute.svelte'
+  import RequestRoute from './lib/pages/RequestRoute.svelte'
   import EditorPage from './lib/pages/EditorPage.svelte'
   import PromptsPage from './lib/pages/PromptsPage.svelte'
   import PromptEditorPage from './lib/pages/PromptEditorPage.svelte'

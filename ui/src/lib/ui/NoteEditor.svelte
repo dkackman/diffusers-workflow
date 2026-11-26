@@ -6,7 +6,7 @@
   import { ApiError } from '../apiErrors'
   import { confirmDialog } from '../confirm.svelte'
   import { NOTE_MAX, NoteDraft, noteKey } from '../noteDraft.svelte'
-  import { draftAtRisk } from '../request/draft'
+  import { draftAtRisk } from '../draftStorage'
   import { workspace as picker } from '../workspace.svelte'
   import ClampedText from './ClampedText.svelte'
 

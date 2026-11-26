@@ -5,7 +5,6 @@ import {
   draftValues,
   openingValues,
   essentials,
-  isFreeText,
   readDraft,
   seedVariable,
   writeDraft,
@@ -47,16 +46,6 @@ describe('essentials', () => {
       variables: { dtype: 'bfloat16', attention_backend: 'sage', seed: 0 },
     } as WorkflowDefinition
     expect(essentials(workflow, undefined).size).toBe(0)
-  })
-
-  it('free text is a string that is empty, holds whitespace or is a prompt reference', () => {
-    expect(['', ' ', 'a b', 'prompt:x'].map(isFreeText)).toEqual([
-      true,
-      true,
-      true,
-      true,
-    ])
-    expect(['nf4', 3, null].map(isFreeText)).toEqual([false, false, false])
   })
 })
 

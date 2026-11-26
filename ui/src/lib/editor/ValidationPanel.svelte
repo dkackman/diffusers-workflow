@@ -6,7 +6,7 @@
   import { findingPlace, type Place } from '../findingPlace'
   import { verdictOf } from '../runCheck.svelte'
   import type { ValidationResult } from '../types'
-  import PlanLines from '../workflow/PlanLines.svelte'
+  import PlanLines from '../ui/PlanLines.svelte'
   import ErrorLine from '../ui/ErrorLine.svelte'
 
   // The verdict on the definition as it stands, and under it, whenever the

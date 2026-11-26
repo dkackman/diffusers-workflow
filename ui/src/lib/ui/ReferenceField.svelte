@@ -8,12 +8,8 @@
   // written. Choices of what to offer and show are referenceField.ts's.
   import { onDestroy, type Snippet } from 'svelte'
   import { Images, Upload } from '@lucide/svelte'
-  import MediaPicker from '../assets/MediaPicker.svelte'
-  import {
-    reportUploads,
-    uploadAll,
-    type UploadResult,
-  } from '../assets/uploads'
+  import MediaPicker from './MediaPicker.svelte'
+  import { reportUploads, uploadAll, type UploadResult } from '../uploads'
   import ErrorLine from './ErrorLine.svelte'
   import OutputTile from './OutputTile.svelte'
   import Suggest from './Suggest.svelte'

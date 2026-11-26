@@ -1,16 +1,16 @@
 import { beforeEach, expect, it, vi } from 'vitest'
-import { ApiError } from '../apiErrors'
-import { api } from '../test/apiMock'
+import { ApiError } from './apiErrors'
+import { api } from './test/apiMock'
 import { isUploadable, reportUploads, uploadAll } from './uploads'
 
-vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
+vi.mock('./api', async () => (await import('./test/apiMock')).apiModule())
 const chooseDialog = vi.hoisted(() => vi.fn())
-vi.mock('../confirm.svelte', () => ({
+vi.mock('./confirm.svelte', () => ({
   chooseDialog: (...args: unknown[]) => chooseDialog(...args),
 }))
 const notifyError = vi.hoisted(() => vi.fn())
 const notifySuccess = vi.hoisted(() => vi.fn())
-vi.mock('../toast', () => ({
+vi.mock('./toast', () => ({
   notify: { error: notifyError, success: notifySuccess },
 }))
 

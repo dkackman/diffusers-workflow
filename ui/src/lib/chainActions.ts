@@ -22,10 +22,6 @@ import type { WorkflowDefinition, WorkflowStep } from './types'
 /** The only repair template the catalog holds */
 export const REPAIR_TEMPLATE = 'templates/minimax/repair-segment'
 
-/** The sessionStorage key the workflow page reads its pre-filled values from,
- * once: `{workflow, arguments}` */
-export const WORKFLOW_PREFILL_KEY = 'dw-workflow-prefill'
-
 export const NO_REPAIR_TEMPLATE =
   'no repair-segment template for this model family'
 export const FIRST_SEGMENT =

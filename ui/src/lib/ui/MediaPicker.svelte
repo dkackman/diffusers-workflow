@@ -3,11 +3,11 @@
   // library, or what earlier runs wrote. Typing asset: or output: in a field
   // suits someone who knows the name; this suits picking by what it shows.
   import { untrack } from 'svelte'
-  import Modal from '../ui/Modal.svelte'
-  import Segmented from '../ui/Segmented.svelte'
-  import GroupHeading from '../ui/GroupHeading.svelte'
+  import Modal from './Modal.svelte'
+  import Segmented from './Segmented.svelte'
+  import GroupHeading from './GroupHeading.svelte'
   import { collapsedState } from '../collapsed.svelte'
-  import OutputTile from '../ui/OutputTile.svelte'
+  import OutputTile from './OutputTile.svelte'
   import { assetMedia, outputMedia, type MediaFile } from '../media'
   import { assetLibrary, ensureAssetLibrary } from '../assetlib.svelte'
   import {
@@ -19,7 +19,7 @@
   } from '../outputlib.svelte'
   import { ASSET, OUTPUT, reference, referenceName } from '../references'
   import { kindWithArticle } from '../referenceField'
-  import { matchesWords } from '../ui/suggest'
+  import { matchesWords } from './suggest'
   import { compareNames } from '../names'
   import type { AssetFile } from '../types'
   import { workspace } from '../workspace.svelte'

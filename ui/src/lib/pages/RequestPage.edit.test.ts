@@ -7,7 +7,7 @@ import {
   within,
 } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import RequestRoute from '../request/RequestRoute.svelte'
+import RequestRoute from './RequestRoute.svelte'
 import RequestPage from './RequestPage.svelte'
 import { workspace } from '../workspaceState.svelte'
 import { ApiError } from '../apiErrors'

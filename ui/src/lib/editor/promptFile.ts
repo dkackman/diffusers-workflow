@@ -1,11 +1,11 @@
 // Reading a stored prompt into the prompt editor and writing it back: thin
 // callers of the editor's load state and the shared saveDocument.
-import { api } from './api'
-import { saveDocument, type SaveOutcome } from './documentSave'
-import type { DocumentEditor } from './editorShell.svelte'
-import { goneOn404, withSavedEntry } from './editor/workflowFile'
-import { workflowsReferencing } from './prompts'
-import type { PromptDefinition, PromptList } from './types'
+import { api } from '../api'
+import { saveDocument, type SaveOutcome } from '../documentSave'
+import type { DocumentEditor } from '../editorShell.svelte'
+import { goneOn404, withSavedEntry } from './workflowFile'
+import { workflowsReferencing } from '../prompts'
+import type { PromptDefinition, PromptList } from '../types'
 
 /** Read `name` into `ed` at the ETag and library it was found in. The
  * prompt once it is loaded; null when the read failed (the error is left
