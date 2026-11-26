@@ -73,6 +73,16 @@ CARDS = {
         121,
         1.0,
     ),
+    # restore-deblur's card, run a window at a time
+    "restore-long": (
+        "Lightricks/LTX-2.5-22b-IC-LoRA-Deblur",
+        "ltx-2.5-22b-ic-lora-deblur-0.9.safetensors",
+        1,
+        960,
+        544,
+        121,
+        1.0,
+    ),
     "upscale-clip": (
         "Lightricks/LTX-2.5-22b-IC-LoRA-Pixel-Spatial-Upscaler",
         "ltx-2.5-22b-ic-lora-pixel-spatial-upscaler-x2-1.0.safetensors",
@@ -135,6 +145,7 @@ class TestEachTemplateMatchesItsCard:
             "restore-colorize",
             "restore-deblur",
             "restore-decompression",
+            "restore-long",
             "upscale-clip",
         ):
             # #1079, #1080, #1107, #1108: the output is written at the source's rate;
