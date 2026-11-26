@@ -148,10 +148,15 @@ def _run_commands():
     new packages in place the server has to restart to run them, so a
     failed `dw setup` is logged (its output joins the log) and the run
     still succeeds."""
-    *installs, refresh = build_upgrade_commands(
-        sys.executable, installed_torch_version(), torch_index_from_record()
-    )
-    result = run_commands(installs)
+    # The constraints file only has to outlive the pip steps
+    with tempfile.TemporaryDirectory(prefix="dw-update-") as constraints_dir:
+        *installs, refresh = build_upgrade_commands(
+            sys.executable,
+            installed_torch_version(),
+            torch_index_from_record(),
+            constraints_dir,
+        )
+        result = run_commands(installs)
     if result.returncode != 0:
         return result
     try:
