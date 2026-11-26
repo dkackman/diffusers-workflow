@@ -3,8 +3,13 @@ release-floor lookup. The HTTP-facing lifecycle (start/status, busy/refused
 states) is covered in tests/test_server.py::TestDiffusersUpdate; these tests
 stay below the FastAPI layer and never spawn a real pip subprocess."""
 
+import json
 import sys
+from types import SimpleNamespace
 
+import pytest
+
+from dw.server import updater
 from dw.server.updater import (
     DIFFUSERS_GIT_URL,
     PYPI_PACKAGE,
@@ -183,3 +188,53 @@ class TestDiffusersUpdaterRunFn:
         assert len(calls) == 1
         assert calls[0][0][-1] == f"{PYPI_PACKAGE}=={release_floor()}"
         assert "git+" not in calls[0][0][-1]
+
+
+class TestWithoutGit:
+    def test_without_git_head_installs_the_main_archive(self):
+        cmds = updater.build_pip_commands(git=False, commit="a" * 40)
+        assert (
+            cmds[0][-1]
+            == f"https://github.com/huggingface/diffusers/archive/{'a' * 40}.zip"
+        )
+
+    def test_without_git_head_resolves_main(self, monkeypatch):
+        monkeypatch.setattr(updater, "main_commit", lambda fetch=None: "c" * 40)
+        assert updater.build_pip_commands(git=False)[0][-1].endswith(f"{'c' * 40}.zip")
+
+    def test_without_git_a_short_commit_is_refused(self):
+        with pytest.raises(ValueError):
+            updater.build_pip_commands(git=False, commit="abc1234")
+
+    def test_with_git_the_target_is_unchanged(self):
+        assert updater.build_pip_commands(git=True)[0][-1] == updater.DIFFUSERS_GIT_URL
+
+    def test_main_commit_reads_the_sha(self):
+        seen = {}
+
+        def fetch(url, timeout):
+            seen["url"] = url
+            return {"sha": "d" * 40}
+
+        assert updater.main_commit(fetch=fetch) == "d" * 40
+        assert seen["url"].startswith("https://api.github.com/")
+
+    def test_main_commit_failure_is_a_runtime_error(self):
+        def fetch(url, timeout):
+            raise OSError("offline")
+
+        with pytest.raises(RuntimeError, match="offline"):
+            updater.main_commit(fetch=fetch)
+
+    def test_main_commit_rejects_a_malformed_sha(self):
+        with pytest.raises(RuntimeError):
+            updater.main_commit(fetch=lambda url, timeout: {"sha": "zz"})
+
+    def test_the_commit_is_read_from_an_archive_install(self, monkeypatch):
+        url = f"https://github.com/huggingface/diffusers/archive/{'b' * 40}.zip"
+        fake = SimpleNamespace(
+            version="0.1",
+            read_text=lambda name: json.dumps({"url": url, "archive_info": {}}),
+        )
+        monkeypatch.setattr("importlib.metadata.distribution", lambda name: fake)
+        assert updater.diffusers_install_info()["commit"] == "b" * 40

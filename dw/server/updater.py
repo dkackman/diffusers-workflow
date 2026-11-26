@@ -13,6 +13,7 @@ version.
 import json
 import logging
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -20,11 +21,20 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from ..security import sanitize_command_args
+from ..security import sanitize_command_args, validate_url
 
 logger = logging.getLogger("dw")
 
 DIFFUSERS_GIT_URL = "git+https://github.com/huggingface/diffusers"
+DIFFUSERS_ARCHIVE_URL = "https://github.com/huggingface/diffusers/archive/{sha}.zip"
+DIFFUSERS_MAIN_COMMIT_URL = (
+    "https://api.github.com/repos/huggingface/diffusers/commits/main"
+)
+MAIN_COMMIT_TIMEOUT_SECONDS = 10
+_ARCHIVE_SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+_ARCHIVE_URL_PATTERN = re.compile(
+    r"^https://github\.com/huggingface/diffusers/archive/([0-9a-f]{40})\.zip$"
+)
 PYPI_PACKAGE = "diffusers"
 PIP_TIMEOUT_SECONDS = 900
 LOG_TAIL_LINES = 30
@@ -66,13 +76,50 @@ def diffusers_install_info():
     try:
         direct_url = dist.read_text("direct_url.json")
         if direct_url:
-            info["commit"] = json.loads(direct_url).get("vcs_info", {}).get("commit_id")
+            data = json.loads(direct_url)
+            info["commit"] = data.get("vcs_info", {}).get("commit_id")
+            if not info["commit"]:
+                match = _ARCHIVE_URL_PATTERN.match(str(data.get("url", "")))
+                if match:
+                    info["commit"] = match.group(1)
     except Exception:
         pass
     return info
 
 
-def build_pip_commands(commit=None, revert=False, python=None):
+def main_commit(fetch=None):
+    """The commit sha at the tip of diffusers main, from the GitHub API.
+    `fetch(url, timeout)` returns the parsed JSON; tests inject it. Raises
+    RuntimeError when it cannot be read, which the updater reports as the
+    failed update's error."""
+    url = validate_url(DIFFUSERS_MAIN_COMMIT_URL)
+    try:
+        if fetch is None:
+            import httpx
+
+            response = httpx.get(
+                url,
+                timeout=MAIN_COMMIT_TIMEOUT_SECONDS,
+                headers={"Accept": "application/vnd.github+json"},
+                follow_redirects=True,
+            )
+            response.raise_for_status()
+            data = response.json()
+        else:
+            data = fetch(url, MAIN_COMMIT_TIMEOUT_SECONDS)
+        sha = data["sha"]
+    except Exception as e:
+        raise RuntimeError(
+            f"Could not read the diffusers main commit from GitHub: {e}"
+        ) from e
+    if not isinstance(sha, str) or not _ARCHIVE_SHA_PATTERN.match(sha):
+        raise RuntimeError(
+            f"GitHub returned an unusable commit for diffusers main: {sha!r}"
+        )
+    return sha
+
+
+def build_pip_commands(commit=None, revert=False, python=None, git=None):
     """The pip commands, run in order, for one of three installs: HEAD, a
     pinned commit, or a revert to the pyproject.toml release floor.
     `commit` is validated by the caller before it reaches here - this only
@@ -94,7 +141,17 @@ def build_pip_commands(commit=None, revert=False, python=None):
     pip = [python or sys.executable, "-m", "pip", "install"]
     if revert:
         return [pip + [f"{PYPI_PACKAGE}=={release_floor()}"]]
-    target = DIFFUSERS_GIT_URL if not commit else f"{DIFFUSERS_GIT_URL}@{commit}"
+    if git is None:
+        git = shutil.which("git") is not None
+    if git:
+        target = DIFFUSERS_GIT_URL if not commit else f"{DIFFUSERS_GIT_URL}@{commit}"
+    else:
+        # No git on this machine (an installed copy): pip installs the
+        # GitHub archive of one full commit instead of cloning.
+        sha = commit or main_commit()
+        if not _ARCHIVE_SHA_PATTERN.match(sha):
+            raise ValueError("Without git the commit must be a full 40-character hash")
+        target = DIFFUSERS_ARCHIVE_URL.format(sha=sha)
     return [
         pip + ["--force-reinstall", "--no-deps", target],
         pip + [PYPI_PACKAGE],
