@@ -659,3 +659,91 @@ def test_shipped_file_is_the_packaged_defaults():
     assert os.path.isfile(preferences.SHIPPED_PATH)
     assert not os.path.exists(os.path.join(WORKFLOWS, "preferences.json"))
     assert "preferences" not in workflow_names(WORKFLOWS)
+
+
+# --- 5. a preference one level down (#1721) -------------------------------
+
+
+def test_empty_tier_is_refused_not_defaulted(tmp_path, cuda_session):
+    for variables, arguments, step in (
+        ({"tier": "standard"}, {"tier": ""}, None),
+        ({"tier": ""}, None, None),
+        (None, None, {"tier": ""}),
+    ):
+        workflow = parent(tmp_path, variables, arguments=step)
+        errors = workflow.validation_errors(arguments)
+        assert errors and errors[0]["path"] == "steps[0].workflow.path"
+        assert "Unknown tier ''" in errors[0]["message"]
+
+
+def composing(tmp_path, monkeypatch, variables=None):
+    """A parent composing a saved child whose one step is a 'preference:' -
+    the child saved in a workspace, the catalog behind it on the search
+    path, as on a server."""
+    from dw.library import WORKFLOW_PATH_ENV_VAR
+
+    monkeypatch.setenv(WORKFLOW_PATH_ENV_VAR, WORKFLOWS)
+    child = {
+        "id": "pref-child",
+        "variables": {"prompt": "a cat"},
+        "steps": [
+            {
+                "name": "picture",
+                "workflow": {"path": PATH, "arguments": {"prompt": "variable:prompt"}},
+            }
+        ],
+    }
+    with open(tmp_path / "pref-child.json", "w") as f:
+        json.dump(child, f)
+    spec = {
+        "id": "outer",
+        "variables": {"prompt": "a dog", **(variables or {})},
+        "steps": [
+            {
+                "name": "child",
+                "workflow": {
+                    "path": "pref-child.json",
+                    "arguments": {"prompt": "variable:prompt"},
+                },
+            }
+        ],
+    }
+    return workflow_from_definition(spec, str(tmp_path), str(tmp_path), str(tmp_path))
+
+
+def nested_plan(workflow, arguments, tmp_path, monkeypatch):
+    import dw.plan_downloads
+    from dw.plan import build_plan
+
+    monkeypatch.setattr(
+        dw.plan_downloads, "scan_models", lambda cache_dir=None: {"repos": []}
+    )
+    return build_plan(
+        workflow, arguments, device="cuda", prompt_dir=str(tmp_path), lookup_sizes=False
+    )
+
+
+@pytest.mark.parametrize(
+    "variables, arguments, tier, target",
+    [
+        ({"tier": "standard"}, {"tier": "draft"}, "draft", "templates/text-to-image"),
+        ({"tier": "standard"}, {}, "standard", "models/z-image"),
+        (None, {}, "standard", "models/z-image"),
+        ({"tier": "best"}, {}, "best", "models/minimax-h3-image"),
+    ],
+)
+def test_nested_preference_is_shown_and_priced_at_the_inherited_tier(
+    tmp_path, cuda_session, monkeypatch, variables, arguments, tier, target
+):
+    workflow = composing(tmp_path, monkeypatch, variables)
+    assert workflow.validation_errors(arguments) == []
+    plan = nested_plan(workflow, arguments, tmp_path, monkeypatch)
+    assert plan["preferences"] == [
+        f"in pref-child.json: {PATH} (tier {tier}) -> {target}; source: shipped"
+    ]
+    # priced like the direct form, not unpriced for want of a figure
+    direct = parent(tmp_path, {"tier": tier}, path=target)
+    direct_plan = nested_plan(direct, {}, tmp_path, monkeypatch)
+    assert plan["estimate"]["minutes"] is not None
+    assert plan["estimate"]["minutes"] == direct_plan["estimate"]["minutes"]
+    assert plan["estimate"]["unpriced"] == []
