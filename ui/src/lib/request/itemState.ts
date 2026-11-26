@@ -84,7 +84,8 @@ export const CHIP: Record<ItemDisplay, { word: string; tone: string }> = {
   // has a result but its plan changed since: outlined like ready, it waits on the user
   revised: { word: 'revised', tone: 'ready' },
   failed: { word: 'failed', tone: 'failed' },
-  // not .chip.cancelled: its --warn text is the --live hex
+  // grey, not .chip.cancelled: an item's chip is kept apart from a job's
+  // status (ARCHITECTURE, UI status and grouping)
   cancelled: { word: 'cancelled', tone: 'idle' },
   dropped: { word: 'dropped', tone: 'idle' },
 }
