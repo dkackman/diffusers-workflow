@@ -1,0 +1,40 @@
+{
+  "manifest_version": "0.4",
+  "name": "dw",
+  "display_name": "diffusers-workflow",
+  "version": "@VERSION@",
+  "description": "Generate images, video and audio with diffusers-workflow: author, run and diagnose workflows on a running dw-serve.",
+  "author": {"name": "Don Kackman", "url": "https://github.com/dkackman"},
+  "repository": {"type": "git", "url": "https://github.com/dkackman/diffusers-workflow"},
+  "homepage": "https://github.com/dkackman/diffusers-workflow",
+  "license": "Apache-2.0",
+  "server": {
+    "type": "uv",
+    "entry_point": "dw_mcp/__main__.py",
+    "mcp_config": {
+      "command": "uv",
+      "args": ["run", "--directory", "${__dirname}", "python", "-m", "dw_mcp"],
+      "env": {
+        "DW_MCP_URL": "${user_config.url}",
+        "DW_API_TOKEN": "${user_config.token}"
+      }
+    }
+  },
+  "user_config": {
+    "url": {
+      "type": "string",
+      "title": "dw-serve URL",
+      "description": "Where the running dw-serve listens.",
+      "default": "http://127.0.0.1:8765",
+      "required": false
+    },
+    "token": {
+      "type": "string",
+      "title": "API token",
+      "description": "The bearer token dw-serve was started with, if any. Required for a non-loopback URL.",
+      "sensitive": true,
+      "required": false
+    }
+  },
+  "compatibility": {"runtimes": {"python": ">=3.12"}}
+}
