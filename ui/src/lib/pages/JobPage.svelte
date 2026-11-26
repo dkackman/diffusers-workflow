@@ -4,6 +4,7 @@
   import { TERMINAL_STATUSES, api } from '../api'
   import { untrack } from 'svelte'
   import { CHANGED_MARK_MS, resource } from '../resource.svelte'
+  import { poll } from '../poll'
   import { followJob, jobRecord } from '../job/followJob.svelte'
   import LoadState from '../ui/LoadState.svelte'
   import { replaceRoute, route } from '../router.svelte'
@@ -96,12 +97,15 @@
   // down for the rest of the change's mark, after the box closes too
   let noteResolvedAt = $state<number | null>(null)
   function noteResolved() {
-    const at = Date.now()
-    noteResolvedAt = at
-    setTimeout(() => {
-      if (noteResolvedAt === at) noteResolvedAt = null
-    }, CHANGED_MARK_MS)
+    noteResolvedAt = Date.now()
   }
+  $effect(() => {
+    if (noteResolvedAt === null) return
+    return poll(() => (noteResolvedAt = null), CHANGED_MARK_MS, {
+      immediate: false,
+      once: true,
+    })
+  })
   const noteMoved = $derived(
     record.changed.has('note') && !noteEditing && noteResolvedAt === null,
   )

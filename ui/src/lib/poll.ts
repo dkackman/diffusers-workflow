@@ -1,5 +1,7 @@
-// Every UI timer goes through here, so every one keeps the same three
-// promises (the table in changes.svelte.ts):
+// Every repeating UI timer goes through here (ESLint bans `setInterval`
+// anywhere else), so every one keeps the same three promises (the table in
+// changes.svelte.ts). A one-shot delay such as a debounce may be a
+// `setTimeout` its owner clears:
 // - while the tab is hidden it does not tick, and on the tab's return it
 //   fires once at once - unless the caller opts out with `whileHidden`
 //   (only the app shell's status poll does: it drives the tab title and the

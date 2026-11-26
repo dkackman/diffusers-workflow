@@ -69,3 +69,20 @@ it('a failed read counts as no session listening', async () => {
   expect(await channel.refresh()).toBe(false)
   expect(channel.listening).toBe(false)
 })
+
+it('does not ask again while the last read is still out', async () => {
+  let answer = () => {}
+  api.notesChannel.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        answer = () => resolve({ listening: true, last_seen: 'now' })
+      }),
+  )
+  const release = new NotesChannel('studio').hold()
+  await vi.advanceTimersByTimeAsync(LISTENING_POLL_MS * 3)
+  expect(api.notesChannel).toHaveBeenCalledTimes(1)
+  answer()
+  await vi.advanceTimersByTimeAsync(LISTENING_POLL_MS)
+  expect(api.notesChannel).toHaveBeenCalledTimes(2)
+  release()
+})

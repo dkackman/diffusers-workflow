@@ -4,17 +4,15 @@
 // LISTENING_POLL_MS while a note list is on screen and the tab is visible,
 // and once more just before a save. A failed read counts as no session.
 import { api } from '../api'
+import { poll } from '../poll'
 
 export const LISTENING_POLL_MS = 15_000
-
-const visible = () =>
-  typeof document === 'undefined' || document.visibilityState !== 'hidden'
 
 export class NotesChannel {
   listening = $state(false)
   #workspace: string
   #holders = 0
-  #timer: ReturnType<typeof setInterval> | null = null
+  #stop: (() => void) | null = null
   #asked = 0
 
   constructor(workspace: string) {
@@ -38,32 +36,17 @@ export class NotesChannel {
   /** A note list is on screen: keep the answer fresh until the returned
    * function says it has gone. Written to be returned from an $effect */
   hold(): () => void {
-    if (++this.#holders === 1) {
-      document.addEventListener('visibilitychange', this.#onVisibility)
-      this.#start()
-    }
+    if (++this.#holders === 1)
+      this.#stop = poll(() => this.refresh(), LISTENING_POLL_MS)
     let held = true
     return () => {
       if (!held) return
       held = false
       if (--this.#holders > 0) return
-      this.#stop()
-      document.removeEventListener('visibilitychange', this.#onVisibility)
+      this.#stop?.()
+      this.#stop = null
     }
   }
-
-  #start() {
-    if (this.#timer !== null || !visible()) return
-    void this.refresh()
-    this.#timer = setInterval(() => void this.refresh(), LISTENING_POLL_MS)
-  }
-
-  #stop() {
-    if (this.#timer !== null) clearInterval(this.#timer)
-    this.#timer = null
-  }
-
-  #onVisibility = () => (visible() ? this.#start() : this.#stop())
 }
 
 // Not reactive: a channel is made on first ask, inside a component's

@@ -16,7 +16,11 @@ import {
   errorPayload,
 } from './apiErrors'
 import { outputUrl, scoped } from './apiUrls'
-import { reportResponse, reportUnreachable } from './connection.svelte'
+import {
+  reportResponse,
+  reportServerDate,
+  reportUnreachable,
+} from './connection.svelte'
 
 /** A JSON body sent with `method`, and any extra `headers` */
 export const jsonInit = (
@@ -94,6 +98,7 @@ async function send(
   // accepted since: it must not lock the app again
   if (response.status !== 401 || getApiToken() === token)
     reportResponse(response.status)
+  reportServerDate(response.headers)
   if (!response.ok) throw await refusal(response)
   return response
 }

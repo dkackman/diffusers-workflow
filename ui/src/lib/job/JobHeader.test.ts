@@ -10,6 +10,7 @@ import JobHeader from './JobHeader.svelte'
 import type { JobDetail, LedgerRequest } from '../types'
 import { api } from '../test/apiMock'
 import { formatExact, formatMtime } from '../format'
+import { reportServerDate } from '../connection.svelte'
 
 const { confirmDialog, failure } = vi.hoisted(() => ({
   confirmDialog: vi.fn(),
@@ -194,4 +195,40 @@ it('shows the start, exact, and hovering it gives start and finish to the second
   expect(time.getAttribute('title')).toBe(
     `started ${formatExact(1700000000)}\nfinished ${formatExact(1700000243)}`,
   )
+})
+
+it('reads a running duration on the server clock, never below zero', async () => {
+  vi.useFakeTimers()
+  vi.setSystemTime(new Date('2026-11-25T12:00:00Z'))
+  const t = Date.now() / 1000
+  const running = job({ status: 'running', started_at: t + 4 })
+  const figure = () =>
+    screen.getByTitle(/^running for/).textContent!.replace(/\s+/g, ' ')
+  try {
+    // the browser's clock is behind the stamp and nothing says by how much
+    header(running, {}, { running: true })
+    expect(figure()).toContain('0.0s')
+    cleanup()
+    // a response's Date says the server is 100 s ahead
+    reportServerDate(
+      new Headers({ date: new Date((t + 100) * 1000).toUTCString() }),
+    )
+    header(running, {}, { running: true })
+    expect(figure()).toContain('1m 37s')
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(figure()).toContain('1m 39s')
+  } finally {
+    reportServerDate(new Headers({ date: new Date().toUTCString() }))
+    vi.useRealTimers()
+  }
+})
+
+it('does not tick for a job that has not started', () => {
+  vi.useFakeTimers()
+  try {
+    header(job({ status: 'queued' }), {}, { running: true })
+    expect(vi.getTimerCount()).toBe(0)
+  } finally {
+    vi.useRealTimers()
+  }
 })
