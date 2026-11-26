@@ -19,14 +19,21 @@ from dw.library import (
     library_path_from_env,
     merge_patch,
     pin_library_path,
+    resolve_sub_workflow_reference,
 )
 from dw.server.app import create_app
+from dw.server.catalog import catalog_name_from_root
 from dw.server.deps import server_prompt_library, sources_for, workspace_for
 from dw.server.jobs import JobManager
 from dw.server.outputs import asset_file, workspace_asset_library
 from dw.workspace import Workspace, named_workspace
 
-from .test_server import ScriptedWorkerManager, success_script, valid_workflow
+from .test_server import (
+    ScriptedWorkerManager,
+    success_script,
+    valid_workflow,
+    wait_for_status,
+)
 
 
 def write_prompt(directory, name, text):
@@ -684,3 +691,65 @@ class TestPatchWorkflow:
         )
         assert answer.status_code == 200, answer.text
         assert server.client.get("/api/workflows/ok").json()["description"] == "Typed."
+
+
+def text_workflow(name):
+    return {
+        "id": name,
+        "steps": [
+            {
+                "name": "say",
+                "task": {"command": "compose_text", "arguments": {"parts": ["a"]}},
+                "result": {"content_type": "text/plain"},
+            }
+        ],
+    }
+
+
+class TestALibraryRootReachedThroughALink:
+    """#1686: a resolved workflow path has its links followed and a root does
+    not, so a linked workspace (every temp dir on macOS) recorded no catalog
+    name and its runs never became an `observed` figure."""
+
+    @pytest.fixture
+    def tmp_path(self, tmp_path_factory):
+        real = tmp_path_factory.mktemp("real")
+        linked = real.parent / f"{real.name}-link"
+        linked.symlink_to(real, target_is_directory=True)
+        return linked
+
+    @pytest.mark.parametrize("where", ["workspace", "examples"])
+    def test_its_runs_join_the_history_the_estimate_reads(self, make_server, where):
+        server = make_server()
+        root = (
+            server.workspace.workflows
+            if where == "workspace"
+            else str(server.checkout / "workflows")
+        )
+        path = os.path.join(root, "tasks", "say.json")
+        os.makedirs(os.path.dirname(path))
+        with open(path, "w") as file:
+            json.dump(text_workflow("say"), file)
+
+        # By listing name and by absolute path: both resolve under the root
+        for reference in ("tasks/say", path):
+            job = server.client.post(
+                "/api/jobs", json={"workflow_path": reference}
+            ).json()
+            finished = wait_for_status(server.client, job["id"], "succeeded")
+            assert finished["workflow_name"] == "tasks/say"
+
+        validated = server.client.post(
+            "/api/validate", json={"workflow_path": "tasks/say"}
+        ).json()
+
+        assert validated["plan"]["estimate"]["basis"] == "observed"
+
+    def test_a_composed_child_has_its_catalog_name_too(self, tmp_path):
+        root = tmp_path / "workflows"
+        root.mkdir()
+        (root / "child.json").write_text(json.dumps(text_workflow("child")))
+
+        path, confined = resolve_sub_workflow_reference("child", str(root), str(root))
+
+        assert catalog_name_from_root(path, confined) == "child"
