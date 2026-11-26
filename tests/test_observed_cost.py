@@ -700,8 +700,30 @@ TEXT_DRIVER_EXTRAS = {
 }
 
 
-def _text_drivers_allowed(relative):
+def _composed_path_variables(steps):
+    """The variables a composed step's `workflow.path` names, at any depth
+    (a `for_each` or chain block nests its steps)."""
+    names = set()
+    for step in steps if isinstance(steps, list) else []:
+        if not isinstance(step, dict):
+            continue
+        composed = step.get("workflow")
+        path = composed.get("path") if isinstance(composed, dict) else None
+        if isinstance(path, str) and path.startswith("variable:"):
+            names.add(path[len("variable:") :])
+        for value in step.values():
+            if isinstance(value, dict) and isinstance(value.get("steps"), list):
+                names |= _composed_path_variables(value["steps"])
+        if isinstance(step.get("steps"), list):
+            names |= _composed_path_variables(step["steps"])
+    return names
+
+
+def _text_drivers_allowed(relative, definition=None):
     allowed = set(TEXT_DRIVER_EXTRAS.get(relative, ()))
+    # Which workflow a step composes is a choice of model, and moves the wall
+    # clock like one: `portrait_workflow=models/qwen-image-2.1` (#1722)
+    allowed |= _composed_path_variables((definition or {}).get("steps"))
     # Pika H3 Flex runs MiniMax-H3's weights, so H3's knobs move it alike (#1316)
     if relative.startswith(
         ("workflows/templates/minimax/", "workflows/templates/pika-h3/")
@@ -758,7 +780,7 @@ class TestTheCatalogsDriversAreReal:
             where = os.path.relpath(path, REPO_ROOT)
             for name in definition.get("cost_drivers") or []:
                 assert name not in never, f"{where} buckets on '{name}'"
-                allowed = _text_drivers_allowed(where.replace(os.sep, "/"))
+                allowed = _text_drivers_allowed(where.replace(os.sep, "/"), definition)
                 assert name in allowed or not isinstance(variables.get(name), str), (
                     f"{where} buckets on '{name}', whose default is text"
                 )
@@ -823,6 +845,56 @@ class TestTheCatalogsDriversAreReal:
         ]
         assert observed_for(definition, rows, arguments={"windows": [{}] * 3})
         assert observed_for(definition, rows, arguments={"windows": [{}] * 5}) is None
+
+    def test_a_composed_workflow_variable_is_a_driver(self):
+        """#1722's bounce: `portrait_workflow=models/qwen-image-2.1` bucketed
+        with the z-image runs, so the plan quoted their observed minutes for
+        another model and named no Qwen. A workflow that declares drivers
+        and lets a variable choose a composed child must bucket on it; one
+        with no drivers already treats any override as not comparable."""
+        missing = []
+        for path in sorted(
+            glob.glob(
+                os.path.join(REPO_ROOT, "workflows", "**", "*.json"), recursive=True
+            )
+        ):
+            with open(path, encoding="utf-8") as handle:
+                definition = json.load(handle)
+            drivers = definition.get("cost_drivers")
+            if not drivers:
+                continue
+            for name in _composed_path_variables(definition.get("steps")):
+                if name not in drivers:
+                    missing.append(f"{os.path.relpath(path, REPO_ROOT)}: {name}")
+        assert missing == []
+
+    def test_an_overridden_portrait_workflow_is_not_the_default_bucket(self):
+        from dw.server.observed_cost import observed_for
+
+        path = os.path.join(
+            REPO_ROOT, "workflows", "templates", "minimax", "dialogue-short.json"
+        )
+        with open(path, encoding="utf-8") as handle:
+            definition = json.load(handle)
+        rows = [
+            {
+                "manifest": "[]",
+                "arguments": "{}",
+                "duration": 2316,
+                "had_load": True,
+                "events_at_cap": False,
+                "finished_at": 1,
+            }
+        ]
+        assert observed_for(definition, rows, arguments={})
+        assert (
+            observed_for(
+                definition,
+                rows,
+                arguments={"portrait_workflow": "models/qwen-image-2.1"},
+            )
+            is None
+        )
 
     def test_the_minimax_templates_declare_drivers(self):
         """#91's report was about these specifically."""

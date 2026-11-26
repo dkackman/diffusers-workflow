@@ -181,3 +181,42 @@ def test_a_composing_step_is_elided_only_when_it_says_save_false():
     for result in (None, {"content_type": "image/jpeg"}):
         kept, elided = elide_unreferenced_steps(steps(result))
         assert elided == [] and len(kept) == 2
+
+
+@pytest.mark.parametrize("name", sorted(PORTRAIT_STEPS))
+def test_an_overridden_portrait_model_is_not_priced_from_the_defaults_history(
+    name, tmp_path, cuda_session
+):
+    """#1722's bounce: on lem, three of the four templates quoted their
+    z-image runs' observed minutes for `portrait_workflow=models/qwen-image-2.1`
+    and named no Qwen. `portrait_workflow` is a cost driver, so the override
+    is a bucket of its own and the estimate prices the resolved child."""
+    from dw.plan import build_plan
+    from dw.server.observed_cost import observed_for
+
+    doc = definition(name)
+    rows = [
+        {
+            "manifest": "[]",
+            "arguments": "{}",
+            "duration": 2316,
+            "had_load": True,
+            "events_at_cap": False,
+            "finished_at": 1,
+        }
+    ]
+
+    def observed(arguments):
+        return observed_for(doc, rows, device="cuda", arguments=arguments)
+
+    def estimate(arguments):
+        flow = workflow_from_file(path(name), str(tmp_path))
+        plan = build_plan(
+            flow, arguments, device="cuda", lookup_sizes=False, observed=observed
+        )
+        return plan["estimate"]
+
+    assert estimate({})["basis"] == "observed"
+    overridden = estimate({"portrait_workflow": "models/qwen-image-2.1"})
+    assert overridden["basis"] != "observed"
+    assert "models/qwen-image-2.1" in json.dumps(overridden)
