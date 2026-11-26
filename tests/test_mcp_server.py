@@ -35,6 +35,7 @@ EXPECTED_TOOLS = {
     "clear_memory",
     "get_health",
     "get_server_info",
+    "get_preferences",
     "list_jobs",
     "list_gallery",
     "get_gallery_metadata",
@@ -614,6 +615,7 @@ TOOL_WIRING = [
     ("clear_memory", {}, "POST", "/api/memory/clear"),
     ("get_health", {}, "GET", "/api/health"),
     ("get_server_info", {}, "GET", "/api/server"),
+    ("get_preferences", {}, "GET", "/api/preferences"),
     ("list_jobs", {}, "GET", "/api/jobs"),
     ("list_gallery", {"limit": 5}, "GET", "/api/gallery"),
     (
@@ -1428,6 +1430,7 @@ WRAPPER_HANDLER_MAP = {
     "get_class": (catalog, "get_class"),
     "list_gallery": (catalog, "list_gallery"),
     "list_jobs": (catalog, "list_jobs"),
+    "get_preferences": (catalog, "get_preferences"),
     "download_model": (models, "download_model"),
     "delete_model": (models, "delete_model"),
     "update_diffusers": (models, "update_diffusers"),

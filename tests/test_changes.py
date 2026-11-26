@@ -257,6 +257,26 @@ CASES = {
         ),
         {"workflows": 1},
     ),
+    "put_preference": (
+        lambda c, run: c.put(
+            "/api/workflows/mine", json={"workflow": valid_workflow()}
+        ),
+        lambda c, run: c.put("/api/preferences/qa_key", json={"best": ["mine"]}),
+        {"workflows": 1},
+    ),
+    "delete_preference": (
+        lambda c, run: (
+            c.put("/api/workflows/mine", json={"workflow": valid_workflow()}),
+            c.put("/api/preferences/qa_key", json={"best": ["mine"]}),
+        ),
+        lambda c, run: c.delete("/api/preferences/qa_key"),
+        {"workflows": 1},
+    ),
+    "put_default_tier": (
+        lambda c, run: None,
+        lambda c, run: c.put("/api/preferences", json={"default_tier": "best"}),
+        {"workflows": 1},
+    ),
     "delete_workflow": (
         lambda c, run: c.put(
             "/api/workflows/mine", json={"workflow": valid_workflow()}

@@ -164,11 +164,9 @@ class CatalogTools:
         `host_memory_rss_mb` is what the worker process holds and
         `host_memory_peak_rss_mb` the most it has ever held, beside the
         machine's `host_memory_total_mb` / `host_memory_available_mb`. Read
-        both - a workflow that offloads (`offload: "sequential"`,
-        `group_offload`) keeps its weights in host memory by design, so the
-        card can sit near-empty through a generation and VRAM alone will not
-        show what a run is holding or failing to release. A host field is
-        absent, rather than null, on a platform that cannot measure it.
+        both: an offloading workflow keeps its weights in host memory, so
+        VRAM alone misses what a run holds. A host field is absent, rather
+        than null, on a platform that cannot measure it.
 
         `host_pinned_reserved_mb` / `host_pinned_allocated_mb`, when
         present, are torch's pinned-host cache and are part of
@@ -176,15 +174,13 @@ class CatalogTools:
         "Reading Memory While Offloading", for what that means for a worker
         that has released every model and still holds gigabytes.
 
-        `live: true` means `info` was measured now and is the worker's own
-        memory - only these readings are comparable with each other.
-        `live: false` means it was not: `info: null` (with `stale: false`)
-        means nothing has been measured because nothing is resident, and a
+        `live: true` means `info` was measured now; only these readings
+        compare. `live: false` means it was not: `info: null` (with
+        `stale: false`) means nothing is resident to measure, and a
         populated `info` is a cached earlier reading - `reason` says why
         (`job_running`, `worker_stopped`, `worker_busy`, `worker_unreachable`)
-        and `age_seconds` how old it is. A cached reading taken while a job
-        loads a model understates what is resident, so ask again when the
-        card is idle rather than comparing it against a live figure.
+        and `age_seconds` how old it is. A reading cached mid-load
+        understates what is resident: ask again when the card is idle.
 
         `info.step_cache` is the step cache's own accounting: `entries`,
         `retained_bytes` against `max_retained_bytes`."""
@@ -236,6 +232,11 @@ class CatalogTools:
         `plugin.current_from`, tell the user once that the dw plugin is out
         of date and give the `plugin.update` commands."""
         return workspaces.server_info(self.client, cache_entries)
+
+    def get_preferences(self, key: str | None = None) -> dict:
+        """Get each `preference:` ladder, its `source` and `default_tier`;
+        `resolutions` is this host's pick per tier and the skips."""
+        return catalog.get_preferences(self.client, key)
 
     def list_jobs(
         self,
