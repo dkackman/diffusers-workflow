@@ -45,6 +45,16 @@ export function queueLength(jobs: JobSummary[], queued = 0): number {
   return Math.max(seen, queued)
 }
 
+/** The Jobs list's order from rows already newest first: the waiting queue
+ * leads, next in line on top, so that moving a job up moves its row up. The
+ * rest keep their order. */
+export function queueFirst(newestFirst: JobSummary[]): JobSummary[] {
+  const waiting = newestFirst.filter((job) => job.queue_position !== undefined)
+  const rest = newestFirst.filter((job) => job.queue_position === undefined)
+  waiting.sort((a, b) => a.queue_position! - b.queue_position!)
+  return [...waiting, ...rest]
+}
+
 /** How many finished jobs the Jobs page reads at first, and each
  * Show older adds. */
 export const JOBS_PAGE = 50
