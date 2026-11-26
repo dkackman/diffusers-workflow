@@ -999,6 +999,14 @@ remaining deferred fix is recorded in
   measured `cost` on each device it runs on. The edit, image-to-image and video
   keys are cut, each with what would bring it back:
   `complete/preference-defaults-complete.md`.
+- **MiniMax-H3-Image on a 64 GB Mac** (#1680, stages #1729-#1730), shipped
+  2026-11-26. A bench probe on mini-ai runs H3-Image in two steps (encode,
+  release, generate) from pre-quantized int8 folders in the `bench` asset
+  library: a 2048x2048 still in 3.2 min, 40.4 GB job peak RSS (`b99e189e1059`,
+  after #1744's matmul fix). The skill, ACCELERATION.md and the template README
+  now state the measured mps route. The catalog templates stay CUDA only. An mps
+  template, the CUDA two-step split and the edit/warm/16:9 arms are deferred:
+  `complete/h3-image-mps-complete.md`.
 
 ## Declined
 
