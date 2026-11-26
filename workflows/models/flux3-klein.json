@@ -3,7 +3,7 @@
     "description": "FLUX 3 Image Klein (distilled, 5.6B) as a model entry, configured by the text-to-image template. The prompt here is a short one, and Klein turns a short prompt into a generic picture: for full captions run templates/flux3/upsample-then-generate. Sixteen steps with no guidance or negative prompt. The weights are gated under the FLUX Kommunity License: accept it on the model page and log in with hf auth login first.",
     "configures": "templates/text-to-image",
     "cost": [
-        {"device": "cuda", "name": "RTX 3090", "vram_gb": 24, "minutes": 0.3}
+        {"device": "cuda", "name": "RTX 3090", "vram_gb": 24, "minutes": 0.34}
     ],
     "cost_drivers": [
         "num_images_per_prompt",
