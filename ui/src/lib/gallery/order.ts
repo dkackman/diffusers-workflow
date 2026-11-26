@@ -1,6 +1,7 @@
 // The gallery grid's order and filter, kept out of the page so it can be
 // tested on its own.
 import { groupNames } from '../grouping'
+import { matchWords } from '../matchWords'
 import { compareNames } from '../names'
 import type { Picks } from '../picks.svelte'
 import type { GalleryFile, OutputRole } from '../types'
@@ -38,20 +39,6 @@ export interface GalleryQuery {
   prompts: Record<string, string>
 }
 
-/** Whether every word of `text` is somewhere in the file's name, label,
- * note or its run's prompt, case aside */
-function matchesText(
-  f: GalleryFile,
-  words: string[],
-  prompts: Record<string, string>,
-): boolean {
-  if (!words.length) return true
-  const hay = [f.name, f.label, f.note ?? '', prompts[f.run_id] ?? '']
-    .join('\n')
-    .toLowerCase()
-  return words.every((word) => hay.includes(word))
-}
-
 /** Runs in the server's order (newest first), finals leading inside a run.
  * A run's place is the index of its first (newest) file; built back to
  * front so the first file's index is the one that sticks, and a Map keeps
@@ -66,19 +53,19 @@ function byRun(shown: GalleryFile[], oldest: boolean): GalleryFile[] {
 }
 
 /** The files the grid shows, in its order: those matching every word of
- * `text` (matchesText), in one of `roles`, starred when `starredOnly`,
+ * `text` (in its name, label, note or run's
+ * prompt), in one of `roles`, starred when `starredOnly`,
  * sorted by `sort` */
 export function gridFiles(
   files: GalleryFile[],
   query: GalleryQuery,
 ): GalleryFile[] {
   const { roles, starredOnly, prompts } = query
-  const words = query.text.toLowerCase().split(/\s+/).filter(Boolean)
   const shown = files.filter(
     (f) =>
       roles.includes(roleOf(f)) &&
       (!starredOnly || f.starred) &&
-      matchesText(f, words, prompts),
+      matchWords(query.text, f.name, f.label, f.note, prompts[f.run_id]),
   )
   if (query.sort === 'name')
     return shown.sort((a, b) => compareNames(a.name, b.name))

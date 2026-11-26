@@ -1,6 +1,7 @@
 <script lang="ts">
   import { MessageSquareText, Plus } from '@lucide/svelte'
   import { api } from '../api'
+  import { matchWords } from '../matchWords'
   import { resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
   import PageHeader from '../ui/PageHeader.svelte'
@@ -31,13 +32,13 @@
 
   const matching = $derived(
     prompts.filter((name) => {
-      const needle = filter.value.toLowerCase()
       const detail = details[name]
-      return (
-        name.toLowerCase().includes(needle) ||
-        (detail?.description ?? '').toLowerCase().includes(needle) ||
-        (detail?.intended_model ?? '').toLowerCase().includes(needle) ||
-        (detail?.tags ?? []).some((tag) => tag.toLowerCase().includes(needle))
+      return matchWords(
+        filter.value,
+        name,
+        detail?.description,
+        detail?.intended_model,
+        ...(detail?.tags ?? []),
       )
     }),
   )

@@ -1402,3 +1402,14 @@ it('a deleted asset stays gone when a reload begun before the delete lands', asy
   await quiet()
   expect(screen.queryByText('iris.png')).toBeNull()
 })
+
+it('wants every typed word of an asset name, in any order', async () => {
+  await renderAssets()
+  const filter = screen.getByPlaceholderText('filter…')
+  await fireEvent.input(filter, { target: { value: 'PRIYA cast' } })
+  expect(await screen.findByLabelText('Open cast/priya.jpg')).toBeTruthy()
+  await fireEvent.input(filter, { target: { value: 'priya whale' } })
+  await waitFor(() =>
+    expect(screen.queryByLabelText('Open cast/priya.jpg')).toBeNull(),
+  )
+})

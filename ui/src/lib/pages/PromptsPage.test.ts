@@ -335,3 +335,20 @@ it('the new-prompt link is the workspace route, not a legacy one', async () => {
   expect(hrefs.length).toBeGreaterThan(0)
   expect(hrefs).not.toContain('#/prompt-edit')
 })
+
+it('wants every typed word, across the name and the other fields', async () => {
+  listPrompts.mockResolvedValue({
+    ...answer(['mine', 'theirs']),
+    details: {
+      mine: { ...detail('workspace', true), tags: ['anime'] },
+      theirs: { ...detail('workspace', true), description: 'a red fox' },
+    },
+  })
+  render(PromptsPage)
+  await waitFor(() => expect(screen.getByText('theirs')).toBeTruthy())
+  await fireEvent.input(screen.getByPlaceholderText('filter…'), {
+    target: { value: 'FOX theirs' },
+  })
+  expect(screen.getByText('theirs')).toBeTruthy()
+  expect(screen.queryByText('mine')).toBeNull()
+})

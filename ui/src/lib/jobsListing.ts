@@ -3,6 +3,7 @@
 // long the waiting queue is when the page holds only some of its rows.
 import { api } from './api'
 import { ApiError } from './apiErrors'
+import { matchWords } from './matchWords'
 import type { RequestFilter } from './requestFilter'
 import { workflowName } from './terms'
 import type { JobList, JobSummary } from './types'
@@ -195,14 +196,7 @@ export function jobMatches(
   prompt: string,
   query: string,
 ): boolean {
-  const hay = [workflowName(job), job.id, job.note ?? '', prompt]
-    .join('\n')
-    .toLowerCase()
-  return query
-    .toLowerCase()
-    .split(/\s+/)
-    .filter(Boolean)
-    .every((word) => hay.includes(word))
+  return matchWords(query, workflowName(job), job.id, job.note, prompt)
 }
 
 /** Whole percent of each running job's denoise loop, from its own detail:

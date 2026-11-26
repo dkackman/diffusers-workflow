@@ -140,6 +140,11 @@ meter per card with a status popover (workers, queue), the API-token key
 icon, a finish-alert toggle, the theme toggle, and links to these docs and
 `/docs`. `?` lists the keyboard shortcuts.
 
+The text filters on Jobs, Gallery, Assets, Prompts and Schema share one rule:
+every word typed must be somewhere in what the page searches, in any order,
+case aside. The Workflows and Examples search matches whole words and ranks
+them instead.
+
 - **Overview** - the workspace at a glance: its note, recent outputs, the
   running and last finished jobs, its workflows (ones with a proof image
   first, and a **New workflow** button), its asset count and disk usage. Each
