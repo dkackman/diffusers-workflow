@@ -42,6 +42,7 @@ import torch
 from .. import empty_device_cache
 from ..media_types import AudioVideo, fit_codec_padding
 from ..events import emit_log, emit_warning
+from ..previous_results import argument_seed
 from ..shots import shot_record, without_samples
 from ..task_domains import frames_to_samples
 from ..tasks.video_utils import frames_as_pil_list
@@ -161,7 +162,7 @@ def run_chain(pipeline, chain_definition, arguments):
     # previous segment's kept frames, which a check measures the seam
     # against, and segment 1's fine-band texture and face base (frame 0 and
     # its median match), which it measures drift by - each measured once
-    seed = _step_seed(arguments)
+    seed = argument_seed(arguments)
     previous_kept = None
     segment_1_texture = segment_1_face = None
 
@@ -757,19 +758,6 @@ def _record_level(shot, segment, config, attempt):
         audio_dbfs=level,
         floor=floor,
     )
-
-
-def _step_seed(arguments):
-    """The seed a chain's segments run at: the step's generator's (a
-    workflow naming none drew one before the run, `workflow_run`, and seeded
-    the generator with it), else a `seed` argument, else None."""
-    generator = arguments.get("generator")
-    if isinstance(generator, torch.Generator):
-        return generator.initial_seed()
-    seed = arguments.get("seed")
-    if isinstance(seed, int) and not isinstance(seed, bool):
-        return seed
-    return None
 
 
 def _reseeded(segment_arguments, seed, number):

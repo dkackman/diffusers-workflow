@@ -1,6 +1,9 @@
 import copy
 import logging
+from collections.abc import Mapping
 from itertools import product
+
+import torch
 
 from . import references
 from .arguments import (
@@ -13,6 +16,20 @@ logger = logging.getLogger("dw")
 
 # Maximum number of iterations to prevent resource exhaustion
 MAX_ITERATIONS = 10000
+
+
+def argument_seed(arguments, default=None):
+    """The seed one call runs under: its generator's (the pipeline's own
+    'seed' over the step's), else a `seed` argument, else `default`."""
+    if not isinstance(arguments, Mapping):
+        return default
+    generator = arguments.get("generator")
+    if isinstance(generator, torch.Generator):
+        return generator.initial_seed()
+    seed = arguments.get("seed")
+    if isinstance(seed, int) and not isinstance(seed, bool):
+        return seed
+    return default
 
 
 def get_iterations(argument_template, previous_results):

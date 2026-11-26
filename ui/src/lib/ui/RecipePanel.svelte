@@ -150,7 +150,9 @@
     // Pin the run's seed into the definition so reopening reproduces this
     // exact image; delete the seed field in the editor to re-randomize
     const definition = { ...embedded }
-    if (typeof m.metadata?.seed === 'number') definition.seed = m.metadata.seed
+    // 'workflow_seed' is the run's seed when this image's own differs from it
+    const seed = m.metadata?.workflow_seed ?? m.metadata?.seed
+    if (typeof seed === 'number') definition.seed = seed
     goCarrying(['ws', workspace, 'edit'], {
       'dw-editor-import': JSON.stringify(definition),
     })

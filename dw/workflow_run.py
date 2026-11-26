@@ -923,6 +923,7 @@ def _start_step(workflow, loop, index, step_data):
         step_data,
         step_seed,
         workflow.workflow_definition,
+        workflow_seed=loop.default_seed,
         consumed_by_normalizer=normalized_downstream(
             steps[index + 1 :], step_data["name"]
         ),

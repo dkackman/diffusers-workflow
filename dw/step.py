@@ -2,7 +2,7 @@ import logging
 from .events import WorkflowCancelled, get_context
 from .introspection import missing_task_argument_message, missing_task_arguments
 from .result import Result
-from .previous_results import get_iterations, resolve_chain_lists
+from .previous_results import argument_seed, get_iterations, resolve_chain_lists
 from .tasks.task import Task
 
 logger = logging.getLogger("dw")
@@ -33,6 +33,7 @@ class Step:
         workflow_definition=None,
         consumed_by_normalizer=False,
         audio_replaced_downstream=False,
+        workflow_seed=None,
     ):
         """Initialize step with its configuration and seed value.
 
@@ -46,13 +47,17 @@ class Step:
         step_cache.normalized_downstream and audio_qc.py's headroom checks.
 
         audio_replaced_downstream is whether a later pair_audio replaces this
-        result's audio track (step_cache.audio_replaced_downstream, #800)."""
+        result's audio track (step_cache.audio_replaced_downstream, #800).
+
+        workflow_seed is the run's own seed, embedded beside the step's
+        when the two differ."""
         self.step_definition = step_definition
         self.workflow_definition = workflow_definition
         self.consumed_by_normalizer = consumed_by_normalizer
         self.audio_replaced_downstream = audio_replaced_downstream
         self.iteration = None
 
+        self.workflow_seed = workflow_seed
         # Get step-specific seed or use default if not specified
         self.default_seed = self.step_definition.get("seed", default_seed)
         logger.debug(f"Initialized step: {self.name} with seed: {self.default_seed}")
@@ -156,6 +161,7 @@ class Step:
         # A chain resume tells a fan-out's finished iteration (rendered in
         # full) from a lone chain with nothing left to render (refused)
         step_action.chain_fan_out = len(iterations) > 1
+        seeds = []
         for i, arguments in enumerate(iterations, 1):
             run_context.check_cancelled()
             logger.debug(
@@ -177,8 +183,32 @@ class Step:
             # literal case first; this is the backstop it cannot see (#141)
             if isinstance(step_action, Task):
                 _check_required_arguments(step_action.command, arguments)
+            # Read before the run, which may consume a 'seed' argument
+            used = argument_seed(arguments, self.default_seed)
             iteration_result = step_action.run(arguments, previous_pipelines)
             result.add_result(iteration_result)
+            # A sub-workflow's arguments name the child's variables, so only
+            # the child knows the seed its result was made under (#1765)
+            if isinstance(getattr(step_action, "result_seed", None), (int, list)):
+                used = step_action.result_seed
+            for seed in used if isinstance(used, list) else [used]:
+                if seed is not None and seed not in seeds:
+                    seeds.append(seed)
+        self._record_seed(result, seeds)
+
+    def _record_seed(self, result, seeds):
+        """Record the seed(s) the iterations ran under, in the embedded
+        metadata too: the step's inherited seed is not what a 'pipeline.seed'
+        or a sub-workflow's own seed rendered with (#1765). Saving happens
+        after the step, so the metadata is still open."""
+        if not seeds:
+            return
+        result.seed = seeds[0] if len(seeds) == 1 else seeds
+        if result.metadata is None or "seed" not in result.metadata:
+            return
+        result.metadata["seed"] = result.seed
+        if self.workflow_seed is not None and self.workflow_seed != result.seed:
+            result.metadata["workflow_seed"] = self.workflow_seed
 
     def _collect_metadata(self):
         """Collect step metadata for embedding in saved images."""

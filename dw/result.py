@@ -164,6 +164,9 @@ class Result:
         self._consumed_by_normalizer = consumed_by_normalizer
         self.result_list = []
         self.metadata = None
+        # The seed(s) the step's calls ran under, which a composing step
+        # reads off its child to embed (#1765)
+        self.seed = None
         self.saved_files = []
         # The shots (dw/shots.py) of each saved file whose artifact carried
         # any, keyed by the path in saved_files - plain data, so a step cache
