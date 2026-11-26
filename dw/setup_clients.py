@@ -76,7 +76,7 @@ def register_desktop(manifest: Manifest, platform: str = sys.platform) -> str:
         return "Claude Desktop is not installed; skipped"
     command = _dw_mcp()
     recorded = next(iter(manifest.entries("desktop")), None)
-    ours = recorded["detail"].get("command") if recorded else None
+    ours = ((recorded or {}).get("detail") or {}).get("command")
     outcome: dict = {}
 
     def update(data: dict) -> dict:
@@ -85,7 +85,9 @@ def register_desktop(manifest: Manifest, platform: str = sys.platform) -> str:
             raise SetupError(f"{path} has an mcpServers value that is not an object")
         existing = servers.get(_SERVER)
         if existing is not None and not (
-            isinstance(existing, dict) and existing.get("command") == ours
+            ours is not None
+            and isinstance(existing, dict)
+            and existing.get("command") == ours
         ):
             outcome["foreign"] = True
             return data
@@ -118,7 +120,11 @@ def unregister_desktop(manifest: Manifest, platform: str = sys.platform) -> str:
     def update(data: dict) -> dict:
         servers = data.get("mcpServers")
         existing = servers.get(_SERVER) if isinstance(servers, dict) else None
-        if isinstance(existing, dict) and existing.get("command") == wrote:
+        if (
+            wrote is not None
+            and isinstance(existing, dict)
+            and existing.get("command") == wrote
+        ):
             removed["yes"] = True
             return {
                 **data,
@@ -186,7 +192,7 @@ def _mcp_servers(runner: Runner) -> dict[str, str] | None:
     servers: dict[str, str] = {}
     for line in (result.stdout or "").splitlines():
         m = re.match(r"^(\S[^:]*?):\s+(.*?)\s+-\s+\S", line)
-        if m:
+        if m and not m.group(1).startswith("claude.ai "):
             servers[m.group(1)] = m.group(2)
     return servers
 
@@ -253,14 +259,17 @@ def unregister_code(manifest: Manifest, runner: Runner) -> str:
 
 
 def code_duplicates(runner: Runner) -> list[str]:
-    """User-scope MCP servers, not our notes channel, whose command is `dw-mcp`."""
+    """MCP servers, not our notes channel, that would collide with the plugin's dw tools.
+
+    Any server named `dw` (even an HTTP one) or whose command is `dw-mcp`.
+    """
     servers = _mcp_servers(runner) or {}
     found = []
     for name, line in servers.items():
         words = line.split()
-        if name == _NOTES or not words or "--notes-channel" in words:
+        if name == _NOTES or "--notes-channel" in words:
             continue
-        if re.search(r"dw-mcp(\.exe)?$", words[0]):
+        if name == _SERVER or (words and re.search(r"dw-mcp(\.exe)?$", words[0])):
             found.append(name)
     return found
 

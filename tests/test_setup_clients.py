@@ -221,3 +221,81 @@ def test_unparseable_listing_means_no_duplicates():
 
 def test_desktop_plugin_steps_name_the_marketplace():
     assert "dkackman/diffusers-workflow" in setup_clients.desktop_plugin_steps()
+
+
+REAL_MARKETS = """Configured marketplaces:
+
+  ❯ diffusers-workflow
+    Source: Folder (/Users/x/diffusers-workflow)
+
+From claude.ai:
+
+  ❯ claudeai-my-uploads (listed as "My Uploads") — hosted on claude.ai, your uploads · not added
+    Add: claude plugin marketplace add --claudeai claudeai-my-uploads
+
+  ❯ (no CLI name) · listed as "Anthropic Directory" (browse on claude.ai)
+"""
+REAL_PLUGINS = """Installed plugins:
+
+  ❯ code-review@claude-plugins-official
+    Version: 1.0.1
+    Scope: user
+    Status: ✔ enabled
+
+  ❯ dw@diffusers-workflow
+    Version: 0.23.0-alpha.1
+    Read from: /Users/x/diffusers-workflow/plugins/dw
+    Scope: project
+    Status: ✔ enabled
+
+  ❯ dw@diffusers-workflow
+    Version: 0.23.0-alpha.1
+    Scope: user
+    Status: ✔ enabled
+"""
+REAL_MCP = """Checking MCP server health…
+
+claude.ai Claude Docs: https://api.anthropic.com/v1/pages/mcp - ✔ Connected
+claude.ai Google Drive: https://drivemcp.googleapis.com/mcp/v1 - ⊘ Disabled for this project (re-enable via /mcp)
+dw: http://lem:8765/mcp (HTTP) - ✔ Connected
+"""
+
+
+def test_real_listings_parse():
+    assert (
+        setup_clients._listed(subprocess.CompletedProcess([], 0, stdout=REAL_MARKETS))
+        == {"diffusers-workflow", "claudeai-my-uploads"} - {"claudeai-my-uploads"}
+        | set()
+    )
+    assert setup_clients._listed(
+        subprocess.CompletedProcess([], 0, stdout=REAL_PLUGINS)
+    ) == {"code-review@claude-plugins-official", "dw@diffusers-workflow"}
+    servers = setup_clients._mcp_servers(FakeRunner({"claude mcp list": REAL_MCP}))
+    assert servers == {"dw": "http://lem:8765/mcp (HTTP)"}
+
+
+def test_a_real_http_dw_server_is_a_duplicate():
+    runner = FakeRunner({"claude mcp list": REAL_MCP})
+    assert setup_clients.code_duplicates(runner) == ["dw"]
+
+
+def test_real_listings_skip_present_marketplace_and_plugin(manifest):
+    runner = FakeRunner(
+        {
+            "claude plugin list": REAL_PLUGINS,
+            "claude plugin marketplace list": REAL_MARKETS,
+        }
+    )
+    setup_clients.register_code(manifest, runner, "0.23.0")
+    assert not any(c[1:3] == ["plugin", "install"] for c in runner.calls)
+
+
+def test_a_dw_entry_without_a_command_is_never_adopted(desktop_dir, manifest):
+    cfg = desktop_dir / "claude_desktop_config.json"
+    body = '{"mcpServers": {"dw": {"url": "http://x"}}}'
+    cfg.write_text(body)
+    assert "already" in setup_clients.register_desktop(manifest, platform="darwin")
+    assert json.loads(cfg.read_text()) == json.loads(body)
+    manifest.record("desktop", "dw", {"path": str(cfg)})
+    setup_clients.unregister_desktop(manifest, platform="darwin")
+    assert json.loads(cfg.read_text()) == json.loads(body)
