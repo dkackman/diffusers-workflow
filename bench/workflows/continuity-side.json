@@ -1,0 +1,170 @@
+{
+  "id": "ContinuitySide",
+  "summary": "#1704 probe P-A (R1+R2): a Klein two-shot and a single of each person",
+  "description": "Feature #1685 stage 1 (#1704), probe P-A for the 180-degree rule and matched eyelines. Three FLUX 3 Klein text-to-image cards from the catalog template's settings at 1344x768: a two-shot of June and Marcus (`two`), a single of June (`a`) and a single of Marcus (`b`), all on the job's one seed. The defaults are the control arm (names only, no side); the treatment arm passes all three prompts with 'June at frame left, facing right' and 'Marcus at frame right, facing left' added. Record: bench/records/continuity-grammar.md.",
+  "cost_drivers": [
+    "width",
+    "height"
+  ],
+  "variables": {
+    "prompt_two": "A cinematic medium two-shot. June, a woman in her thirties with short black hair and a red wool coat, and Marcus, a bearded man in his forties in a grey knit sweater, sit across a small round wooden table in a quiet cafe on a rainy afternoon, soft daylight from a rain-streaked window, warm wood interior, talking, two white cups of coffee between them. Photographic, 35mm film still, natural skin tones, shallow depth of field.",
+    "prompt_a": "A cinematic medium close-up single of June, a woman in her thirties with short black hair and a red wool coat, seated at a small round wooden table in a quiet cafe on a rainy afternoon, soft daylight from a rain-streaked window, warm wood interior, listening to someone off screen, a white cup of coffee in front of her. Photographic, 35mm film still, natural skin tones, shallow depth of field.",
+    "prompt_b": "A cinematic medium close-up single of Marcus, a bearded man in his forties in a grey knit sweater, seated at a small round wooden table in a quiet cafe on a rainy afternoon, soft daylight from a rain-streaked window, warm wood interior, speaking to someone off screen, a white cup of coffee in front of him. Photographic, 35mm film still, natural skin tones, shallow depth of field.",
+    "width": 1344,
+    "height": 768,
+    "seed": 1685
+  },
+  "variable_constraints": {
+    "width": {
+      "modulus": 16,
+      "remainder": 0,
+      "reason": "FLUX 3 Image Klein's pipeline refuses a width not divisible by 16 (the VAE's 8x compression times the 2x2 latent packing), and only after the weights have loaded, so it is checked here first"
+    },
+    "height": {
+      "modulus": 16,
+      "remainder": 0,
+      "reason": "FLUX 3 Image Klein's pipeline refuses a height not divisible by 16 (the VAE's 8x compression times the 2x2 latent packing), and only after the weights have loaded, so it is checked here first"
+    }
+  },
+  "seed": "variable:seed",
+  "steps": [
+    {
+      "name": "two",
+      "pipeline": {
+        "configuration": {
+          "component_type": "ModularPipeline",
+          "remove_blocks": [
+            "prompt_upsampler"
+          ],
+          "load_components": {
+            "names": [
+              "text_encoder",
+              "tokenizer",
+              "transformer",
+              "vae"
+            ],
+            "dtype": "torch.bfloat16"
+          },
+          "components": {
+            "transformer": {
+              "device": "cuda"
+            },
+            "text_encoder": {
+              "device": "cuda"
+            },
+            "vae": {
+              "device": "cuda"
+            }
+          }
+        },
+        "from_pretrained_arguments": {
+          "model_name": "black-forest-labs/flux-3-image-klein"
+        },
+        "arguments": {
+          "prompt": "variable:prompt_two",
+          "width": "variable:width",
+          "height": "variable:height",
+          "num_inference_steps": 16,
+          "output": "images"
+        }
+      },
+      "result": {
+        "content_type": "image/jpeg",
+        "embed_metadata": true,
+        "subfolder": "final"
+      }
+    },
+    {
+      "name": "a",
+      "pipeline": {
+        "configuration": {
+          "component_type": "ModularPipeline",
+          "remove_blocks": [
+            "prompt_upsampler"
+          ],
+          "load_components": {
+            "names": [
+              "text_encoder",
+              "tokenizer",
+              "transformer",
+              "vae"
+            ],
+            "dtype": "torch.bfloat16"
+          },
+          "components": {
+            "transformer": {
+              "device": "cuda"
+            },
+            "text_encoder": {
+              "device": "cuda"
+            },
+            "vae": {
+              "device": "cuda"
+            }
+          }
+        },
+        "from_pretrained_arguments": {
+          "model_name": "black-forest-labs/flux-3-image-klein"
+        },
+        "arguments": {
+          "prompt": "variable:prompt_a",
+          "width": "variable:width",
+          "height": "variable:height",
+          "num_inference_steps": 16,
+          "output": "images"
+        }
+      },
+      "result": {
+        "content_type": "image/jpeg",
+        "embed_metadata": true,
+        "subfolder": "final"
+      }
+    },
+    {
+      "name": "b",
+      "pipeline": {
+        "configuration": {
+          "component_type": "ModularPipeline",
+          "remove_blocks": [
+            "prompt_upsampler"
+          ],
+          "load_components": {
+            "names": [
+              "text_encoder",
+              "tokenizer",
+              "transformer",
+              "vae"
+            ],
+            "dtype": "torch.bfloat16"
+          },
+          "components": {
+            "transformer": {
+              "device": "cuda"
+            },
+            "text_encoder": {
+              "device": "cuda"
+            },
+            "vae": {
+              "device": "cuda"
+            }
+          }
+        },
+        "from_pretrained_arguments": {
+          "model_name": "black-forest-labs/flux-3-image-klein"
+        },
+        "arguments": {
+          "prompt": "variable:prompt_b",
+          "width": "variable:width",
+          "height": "variable:height",
+          "num_inference_steps": 16,
+          "output": "images"
+        }
+      },
+      "result": {
+        "content_type": "image/jpeg",
+        "embed_metadata": true,
+        "subfolder": "final"
+      }
+    }
+  ]
+}
