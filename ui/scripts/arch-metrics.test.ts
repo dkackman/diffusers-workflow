@@ -8,6 +8,8 @@ import { describe, expect, it } from 'vitest'
 import { api } from '../src/lib/api'
 import * as apiModule from '../src/lib/api'
 import {
+  ADVISORY,
+  advisories,
   cycles,
   EXPORTED_NOT_WRITES,
   EXPORTED_WRITES,
@@ -71,6 +73,94 @@ describe('regressions', () => {
   })
 })
 
+describe('advisory metrics', () => {
+  it('are exactly the four proxies', () => {
+    expect([...ADVISORY].sort()).toEqual([
+      'complex_functions',
+      'duplicate_blocks',
+      'files_over_size_ceiling',
+      'long_functions',
+    ])
+  })
+
+  it('a rise is an advisory, never a regression', () => {
+    const current = { complex_functions: 12, raw_media: 2, long_functions: 0 }
+    const baseline = { complex_functions: 11, raw_media: 1, long_functions: 0 }
+    expect(regressions(current, baseline)).toEqual(['raw_media: 1 -> 2'])
+    expect(advisories(current, baseline)).toEqual([
+      { key: 'complex_functions', line: 'complex_functions: 11 -> 12' },
+    ])
+  })
+
+  function compare(current: object, baseline: object) {
+    const dir = mkdtempSync(join(tmpdir(), 'uimetrics-'))
+    try {
+      writeFileSync(join(dir, 'cur.json'), JSON.stringify(current))
+      writeFileSync(join(dir, 'base.json'), JSON.stringify(baseline))
+      return spawnSync(
+        'node',
+        [SCRIPT, '--compare', join(dir, 'cur.json'), join(dir, 'base.json')],
+        { encoding: 'utf8' },
+      )
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }
+
+  it('--compare: an advisory rise exits 0, nothing on stdout, a named warning on stderr', () => {
+    const run = compare(
+      {
+        long_functions: 1,
+        raw_media: 1,
+        detail: { long_functions: ["src/x.ts:3 Function 'f' (70)"] },
+      },
+      { long_functions: 0, raw_media: 1 },
+    )
+    expect(run.status).toBe(0)
+    expect(run.stdout).toBe('')
+    expect(run.stderr).toContain('warning (advisory): long_functions: 0 -> 1')
+    expect(run.stderr).toContain("src/x.ts:3 Function 'f' (70)")
+  })
+
+  it('--compare: an enforced rise still exits 1 with the unchanged stdout line', () => {
+    const run = compare(
+      { raw_error_toasts: 1, duplicate_blocks: 120 },
+      { raw_error_toasts: 0, duplicate_blocks: 112 },
+    )
+    expect(run.status).toBe(1)
+    expect(run.stdout).toBe('raw_error_toasts: 0 -> 1\n')
+    expect(run.stderr).toContain(
+      'warning (advisory): duplicate_blocks: 112 -> 120',
+    )
+    expect(run.stderr).not.toMatch(/^raw_error_toasts/m)
+  })
+
+  it('--check on the real tree exits 0 however far the proxies rose', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'uimetrics-'))
+    try {
+      const base = join(dir, 'base.json')
+      writeFileSync(
+        base,
+        JSON.stringify({
+          files_over_size_ceiling: -1,
+          complex_functions: -1,
+          long_functions: -1,
+          duplicate_blocks: -1,
+        }),
+      )
+      const run = spawnSync('node', [SCRIPT, '--check', base], {
+        encoding: 'utf8',
+      })
+      expect(run.status).toBe(0)
+      for (const key of ADVISORY)
+        expect(run.stderr).toContain(`warning (advisory): ${key}: -1 -> `)
+      expect(run.stdout.startsWith('{')).toBe(true)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }, 60_000)
+})
+
 describe('the real tree', () => {
   it('excludes tests and measures every metric', async () => {
     const files = sourceFiles()
@@ -83,6 +173,7 @@ describe('the real tree', () => {
       'complex_functions',
       'duplicate_blocks',
       'empty_outside_loadstate',
+      'files_over_hard_ceiling',
       'files_over_size_ceiling',
       'import_cycles',
       'long_functions',
@@ -143,6 +234,62 @@ describe('what a branch cannot hide', () => {
     )
     expect(run.status).toBe(2)
     expect(run.stdout.trim()).toBe('')
+  })
+})
+
+describe('the size and function metrics', () => {
+  async function probe(files: Record<string, string>) {
+    const dir = mkdtempSync(join(UI, '.metrics-probe-'))
+    try {
+      const paths = Object.entries(files).map(([name, text]) => {
+        writeFileSync(join(dir, name), text)
+        return join(dir, name)
+      })
+      return await measure(paths, ['asset:'])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }
+  const lines = (n: number) =>
+    Array.from({ length: n }, (_, i) => `.c${i} { color: red; }`).join('\n') +
+    '\n'
+
+  it('files_over_hard_ceiling counts a 901-line file and not a 900-line one', async () => {
+    const { metrics, detail } = await probe({
+      'at.css': lines(900),
+      'over.css': lines(901),
+      'small.css': lines(600),
+    })
+    expect(metrics.files_over_hard_ceiling).toBe(1)
+    expect(metrics.files_over_size_ceiling).toBe(2)
+    expect(detail.files_over_size_ceiling).toEqual([
+      expect.stringMatching(/at\.css \(900 lines\)$/),
+      expect.stringMatching(/over\.css \(901 lines\)$/),
+    ])
+  }, 60_000)
+
+  it('names each complex and long function by file, line and value', async () => {
+    const branches = Array.from(
+      { length: 12 },
+      (_, i) => `  if (n === ${i}) return ${i}`,
+    ).join('\n')
+    const body = Array.from(
+      { length: 70 },
+      (_, i) => `  const v${i} = ${i}`,
+    ).join('\n')
+    const { metrics, detail } = await probe({
+      'probe.ts':
+        `export function branchy(n: number): number {\n${branches}\n  return -1\n}\n` +
+        `export function long(): number {\n${body}\n  return 0\n}\n`,
+    })
+    expect(metrics.complex_functions).toBe(1)
+    expect(metrics.long_functions).toBe(1)
+    expect(detail.complex_functions).toEqual([
+      expect.stringMatching(/probe\.ts:1 Function 'branchy' \(13\)$/),
+    ])
+    expect(detail.long_functions).toEqual([
+      expect.stringMatching(/probe\.ts:16 Function 'long' \(73\)$/),
+    ])
   })
 })
 
@@ -777,8 +924,8 @@ export function guarded(write: () => Promise<unknown>) {
     })
     expect(metrics.duplicate_blocks).toBe(16)
     expect(detail.duplicate_blocks).toEqual([
-      expect.stringMatching(/a\.svelte: 8 lines$/),
-      expect.stringMatching(/b\.svelte: 8 lines$/),
+      expect.stringMatching(/a\.svelte: 8 lines \(2-9\)$/),
+      expect.stringMatching(/b\.svelte: 8 lines \(3-10\)$/),
     ])
   })
 
@@ -811,11 +958,6 @@ describe("api.ts's exports outside api", () => {
     expect(new Set(listed).size).toBe(listed.length)
   })
 })
-
-it('the metrics script holds the complexity limit it measures', async () => {
-  const { metrics } = await measure([SCRIPT], ['asset:'])
-  expect(metrics.complex_functions).toBe(0)
-}, 60_000)
 
 describe('the read classification', () => {
   // A new api method fails here until someone says whether it is a read, so

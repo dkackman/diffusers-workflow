@@ -1,7 +1,10 @@
-/* app.css's overflow: the shared classes that would not fit its 600 lines,
-   so they live here, loaded straight after frames.css (main.ts), whose
-   tokens they read. The one multi-select filter chip is here; a choice of
-   one from a few is Segmented.svelte. */
+/* The shared component classes: the toggle chip, the form grid, data
+   tables, panel lists, file tiles and grids, the status text tones
+   (.bad/.warn/.good/.hint) and the full-window sheet - what several
+   components share that is not a token, a base element or an overlay
+   frame (app.css). Loaded straight after frames.css (main.ts),
+   whose tokens they read. The one multi-select filter chip is here; a
+   choice of one from a few is Segmented.svelte. */
 
 /* A chip that is on or off: a trait, a role, Starred, a prompt's tag. The
    pill outline; `.on` (set with aria-pressed) fills it with ink. */
