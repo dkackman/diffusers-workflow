@@ -11,6 +11,10 @@ below are this repo's.
   fields are `shot_size: wide` and `move: static` (no push, dolly or
   pan, so each single cuts back to an unmoved master). It carries the room, the blocking and the full
   dialogue audio, and is the fallback for anything below.
+- **Sides**: each speaker keeps the side of frame they hold in the master.
+  Write it into the master and every single
+  (`cinematography/references/continuity.md`: measured on Klein stills,
+  untested on H3 clips).
 - **Singles**: one `templates/minimax/dialogue-short` clip per speaker line or
   run of lines, `shot_size: medium-close` or `close-up`, the speaker facing
   camera. Cast the speaker from the same reference as the master so the face

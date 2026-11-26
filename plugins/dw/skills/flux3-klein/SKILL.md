@@ -111,6 +111,8 @@ The upsampler writes English only.
 A shot size, camera move or look in film words: the `cinematography`
 skill's Klein table. A still has no move; it becomes framing.
 
+Starting from a result rather than a template: `references/intents.md`.
+
 ## Run and judge
 
 1. `validate_workflow` first - free, and catches an off-grid size.

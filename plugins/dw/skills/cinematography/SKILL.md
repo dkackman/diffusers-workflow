@@ -66,6 +66,9 @@ not replace it. The stored prompts (`list_prompts`, then `get_prompt`) show
 each family's format with a camera already in it - `ltx2/`, `kandinsky6/`,
 `minimax/fox_dawn_context_ir` - so read one before writing.
 
+Holding sides, eyelines, screen direction or the light's side across a cut:
+`references/continuity.md`, with what was measured on which family.
+
 ## A hint, not a promise
 
 Every value here is a hint, not a promise. The models were trained on

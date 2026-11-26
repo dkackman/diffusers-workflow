@@ -3109,3 +3109,134 @@ class TestCostumeChange:
         ]
         assert len(rows) == 1
         assert rows[0].rstrip().endswith("| untested |") and "#1591" in rows[0]
+
+
+CONTINUITY_NOTE = os.path.join(CINE_REFS, "continuity.md")
+CONTINUITY_RECORD = "bench/records/continuity-grammar.md"
+
+
+class TestContinuityNote:
+    """#1685 stage 2 (#1705): the continuity probes (#1704) land as one
+    cinematography reference note. A rule is stated only where both seeds
+    held it, with its family and the record; R5 sits under "Probed and not a
+    rule"; the sweep's cuts are named, R7 and R13 as measured against."""
+
+    def _note(self):
+        return " ".join(open(CONTINUITY_NOTE, encoding="utf-8").read().split())
+
+    def _section(self, heading):
+        text = open(CONTINUITY_NOTE, encoding="utf-8").read()
+        start = text.index(f"\n## {heading}\n")
+        rest = text[start + 4 :]
+        end = rest.find("\n## ")
+        return " ".join((rest if end < 0 else rest[:end]).split())
+
+    def test_the_note_cites_the_record_and_its_status(self):
+        note = self._note()
+        assert f"`{CONTINUITY_RECORD}`" in note
+        assert "PRELIMINARY" in note and "#1704" in note
+        assert os.path.isfile(os.path.join(REPO_ROOT, CONTINUITY_RECORD))
+
+    def test_the_skill_links_the_note_in_one_line(self):
+        lines = [
+            line
+            for line in open(CINE_SKILL, encoding="utf-8").read().splitlines()
+            if "`references/continuity.md`" in line
+        ]
+        assert len(lines) == 1
+
+    def test_r1_and_r2_are_confirmed_on_klein_with_their_words(self):
+        section = self._section("Sides and eyelines (FLUX 3 Klein)")
+        assert (
+            "**The 180-degree rule and matched eyelines (R1, R2): confirmed on Klein.**"
+            in section
+        )
+        for phrase in (
+            '"June at frame left, facing right; Marcus at frame right, facing left."',
+            '"June at frame left, facing right; Marcus, off screen, at frame right, facing left."',
+            '"Marcus at frame right, facing left; June, off screen, at frame left, facing right."',
+        ):
+            assert phrase in section, phrase
+        assert "**Text holds the partner's side, not their identity.**" in section
+        assert "**over-the-shoulder**" in section
+
+    def test_the_words_are_the_record_s_treatment_prompts(self):
+        record = " ".join(
+            open(os.path.join(REPO_ROOT, CONTINUITY_RECORD), encoding="utf-8")
+            .read()
+            .split()
+        )
+        for phrase in (
+            "June at frame left, facing right; Marcus at frame right, facing left.",
+            "June at frame left, facing right; Marcus, off screen, at frame right, facing left.",
+            "Marcus at frame right, facing left; June, off screen, at frame left, facing right.",
+            "walks from frame left to frame right",
+            "Key light from frame left, warm practical.",
+        ):
+            assert phrase in record, phrase
+
+    def test_r3_is_confirmed_on_h3_with_its_words(self):
+        section = self._section("Screen direction (MiniMax-H3)")
+        assert "**Screen direction (R3): confirmed on H3.**" in section
+        assert '"walks from frame left to frame right"' in section
+
+    def test_r5_is_probed_and_not_a_rule(self):
+        section = self._section("Probed and not a rule")
+        assert (
+            "**R5, the light side held within a scene (Klein): unsettled, so not a rule.**"
+            in section
+        )
+        assert "one seed of two" in section
+        assert "R5" not in self._section("Sides and eyelines (FLUX 3 Klein)")
+
+    def test_unprobed_families_are_untested(self):
+        section = self._section("Families not probed")
+        assert "**LTX-2.5 and Kandinsky 6: untested**" in section
+
+    def test_the_cuts_are_named_and_r7_r13_measured_against(self):
+        section = self._section("Cut without a probe")
+        for rule in ("R4", "R6", "R7", "R8", "R9", "R10", "R11", "R12", "R13"):
+            assert f"**{rule}," in section, rule
+        for rule in ("R7", "R13"):
+            line = section[section.index(f"**{rule},") :].split("- **", 1)[0]
+            assert "measured against" in line, rule
+
+    def test_the_face_on_line_stays(self):
+        staging = open(
+            os.path.join(
+                PLUGIN_DIR, "skills", "minimax-h3", "references", "staging.md"
+            ),
+            encoding="utf-8",
+        ).read()
+        assert "face-on at medium close-up" in " ".join(staging.split())
+
+    def test_the_pointers_name_the_note(self):
+        for path in (
+            os.path.join(
+                PLUGIN_DIR, "skills", "storyboard", "references", "coverage-set.md"
+            ),
+            os.path.join(
+                PLUGIN_DIR,
+                "skills",
+                "series-episodes",
+                "references",
+                "sitcom-multicam.md",
+            ),
+        ):
+            assert (
+                "`cinematography/references/continuity.md`"
+                in open(path, encoding="utf-8").read()
+            ), path
+
+    def test_the_intents_rows_cite_the_record(self):
+        for family, count in (("flux3-klein", 3), ("minimax-h3", 1)):
+            intents = os.path.join(
+                PLUGIN_DIR, "skills", family, "references", "intents.md"
+            )
+            rows = [
+                line
+                for line in open(intents, encoding="utf-8").read().splitlines()
+                if "`cinematography/references/continuity.md`" in line
+            ]
+            assert len(rows) == count, family
+            assert all(f"`{CONTINUITY_RECORD}`" in row for row in rows), family
