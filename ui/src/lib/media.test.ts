@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { assetMedia, hasPicture, kindGlyph, outputMedia } from './media'
+import {
+  assetMedia,
+  folderOf,
+  hasPicture,
+  kindGlyph,
+  outputMedia,
+} from './media'
 import type { AssetFile, GalleryFile } from './types'
 
 const file = (kind: GalleryFile['kind']) =>
@@ -57,5 +63,26 @@ describe('assetMedia', () => {
     const media = assetMedia(asset, 'studio')
     expect(media.thumb).toContain('workspace=studio')
     expect(media.workspace).toBe('studio')
+  })
+})
+
+describe('folderOf', () => {
+  // dw/runs.py split_run_path's cases: the identity before the run id
+  it('is the directory before the run id, wherever the run id sits', () => {
+    expect(folderOf('ltx2/Gyre/20260905-181530-a1b2c3d4/final/still.png')).toBe(
+      'ltx2/Gyre',
+    )
+    expect(folderOf('wf/20260905-181530-a1b2c3d4/a.png')).toBe('wf')
+    expect(folderOf('wf/20260905-181530-a1b2c3d4-2/a.png')).toBe('wf')
+  })
+  it('is the whole directory in the flat layout, and empty at the root', () => {
+    expect(folderOf('workflows/flux/a.png')).toBe('workflows/flux')
+    expect(folderOf('a.png')).toBe('')
+  })
+  it('counts only the first run id, and only a run-id-shaped segment', () => {
+    expect(
+      folderOf('wf/20260905-181530-a1b2c3d4/20260905-181531-b1b2c3d4/a.png'),
+    ).toBe('wf')
+    expect(folderOf('wf/r1/a.png')).toBe('wf/r1')
   })
 })

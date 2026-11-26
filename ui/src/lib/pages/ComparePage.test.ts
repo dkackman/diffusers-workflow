@@ -9,13 +9,14 @@ import {
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../test/apiMock'
 import { feed } from '../test/feedMock'
+import { folderOf } from '../media'
 
 const file = (name: string, kind = 'image') => ({
   name,
   label: name.split('/').pop(),
   kind,
   url: `/outputs/${name}`,
-  folder: 'wf',
+  folder: folderOf(name),
   subfolder: '',
   run_id: 'r',
   size: 1,
@@ -31,18 +32,20 @@ vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
 api.getJob.mockImplementation(() => Promise.reject(new Error('none')))
 
 const defaults = () => {
-  api.gallery.mockImplementation(() =>
-    Promise.resolve({
-      files: [
-        file('wf/r1/a.png'),
-        file('wf/r2/b.png'),
-        file('wf/v1.mp4', 'video'),
-        file('wf/v2.mp4', 'video'),
-        ...listing.extra.map((n) =>
-          file(n, n.endsWith('.wav') ? 'audio' : 'image'),
-        ),
-      ],
-    }),
+  // The server's folder= filter: exactly the files that list under it
+  api.gallery.mockImplementation(
+    (_r?: unknown, _q?: unknown, _i?: unknown, opts?: { folder?: string }) =>
+      Promise.resolve({
+        files: [
+          file('wf/20261126-000001-aaaaaaaa/a.png'),
+          file('wf/20261126-000002-bbbbbbbb/b.png'),
+          file('wf/v1.mp4', 'video'),
+          file('wf/v2.mp4', 'video'),
+          ...listing.extra.map((n) =>
+            file(n, n.endsWith('.wav') ? 'audio' : 'image'),
+          ),
+        ].filter((f) => opts?.folder === undefined || f.folder === opts.folder),
+      }),
   )
   api.galleryMetadata.mockImplementation((name: string) =>
     Promise.resolve({
@@ -72,13 +75,22 @@ describe('ComparePage', () => {
     defaults()
   })
   it('shows each file and only the argument that differs', async () => {
-    render(ComparePage, { props: { names: ['wf/r1/a.png', 'wf/r2/b.png'] } })
+    render(ComparePage, {
+      props: {
+        names: [
+          'wf/20261126-000001-aaaaaaaa/a.png',
+          'wf/20261126-000002-bbbbbbbb/b.png',
+        ],
+      },
+    })
     expect(await screen.findByAltText('a.png')).toBeTruthy()
     expect(await screen.findByRole('rowheader', { name: 'seed' })).toBeTruthy()
     expect(screen.queryByRole('rowheader', { name: 'steps' })).toBeNull()
   })
   it('with fewer than two files says how to pick them', async () => {
-    render(ComparePage, { props: { names: ['wf/r1/a.png'] } })
+    render(ComparePage, {
+      props: { names: ['wf/20261126-000001-aaaaaaaa/a.png'] },
+    })
     expect(await screen.findByText('Nothing to compare yet.')).toBeTruthy()
     expect(
       screen.getByText(
@@ -90,13 +102,52 @@ describe('ComparePage', () => {
     ).toHaveAttribute('href', '#/ws/default/gallery')
     expect(screen.queryByAltText('a.png')).toBeNull()
   })
+  const RUN = '20261126-010203-a1b2c3d4'
+  const RUN2 = '20261126-010204-b2c3d4e5'
+  it('reads one folder once for files from one workflow', async () => {
+    listing.extra = [`ltx/Gyre/${RUN}/a.png`, `ltx/Gyre/${RUN2}/final/b.png`]
+    render(ComparePage, { props: { names: listing.extra } })
+    expect(await screen.findByAltText('a.png')).toBeTruthy()
+    expect(await screen.findByAltText('b.png')).toBeTruthy()
+    expect(api.gallery).toHaveBeenCalledTimes(1)
+    expect(api.gallery).toHaveBeenCalledWith(undefined, undefined, undefined, {
+      folder: 'ltx/Gyre',
+    })
+  })
+  it('reads each folder once for files from two workflows', async () => {
+    listing.extra = [
+      `one/${RUN}/a.png`,
+      `two/${RUN}/b.png`,
+      `one/${RUN2}/c.png`,
+    ]
+    render(ComparePage, { props: { names: listing.extra } })
+    expect(await screen.findByAltText('c.png')).toBeTruthy()
+    expect(await screen.findByAltText('b.png')).toBeTruthy()
+    expect(api.gallery.mock.calls.map((c) => c[3])).toEqual([
+      { folder: 'one' },
+      { folder: 'two' },
+    ])
+  })
+  it('a file whose folder is gone shows the missing-file cell', async () => {
+    listing.extra = [`one/${RUN}/a.png`]
+    render(ComparePage, {
+      props: { names: [`one/${RUN}/a.png`, `renamed/${RUN}/b.png`] },
+    })
+    expect(await screen.findByAltText('a.png')).toBeTruthy()
+    expect(await screen.findByText(/no longer in the gallery/)).toBeTruthy()
+    expect(screen.queryByText(/Couldn't load the comparison/)).toBeNull()
+  })
   it('says when a file is gone', async () => {
-    render(ComparePage, { props: { names: ['wf/r1/a.png', 'wf/gone.png'] } })
+    render(ComparePage, {
+      props: { names: ['wf/20261126-000001-aaaaaaaa/a.png', 'wf/gone.png'] },
+    })
     expect(await screen.findByText(/no longer in the gallery/)).toBeTruthy()
   })
   it('reads the clock from the first video, not the first cell', async () => {
     const { container } = render(ComparePage, {
-      props: { names: ['wf/r1/a.png', 'wf/v1.mp4', 'wf/v2.mp4'] },
+      props: {
+        names: ['wf/20261126-000001-aaaaaaaa/a.png', 'wf/v1.mp4', 'wf/v2.mp4'],
+      },
     })
     await screen.findByLabelText('position in every video')
     const [first, second] = container.querySelectorAll('video')
@@ -111,7 +162,7 @@ describe('ComparePage', () => {
     expect(screen.getByText('3.00 s')).toBeTruthy()
   })
 
-  const names = ['wf/r1/a.png', 'wf/gone.png']
+  const names = ['wf/20261126-000001-aaaaaaaa/a.png', 'wf/gone.png']
   const settle = quiet
 
   it('reloads when the gallery moves, with no skeleton, and cells keep their metadata', async () => {
@@ -143,7 +194,14 @@ describe('ComparePage', () => {
     api.galleryMetadata.mockImplementationOnce(() =>
       Promise.reject(new Error('down')),
     )
-    render(ComparePage, { props: { names: ['wf/r1/a.png', 'wf/r2/b.png'] } })
+    render(ComparePage, {
+      props: {
+        names: [
+          'wf/20261126-000001-aaaaaaaa/a.png',
+          'wf/20261126-000002-bbbbbbbb/b.png',
+        ],
+      },
+    })
     await screen.findByAltText('a.png')
     expect(api.galleryMetadata).toHaveBeenCalledTimes(2)
     feed.move('default', 'gallery')
@@ -171,7 +229,9 @@ describe('ComparePage', () => {
   })
 
   it('with fewer than two names shows the empty copy without loading', async () => {
-    render(ComparePage, { props: { names: ['wf/r1/a.png'] } })
+    render(ComparePage, {
+      props: { names: ['wf/20261126-000001-aaaaaaaa/a.png'] },
+    })
     expect(screen.queryByLabelText('loading the comparison')).toBeNull()
     expect(await screen.findByText('Nothing to compare yet.')).toBeTruthy()
     await settle()
@@ -180,14 +240,27 @@ describe('ComparePage', () => {
 
   it('shows the load error when the gallery read fails with two names', async () => {
     api.gallery.mockImplementation(() => Promise.reject(new Error('down')))
-    render(ComparePage, { props: { names: ['wf/r1/a.png', 'wf/r2/b.png'] } })
+    render(ComparePage, {
+      props: {
+        names: [
+          'wf/20261126-000001-aaaaaaaa/a.png',
+          'wf/20261126-000002-bbbbbbbb/b.png',
+        ],
+      },
+    })
     expect(await screen.findByText(/Couldn't load the comparison/)).toBeTruthy()
   })
 
   it('a name holding a slash survives the round trip', async () => {
-    const hash = compareHref('default', ['wf/r1/a.png', 'wf/r2/b.png'])
+    const hash = compareHref('default', [
+      'wf/20261126-000001-aaaaaaaa/a.png',
+      'wf/20261126-000002-bbbbbbbb/b.png',
+    ])
     const parts = hash.slice(2).split('/').map(decodeURIComponent)
-    expect(parts.slice(3)).toEqual(['wf/r1/a.png', 'wf/r2/b.png'])
+    expect(parts.slice(3)).toEqual([
+      'wf/20261126-000001-aaaaaaaa/a.png',
+      'wf/20261126-000002-bbbbbbbb/b.png',
+    ])
     render(ComparePage, { props: { names: parts.slice(3) } })
     expect(await screen.findByAltText('a.png')).toBeTruthy()
   })
@@ -195,7 +268,13 @@ describe('ComparePage', () => {
   it('removing a cell rewrites the URL', async () => {
     location.hash = '#/ws/default/compare/x'
     render(ComparePage, {
-      props: { names: ['wf/r1/a.png', 'wf/r2/b.png', 'wf/v1.mp4'] },
+      props: {
+        names: [
+          'wf/20261126-000001-aaaaaaaa/a.png',
+          'wf/20261126-000002-bbbbbbbb/b.png',
+          'wf/v1.mp4',
+        ],
+      },
     })
     await screen.findByAltText('a.png')
     const [first] = screen.getAllByRole('button', {
@@ -203,7 +282,10 @@ describe('ComparePage', () => {
     })
     await fireEvent.click(first)
     expect(location.hash).toBe(
-      compareHref('default', ['wf/r2/b.png', 'wf/v1.mp4']),
+      compareHref('default', [
+        'wf/20261126-000002-bbbbbbbb/b.png',
+        'wf/v1.mp4',
+      ]),
     )
   })
 
@@ -222,18 +304,34 @@ describe('ComparePage', () => {
 
   it('a cell opens in the viewer', async () => {
     location.hash = '#/ws/default/compare/x'
-    render(ComparePage, { props: { names: ['wf/r1/a.png', 'wf/r2/b.png'] } })
+    render(ComparePage, {
+      props: {
+        names: [
+          'wf/20261126-000001-aaaaaaaa/a.png',
+          'wf/20261126-000002-bbbbbbbb/b.png',
+        ],
+      },
+    })
     await screen.findByAltText('a.png')
     await fireEvent.click(
       screen.getAllByRole('button', { name: 'Open a.png' })[0],
     )
-    expect(location.hash).toContain('open=wf%2Fr1%2Fa.png')
+    expect(location.hash).toContain(
+      'open=wf%2F20261126-000001-aaaaaaaa%2Fa.png',
+    )
     expect(await screen.findByRole('dialog', { name: 'a.png' })).toBeTruthy()
   })
 
   it('an open= naming no file compared is said, cleared and dismissed', async () => {
     location.hash = '#/ws/default/compare/x?open=wf%2Fr9%2Fgone.png'
-    render(ComparePage, { props: { names: ['wf/r1/a.png', 'wf/r2/b.png'] } })
+    render(ComparePage, {
+      props: {
+        names: [
+          'wf/20261126-000001-aaaaaaaa/a.png',
+          'wf/20261126-000002-bbbbbbbb/b.png',
+        ],
+      },
+    })
     const notice = await screen.findByText(
       'gone.png is not in this view any more.',
     )
@@ -246,11 +344,25 @@ describe('ComparePage', () => {
   })
 
   it('from a job, the back link returns to it', async () => {
-    location.hash = compareHref('default', ['wf/r1/a.png', 'wf/r2/b.png'], {
-      href: '#/ws/default/jobs/j1',
-      label: 'Job',
+    location.hash = compareHref(
+      'default',
+      [
+        'wf/20261126-000001-aaaaaaaa/a.png',
+        'wf/20261126-000002-bbbbbbbb/b.png',
+      ],
+      {
+        href: '#/ws/default/jobs/j1',
+        label: 'Job',
+      },
+    )
+    render(ComparePage, {
+      props: {
+        names: [
+          'wf/20261126-000001-aaaaaaaa/a.png',
+          'wf/20261126-000002-bbbbbbbb/b.png',
+        ],
+      },
     })
-    render(ComparePage, { props: { names: ['wf/r1/a.png', 'wf/r2/b.png'] } })
     await screen.findByAltText('a.png')
     expect(screen.getByRole('link', { name: /Job/ })).toHaveAttribute(
       'href',
@@ -264,7 +376,14 @@ describe('ComparePage', () => {
   })
   it('with no back=, the back link is the Gallery', async () => {
     location.hash = '#/ws/default/compare/x'
-    render(ComparePage, { props: { names: ['wf/r1/a.png', 'wf/r2/b.png'] } })
+    render(ComparePage, {
+      props: {
+        names: [
+          'wf/20261126-000001-aaaaaaaa/a.png',
+          'wf/20261126-000002-bbbbbbbb/b.png',
+        ],
+      },
+    })
     await screen.findByAltText('a.png')
     expect(screen.getByRole('link', { name: /Gallery/ })).toHaveAttribute(
       'href',
@@ -272,17 +391,24 @@ describe('ComparePage', () => {
     )
   })
   it('an audio cell opens in the viewer', async () => {
-    listing.extra = ['wf/r1/s.wav']
+    listing.extra = ['wf/20261126-000001-aaaaaaaa/s.wav']
     location.hash = '#/ws/default/compare/x'
     const { container } = render(ComparePage, {
-      props: { names: ['wf/r1/a.png', 'wf/r1/s.wav'] },
+      props: {
+        names: [
+          'wf/20261126-000001-aaaaaaaa/a.png',
+          'wf/20261126-000001-aaaaaaaa/s.wav',
+        ],
+      },
     })
     await screen.findByAltText('a.png')
     expect(container.querySelector('audio')).not.toBeNull()
     await fireEvent.click(
       await screen.findByRole('button', { name: 'Open s.wav' }),
     )
-    expect(location.hash).toContain('open=wf%2Fr1%2Fs.wav')
+    expect(location.hash).toContain(
+      'open=wf%2F20261126-000001-aaaaaaaa%2Fs.wav',
+    )
     expect(await screen.findByRole('dialog', { name: 's.wav' })).toBeTruthy()
   })
   it('the transport pauses under the viewer', async () => {
@@ -379,7 +505,9 @@ describe('ComparePage', () => {
   it('new names pause and rewind the clips with the transport', async () => {
     const { rerender, clips } = await playingPair()
     const reads = api.gallery.mock.calls.length
-    await rerender({ names: ['wf/v1.mp4', 'wf/v2.mp4', 'wf/r1/a.png'] })
+    await rerender({
+      names: ['wf/v1.mp4', 'wf/v2.mp4', 'wf/20261126-000001-aaaaaaaa/a.png'],
+    })
     await screen.findByAltText('a.png')
     expect(screen.getByRole('button', { name: 'play all' })).toBeTruthy()
     expect(screen.getByText('0.00 s')).toBeTruthy()

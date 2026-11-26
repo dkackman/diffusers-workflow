@@ -87,6 +87,20 @@ export function viewLabels(
   }
 }
 
+// dw/runs.py RUN_ID_PATTERN: the run id dw writes under a workflow identity
+const RUN_ID = /^\d{8}-\d{6}-[0-9a-f]{8}(-\d+)?$/
+
+/** The gallery `folder` a file name lists under, as the server reads it
+ * (dw/runs.py `split_run_path`): the directory before the first run-id
+ * segment, else the whole directory (the flat layout) - so a page holding
+ * only names can ask `api.gallery` for just their folders.
+ * 'ltx2/Gyre/20260905-181530-a1b2c3d4/final/still.png' -> 'ltx2/Gyre' */
+export function folderOf(name: string): string {
+  const directory = name.split('/').filter(Boolean).slice(0, -1)
+  const run = directory.findIndex((segment) => RUN_ID.test(segment))
+  return (run < 0 ? directory : directory.slice(0, run)).join('/')
+}
+
 /** viewLabels' key for outputs: a name without its run folder, since two
  * runs' files are told apart by their version badge and a run id is never
  * compared (the Gallery, Compare) */
