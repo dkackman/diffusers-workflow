@@ -74,6 +74,13 @@ MEDIA_KINDS = {
     ".txt": "text",
 }
 
+# Text a job writes that the gallery does not list (a check's JSON), but
+# that stands for a job with nothing the gallery shows and can be named by a
+# note (#1740). Not in MEDIA_KINDS: every listing would gain these files
+UNLISTED_TEXT_KINDS = {
+    ext: "text" for ext in (".json", ".csv", ".tsv", ".md", ".srt", ".vtt")
+}
+
 
 @functools.lru_cache(maxsize=4096)
 def _duration_at(path, mtime_ns, size):
@@ -129,46 +136,51 @@ def prompt_text(arguments):
     )
 
 
-def _shown(entries):
-    """`(name, kind)` for each file of these manifest entries the gallery
-    shows, in order. A name that is not a plain relative one is skipped."""
+def _shown(entries, kinds=MEDIA_KINDS):
+    """`(name, kind)` for each file of these manifest entries whose extension
+    is in `kinds` (by default the ones the gallery shows), in order. A name
+    that is not a plain relative one is skipped."""
     for entry in entries:
         for name in entry.get("files") or []:
             if not isinstance(name, str) or os.path.isabs(name):
                 continue
             if ".." in name.replace("\\", "/").split("/"):
                 continue
-            kind = MEDIA_KINDS.get(os.path.splitext(name)[1].lower())
+            kind = kinds.get(os.path.splitext(name)[1].lower())
             if kind:
                 yield name, kind
 
 
 def shown_outputs(manifest):
-    """`{name: kind}` for every file of a job manifest the gallery shows -
-    the names a note's reference may take. A name that is not a plain
-    relative one is left out."""
+    """`{name: kind}` for every file of a job manifest the gallery shows, and
+    its unlisted text files - the names a note's reference may take. A name
+    that is not a plain relative one is left out."""
     if not isinstance(manifest, list):
         return {}
-    return dict(_shown(e for e in manifest if isinstance(e, dict)))
+    entries = (e for e in manifest if isinstance(e, dict))
+    return dict(_shown(entries, {**MEDIA_KINDS, **UNLISTED_TEXT_KINDS}))
 
 
 def proof_output(manifest):
     """The one file that stands for a job in a list, as `{name, kind}`, or
     None: the first image or video of its `final` entries, else their first
     sound or text; when they show nothing (or no entry has that role), the
-    same over the other entries. `name` is the manifest's own - relative to
+    same over the other entries. A job with nothing the gallery shows gets
+    its first unlisted text file (JSON and the like) as `text`, final
+    entries first. `name` is the manifest's own - relative to
     the output root, the name the gallery routes take - and `kind` its
-    MEDIA_KINDS entry."""
+    MEDIA_KINDS or UNLISTED_TEXT_KINDS entry."""
     if not isinstance(manifest, list):
         return None
     entries = [e for e in manifest if isinstance(e, dict)]
     final = [e for e in entries if entry_role(e) == "final"]
     rest = [e for e in entries if entry_role(e) != "final"]
-    for tier in (final, rest):
-        shown = list(_shown(tier))
-        visual = [f for f in shown if f[1] in ("image", "video")]
-        for name, kind in (visual or shown)[:1]:
-            return {"name": name, "kind": kind}
+    for kinds in (MEDIA_KINDS, UNLISTED_TEXT_KINDS):
+        for tier in (final, rest):
+            shown = list(_shown(tier, kinds))
+            visual = [f for f in shown if f[1] in ("image", "video")]
+            for name, kind in (visual or shown)[:1]:
+                return {"name": name, "kind": kind}
     return None
 
 
