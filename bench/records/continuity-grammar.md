@@ -61,14 +61,17 @@ The reads are the lead's. They were taken from `compare_outputs` sheets of each 
 | Arm | Seed | Two-shot | Single `a` (June) | Single `b` (Marcus) | Sides hold? | Eyelines match? |
 |---|---|---|---|---|---|---|
 | control | 1685 | June left, facing right; Marcus right, facing left | June centre-right, looking **frame left**, with an over-the-shoulder edge at left | Marcus centre, looking **frame left**, with an over-the-shoulder edge at left | ✗ June is on the wrong side of the line | ✗ June looks left, away from where Marcus sits |
-| control | 1686 | June left, facing right; Marcus right, facing left | June centre, looking off toward frame right | Marcus centre, looking slightly frame right, with a shoulder edge at right | ✗ Marcus looks right, toward his own side | ✗ / unclear |
-| treatment | 1685 | June left, facing right; Marcus right, facing left | June frame left, facing right; Marcus over the shoulder at right | June over the shoulder at left; Marcus frame right, facing left | ✓ | ✓ |
-| treatment | 1686 | June left, facing right; Marcus right, facing left | June frame left, facing right; Marcus over the shoulder at right | June over the shoulder at left; Marcus frame right, facing left | ✓ | ✓ |
+| control | 1686 | June left, facing right; Marcus right, facing left | June centre, looking off toward **frame left** (corrected, see below) | Marcus centre, looking slightly frame right, with a shoulder edge at right | ✗ Marcus looks right, toward his own side | ✗ June looks left and Marcus looks right: each away from the other |
+| treatment | 1685 | June left, facing right; Marcus right, facing left | June frame left, facing right; Marcus over the shoulder at right | an over-the-shoulder figure at left (**not June**: long light-brown hair, grey sweater); Marcus frame right, facing left | ✓ | ✓ |
+| treatment | 1686 | June left, facing right; Marcus right, facing left | June frame left, facing right; Marcus over the shoulder at right | an over-the-shoulder figure at left (**not June**: long light-brown hair, grey sweater); Marcus frame right, facing left | ✓ | ✓ |
+
+**Correction (bounce 2 of #1704).** The first version of this record read the control seed 1686 single `a` (`47784abf5969`, `ContinuitySide-a.1-0.0.jpg`) as "looking off toward frame right". The tester's `get_output_image`, full frame and cropped to `[560,0,400,330]`, shows June looking toward **frame left**, unambiguously; the row above now says so. The verdict is unchanged: the control fails the rule either way. The tester also found that the over-the-shoulder figure in both treatment `b` cards is not June. The first version said "June over the shoulder at left". The side is held, the identity is not.
 
 - **R1 is confirmed** for Klein: the treatment holds both seeds, while the control's singles cross the line in both.
 - **R2 is confirmed** for Klein, by the same reads.
 - The control two-shots already put June at left, because she is named first. The singles are where the control fails.
 - In both seeds, naming the off-screen partner's side turned the singles into **over-the-shoulder** shots, with the partner's shoulder or the back of their head in frame, rather than clean singles. That is a framing change the prompt did not ask for. It is still a usable coverage shot, but stage 2's skill text should name it.
+- In Marcus's single (`b`) the over-the-shoulder figure is a stranger, not June, on both seeds. Text holds the partner's **side**, not their **identity**: a coverage single that shows the partner needs the partner's reference, or a clean single.
 
 ### P-B: light side (R5)
 
@@ -81,8 +84,9 @@ The marker is which side of June's face is brighter, plus where the visible prac
 | treatment | 1685 | face even; no lamp visible | lamp at frame **left** | lamp at frame **left**; face brighter on frame left (forehead, cheek), moderately |
 | treatment | 1686 | lamp at frame **right** | lamp at frame **left** | lamp at frame **left**; face brighter on frame left, moderately |
 
-- **R5 is unsettled.** The treatment moves the visible practical to frame left in the medium and the close of both seeds, where the control wanders between left and right.
-- But seed 1686's treatment wide still shows a lamp at frame right.
+- **R5 is unsettled.** The treatment puts the visible practical at frame left in the medium and the close of both seeds.
+- But only seed 1685 shows that as an *effect*. On seed 1686 the control's medium and close already have the lamp at frame left, and the tester reads the treatment's medium and close as nearly identical to the control's. So the effect shows on one seed of two, which by the plan's gate cannot confirm a rule. (The first version said "the control wanders, the treatment moves the lamp left", which overstated seed 1686; corrected in bounce 2 of #1704.)
+- Seed 1686's treatment wide still shows a lamp at frame right.
 - And the face's key side is only moderately one-sided. At this lighting (warm, low-contrast, "practical") it is a soft gradient, not a clear key.
 - Whether the treatment's close-ups *read* as lit from frame left is a perception call: see Q1 below.
 
@@ -108,7 +112,7 @@ The marker is Theo's horizontal position at 0, 1.7, 3.4 and 5.1 s in each shot, 
 | R1 180-degree rule | **confirmed** | Klein | treatment ✓ on both seeds; control crosses the line on both |
 | R2 matched eyelines | **confirmed** | Klein | treatment ✓ on both seeds; control looks away on both |
 | R3 screen direction | **confirmed** | H3 | treatment left to right in both shots on both seeds; control has no lateral direction |
-| R5 light side | **unsettled** | Klein | the practical moves to frame left in 4 of the treatment's 6 cards; the face key is soft; Q1 below |
+| R5 light side | **unsettled** | Klein | the practical sits at frame left in 4 of the treatment's 6 cards, but differs from the control only on seed 1685; the face key is soft; Q1 below |
 
 ## Deviations from plan
 
@@ -127,6 +131,7 @@ The marker is Theo's horizontal position at 0, 1.7, 3.4 and 5.1 s in each shot, 
 ## For Don to view
 
 - **Q1 [taste]: does the P-B treatment read as lit from frame left?**
+  - Jobs: treatment `4ae49d950d1b` (seed 1685) and `2619ab70f376` (seed 1686); control `eb69644d79e6` (seed 1685) and `e1268b23047e` (seed 1686). The question is on #1704 in the Decision-for-Don block.
   - Compare the treatment close-ups `continuity-light/20261126-080309-8c221ef5/final/ContinuityLight-close.2-0.0.jpg` (seed 1685) and `continuity-light/20261126-080333-7427c778/final/ContinuityLight-close.2-0.0.jpg` (seed 1686) with the control's `continuity-light/20261126-080221-4656f234/final/ContinuityLight-close.2-0.0.jpg`.
   - **Default if he approves:** R5 stays unsettled. Stage 2's skill text states the light side as a *hint* that moves the practical, not as a rule that holds the key.
   - **If he sees a clear frame-left key:** R5 is confirmed for Klein, and the skill states it as a rule.
