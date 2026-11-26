@@ -351,9 +351,11 @@ for existence.
   against pruning: to depend on a generated file, promote it with `keep_output`
   and reference the `asset:` name instead.
 - `preference:` - `preference:<key>` (`preference:text_to_image`) is a `workflow`
-  step's `path` only, never an argument value: it names the catalog workflow the
-  server prefers for that job on this host. A `variable:` may hold one. It is
-  resolved right after expansion and is never left for realization. See
+  step's `path` only, never an argument value: it resolves by key and tier from
+  the server's preference ladder to the catalog workflow the server prefers for
+  that job on this host. A `variable:` may hold one, and overriding that
+  variable with a catalog name runs that workflow with no preference consulted.
+  It is resolved right after expansion and is never left for realization. See
   *Model preferences*.
 - `prompt:` - `prompt:name` or `prompt:folder/name` is a stored prompt's
   `text`, rooted at the prompt library. That text may not itself begin with any
@@ -1076,6 +1078,9 @@ resolves beside the referencing file first, then in this workspace's
 `workflows/`, then in each read-only source the server lists, so a stored
 template is composed by its catalog name rather than copied (a copy stops
 tracking the original). A path that lands outside every source is refused.
+The `path` may also be `preference:<key>`, which lets the server pick the
+workflow by key and tier; to let a caller override that pick per run, put it in
+a variable (*Model preferences* below).
 
 Declare a `result` (with a `content_type`) on the composing step and the
 composed output is saved there, once, under that step's name and subfolder;
@@ -1132,6 +1137,18 @@ shipped key.
   a `preferences` map, `{"preference:text_to_image@best": {target, arguments,
   skipped, source}}`. The worker and a rerun replay the pin; a different tier
   resolves fresh.
+- **Per-run override**: declare a variable whose default is the preference and
+  compose `variable:` it, so a caller can name the model for one run:
+
+  ```json
+  "variables": { "picture_workflow": "preference:text_to_image" },
+  "steps": [{ "name": "picture",
+    "workflow": { "path": "variable:picture_workflow" } }]
+  ```
+
+  Left alone, it resolves exactly as the literal `preference:` would.
+  `picture_workflow=models/z-image` runs z-image: no preference is consulted,
+  and the plan and `get_job` carry no `preferences` entry for that step.
 
 ### Being found next time
 
