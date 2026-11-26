@@ -1094,6 +1094,19 @@ error at `steps[N].workflow.path` before anything is queued; it also validates
 the workflow named, refuses a composition cycle, and warns about an argument
 the composed workflow declares no variable for.
 
+A composition should leave its caller the reach the child gives a direct
+caller. Pass each of the child's run-affecting values (size, frames, steps,
+image count, model) through a parent variable whose default equals the
+child's, as `"num_frames": "variable:num_frames"`, so a default run makes what
+the child makes alone and a run's `name=value` still reaches the child. Pass
+`"seed": "variable:seed"` when the child declares a non-null seed: an
+explicit parent seed then reaches the child, and a seedless run hands down the
+seed it drew rather than leaving the child at its own. A literal argument is
+for a value the composition fixes on purpose, such as one image per run when
+the next step takes one; say so in the description.
+`tests/test_composition_passthrough.py` holds the catalog to this: a literal
+passed for a variable the child declares must be listed there with its reason.
+
 ### Model preferences
 
 A `workflow` step's `path` may be `preference:<key>` instead of a catalog name,
