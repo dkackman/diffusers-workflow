@@ -29,10 +29,11 @@ let skew = 0
 /** `Date` carries whole seconds, so a difference this small is noise */
 const SKEW_NOISE_S = 2
 
-/** A response's `Date` header, as it arrives. One held in a cache carries
- * the date it was made, so the caller leaves those out */
-export function reportServerDate(date: string | null): void {
-  const at = date ? Date.parse(date) : NaN
+/** The `Date` of a response as it arrives. One a cache may hold carries the
+ * date it was made, so it is left out */
+export function reportServerDate(headers: Headers | undefined): void {
+  if (/max-age=[1-9]/.test(headers?.get('cache-control') ?? '')) return
+  const at = Date.parse(headers?.get('date') ?? '')
   if (Number.isNaN(at)) return
   // the header is truncated: the middle of its second is the best guess
   const seen = at / 1000 + 0.5 - Date.now() / 1000

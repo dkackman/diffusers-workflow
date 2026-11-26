@@ -210,13 +210,15 @@ it('reads a running duration on the server clock, never below zero', async () =>
     expect(figure()).toContain('0.0s')
     cleanup()
     // a response's Date says the server is 100 s ahead
-    reportServerDate(new Date((t + 100) * 1000).toUTCString())
+    reportServerDate(
+      new Headers({ date: new Date((t + 100) * 1000).toUTCString() }),
+    )
     header(running, {}, { running: true })
     expect(figure()).toContain('1m 37s')
     await vi.advanceTimersByTimeAsync(2000)
     expect(figure()).toContain('1m 39s')
   } finally {
-    reportServerDate(new Date().toUTCString())
+    reportServerDate(new Headers({ date: new Date().toUTCString() }))
     vi.useRealTimers()
   }
 })
