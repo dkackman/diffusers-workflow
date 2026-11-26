@@ -42,6 +42,26 @@ it('says so plainly when no workflow takes the kind', async () => {
   ).toBeTruthy()
 })
 
+it('does not say none takes it while the list is still loading', async () => {
+  let answer!: (list: never) => void
+  api.listWorkflows.mockReturnValue(
+    new Promise<never>((resolve) => (answer = resolve)),
+  )
+  const { component } = render(UseAsInput)
+  // The closed dialog's own read settles before Use as input… is chosen
+  await new Promise((resolve) => setTimeout(resolve))
+  component.show(file)
+  flushSync()
+  expect(screen.queryByText(/No workflow in this workspace/)).toBeNull()
+  answer({
+    workflows: ['mine/edit'],
+    details: { 'mine/edit': { variable_names: ['image'], writable: true } },
+  } as never)
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'edit' })).toBeTruthy(),
+  )
+})
+
 it('lists a button per workflow that takes it', async () => {
   api.listWorkflows.mockResolvedValue({
     workflows: ['mine/edit'],

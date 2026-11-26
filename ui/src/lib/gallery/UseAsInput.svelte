@@ -28,8 +28,10 @@
   )
   const article = $derived(kind === 'image' ? 'an' : 'a')
 
+  // Closed holds undefined, which LoadState reads as nothing held: null
+  // would count as a list, and say no workflow takes it while loading
   const catalog = resource(
-    () => (open ? api.listWorkflows() : Promise.resolve(null)),
+    () => (open ? api.listWorkflows() : Promise.resolve(undefined)),
     { watch: ['workflows'] },
   )
   const targets = $derived(
