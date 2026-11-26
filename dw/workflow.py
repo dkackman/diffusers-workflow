@@ -476,8 +476,11 @@ class Workflow:
             source_indices = []
             expanded = self._expand(definition, variables, source_indices)
             expanded = self.resolve_preferences(expanded, variables)
-            cache[key] = (expanded, source_indices, variables)
-        return cache[key]
+            cache[key] = (expanded, source_indices, variables, self._effective_tier)
+        # The tier a composed child inherits is this expansion's, cached or
+        # not - the last one asked for is the one its children are opened at
+        self._effective_tier = cache[key][3]
+        return cache[key][:3]
 
     def expanded_definition(self, arguments=None, source_indices=None):
         """The definition as the run will see it: constants realized,
@@ -522,10 +525,11 @@ class Workflow:
         read: a 'preference:' string anywhere else stays text."""
         from . import preferences
 
+        # Any folded value is the tier, an empty or non-string one included,
+        # so it is refused below rather than quietly falling through to the
+        # inherited or default tier (#1721)
         folded = (variables or {}).get(preferences.TIER_ARGUMENT)
-        self._effective_tier = (
-            folded if isinstance(folded, str) and folded else self._inherited_tier
-        )
+        self._effective_tier = folded if folded is not None else self._inherited_tier
         steps = definition.get("steps") if isinstance(definition, dict) else None
         if not isinstance(steps, list):
             return definition
@@ -551,6 +555,7 @@ class Workflow:
                     raise preferences.PreferenceError(
                         f"Preference tier must be a name, not {tier!r}"
                     )
+                preferences.check_tier(tier)
                 pin = preferences.pin_key(path, tier)
                 pinned = session.pinned.get(pin)
                 resolution = preferences.resolve(
@@ -642,6 +647,15 @@ class Workflow:
         child = workflow_from_file(resolved, self.output_dir, root)
         child._inherited_tier = self._effective_tier
         return child, resolved
+
+    def composed_child(self, path, arguments=None):
+        """The child one composing step of the expansion for `arguments`
+        names, opened at the tier that expansion hands down - what a reader
+        of a nested composition (the plan's preference lines and pricing)
+        opens, so a 'preference:' one level down resolves at the tier the
+        run would give it. Raises what open_sub_workflow raises."""
+        self._folded_and_expanded(arguments)
+        return self.open_sub_workflow(path)[0]
 
     def validation_errors(self, arguments=None, composing=None, *, context=None):
         """Every schema violation in the definition, as [{path, message}];

@@ -150,6 +150,7 @@ def build_plan(
     # 'preference:' step, so it comes before the realization that digests
     # what they resolved to
     expanded = candidate.expanded_definition(arguments)
+    nested = _Nested(candidate, arguments, device, observed_for_child)
     realized, annotations = realize_workflow(
         definition,
         candidate.folded_variables(arguments),
@@ -202,8 +203,13 @@ def build_plan(
         "steps": step_count,
         "elided_steps": elided,
         # One line per 'preference:' step: what it resolved to and what it
-        # skipped (dw/preferences.py)
-        **({"preferences": lines} if (lines := candidate.preference_lines()) else {}),
+        # skipped (dw/preferences.py) - a composed child's own included, at
+        # the tier that came down the chain (#1721)
+        **(
+            {"preferences": lines}
+            if (lines := candidate.preference_lines() + nested.preference_lines())
+            else {}
+        ),
         "list_entries": entries,
         "cached_steps": cache_hits,
         "downloads_required": downloads_required(
@@ -224,9 +230,101 @@ def build_plan(
                 cached_steps=cache_hits,
                 total_steps=step_count,
                 observed_for_child=observed_for_child,
+                price_child=nested.price,
             ),
         ),
     }
+
+
+# How deep the plan follows a composition into its children's children; a
+# cycle is validation's to refuse, this only bounds the walk
+_MAX_NESTING = 8
+
+
+class _Nested:
+    """The children `workflow`'s expansion for `arguments` composes, each
+    opened at the tier that expansion hands down (Workflow.composed_child) -
+    so the plan reads a 'preference:' step one level down or more the way
+    the run resolves it: its line, and a price for a child with no figure of
+    its own (#1721). Each child is opened once per plan."""
+
+    def __init__(self, workflow, arguments, device, observed_for_child, depth=0):
+        self.workflow = workflow
+        self.arguments = arguments
+        self.device = device
+        self.observed_for_child = observed_for_child
+        self.depth = depth
+        self._opened = {}
+
+    def _child(self, path, step_arguments):
+        """(child, its expansion, its _Nested) or None when it cannot be
+        opened or expanded - what the other readers already report."""
+        if self.depth >= _MAX_NESTING:
+            return None
+        key = (path, json.dumps(step_arguments or {}, sort_keys=True, default=repr))
+        if key not in self._opened:
+            try:
+                child = self.workflow.composed_child(path, self.arguments)
+                child_arguments = step_arguments or None
+                child_expanded = child.expanded_definition(child_arguments)
+                self._opened[key] = (
+                    child,
+                    child_expanded,
+                    _Nested(
+                        child,
+                        child_arguments,
+                        self.device,
+                        self.observed_for_child,
+                        self.depth + 1,
+                    ),
+                )
+            except Exception as e:
+                logger.debug(f"Composed child {path} not opened for the plan: {e}")
+                self._opened[key] = None
+        return self._opened[key]
+
+    def preference_lines(self):
+        """Each composed child's preference lines, nested ones included,
+        each named by the child path it was resolved in."""
+        lines = []
+        for path, step_arguments in _sub_workflow_paths(
+            self.workflow.expanded_definition(self.arguments)
+        ):
+            opened = self._child(path, step_arguments)
+            if opened is None:
+                continue
+            child, _, nested = opened
+            for line in child.preference_lines() + nested.preference_lines():
+                lines.append(f"in {path}: {line}")
+        return list(dict.fromkeys(lines))
+
+    def price(self, path, step_arguments):
+        """The estimate of one composed child from what it composes, or None."""
+        opened = self._child(path, step_arguments)
+        if opened is None:
+            return None
+        child, child_expanded, nested = opened
+        definition = child.workflow_definition
+        try:
+            return estimate(
+                definition,
+                child_expanded,
+                list_entries(
+                    definition,
+                    {"variables": child.folded_variables(nested.arguments) or {}},
+                ),
+                self.device,
+                os.path.dirname(os.path.abspath(child.file_spec)),
+                child.workflow_dir,
+                measured_entries=list_entries(
+                    definition, {"variables": effective_variables(definition)}
+                ),
+                observed_for_child=self.observed_for_child,
+                price_child=nested.price,
+            )
+        except Exception as e:
+            logger.debug(f"Composed child {path} not priced: {e}")
+            return None
 
 
 def _hybrid_unpriced(expanded, estimate):
@@ -276,6 +374,7 @@ def _checked_estimate(
     cached_steps,
     total_steps,
     observed_for_child,
+    price_child=None,
 ):
     """`estimate` for the run, floored, for a checked chain, at what the
     same chain unchecked quotes plus what checking adds (#1334).
@@ -307,6 +406,7 @@ def _checked_estimate(
             cached_steps=cached_steps,
             total_steps=total_steps,
             observed_for_child=observed_for_child,
+            price_child=price_child,
         )
 
     result = quote(
@@ -731,6 +831,7 @@ def estimate(
     cached_steps=None,
     total_steps=None,
     observed_for_child=None,
+    price_child=None,
 ):
     """Minutes from this box's own history when it has one, else from the
     workflow's own cost block, re-priced for the caller's list, plus each
@@ -841,6 +942,17 @@ def estimate(
             child = _child_catalog_price(
                 child_definition, child_cost, step_arguments, device
             )
+            if child["minutes"] is None and price_child is not None:
+                # A child with no figure of its own that composes others -
+                # a saved workflow around a 'preference:' step, say - is
+                # priced from what it composes, opened at the tier the chain
+                # hands it (#1721)
+                composed = price_child(path, step_arguments)
+                if composed is not None and composed.get("minutes") is not None:
+                    child = composed
+                    if composed.get("partial"):
+                        totals.partial = True
+                        totals.unpriced.extend(composed.get("unpriced") or [])
         totals.add(path, child, is_observed)
         note = (
             None
