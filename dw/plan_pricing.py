@@ -1,13 +1,18 @@
 """What a `cost` block prices a run at: the workflow's own, and each composed
 child's - the curated half of the plan's estimate (`dw/plan.py` `estimate`,
-which sets this box's observed history against it and rolls the two up).
+which sets this box's observed history, read here too, against it and rolls
+the two up).
 
 `_price` reads one cost list for the serving device and re-prices it for the
 caller's lists (`list_entries`, `_repriced`); `_own_price` and
 `_child_catalog_price` then scale it along the cost drivers that moved
 (`dw/cost_scaling.py`). `_ChildTotals` is what the children add up to, folded
-in one child at a time. Nothing here knows a model, and this module never
-imports `dw.plan` back.
+in one child at a time.
+
+`_observed` reads this box's history as an estimate, `_frames_rescaled`
+rescales a bucket to the frames a run renders, and `_with_worst_case` quotes a
+checked chain's re-rolls on it. Nothing here knows a model, and this module
+never imports `dw.plan` back.
 """
 
 import json
@@ -18,6 +23,8 @@ from . import references
 from .cost_scaling import (
     CATALOG,
     DERIVED,
+    INHERITED,
+    OBSERVED,
     OTHER_DEVICE,
     PER_ENTRY,
     UNKNOWN,
@@ -30,6 +37,9 @@ from .cost_scaling import (
     _scaled,
     _shown,
     fixed_minutes,
+    fixed_share,
+    observed_render_scaling,
+    words_check_term,
     with_words_check,
 )
 from .presets import effective_variables
@@ -651,3 +661,175 @@ def with_first_at_shape(result, definition, arguments, device, seen_shapes):
         "minutes": round(result["minutes"] + term, 1),
         "scaled": "; ".join(part for part in (result.get("scaled"), clause) if part),
     }
+
+
+def _unique(names):
+    return list(dict.fromkeys(names))
+
+
+def _with_worst_case(measured, definition, expanded, device=None):
+    """An observed or inherited estimate with a checked chain's worst-case
+    re-rolls quoted on it, as the curated figure quotes them (#1246): the
+    history is read as N segment renders (a matched chain's as one), and
+    `observed_render_scaling` says how many a run at `expanded` may pay. Unchanged when nothing can
+    re-roll. A history that ran checked already holds what re-rolls it drew,
+    so this is an upper bound, which is what the worst case promises. This
+    box's own history, so re-priced, is `derived`; an inherited one stays
+    `inherited`."""
+    if measured is None or measured.get("minutes") is None:
+        return measured
+    variables = (expanded or {}).get("variables") or {}
+    factor, axes, unscaled = observed_render_scaling(definition, variables, measured)
+    if unscaled:
+        measured = {
+            **measured,
+            "differs": _unique((measured.get("differs") or []) + unscaled),
+            "low_confidence": True,
+        }
+    # A words-checked chain's Whisper passes, on top, as the curated figure
+    # quotes them (#1262): additive, so they are not scaled by `factor`
+    words_minutes, words_axis = words_check_term(definition, variables)
+    if not axes and not words_minutes:
+        return measured
+    # A re-roll renders the segment again; it does not load the model again
+    fixed = measured["minutes"] * fixed_share(definition, device)
+    terms = axes + ([words_axis] if words_minutes else [])
+    worst = {
+        **measured,
+        "minutes": round(
+            fixed + (measured["minutes"] - fixed) * factor + words_minutes, 1
+        ),
+        "scaled": "; ".join(
+            part
+            for part in (
+                measured.get("scaled"),
+                f"from the observed {_shown_minutes(measured['minutes'])} min: "
+                + ", ".join(terms),
+            )
+            if part
+        ),
+    }
+    if worst["basis"] == OBSERVED:
+        worst["basis"] = DERIVED
+    return worst
+
+
+# How far a frames rescale reaches outside the runs it is read from before
+# its figure is flagged `low_confidence`: the rescale is linear, and
+# attention cost grows faster than linear in tokens (#1696)
+FRAMES_CONFIDENT_RATIO = (0.5, 2.0)
+FRAMES_SCALED_KEY = "frames_scaled"
+
+
+def _frames_rescaled(observed, definition, expanded, device):
+    """A bucket's `observed` block rescaled to the frames this run's list
+    entries render, from the frames its cold runs rendered
+    (`observed_cost.ENTRY_FRAMES_KEY`), or None when it carries none to
+    rescale from - an older block, entries with no `num_frames`, or another
+    template's history - which keeps #796's discard (#1696).
+
+    Cold and warm minutes both scale by run frames / bucket frames, the
+    workflow's fixed share of each held as `_scaled_observed` holds it
+    (#1224). The block says how under `FRAMES_SCALED_KEY`, which `_observed`
+    reads into `scaled` and the basis."""
+    if not isinstance(observed, dict) or observed.get("inherited_from"):
+        return None
+    was = observed.get(ENTRY_FRAMES_KEY)
+    if isinstance(was, bool) or not isinstance(was, (int, float)) or was <= 0:
+        return None
+    now = list_entry_frames(definition, (expanded or {}).get("variables") or {})
+    cold = observed.get("cold_minutes")
+    if now is None or not isinstance(cold, (int, float)):
+        return None
+    ratio = now / was
+    if math.isclose(ratio, 1.0):
+        # The bucket's runs rendered these frames: the measurement stands
+        return observed
+    share = fixed_share(definition, device)
+    block = dict(observed)
+    for key in ("cold_minutes", "warm_minutes"):
+        minutes = observed.get(key)
+        if isinstance(minutes, (int, float)) and not isinstance(minutes, bool):
+            fixed = minutes * share
+            block[key] = fixed + (minutes - fixed) * ratio
+    fixed = cold * share
+    block[FRAMES_SCALED_KEY] = {
+        "ratio": ratio,
+        "note": f"scaled from the observed {_shown_minutes(round(cold, 1))} min "
+        f"at {_shown_minutes(was)} frames"
+        + (f" ({_shown_minutes(round(fixed, 1))} min of it fixed)" if fixed else "")
+        + f": num_frames {_shown_minutes(now)} vs {_shown_minutes(was)}",
+    }
+    return block
+
+
+def _shown_minutes(minutes):
+    return int(minutes) if float(minutes).is_integer() else round(minutes, 1)
+
+
+def _observed(observed, device):
+    """This box's history as an estimate, or None when it has nothing to
+    quote from.
+
+    Withheld rather than quoted when the history is a different backend's
+    (a card swapped under the same jobs table), or when every comparable run
+    was warm: a warm run had the weights already resident and quoting it as
+    the cost of a run that has to load them would under-quote by the minutes
+    this estimate exists to name.
+    """
+    if not isinstance(observed, dict):
+        return None
+    minutes = observed.get("cold_minutes")
+    runs = observed.get("cold_runs")
+    if not isinstance(minutes, (int, float)) or not runs:
+        return None
+    if observed.get("device") not in (None, device):
+        return None
+    estimate = {
+        "minutes": round(float(minutes), 1),
+        "basis": OBSERVED,
+        "device": device,
+        "measured_on": observed.get("name"),
+        "partial": False,
+        "unpriced": [],
+        "runs": runs,
+    }
+    if observed.get("per_segment"):
+        estimate["per_segment"] = True  # a matched chain's (observed_cost)
+    inherited_from = observed.get("inherited_from")
+    if observed.get("scaled") and not inherited_from:
+        # This box's history of the default tier, re-priced for the drivers
+        # that moved (#1236): derived, not measured
+        estimate["basis"] = DERIVED
+        estimate["scaled"] = observed["scaled"]
+        estimate["low_confidence"] = True
+        if observed.get("differs"):
+            # Moved a driver no rule scales: measured at another setting
+            estimate["differs"] = list(observed["differs"])
+    frames = observed.get(FRAMES_SCALED_KEY)
+    if frames and not inherited_from:
+        # The bucket's history rescaled to this run's frames (#1696): derived,
+        # and flagged only when it reaches far outside the runs it is from
+        estimate["basis"] = DERIVED
+        estimate["scaled"] = "; ".join(
+            part for part in (estimate.get("scaled"), frames["note"]) if part
+        )
+        low, high = FRAMES_CONFIDENT_RATIO
+        if not low <= frames["ratio"] <= high:
+            estimate["low_confidence"] = True
+    if inherited_from:
+        # History of the catalog template with this workflow's pipeline,
+        # not of this workflow - an approximation (#797)
+        estimate["basis"] = INHERITED
+        estimate["inherited_from"] = inherited_from
+        estimate["differs"] = list(observed.get("differs") or [])
+        if estimate["differs"]:
+            # Measured at another attention backend, cache, LoRA, offload or
+            # quantization than this run's: kept, but flagged (#866)
+            estimate["low_confidence"] = True
+        if observed.get("scaled"):
+            # Re-priced linearly from the template's size (#851): an
+            # approximation, not a measurement
+            estimate["scaled"] = observed["scaled"]
+            estimate["low_confidence"] = True
+    return estimate
