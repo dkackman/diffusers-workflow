@@ -36,7 +36,7 @@ from ...media import (
     projected_wav_base64_size,
     video_shape,
 )
-from ... import media_compare
+from ... import ledger, media_compare
 from ...media_frames import (
     contact_sheet,
     first_frame,
@@ -212,7 +212,9 @@ def gallery_metadata(
 def _linked_jobs(request, name, ws):
     """The jobs linked to a request item that published output `name`,
     newest first, each with its 1-based `attempt` among the item's linked
-    jobs (null when the request no longer lists it)."""
+    jobs (null when the request no longer lists it: its history was trimmed,
+    or it was linked to a deleted request whose id was reused,
+    `ledger.takes`)."""
     manager = request.app.state.job_manager
     try:
         found = manager.history.jobs_publishing_file(name, ws.name)
@@ -220,9 +222,11 @@ def _linked_jobs(request, name, ws):
         logger.warning("Could not read the linked jobs of %s", name, exc_info=True)
         return []
     attempts = {}
+    stored = ledger.read_requests(ws.root or None) if found else {}
     for request_id in {job["request"] for job in found}:
         places = {}
-        for job in manager.request_jobs(ws.name, request_id):
+        linked = manager.request_jobs(ws.name, request_id)
+        for job in ledger.takes(stored.get(request_id), linked):
             places.setdefault(job["item"], []).append(job["job"])
         for jobs in places.values():
             attempts.update({job_id: n for n, job_id in enumerate(jobs, 1)})

@@ -15,6 +15,12 @@ T1 = "2026-01-01T11:00:00+00:00"
 T2 = "2026-01-01T12:00:00+00:00"
 
 
+@pytest.fixture(autouse=True)
+def _old_requests(monkeypatch):
+    """The jobs here have made-up times; the request predates them all."""
+    monkeypatch.setattr(ledger, "_created", lambda: 0)
+
+
 def store(tmp_path, request):
     """Write a requests.json by hand, as an older or newer build left it."""
     base = {

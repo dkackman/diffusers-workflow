@@ -48,6 +48,7 @@ class Clock:
 def clock(monkeypatch):
     state = Clock()
     monkeypatch.setattr(ledger, "_now", lambda: stamp(state.now))
+    monkeypatch.setattr(ledger, "_created", lambda: state.now.timestamp())
     return state
 
 

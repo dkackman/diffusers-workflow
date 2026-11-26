@@ -19,6 +19,12 @@ from .test_ledger_job_link import WS, finish, items_of, submit, view, write_plan
 root, client, planned = link.root, link.client, link.planned
 
 
+@pytest.fixture(autouse=True)
+def _old_requests(monkeypatch):
+    """The jobs here have made-up times; the request predates them all."""
+    monkeypatch.setattr(ledger, "_created", lambda: 0)
+
+
 def listed(client, request_id="cats"):
     r = client.get(f"/api/workspaces/{WS}/requests")
     assert r.status_code == 200, r.text

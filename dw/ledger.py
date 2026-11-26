@@ -32,6 +32,7 @@ import json
 import math
 import os
 import re
+import time
 import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -66,6 +67,7 @@ from .ledger_views import (  # noqa: F401 - COVER_* and the views are read as le
     item_view,
     request_view,
     summary_view,
+    takes,
 )
 
 MAX_TITLE_LENGTH = 200
@@ -170,6 +172,11 @@ def _writing(root):
 
 def _now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _created():
+    """A new request's `created`, on a job's `created_at` clock (`takes`)."""
+    return time.time()
 
 
 # --- views (dw/ledger_views.py derives them) -----------------------------
@@ -886,6 +893,8 @@ def put_request(
         revision = write["revision"] + 1
         state = write["state"] or (current or {}).get("state") or "open"
         warnings = []
+        # which instance of the id this is: jobs older than it are not takes
+        born = {"created": _created()} if current is None else current
         request = {
             "id": request_id,
             "title": write["title"],
@@ -902,7 +911,7 @@ def put_request(
                 write["items"],
                 current,
                 request_id,
-                linked_jobs,
+                lambda rid, key: takes(born, linked_jobs(rid, key)),
                 by,
                 at,
                 write["purge"],
@@ -911,6 +920,8 @@ def put_request(
             ),
             "history": _history(current, write, state, revision, by, at),
         }
+        if "created" in born:
+            request["created"] = born["created"]
         proposal, event = _close_proposal(current, write, state, by, at, revision)
         if proposal is not None:
             request["close_proposal"] = proposal
@@ -1144,9 +1155,9 @@ def delete_request(root, request_id, revision, *, jobs_for=_no_jobs):
     Only the ledger entry goes. Every job linked to it keeps its history
     row, its `request` and `item`, and its files, so the job and gallery
     filters still find them; a request written again under the same id
-    reads those jobs as its own. Refused (409 `request_has_active_jobs`,
-    with their ids as `jobs`) while a linked job is queued or running:
-    cancel them or let them finish.
+    does not read those jobs as its takes (`takes`). Refused (409
+    `request_has_active_jobs`, with their ids as `jobs`) while a linked job
+    is queued or running: cancel them or let them finish.
 
     Raises LedgerError, or OSError when the file cannot be written."""
     if root is None:
@@ -1175,7 +1186,7 @@ def delete_request(root, request_id, revision, *, jobs_for=_no_jobs):
                 code="stale_revision",
                 current_revision=current["revision"],
             )
-        jobs = jobs_for(request_id)
+        jobs = takes(current, jobs_for(request_id))
         active = [j["job"] for j in jobs if j.get("status") in ("queued", "running")]
         if active:
             raise LedgerError(
