@@ -310,7 +310,9 @@ class AssetFile(ApiModel):
         "when any do"
     )
     note: str = sometimes("The asset's note, when it has one.")
-    duration_seconds: int | float | None = sometimes("A/V length with `media=true`.")
+    duration_seconds: int | float | None = sometimes(
+        "An audio or video asset's length, with `media=true`."
+    )
 
 
 class ShadowedAsset(ApiModel):
@@ -791,7 +793,9 @@ class GalleryFile(ApiModel):
     size: int
     mtime: int | float
     label: str
-    duration_seconds: int | float | None = sometimes("A/V length with `media=true`.")
+    duration_seconds: int | float | None = sometimes(
+        "An audio or video file's length, with `media=true`."
+    )
     role: Literal["final", "intermediate"] | None = sometimes(
         "`final` for a deliverable, `intermediate` for a file a later step or "
         "run consumed; null under the flat layout or when no manifest lists the file."
@@ -808,7 +812,10 @@ class GalleryList(ApiModel):
     folders: list[str]
     subfolders: list[str]
     workspace: str
-    prompts: dict[str, str] = sometimes("Run id -> prompt, with `prompts=true`.")
+    prompts: dict[str, str] = sometimes(
+        "Run id -> the `prompt` argument its job was submitted with, "
+        "with `prompts=true`."
+    )
 
 
 class OutputDeleted(ApiModel):

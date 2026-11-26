@@ -712,7 +712,9 @@ class JobDetail(JobSummary):
 class JobList(ApiModel):
     jobs: list[JobSummary] = Field(description="Oldest first.")
     total: int = Field(description="How many matched before `limit` cut the list.")
-    prompts: dict[str, str] = sometimes("Job id -> its prompt, with `prompts=true`.")
+    prompts: dict[str, str] = sometimes(
+        "Job id -> the `prompt` argument it was submitted with, with `prompts=true`."
+    )
 
 
 class RunDeleted(ApiModel):
