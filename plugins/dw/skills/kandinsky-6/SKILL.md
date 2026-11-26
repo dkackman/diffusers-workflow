@@ -12,7 +12,7 @@ Lite-distill checkpoint, which fits a 24 GB card.
 
 ## Before anything
 
-This skill is written for dw `0.23.0-alpha.1`; `get_server_info`'s `plugin` says whether that is current.
+This skill is written for dw `0.23.0-alpha.2`; `get_server_info`'s `plugin` says whether that is current.
 
 1. `get_server_info`: the device. On `mps` stop and say so: the video VAE's
    decode keeps memory per tile on Apple Silicon and the worker is killed

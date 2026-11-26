@@ -5789,10 +5789,14 @@
           "close_proposal": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/CloseProposalWrite"
-              },
-              {
-                "$ref": "#/components/schemas/CloseDecline"
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/CloseProposalWrite"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CloseDecline"
+                  }
+                ]
               },
               {
                 "type": "null"

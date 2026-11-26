@@ -1,8 +1,32 @@
 """Tool classes for workspaces, workflow authoring and the prompt library."""
 
-from typing import Optional
+from typing import Annotated, Optional
+
+from pydantic import Field, WithJsonSchema
 
 from dw_mcp import authoring, ledger, loras, prompts, workspaces
+
+
+# `{state, reason} | null` as the client sees it; the server checks the shape
+# (422 naming close_proposal). The `{}` default is a sentinel: nothing is sent
+PROPOSE_CLOSE = {
+    "anyOf": [
+        {
+            "type": "object",
+            "properties": {
+                "state": {"enum": ["done", "abandoned"]},
+                "reason": {"type": "string"},
+            },
+            "required": ["state", "reason"],
+        },
+        {"type": "null"},
+    ]
+}
+
+
+def _bare(schema):
+    """Drop the `{}` sentinel default from the parameter's schema."""
+    schema.pop("default", None)
 
 
 class WorkspaceTools:
@@ -70,7 +94,7 @@ class WorkspaceTools:
     def get_request(
         self, request: str | None = None, workspace: str | None = None
     ) -> dict:
-        """Read a request's plan from the ledger: items with derived status
+        """Read a request's plan: items with derived status
         (revised: plan changed since its take), revision, history. No
         request lists them."""
         return ledger.get_request(self.client, request, workspace)
@@ -94,16 +118,17 @@ class WorkspaceTools:
         state: str | None = None,
         workspace: str | None = None,
         purge: list[str] | None = None,
-        propose_close: object = {},
+        propose_close: Annotated[
+            object, WithJsonSchema(PROPOSE_CLOSE), Field(json_schema_extra=_bare)
+        ] = {},
     ) -> dict:
-        """Write a request's whole plan. revision: the one you read,
-        0 to create. prompt: the ask, on create. items: ordered {key, title,
-        workflow, arguments, accepted: {job} the keeper, ...: the guide};
-        one left out is dropped. Act on the user's `notes`; never write
-        them. why: one line. state: `open` reopens; only the user closes:
-        propose_close {state, reason} (null withdraws); open until they
-        accept (get_request: close_proposal.outcome). purge: dropped keys
-        to delete. get_guide("workspaces", section="Requests")."""
+        """Write a request's whole plan at the revision read (0
+        creates; prompt: the ask). items: ordered {key, title, workflow,
+        arguments, accepted: {job} the keeper, ...}; one left out is
+        dropped, purge deletes it. Act on `notes`; never write them. state:
+        `open` reopens; only the user closes: propose_close (null
+        withdraws), read close_proposal.outcome.
+        get_guide("workspaces", section="Requests")."""
         return ledger.set_request(
             self.client,
             request,
