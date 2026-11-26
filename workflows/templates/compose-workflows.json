@@ -4,6 +4,7 @@
         "height": 480,
         "image_generation_workflow": "../models/z-image.json",
         "image_num_inference_steps": 9,
+        "num_images_per_prompt": 1,
         "image_prompt": "portrait | wide angle shot of eyes off to one side of frame, lucid dream-like 3d model of a marmot, game asset, blender, looking off in distance ::8 style | glowing ::8 background | forest, vivid neon wonderland, particles, blue, green, orange ::7 parameters | rule of thirds, golden ratio, asymmetric composition, hyper- maximalist, octane render, photorealism, cinematic realism, unreal engine, 8k ::7 --ar 16:9 --s 1000",
         "video_generation_workflow": "./minimax/image-to-video.json",
         "video_prompt": "the marmot blinks and looks around",
@@ -22,7 +23,9 @@
                     "prompt": "variable:image_prompt",
                     "num_inference_steps": "variable:image_num_inference_steps",
                     "width": "variable:width",
-                    "height": "variable:height"
+                    "height": "variable:height",
+                    "num_images_per_prompt": "variable:num_images_per_prompt",
+                    "seed": "variable:seed"
                 }
             },
             "result": {
@@ -38,7 +41,8 @@
                 "arguments": {
                     "image": "previous_result:image_generation",
                     "prompt": "variable:video_prompt",
-                    "num_inference_steps": "variable:video_num_inference_steps"
+                    "num_inference_steps": "variable:video_num_inference_steps",
+                    "seed": "variable:seed"
                 }
             },
             "result": {

@@ -685,7 +685,11 @@ def test_no_stale_entry_in_the_allowlist():
 # Then to 15_975 (measured 15_951) for `templates/preferred/text-to-image`
 # (#1627 stage A, #1724): the one catalog entry that composes
 # `preference:text_to_image`, so a request naming no model has a name to run.
-COMPACT_BUDGET = 15_975
+# Then to 16_015 (measured 15_992, 2026-11-26) for #1642 stage A (#1725): the
+# composing templates hand their child's run-affecting values down as parent
+# variables (image_workflow, video_width, video_height, num_frames, ...), and
+# the compact listing carries every variable name.
+COMPACT_BUDGET = 16_015
 # The shape=sequence listing to 1_650 (measured 1_642) for
 # `minimax/replace-performer` (#1374), the catalog's only sequence that recasts
 # a take.

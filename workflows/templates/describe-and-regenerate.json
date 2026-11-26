@@ -3,10 +3,15 @@
         "image_url": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/car.jpg?download:true",
         "vision_model": "Qwen/Qwen3-VL-4B-Instruct",
         "language_model": "Qwen/Qwen2.5-1.5B-Instruct",
+        "image_workflow": "../models/flux-dev.json",
+        "num_images_per_prompt": 1,
+        "num_inference_steps": 25,
+        "width": 768,
+        "height": 768,
         "seed": null
     },
     "id": "img2txt2img",
-    "description": "Describes an input image with a VLM, expands the caption with an LLM, then regenerates it with FLUX.1 dev. Both text steps are the 'text_generation' task - with an image it runs the vision model named in 'vision_model', without one the language model in 'language_model' - and 'release_models' drops each before the next model loads. Every model is one transformers ships, so nothing needs --trust-workflows.",
+    "description": "Describes an input image with a VLM, expands the caption with an LLM, then regenerates it with FLUX.1 dev by default. The regeneration runs the text-to-image workflow named in 'image_workflow' (a preference: default waits on #1626), handed 'num_images_per_prompt', 'num_inference_steps', 'width' and 'height'. Both text steps are the 'text_generation' task - with an image it runs the vision model named in 'vision_model', without one the language model in 'language_model' - and 'release_models' drops each before the next model loads. Every model is one transformers ships, so nothing needs --trust-workflows.",
     "seed": "variable:seed",
     "steps": [
         {
@@ -57,10 +62,13 @@
         {
             "name": "flux",
             "workflow": {
-                "path": "../models/flux-dev.json",
+                "path": "variable:image_workflow",
                 "arguments": {
                     "prompt": "previous_result:augment_prompt",
-                    "num_images_per_prompt": 1
+                    "num_images_per_prompt": "variable:num_images_per_prompt",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "width": "variable:width",
+                    "height": "variable:height"
                 }
             },
             "result": {

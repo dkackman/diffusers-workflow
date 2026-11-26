@@ -37,18 +37,24 @@ def test_each_upsampler_runs_the_pinned_pup_as_bfl_does(name, key):
     definition = load(os.path.join(BUILTINS, name))
     (step,) = generation_steps(definition)
     args = step["task"]["arguments"]
-    assert args["model_name"] == PUP
-    assert args["revision"] == PUP_PIN
+    # The pin is declared once, as the builtin's variables (#1642), so a
+    # composing parent can pass it; both revision sites read the same one.
+    declared = definition["variables"]
+    assert declared["model_name"] == PUP
+    assert declared["revision"] == PUP_PIN
+    assert declared["max_new_tokens"] == 3584
+    assert args["model_name"] == "variable:model_name"
+    assert args["revision"] == "variable:revision"
     assert args["system_prompt"] == {
         "from_hub": {
-            "repo": PUP,
+            "repo": "variable:model_name",
             "file": "system_prompts.json",
-            "revision": PUP_PIN,
+            "revision": "variable:revision",
             "key": key,
         }
     }
     assert args["chat_template_kwargs"] == {"enable_thinking": False}
-    assert args["max_new_tokens"] == 3584
+    assert args["max_new_tokens"] == "variable:max_new_tokens"
 
 
 def test_the_edit_upsampler_wraps_the_instruction_in_bfl_s_scaffold():
