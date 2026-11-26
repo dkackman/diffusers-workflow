@@ -3,6 +3,7 @@ Unit tests for result module
 Tests result storage, artifact management, and file saving
 """
 
+import av
 import pytest
 import os
 import tempfile
@@ -25,6 +26,7 @@ from dw.result import Result
 from dw.writers import as_audio_track, normalize_audio
 from dw.security import SecurityError
 from dw.shots import shot_record
+from dw.tasks.video_utils import loop_frames
 
 
 class TestResult:
@@ -2581,3 +2583,59 @@ class TestTheMusicTemplatesLeaveHeadroom:
         assert steps["music_video"]["task"]["arguments"]["audio"] == (
             "previous_result:balanced"
         )
+
+
+class TestStillsAndArraysAtTheWriters:
+    """#1751: the real writers, no patched exporter."""
+
+    @staticmethod
+    def save(content_type, outputs, directory):
+        result = Result({"content_type": content_type})
+        result.add_result(outputs)
+        warnings = []
+        with patch.object(
+            result_module,
+            "emit_warning",
+            lambda message, **fields: warnings.append(fields.get("kind")),
+        ):
+            return result.save(directory, "test"), warnings
+
+    def test_a_gathered_list_saved_as_mp4_writes_a_one_frame_video_each(self, tmp_path):
+        stills = [Image.new("RGB", (32, 24), color) for color in ("red", "blue")]
+
+        paths, warnings = self.save("video/mp4", stills, str(tmp_path))
+
+        assert len(paths) == 2
+        for path in paths:
+            with av.open(path) as container:
+                frames = list(container.decode(video=0))
+            assert [(f.width, f.height) for f in frames] == [(32, 24)]
+        assert warnings.count("still_written_as_video") == 2
+
+    def test_loop_frames_output_saves_as_a_gif(self, tmp_path):
+        ramp = [Image.new("RGB", (32, 24), (v, 0, 0)) for v in (0, 120, 250)]
+
+        paths, warnings = self.save("image/gif", loop_frames(ramp, 6), str(tmp_path))
+
+        assert len(paths) == 1
+        with Image.open(paths[0]) as gif:
+            assert gif.n_frames == 6
+            gif.seek(2)
+            assert gif.convert("RGB").getpixel((0, 0))[0] > 200
+        assert "still_written_as_video" not in warnings
+
+    @pytest.mark.parametrize(
+        "frames",
+        [
+            numpy.full((2, 24, 32, 3), 200, dtype=numpy.uint8),
+            torch.full((2, 3, 24, 32), 0.8),
+            Image.new("RGB", (32, 24), (200, 200, 200)),
+        ],
+        ids=["uint8-array", "tensor", "still"],
+    )
+    def test_other_frame_forms_save_as_a_gif(self, tmp_path, frames):
+        paths, _ = self.save("image/gif", frames, str(tmp_path))
+
+        with Image.open(paths[0]) as gif:
+            assert gif.size == (32, 24)
+            assert gif.convert("RGB").getpixel((0, 0))[0] > 190
