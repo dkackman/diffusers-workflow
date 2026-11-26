@@ -421,8 +421,9 @@ pre-release checks, not for an install:
 - `DW_BOOTSTRAP_WHEEL` - install this wheel instead of the PyPI release.
 - `DW_BOOTSTRAP_DIFFUSERS_SHA` - use this diffusers commit instead of asking
   GitHub for `main`'s (40 lowercase hex characters, or it is ignored).
-- `DW_BOOTSTRAP_TTY` (`bootstrap.sh` only) - `1` or `0` says whether
-  `/dev/tty` is available instead of probing it.
+- `DW_BOOTSTRAP_TTY` (`bootstrap.sh` only, test-only) - with
+  `DW_BOOTSTRAP_DRY_RUN`, `1` or `0` says whether `/dev/tty` is available instead
+  of probing it. Without a dry run it is ignored.
 
 The scripts ship inside the package (`dw/install_scripts/`) and are attached to
 each GitHub release with `SHA256SUMS`. `docs/RELEASING.md` covers the release

@@ -11,6 +11,9 @@
 # DW_BOOTSTRAP_WHEEL    install this wheel instead of the PyPI release
 # DW_BOOTSTRAP_DIFFUSERS_SHA  use this commit instead of asking GitHub for main's (tests)
 # DW_BOOTSTRAP_DRY_RUN  print each command (prefixed "+ ") instead of running it
+# DW_BOOTSTRAP_TTY      test-only, honoured only with DW_BOOTSTRAP_DRY_RUN: 0 or 1
+#                       says whether /dev/tty is available. A real run ignores it
+#                       and probes the terminal.
 set -eu
 
 # Everything runs inside main, called on the last line, so a download cut short
@@ -170,9 +173,11 @@ main() {
   TTY_NOTE=""
   WANT_TTY=true
   for a in ${PASS[@]+"${PASS[@]}"}; do [ "$a" = "--yes" ] && WANT_TTY=false; done
-  # DW_BOOTSTRAP_TTY (test hook): 0 = /dev/tty unavailable, 1 = available,
-  # unset = probe it.
-  case "${DW_BOOTSTRAP_TTY:-}" in
+  # DW_BOOTSTRAP_TTY (test hook, dry runs only): 0 = /dev/tty unavailable,
+  # 1 = available, unset = probe it. A real run always probes.
+  TTY_HOOK=""
+  [ -n "$DRY" ] && TTY_HOOK="${DW_BOOTSTRAP_TTY:-}"
+  case "$TTY_HOOK" in
     0) HAVE_TTY=false ;;
     1) HAVE_TTY=true ;;
     *) if (: </dev/tty) 2>/dev/null; then HAVE_TTY=true; else HAVE_TTY=false; fi ;;
