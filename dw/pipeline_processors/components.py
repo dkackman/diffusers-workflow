@@ -4,6 +4,7 @@ import logging
 from .config_objects import (
     get_group_offload_configuration,
     get_load_components_arguments,
+    portable_loaded_components,
 )
 from ..cache_blocks import register_cache_blocks
 from ..type_helpers import has_method
@@ -814,6 +815,9 @@ def _assemble_loaded(
         # Before pruning, offload and sdnq_optimize, so a cached entry
         # is the whole component as quantized (dw/quantized_cache.py)
         quantized_cache.load_components(component, load_components_arguments)
+
+    # A pre-quantized checkpoint keeps the matmul flags it was saved with
+    portable_loaded_components(component_name, component)
 
     # Blocks the workflow declares gone (Klein's prompt_upsampler)
     remove_pipeline_blocks(configuration, component)

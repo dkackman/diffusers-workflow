@@ -417,7 +417,7 @@ Nothing here was measured to fill these in; each is a gap, not a "no":
 Apple Silicon has narrower acceleration support than CUDA:
 
 - No flash-attn, Triton or bitsandbytes. Use a `native`-family `attention_backend` or leave it unset; validate warns `attention_backend_unavailable` for a CUDA-only one, and `sparse` runs dense. `compile` is skipped with a warning. A workflow that loads a bitsandbytes checkpoint (`flux2-dev`, `multi-image-reference`) or a TorchAO int4 config (`flux-torchao`) has no Mac path.
-- Workflows written for CUDA are adapted rather than refused, each change logged as a warning: a `cuda` device becomes `mps`, SDNQ's `quantization_device` and `return_device` follow it and its `use_quantized_matmul` is switched off (it runs through `torch._int_mm`, ~500x slower on MPS), group-offload CUDA streams are dropped, and `"offload": "sequential"` becomes `"model"`.
+- Workflows written for CUDA are adapted rather than refused, each change logged as a warning: a `cuda` device becomes `mps`, SDNQ's `quantization_device` and `return_device` follow it and its `use_quantized_matmul` is switched off, including one saved into a pre-quantized checkpoint (it runs through `torch._int_mm`, ~500x slower on MPS), group-offload CUDA streams are dropped, and `"offload": "sequential"` becomes `"model"`.
 - Attention slicing is automatic; see [Attention Slicing](#attention-slicing) for when to disable it.
 - `float16` can produce NaN values on Apple Silicon; use `bfloat16`. dw warns and does not override the dtype.
 - Ops the MPS backend lacks run on the CPU with `PYTORCH_ENABLE_MPS_FALLBACK=1` (set by the `fp4-fp8-for-torch-mps` package install.sh adds), and dw logs torch's warning when one does. Without it they raise.

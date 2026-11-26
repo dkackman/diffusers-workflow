@@ -1,7 +1,9 @@
 import logging
+import sys
 import torch
 
 from .. import get_device_type, resolve_device
+from ..events import emit_warning
 
 logger = logging.getLogger("dw")
 
@@ -53,6 +55,57 @@ def portable_quantization_arguments(arguments):
                 )
                 adapted[key] = False
     return adapted
+
+
+def portable_loaded_components(name, loaded):
+    """The same MPS rule for what has already loaded. A pre-quantized SDNQ
+    checkpoint carries the matmul flags it was saved with and passes no config
+    through portable_quantization_arguments, so it is switched in place.
+
+    Args:
+        name: What was loaded, for the warning
+        loaded: A model, or a pipeline whose `components` are each checked
+    """
+    # No sdnq import, no sdnq layers
+    if get_device_type() != "mps" or "sdnq" not in sys.modules:
+        return
+    components = getattr(loaded, "components", None)
+    if not isinstance(components, dict):
+        components = {name: loaded}
+
+    for component_name, model in components.items():
+        if not isinstance(model, torch.nn.Module) or not _matmul_layers(model):
+            continue
+        from sdnq.loader import apply_sdnq_options_to_model
+
+        before = len(_matmul_layers(model))
+        apply_sdnq_options_to_model(model, use_quantized_matmul=False)
+        # sdnq switches linear layers only, so count what it left
+        left = len(_matmul_layers(model))
+        if before > left:
+            emit_warning(
+                f"Turned off 'use_quantized_matmul' on {before - left} layers of "
+                f"{component_name}, which was saved pre-quantized with it - on "
+                "MPS it runs through torch._int_mm, which is far slower there "
+                "than dequantizing"
+            )
+        if left:
+            emit_warning(
+                f"{left} layers of {component_name} keep quantized matmul "
+                "(use_quantized_matmul_conv), which sdnq cannot turn off after "
+                "loading - expect them to be very slow on MPS"
+            )
+
+
+def _matmul_layers(model):
+    return [
+        module
+        for module in model.modules()
+        if getattr(
+            getattr(module, "sdnq_dequantizer", None), "use_quantized_matmul", False
+        )
+        is True
+    ]
 
 
 def create_quantization_config(quantization_config):

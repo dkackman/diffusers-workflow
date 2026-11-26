@@ -147,6 +147,7 @@ encoders (H3 declares it under `load_components`, see [Modular Pipelines](#modul
 - `weights_dtype`: the storage dtype (`uint4`, `int4`, `int8`, ...), brace-escaped so it stays a string
 - `quantization_device` / `return_device`: where the quantization pass runs and where the finished component lands. Quantizing on `cuda` is much faster than on CPU. A `cuda` here becomes the server's device on a Mac
 - `use_quantized_matmul`: quantized matmul kernels (CUDA/XPU). Turned off on MPS with a warning, where it runs through `torch._int_mm` far slower than dequantizing
+- On MPS this also covers a checkpoint saved pre-quantized with the flag on (a local folder or a Hub repo, no `quantization_config` passed): its linear layers are switched off after loading, with a run warning. sdnq cannot switch off saved conv matmul (`use_quantized_matmul_conv`); the warning counts the layers that keep it
 
 **Examples:** [text-to-video.json](../workflows/templates/ltx2/text-to-video.json), [video-with-audio.json](../workflows/templates/minimax/video-with-audio.json)
 
