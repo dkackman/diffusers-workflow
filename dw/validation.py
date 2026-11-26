@@ -105,6 +105,7 @@ from .type_references import (
     unbraced_type_warnings,
 )
 from .presets import preset_errors
+from .plan_pricing import first_at_shape_errors
 from .variable_constraints import (
     ConstraintReferenceError,
     composed_constraint_errors,
@@ -662,6 +663,7 @@ ERROR_CHECKS = [
     # A `presets` block naming nothing declared, or a selector value that
     # is no bundle (dw/presets.py)
     Check("presets", lambda c: preset_errors(c.definition, c.arguments)),
+    Check("first_at_shape", lambda c: first_at_shape_errors(c.definition)),
     # An 'attn_processor_type' whose Hub kernel this machine has no build
     # variant for (dw/kernel_availability.py, #178)
     Check(

@@ -182,6 +182,30 @@ def _was_partial(definition, row_arguments):
     )
 
 
+def seen_shapes(definition, rows, keys):
+    """The shapes (#1615) `rows` - runs of the workflow `definition` - ran
+    at, for `first_at_shape.keys` `keys`: each succeeded, full run's
+    `run_shapes` at its own stored arguments, presets resolved. A partial
+    chain (`_was_partial`) is left out: it may not have reached every shape
+    its arguments name."""
+    from ..plan_pricing import run_shapes
+
+    shapes = set()
+    for row in rows:
+        try:
+            row_arguments = json.loads(row.get("arguments") or "{}")
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(row_arguments, dict):
+            continue
+        if _was_partial(definition, row_arguments):
+            continue
+        shapes |= run_shapes(
+            definition, effective_variables(definition, row_arguments), keys
+        )
+    return shapes
+
+
 def _rendered_segments(definition, row_arguments, manifest_text):
     """The segments a full chain run rendered, or None when it cannot be
     told: the plan's count its take's shots carry (`planned_segments`,
@@ -512,6 +536,14 @@ class ObservedCosts:
                 rows.extend(workspace_rows)
         return rows
 
+    def rows_on_card(self, name, *, fresh=True, workspace=None, card=None):
+        """Every finished run of `name` (scoped as `rows_for` scopes it) that
+        ran on a card with this card's name, or `card`'s (`_on_this_card`) -
+        the rows #1615's "shapes this card has run" are read from."""
+        return self._on_this_card(
+            self.rows_for(name, fresh=fresh, workspace=workspace), card
+        )
+
     def observed(
         self,
         name,
@@ -526,9 +558,7 @@ class ObservedCosts:
         """`name`'s `observed` block. `card` ('cuda:1') prices it for that
         card - the one a plan's job would be dispatched to - rather than the
         server's own, and names that card in the block."""
-        rows = self._on_this_card(
-            self.rows_for(name, fresh=fresh, workspace=workspace), card
-        )
+        rows = self.rows_on_card(name, fresh=fresh, workspace=workspace, card=card)
         if not rows:
             return None
         if card is not None:

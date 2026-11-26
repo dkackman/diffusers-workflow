@@ -58,8 +58,10 @@ from .deps import (
     ceiling_index,
     inherited_host_ram,
     inherited_observed,
+    inherited_seen_shapes,
     lora_index,
     observed_for_name,
+    seen_shapes_for_name,
     server_prompt_library,
 )
 from .job_record import ACK_BOOLEAN, ACK_BOUND, ACK_NONE
@@ -676,6 +678,11 @@ def check_bound_acknowledgement(current, acknowledged, workspace):
     carries the current plan so the agent re-quotes from it without a
     second validate call. A plan that could not be built (None) is a
     refusal too - never a silent pass (#85).
+
+    The fingerprint does not cover `estimate.minutes`, so a quote can move
+    between the 409 and the re-run without a second refusal: a run at a
+    shape another job finishes first loses its `first_at_shape` term
+    (#1615), and the minutes recorded are the quote that was acknowledged.
     """
     record = acknowledged.model_dump()
 
@@ -850,6 +857,30 @@ def validation_plan(
                 )
             ),
             observed_for_child=observed_for_child,
+            # The shapes this card has run this workflow at, from the same
+            # rows (#1615): a first pass at any other pays an autotune the
+            # estimate adds when the cost row declares `first_at_shape`
+            seen_shapes=(
+                (
+                    lambda keys: seen_shapes_for_name(
+                        state,
+                        catalog_name,
+                        definition,
+                        keys,
+                        workspace=workspace.name if source.writable else None,
+                        card=card.ordinal(),
+                    )
+                )
+                if catalog_name
+                else lambda keys: inherited_seen_shapes(
+                    state,
+                    workspace,
+                    definition,
+                    request.arguments,
+                    keys,
+                    card=card.ordinal(),
+                )
+            ),
         )
         # Which card the estimate is for - with several, the figure is
         # that card's, and another card's may differ

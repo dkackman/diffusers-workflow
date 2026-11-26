@@ -42,7 +42,7 @@ from ..cost_scaling import (
     scale_curated,
     matched_chain,
 )
-from .observed_cost import declared_drivers
+from .observed_cost import declared_drivers, seen_shapes
 from ..library import ASSETS_KIND, LORAS_KIND, PROMPTS_KIND, library_path
 from ..workspace import (
     DEFAULT_WORKSPACE_NAME,
@@ -608,6 +608,47 @@ def observed_for_name(
         if costs
         else None
     )
+
+
+def seen_shapes_for_name(state, name, definition, keys, *, workspace=None, card=None):
+    """The shapes (#1615) this card has run `name` at, for `first_at_shape`
+    `keys`, read from the job rows `ObservedCosts` already holds: succeeded,
+    non-partial runs on a card of this card's name, scoped by `workspace` as
+    `observed_for_name` scopes them. None when the server keeps no history -
+    the term then has nothing to judge by and adds nothing."""
+    costs = getattr(state, "observed_costs", None)
+    if not costs:
+        return None
+    return seen_shapes(
+        definition,
+        costs.rows_on_card(name, workspace=workspace, card=card),
+        keys,
+    )
+
+
+def inherited_seen_shapes(state, ws, definition, arguments, keys, *, card=None):
+    """An inline workflow's seen shapes (#1615): its `inherited_from`
+    template's (`inherited_observed`), each row's shape read at the
+    template's own variables. An empty set when nothing is inherited - an
+    inline workflow has no name of its own to have run under."""
+    costs = getattr(state, "observed_costs", None)
+    if not costs:
+        return None
+    block = inherited_observed(state, ws, definition, arguments, card=card) or {}
+    name = block.get("inherited_from")
+    if not name:
+        return set()
+    for listed, template, writable in _catalog_listing(state, ws):
+        if listed == name and isinstance(template, dict):
+            return seen_shapes_for_name(
+                state,
+                name,
+                template,
+                keys,
+                workspace=ws.name if writable else None,
+                card=card,
+            )
+    return set()
 
 
 def lora_library_missing():

@@ -800,7 +800,9 @@ by the source, and `validate_workflow` names the entries to add or drop.
    - `derived` - that total extrapolated over a list of another length, or
      scaled along the steps, canvas or frames you moved off its defaults
      (`scaled` names each axis; a `cost` entry's `fixed_minutes`, the share
-     that does not scale, is held out): say it is an estimate.
+     that does not scale, is held out): say it is an estimate. On any basis,
+     `scaled` naming a "first pass at N shape(s)" means a one-time term
+     (`first_at_shape`) is in the minutes for shapes this card has not run.
    - `inherited` - an inline workflow priced from this box's runs of the
      catalog template with the same pipeline (`inherited_from`): say it is an
      approximation, and relay the warning if offload, quantization or frame
@@ -1196,7 +1198,15 @@ scales. Its `guide_factor` is what a pipeline step that lays in a `guides` clip 
 against the same step without one, on the scaling part: a ref2va guide
 appends a second copy of the target's video rows, so every pass denoises
 twice the rows (`minimax/reference-to-video` declares 2, from a 3.8 and a 7.4
-min run of the same shot). Absent, a guide is not priced.
+min run of the same shot). Absent, a guide is not priced. Its
+`first_at_shape` (`{"minutes": 4, "keys": ["width", "height"]}`) is a
+one-time cost the first run at a shape pays on a card (a kernel autotune, a
+compile), measured as a cold minus a warm run at the same shape: the quote
+adds `minutes` once per distinct shape this card has not yet run the
+workflow at, where a shape is the effective values of `keys` (each a
+variable the workflow declares) plus each list-driver entry's `num_frames`.
+It is not part of `minutes` or `fixed_minutes` and is never scaled. Absent,
+no first pass is priced.
 
 An entry carrying `cost` has been run to completion on the device it names; one
 without has only been authored, and its first run is the one that finds out
