@@ -374,3 +374,23 @@ def test_server_busy_reads_health(monkeypatch):
 
     monkeypatch.setattr(setup_cli.urllib.request, "urlopen", refuse)
     assert setup_cli.server_busy(8765) is None
+
+
+@pytest.mark.parametrize(
+    "plugin,mismatch", [("0.23.0-alpha.1", False), ("0.22.0", True)]
+)
+def test_plugin_mismatch_compares_pep440_versions(fakes, monkeypatch, plugin, mismatch):
+    monkeypatch.setattr(setup_cli.dw, "__version__", "0.23.0a1")
+    monkeypatch.setattr(
+        setup_cli,
+        "_code_state",
+        lambda run, manifest: {
+            "cli": "/c",
+            "plugin": True,
+            "plugin_version": plugin,
+            "notes_channel": True,
+            "duplicates": [],
+        },  # fmt: skip
+    )
+    fakes.run(["setup", "--status", "--json"])
+    assert json.loads(fakes.out)["plugin_version_mismatch"] is mismatch

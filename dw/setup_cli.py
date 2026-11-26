@@ -207,7 +207,7 @@ def status_report(runner, platform: str, port: int = DEFAULT_PORT) -> dict:
         "desktop": desktop,
         "code": code,
         "plugin_version_mismatch": code["plugin_version"] is not None
-        and code["plugin_version"] != version,
+        and setup_clients.versions_differ(code["plugin_version"], version),
         "missing": missing,
     }
 

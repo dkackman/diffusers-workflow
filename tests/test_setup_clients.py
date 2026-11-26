@@ -474,3 +474,122 @@ def test_a_dw_entry_without_a_command_is_never_adopted(desktop_dir, manifest):
     manifest.record("desktop", "dw", {"path": str(cfg)})
     setup_clients.unregister_desktop(manifest, platform="darwin")
     assert json.loads(cfg.read_text()) == json.loads(body)
+
+
+@pytest.mark.parametrize(
+    "version,tag",
+    [
+        ("0.22.0", "v0.22.0"),
+        ("0.23.0a1", "v0.23.0-alpha.1"),
+        ("0.23.0-alpha.1", "v0.23.0-alpha.1"),
+        ("1.0.0b2", "v1.0.0-beta.2"),
+        ("1.0.0rc1", "v1.0.0-rc.1"),
+        ("0.23.0.dev4+g1234", "v0.23.0"),
+        ("unknown", "vunknown"),
+    ],
+)
+def test_release_tag_maps_pep440_to_the_repo_tags(version, tag):
+    assert setup_clients.release_tag(version) == tag
+
+
+def test_versions_compare_by_pep440():
+    assert not setup_clients.versions_differ("0.23.0-alpha.1", "0.23.0a1")
+    assert setup_clients.versions_differ("0.22.0", "0.23.0a1")
+    assert setup_clients.versions_differ("x", "y")
+
+
+def test_a_wheel_version_pins_the_semver_tag(tmp_path, monkeypatch, manifest):
+    _fake_python(tmp_path, monkeypatch)
+    runner = FakeRunner()
+    setup_clients.register_code(manifest, runner, "0.23.0a1")
+    add = ["claude", "plugin", "marketplace", "add"]
+    assert add + ["dkackman/diffusers-workflow@v0.23.0-alpha.1"] in runner.calls
+    detail = manifest.entries("code-marketplace")[0]["detail"]
+    assert detail["source"] == "dkackman/diffusers-workflow@v0.23.0-alpha.1"
+
+
+def test_a_missing_tag_falls_back_to_the_default_branch(
+    tmp_path, monkeypatch, manifest
+):
+    _fake_python(tmp_path, monkeypatch)
+    runner = FakeRunner(
+        fail=("claude plugin marketplace add dkackman/diffusers-workflow@",)
+    )
+    message = setup_clients.register_code(manifest, runner, "0.24.0")
+    assert [
+        "claude",
+        "plugin",
+        "marketplace",
+        "add",
+        "dkackman/diffusers-workflow",
+    ] in (runner.calls)
+    assert "default branch" in message
+    detail = manifest.entries("code-marketplace")[0]["detail"]
+    assert detail == {
+        "source": "dkackman/diffusers-workflow",
+        "wanted": "dkackman/diffusers-workflow@v0.24.0",
+    }
+    # the next run at the same version does not churn the marketplace
+    again = FakeRunner(
+        {
+            "claude plugin marketplace list": MARKETS.replace("@v0.22.0", ""),
+            "claude plugin list": PLUGINS,
+        }
+    )
+    setup_clients.register_code(manifest, again, "0.24.0")
+    assert not any(c[3:4] in (["add"], ["remove"]) for c in again.calls)
+
+
+def test_a_rerun_at_a_new_version_moves_setups_pin(tmp_path, monkeypatch, manifest):
+    _fake_python(tmp_path, monkeypatch)
+    manifest.record("code-marketplace", "diffusers-workflow", {})
+    manifest.record("code-plugin", "dw@diffusers-workflow", {})
+    runner = FakeRunner(
+        {"claude plugin list": PLUGINS, "claude plugin marketplace list": MARKETS}
+    )
+    message = setup_clients.register_code(manifest, runner, "0.23.0")
+    verbs = [c[2:4] for c in runner.calls if c[1] == "plugin"]
+    assert ["marketplace", "remove"] in verbs and ["marketplace", "add"] in verbs
+    assert ["uninstall", "dw@diffusers-workflow"] in verbs
+    assert ["install", "dw@diffusers-workflow"] in verbs
+    remove = verbs.index(["marketplace", "remove"])
+    assert remove < verbs.index(["install", "dw@diffusers-workflow"])
+    assert (
+        "moved diffusers-workflow from dkackman/diffusers-workflow@v0.22.0" in message
+    )
+    assert manifest.has("code-plugin", "dw@diffusers-workflow")
+
+
+def test_a_pin_at_the_target_is_left(tmp_path, monkeypatch, manifest):
+    _fake_python(tmp_path, monkeypatch)
+    manifest.record("code-marketplace", "diffusers-workflow", {})
+    runner = FakeRunner(
+        {"claude plugin list": PLUGINS, "claude plugin marketplace list": MARKETS}
+    )
+    setup_clients.register_code(manifest, runner, "0.22.0")
+    assert not any(c[2:4] == ["marketplace", "remove"] for c in runner.calls)
+    assert not any(c[2:3] == ["install"] for c in runner.calls)
+
+
+def test_a_marketplace_setup_did_not_add_is_never_moved(
+    tmp_path, monkeypatch, manifest
+):
+    _fake_python(tmp_path, monkeypatch)
+    runner = FakeRunner(
+        {"claude plugin list": PLUGINS, "claude plugin marketplace list": MARKETS}
+    )
+    message = setup_clients.register_code(manifest, runner, "0.23.0")
+    assert not any(c[2:4] == ["marketplace", "remove"] for c in runner.calls)
+    assert "pinned at dkackman/diffusers-workflow@v0.22.0" in message
+    assert not manifest.has("code-marketplace", "diffusers-workflow")
+
+
+def test_uninstall_forgets_what_the_person_already_removed(manifest):
+    manifest.record("code-plugin", "dw@diffusers-workflow", {})
+    manifest.record("code-marketplace", "diffusers-workflow", {})
+
+    def runner(args):
+        return subprocess.CompletedProcess(args, 1, "", f"Plugin {args[-1]} not found")
+
+    message = setup_clients.unregister_code(manifest, runner)
+    assert "already removed" in message and manifest.entries() == []

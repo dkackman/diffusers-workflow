@@ -16,6 +16,8 @@ import shutil
 import sys
 from pathlib import Path
 
+from packaging.version import InvalidVersion, Version
+
 from dw.setup_service import Runner
 from dw.setup_state import (
     Manifest,
@@ -152,11 +154,40 @@ def claude_cli() -> str | None:
     return claude_executable()
 
 
+_PRE_LABELS = {"a": "alpha", "b": "beta", "rc": "rc"}
+
+
+def release_tag(version: str) -> str:
+    """The repo's git tag for a dw version.
+
+    Tags are `v` + the version as pyproject.toml spells it (`v0.23.0-alpha.1`),
+    but a wheel's metadata normalizes it (`0.23.0a1`): map the PEP 440
+    pre-release back. A dev or local part has no tag of its own and is dropped.
+    """
+    try:
+        parsed = Version(version)
+    except InvalidVersion:
+        return f"v{version}"
+    tag = "v" + ".".join(str(part) for part in parsed.release)
+    if parsed.pre:
+        label, number = parsed.pre
+        tag += f"-{_PRE_LABELS[label]}.{number}"
+    return tag
+
+
+def versions_differ(a: str, b: str) -> bool:
+    """Whether two version strings name different versions (PEP 440)."""
+    try:
+        return Version(a) != Version(b)
+    except InvalidVersion:
+        return a != b
+
+
 def code_commands(version: str, ref_syntax: str | None) -> list[list[str]]:
     """The `claude` commands that register dw with Claude Code, in order."""
     source = MARKETPLACE_SOURCE
     if ref_syntax:
-        source = f"{source}{ref_syntax}v{version}"
+        source = f"{source}{ref_syntax}{release_tag(version)}"
     mcp = _dw_mcp()
     return [
         ["claude", "plugin", "marketplace", "add", source],
@@ -311,46 +342,122 @@ def _mcp_servers(runner: Runner) -> dict[str, str] | None:
     return servers
 
 
-def _try(runner: Runner, args: list[str]) -> bool:
-    return runner(args).returncode == 0
+def _marketplace_source(result) -> str | None:
+    """The source `claude plugin marketplace list` shows for dw's marketplace
+    (`Source: GitHub (owner/repo@ref)`), or None."""
+    if result.returncode != 0:
+        return None
+    blocks = re.split(r"^\s*[❯>]\s+", result.stdout or "", flags=re.MULTILINE)
+    for block in blocks:
+        lines = block.splitlines()
+        if lines and lines[0].strip() == MARKETPLACE_NAME:
+            found = re.search(r"Source:\s*\S+\s*\(([^)]+)\)", block)
+            return found.group(1) if found else None
+    return None
+
+
+def _failure(cmd: list[str], result) -> SetupError:
+    detail = (result.stderr or result.stdout or "").strip()
+    return SetupError(f"`{' '.join(cmd[:4])}` failed: {detail}")
+
+
+def _add_marketplace(runner: Runner, target: str, notes: list[str]) -> str:
+    """Add the marketplace at `target`, else at the default branch (a version
+    with no tag yet: --status then reports the plugin version mismatch)."""
+    cmd = ["claude", "plugin", "marketplace", "add", target]
+    result = runner(cmd)
+    if result.returncode == 0:
+        return target
+    fallback = ["claude", "plugin", "marketplace", "add", MARKETPLACE_SOURCE]
+    if runner(fallback).returncode != 0:
+        raise _failure(cmd, result)
+    notes.append(
+        f"{target} could not be added, so the marketplace follows the default "
+        "branch; dw setup --status reports the plugin version"
+    )
+    return MARKETPLACE_SOURCE
+
+
+def _register_marketplace(
+    manifest: Manifest, runner: Runner, target: str, notes: list[str]
+) -> bool:
+    """Add the dw marketplace pinned at `target`, or move setup's own pin to
+    it; returns whether an existing marketplace was moved."""
+    listing = runner(["claude", "plugin", "marketplace", "list"])
+    names = _listed(listing)
+    present = names is not None and MARKETPLACE_NAME in names
+    recorded = next(iter(manifest.entries("code-marketplace")), None)
+    moved = False
+    if present:
+        current = _marketplace_source(listing)
+        if recorded is None:
+            pinned = f" (pinned at {current})" if current and current != target else ""
+            notes.append(f"{MARKETPLACE_NAME} already present{pinned}")
+            return False
+        detail = recorded.get("detail") or {}
+        current = current or detail.get("source")
+        if current is None or target in (current, detail.get("wanted")):
+            notes.append(f"{MARKETPLACE_NAME} already present")
+            return False
+        remove = ["claude", "plugin", "marketplace", "remove", MARKETPLACE_NAME]
+        result = runner(remove)
+        if result.returncode != 0:
+            raise _failure(remove, result)
+        notes.append(f"moved {MARKETPLACE_NAME} from {current}")
+        moved = True
+    source = _add_marketplace(runner, target, notes)
+    manifest.record(
+        "code-marketplace", MARKETPLACE_NAME, {"source": source, "wanted": target}
+    )
+    manifest.save()
+    if not moved:
+        notes.append(f"added {MARKETPLACE_NAME}")
+    return moved
+
+
+def _register_plugin(
+    manifest: Manifest, runner: Runner, moved: bool, notes: list[str]
+) -> None:
+    """Install the plugin; reinstall it when its marketplace moved."""
+    plugins = _listed(runner(["claude", "plugin", "list"]))
+    present = plugins is not None and PLUGIN in plugins
+    if present and not moved:
+        notes.append(f"{PLUGIN} already present")
+        return
+    if present:
+        runner(["claude", "plugin", "uninstall", PLUGIN])  # may be gone already
+    cmd = ["claude", "plugin", "install", PLUGIN]
+    result = runner(cmd)
+    if result.returncode != 0:
+        raise _failure(cmd, result)
+    if not present or manifest.has("code-plugin", PLUGIN):
+        manifest.record("code-plugin", PLUGIN, {})
+        manifest.save()
+    notes.append(f"{'reinstalled' if present else 'added'} {PLUGIN}")
 
 
 def register_code(manifest: Manifest, runner: Runner, version: str) -> str:
-    marketplaces = _listed(runner(["claude", "plugin", "marketplace", "list"]))
-    plugins = _listed(runner(["claude", "plugin", "list"]))
-    servers = _mcp_servers(runner)
+    """Register the dw marketplace (pinned at this version's tag), the dw
+    plugin and the dw-notes channel. A re-run at a new version moves setup's
+    own marketplace pin and reinstalls the plugin from it."""
+    commands = code_commands(version, "@")
     notes: list[str] = []
-    for cmd in code_commands(version, "@"):
-        if cmd[1:4] == ["plugin", "marketplace", "add"]:
-            kind, key, present = (
-                "code-marketplace",
-                MARKETPLACE_NAME,
-                marketplaces is not None and MARKETPLACE_NAME in marketplaces,
-            )
-        elif cmd[1:3] == ["plugin", "install"]:
-            kind, key, present = (
-                "code-plugin",
-                PLUGIN,
-                plugins is not None and PLUGIN in plugins,
-            )
-        else:
-            name = cmd[5]
-            kind, key, present = (
-                "code-mcp",
-                name,
-                servers is not None and name in servers,
-            )
-        if present:
-            notes.append(f"{key} already present")
-            continue
-        result = runner(cmd)
+    moved = _register_marketplace(manifest, runner, commands[0][-1], notes)
+    _register_plugin(manifest, runner, moved, notes)
+    servers = _mcp_servers(runner)
+    if servers is not None and _NOTES in servers:
+        notes.append(f"{_NOTES} already present")
+    else:
+        result = runner(commands[2])
         if result.returncode != 0:
-            detail = (result.stderr or result.stdout or "").strip()
-            raise SetupError(f"`{' '.join(cmd[:4])}` failed: {detail}")
-        manifest.record(kind, key, {})
+            raise _failure(commands[2], result)
+        manifest.record("code-mcp", _NOTES, {})
         manifest.save()
-        notes.append(f"added {key}")
+        notes.append(f"added {_NOTES}")
     return "Claude Code: " + "; ".join(notes)
+
+
+_GONE = re.compile(r"not (?:found|installed)|does not exist|no such", re.I)
 
 
 def unregister_code(manifest: Manifest, runner: Runner) -> str:
@@ -363,10 +470,17 @@ def unregister_code(manifest: Manifest, runner: Runner) -> str:
     for kind, prefix in removals:
         for entry in manifest.entries(kind):
             key = entry["key"]
-            if _try(runner, [*prefix, key]):
+            result = runner([*prefix, key])
+            output = f"{result.stdout or ''} {result.stderr or ''}"
+            if result.returncode == 0 or _GONE.search(output):
+                # removed by the person already: nothing left to undo
                 manifest.forget(kind, key)
                 manifest.save()
-                notes.append(f"removed {key}")
+                notes.append(
+                    f"removed {key}"
+                    if result.returncode == 0
+                    else f"{key} was already removed"
+                )
             else:
                 notes.append(f"could not remove {key}; run `{' '.join(prefix)} {key}`")
     return "Claude Code: " + ("; ".join(notes) if notes else "nothing to remove")
