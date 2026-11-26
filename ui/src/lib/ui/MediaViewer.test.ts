@@ -13,6 +13,9 @@ import { holdLayer } from './layers.svelte'
 import type { MediaFile } from '../media'
 import { api } from '../test/apiMock'
 import { workspace } from '../workspaceState.svelte'
+import { quiet, useQuietClock } from '../test/quiet'
+
+useQuietClock()
 
 api.listWorkspaces.mockImplementation(() => new Promise(() => {}))
 api.fileText.mockImplementation(() => Promise.resolve('a text file'))
@@ -259,7 +262,7 @@ it('Back closes the viewer it opened', async () => {
 it('a name no item has renders nothing', async () => {
   const onkey = vi.fn(() => true)
   viewer({ open: 'run/gone.png', onkey })
-  await flush()
+  await quiet()
   expect(screen.queryByRole('dialog')).toBeNull()
   await press(document.body, { key: 's' })
   expect(onkey).not.toHaveBeenCalled()
@@ -304,13 +307,13 @@ it('a text file shows its contents, audio its native controls', async () => {
 async function stroke(target: Element) {
   await fireEvent.pointerDown(target, { clientX: 300, clientY: 100 })
   await fireEvent.pointerUp(target, { clientX: 100, clientY: 100 })
-  await flush()
+  await quiet()
 }
 const position = async () => (await dialog()).textContent?.match(/\d of 3/)?.[0]
 
 it('a swipe on the picture or the stage steps', async () => {
   // an earlier test's Back lands first; then opened on its link
-  await flush()
+  await quiet()
   history.replaceState({}, '', '#/ws/studio/gallery?open=run%2Fa.png')
   viewer({ open: 'run/a.png' })
   const sheet = await screen.findByRole('dialog', { name: 'a.png' })
@@ -536,7 +539,7 @@ it('stepping to a deleted neighbour says it is missing', async () => {
   ongone.mockClear()
   fetched.mockResolvedValue(new Response(null, { status: 200 }))
   await fireEvent.error(sheet.querySelector('img')!)
-  await flush()
+  await quiet()
   expect(ongone).not.toHaveBeenCalled()
 })
 
@@ -635,7 +638,7 @@ it("a press on a page's action that cannot act leaves More open", async () => {
     await fireEvent.click(more)
     const menu = await screen.findByRole('dialog', { name: 'More' })
     await fireEvent.click(within(menu).getByRole('button', { name: 'Star' }))
-    await flush()
+    await quiet()
     // jsdom hides the floating menu once placed, so the trigger is asked
     expect(more).toHaveAttribute('aria-expanded', 'true')
   } finally {

@@ -6,6 +6,9 @@ import { ApiError } from '../apiErrors'
 import { api } from '../test/apiMock'
 import { ASSET } from '../references'
 import type { GalleryMetadata } from '../types'
+import { quiet, useQuietClock } from '../test/quiet'
+
+useQuietClock()
 
 const reply = vi.hoisted(() => ({
   meta: null as Record<string, unknown> | null,
@@ -118,7 +121,7 @@ it('an embedded image shows no job error', async () => {
   await screen.findByText('a cat')
   await waitFor(() => expect(getJob).toHaveBeenCalledWith('j1'))
   // the read has settled: a clip's would say so, an image's needs no job
-  await new Promise((r) => setTimeout(r, 0))
+  await quiet()
   expect(screen.queryByText(/load the job/)).toBeNull()
   expect(screen.getByRole('link', { name: 'j1' })).toBeTruthy()
 })
