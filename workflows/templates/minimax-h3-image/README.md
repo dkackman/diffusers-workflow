@@ -58,8 +58,10 @@ transformer and the VAE, fed `prompt_embeds` by `previous_result:`. Its folder p
 host-specific, so it stays in `bench` and is never a catalog template.
 
 Measured on mini-ai (M5 Pro, 64 GB, job `b99e189e1059`): one 2048x2048 still in 3.2 min
-with the model load, denoise 77.9 s for the 6 passes, peak 34.2 GB of MPS memory and a
-40.4 GB job peak RSS. dw switches off the transformer folder's saved quantized matmul on
+with the model load, denoise 77.9 s for the 6 passes, peak 34.2 GB of MPS memory, and a
+host peak of about 60 GB RSS during the `generate` load (59.9 GB on `b99e189e1059`,
+60.2 GB on `608885eca475`), leaving about 20 GB of the 64 GB. Nothing else host-heavy
+should run beside it. dw switches off the transformer folder's saved quantized matmul on
 mps (#1744) and says so in a job warning. The edit with references
 (`bench/workflows/h3-image-mps-edit3.json`) has no mps measurement. The
 record is `bench/records/h3-image.md`, *mini-ai (mps)*.
