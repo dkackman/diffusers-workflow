@@ -133,3 +133,43 @@ test('a sidebar row shows its whole name beside its size', async ({ page }) => {
     )
   }
 })
+
+// #1732: rows under a group header once all read as its shared prefix
+test('rows inside a group show what tells them apart', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 })
+  const prefix = `g${Date.now().toString(36).slice(-5)}`
+  const suffixes = ['complete', 'smoke-lem-1', 'smoke-lem-2']
+  const names = suffixes.map((s) => `${prefix}-${s}`)
+  try {
+    for (const name of names) {
+      const created = await page.request.post('/api/workspaces', {
+        data: { name },
+      })
+      expect(created.ok()).toBe(true)
+    }
+    await page.goto('/')
+    const nav = page.getByRole('complementary', { name: 'navigation' })
+    await nav.getByRole('button', { name: new RegExp(`^${prefix}-`) }).click()
+    for (const name of names) {
+      const label = nav.locator(`a[title="${name}"] .name`)
+      await expect(label).toHaveText(name)
+      // the prefix takes no width, and the rest is not elided
+      expect((await label.locator('.sr-only').boundingBox())!.width).toBe(1)
+      expect(
+        await label.evaluate((el) => {
+          const range = document.createRange()
+          range.selectNodeContents(el.lastChild!)
+          return (
+            range.getBoundingClientRect().right <=
+            el.getBoundingClientRect().right + 0.5
+          )
+        }),
+      ).toBe(true)
+    }
+  } finally {
+    for (const name of names)
+      await page.request.delete(
+        `/api/workspaces/${encodeURIComponent(name)}?acknowledged=true`,
+      )
+  }
+})

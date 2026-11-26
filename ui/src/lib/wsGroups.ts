@@ -12,6 +12,19 @@ const prefixOf = (name: string) => {
   return at > 0 ? name.slice(0, at) : null
 }
 
+/** A name as a row under its group shows it: the part the group header
+ * already says, then the part that tells it apart. Outside a group, or when
+ * nothing would be left, the whole name is shown. */
+export function splitName(
+  name: string,
+  prefix?: string,
+): { said: string; own: string } {
+  const said = prefix ? `${prefix}-` : ''
+  return name.startsWith(said) && name.length > said.length
+    ? { said, own: name.slice(said.length) }
+    : { said: '', own: name }
+}
+
 export function groupWorkspaces(
   names: readonly string[],
   {

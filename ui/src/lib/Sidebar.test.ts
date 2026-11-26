@@ -249,7 +249,19 @@ it('folds a run of same-prefix workspaces into one group row', async () => {
   expect(group.getAttribute('aria-expanded')).toBe('false')
   expect(screen.queryByText('regression-a')).toBeNull()
   await fireEvent.click(group)
-  expect(screen.getByText('regression-a')).toBeTruthy()
+  // #1732: a child draws only what its group header does not say; the full
+  // name stays in the row for hover and a screen reader
+  const name = screen.getByTitle('regression-a').querySelector('.name')!
+  expect(name.textContent).toBe('regression-a')
+  expect(name.querySelector('.sr-only')?.textContent).toBe('regression-')
+  // the open workspace's own block, inside its group, does the same
+  location.hash = '#/ws/regression-b/overview'
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
+  await waitFor(() =>
+    expect(
+      document.querySelector('.ws.open .wsname .sr-only')?.textContent,
+    ).toBe('regression-'),
+  )
 })
 
 it('a workspace made or deleted elsewhere shows when the workspaces counter moves', async () => {
