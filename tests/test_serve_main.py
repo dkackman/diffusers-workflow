@@ -313,3 +313,10 @@ def test_the_app_records_managed_on_its_state(tmp_path, flag):
         managed=flag,
     )
     assert app.state.managed is flag
+
+
+def test_install_root_flag_sets_the_environment(serve, monkeypatch, tmp_path):
+    # setenv first so monkeypatch restores whatever main() assigns
+    monkeypatch.setenv("DW_INSTALL_ROOT", "unset")
+    serve("--install-root", str(tmp_path / "root"))
+    assert os.environ["DW_INSTALL_ROOT"] == str(tmp_path / "root")

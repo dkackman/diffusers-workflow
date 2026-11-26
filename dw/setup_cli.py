@@ -13,7 +13,6 @@ import getpass
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 import urllib.error
@@ -251,6 +250,12 @@ def _install(args, runner, platform: str) -> int:
             lambda: setup_clients.register_desktop(manifest, platform),
         )
         print(setup_clients.desktop_plugin_steps())
+    if args.no_code and args.no_desktop:
+        print("dw-mcp shim: skipped (--no-code --no-desktop)")
+    else:
+        # Claude Code and Cowork (Claude Desktop) both start the plugin's dw
+        # server through this path, so it does not wait on the claude CLI
+        _step("dw-mcp shim", failures, lambda: setup_clients.write_mcp_shim(manifest))
     if args.no_code:
         print("Claude Code: skipped (--no-code)")
     elif setup_clients.claude_cli() is None:
@@ -319,8 +324,7 @@ def _uninstall(args, runner, platform: str) -> int:
         print("Nothing removed.")
         return 0
     if any(
-        manifest.entries(k)
-        for k in ("code-plugin", "code-marketplace", "code-mcp", "shim")
+        manifest.entries(k) for k in ("code-plugin", "code-marketplace", "code-mcp")
     ):
         if setup_clients.claude_cli() is None:
             print(f"Claude Code: skipped, {_NO_CLAUDE}; its entries stay recorded")
@@ -330,6 +334,8 @@ def _uninstall(args, runner, platform: str) -> int:
                 failures,
                 lambda: setup_clients.unregister_code(manifest, runner),
             )
+    if manifest.entries("shim"):
+        _step("dw-mcp shim", failures, lambda: setup_clients.remove_mcp_shim(manifest))
     if manifest.entries("desktop"):
         _step(
             "Claude Desktop",
@@ -369,14 +375,15 @@ def _setup(args) -> int:
 
 
 def _agent(extra: list[str]) -> int:
-    if shutil.which("claude") is None:
+    claude = setup_clients.claude_cli()
+    if claude is None:
         print(
             "Claude Code was not found on PATH. Install it from "
             "https://claude.com/claude-code, then run `dw agent` again.",
             file=sys.stderr,
         )
         return 1
-    command = agent_command(extra)
+    command = [claude, *agent_command(extra)[1:]]
     if sys.platform == "win32":
         return subprocess.run(command, check=False).returncode
     os.execvp(command[0], command)

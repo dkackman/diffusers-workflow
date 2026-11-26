@@ -12,6 +12,7 @@ than overwrite something the user wrote.
 
 import json
 import os
+import shutil
 import stat
 import sys
 import tempfile
@@ -53,14 +54,6 @@ def shim_dir() -> Path:
     return Path.home() / ".local" / "share" / _APP / "bin"
 
 
-def venv_bin(name: str, root: Path | None = None, platform: str | None = None) -> Path:
-    """The executable `name` inside the install's venv."""
-    venv = (root if root is not None else install_root()) / "venv"
-    if (platform or sys.platform) == "win32":
-        return venv / "Scripts" / f"{name}.exe"
-    return venv / "bin" / name
-
-
 def beside_python(name: str, platform: str | None = None) -> Path:
     """The executable `name` beside the interpreter running now.
 
@@ -71,6 +64,42 @@ def beside_python(name: str, platform: str | None = None) -> Path:
     """
     suffix = ".exe" if (platform or sys.platform) == "win32" else ""
     return Path(sys.executable).parent / f"{name}{suffix}"
+
+
+# Where Homebrew and the npm global prefix put `claude` on macOS and Linux
+CLAUDE_SYSTEM_DIRS = ("/opt/homebrew/bin", "/usr/local/bin")
+
+
+def claude_executable(platform: str | None = None) -> str | None:
+    """The `claude` CLI: on PATH, else where its installers put it.
+
+    The service dw-serve runs under (and so the Update button's `dw setup`)
+    gets the service manager's short PATH, which rarely holds `claude`. The
+    full path is also what lets Windows run npm's `claude.cmd` without a
+    shell.
+    """
+    found = shutil.which("claude")
+    if found:
+        return found
+    home = Path.home()
+    if (platform or sys.platform) == "win32":
+        appdata = os.environ.get("APPDATA") or str(home / "AppData" / "Roaming")
+        names = ("claude.exe", "claude.cmd")
+        dirs = [
+            home / ".local" / "bin",
+            Path(appdata) / "npm",
+            home / ".claude" / "local",
+        ]
+    else:
+        names = ("claude",)
+        dirs = [home / ".local" / "bin", home / ".claude" / "local"]
+        dirs += [Path(d) for d in CLAUDE_SYSTEM_DIRS]
+    for directory in dirs:
+        for name in names:
+            candidate = directory / name
+            if candidate.is_file() and os.access(candidate, os.X_OK):
+                return str(candidate)
+    return None
 
 
 def _read_json(path: Path, what: str) -> dict:

@@ -29,13 +29,45 @@ def test_install_root_default_is_per_platform(monkeypatch):
     )
 
 
-def test_venv_bin_per_platform(tmp_path):
-    assert setup_state.venv_bin("dw", tmp_path, platform="linux") == (
-        tmp_path / "venv" / "bin" / "dw"
+def test_beside_python_names_the_running_venv(tmp_path, monkeypatch):
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "bin" / "python"))
+    assert setup_state.beside_python("dw", platform="linux") == tmp_path / "bin" / "dw"
+    assert setup_state.beside_python("dw", platform="win32") == (
+        tmp_path / "bin" / "dw.exe"
     )
-    assert setup_state.venv_bin("dw", tmp_path, platform="win32") == (
-        tmp_path / "venv" / "Scripts" / "dw.exe"
-    )
+
+
+def test_claude_is_found_off_path(tmp_path, monkeypatch):
+    monkeypatch.setattr(setup_state.shutil, "which", lambda name: None)
+    monkeypatch.setattr(setup_state, "CLAUDE_SYSTEM_DIRS", (str(tmp_path / "brew"),))
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    assert setup_state.claude_executable(platform="darwin") is None
+    brew = tmp_path / "brew" / "claude"
+    brew.parent.mkdir()
+    brew.write_text("")
+    brew.chmod(0o755)
+    assert setup_state.claude_executable(platform="darwin") == str(brew)
+    local = tmp_path / ".local" / "bin" / "claude"
+    local.parent.mkdir(parents=True)
+    local.write_text("")
+    local.chmod(0o755)
+    assert setup_state.claude_executable(platform="linux") == str(local)
+
+
+def test_claude_on_windows_finds_the_npm_cmd(tmp_path, monkeypatch):
+    monkeypatch.setattr(setup_state.shutil, "which", lambda name: None)
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setenv("APPDATA", str(tmp_path / "Roaming"))
+    npm = tmp_path / "Roaming" / "npm" / "claude.cmd"
+    npm.parent.mkdir(parents=True)
+    npm.write_text("")
+    npm.chmod(0o755)
+    assert setup_state.claude_executable(platform="win32") == str(npm)
+
+
+def test_claude_on_path_wins(monkeypatch):
+    monkeypatch.setattr(setup_state.shutil, "which", lambda name: "/p/claude")
+    assert setup_state.claude_executable() == "/p/claude"
 
 
 def test_shim_dir_is_the_same_everywhere():

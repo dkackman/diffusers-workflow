@@ -225,20 +225,101 @@ def test_remove_shim_only_when_recorded(tmp_path, monkeypatch, manifest):
     assert shim.exists()
     manifest.record("shim", "dw-mcp", {})
     assert "left as it is" in setup_clients.remove_mcp_shim(manifest, platform="linux")
-    assert shim.exists()
+    assert shim.read_text() == "mine" and not manifest.has("shim", "dw-mcp")
     shim.unlink()
     shim.symlink_to(tmp_path)
+    manifest.record("shim", "dw-mcp", {})
     setup_clients.remove_mcp_shim(manifest, platform="linux")
     assert not shim.is_symlink() and not manifest.has("shim", "dw-mcp")
 
 
-def test_register_and_unregister_code_manage_the_shim(tmp_path, monkeypatch, manifest):
+def test_remove_leaves_a_link_repointed_since_setup(tmp_path, monkeypatch, manifest):
+    target = _fake_python(tmp_path, monkeypatch)
+    setup_clients.write_mcp_shim(manifest, platform="linux")
+    shim = setup_state.shim_dir() / "dw-mcp"
+    shim.unlink()
+    shim.symlink_to(tmp_path / "elsewhere")
+    assert "left as it is" in setup_clients.remove_mcp_shim(manifest, platform="linux")
+    assert shim.is_symlink() and target.exists()
+
+
+def test_a_recorded_shim_now_a_file_or_dir_is_not_unlinked(
+    tmp_path, monkeypatch, manifest
+):
     _fake_python(tmp_path, monkeypatch)
-    setup_clients.register_code(manifest, FakeRunner(), "0.23.0")
-    assert manifest.has("shim", "dw-mcp")
-    setup_clients.unregister_code(manifest, FakeRunner())
+    shim = setup_state.shim_dir() / "dw-mcp"
+    shim.parent.mkdir(parents=True)
+    manifest.record("shim", "dw-mcp", {})
+    shim.write_text("mine")
+    assert "left as it is" in setup_clients.write_mcp_shim(manifest, platform="linux")
+    assert shim.read_text() == "mine"
+    shim.unlink()
+    shim.mkdir()
+    assert "left as it is" in setup_clients.write_mcp_shim(manifest, platform="linux")
+    assert shim.is_dir()
+
+
+def test_an_unrecorded_shim_pointing_elsewhere_is_a_warning(
+    tmp_path, monkeypatch, manifest
+):
+    _fake_python(tmp_path, monkeypatch)
+    shim = setup_state.shim_dir() / "dw-mcp"
+    shim.parent.mkdir(parents=True)
+    shim.symlink_to(tmp_path / "other-dw-mcp")
+    message = setup_clients.write_mcp_shim(manifest, platform="linux")
+    assert message.startswith("warning:") and str(tmp_path / "other-dw-mcp") in message
     assert not manifest.has("shim", "dw-mcp")
-    assert not (setup_state.shim_dir() / "dw-mcp").is_symlink()
+
+
+def test_a_locked_windows_shim_is_a_setup_error(tmp_path, monkeypatch, manifest):
+    _fake_python(tmp_path, monkeypatch, exe="dw-mcp.exe")
+    setup_clients.write_mcp_shim(manifest, platform="win32")
+    (tmp_path / "fake-venv" / "bin" / "dw-mcp.exe").write_text("new build")
+
+    def locked(*args, **kwargs):
+        raise PermissionError(13, "The process cannot access the file")
+
+    monkeypatch.setattr(Path, "unlink", locked)
+    with pytest.raises(setup_state.SetupError, match="Close Claude Code"):
+        setup_clients.write_mcp_shim(manifest, platform="win32")
+    with pytest.raises(setup_state.SetupError, match="Close Claude Code"):
+        setup_clients.remove_mcp_shim(manifest, platform="win32")
+
+
+def test_an_identical_windows_shim_is_not_copied_again(tmp_path, monkeypatch, manifest):
+    _fake_python(tmp_path, monkeypatch, exe="dw-mcp.exe")
+    setup_clients.write_mcp_shim(manifest, platform="win32")
+    copies = []
+    monkeypatch.setattr(setup_clients.shutil, "copy2", lambda *a: copies.append(a))
+    monkeypatch.setattr(Path, "unlink", lambda *a, **k: copies.append("unlink"))
+    assert "already in place" in setup_clients.write_mcp_shim(
+        manifest, platform="win32"
+    )
+    assert copies == []
+
+
+def test_registering_claude_code_leaves_the_shim_to_its_own_step(
+    tmp_path, monkeypatch, manifest
+):
+    _fake_python(tmp_path, monkeypatch)
+    setup_clients.write_mcp_shim(manifest, platform="linux")
+    setup_clients.register_code(manifest, FakeRunner(), "0.23.0")
+    setup_clients.unregister_code(manifest, FakeRunner())
+    assert manifest.has("shim", "dw-mcp")
+    assert (setup_state.shim_dir() / "dw-mcp").is_symlink()
+
+
+def test_desktop_and_notes_name_the_dw_mcp_beside_the_interpreter(
+    tmp_path, monkeypatch, desktop_dir, manifest
+):
+    target = _fake_python(tmp_path, monkeypatch)
+    setup_clients.register_desktop(manifest, platform="darwin")
+    cfg = json.loads((desktop_dir / "claude_desktop_config.json").read_text())
+    assert cfg["mcpServers"]["dw"]["command"] == str(target)
+    notes = next(
+        c for c in setup_clients.code_commands("0.23.0", None) if "dw-notes" in c
+    )
+    assert notes[-2] == str(target)
 
 
 def test_code_commands_pin_the_ref():

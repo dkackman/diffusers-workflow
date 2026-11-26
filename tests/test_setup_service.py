@@ -2,6 +2,7 @@
 
 import plistlib
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -89,9 +90,43 @@ def test_the_task_xml_restarts_on_failure_without_a_time_limit():
 
 
 def test_serve_command_binds_loopback_with_mcp_and_managed(home):
-    cmd = setup_service.serve_command()
+    cmd = setup_service.serve_command(platform="linux")
     assert cmd[1:] == ["--host", "127.0.0.1", "--port", "8765", "--mcp", "--managed"]
-    assert cmd[0].startswith(str(home / "root"))
+    assert Path(cmd[0]) == Path(sys.executable).parent / "dw-serve"
+
+
+def test_the_windows_task_is_told_the_install_root(home):
+    cmd = setup_service.serve_command(platform="win32")
+    assert cmd[0].endswith("dw-serve.exe")
+    assert cmd[-2:] == ["--install-root", str(home / "root")]
+
+
+def test_the_service_carries_the_install_root_and_works_there(home):
+    env = setup_service.service_environment()
+    assert env == {"DW_INSTALL_ROOT": str(home / "root")}
+    plist = plistlib.loads(
+        setup_service.launchd_plist(["/x"], Path("/logs"), home / "root", env)
+    )
+    assert plist["EnvironmentVariables"] == env
+    assert plist["WorkingDirectory"] == str(home / "root")
+    unit = setup_service.systemd_unit(["/x"], Path("/my root"), {"A": "b c"})
+    assert "WorkingDirectory=/my root\n" in unit and 'Environment="A=b c"' in unit
+    xml = setup_service.windows_task_xml(["C:\\x.exe"], Path("C:\\root"))
+    assert "<WorkingDirectory>C:\\root</WorkingDirectory>" in xml
+
+
+def test_without_an_override_the_service_sets_no_environment(home, monkeypatch):
+    monkeypatch.delenv("DW_INSTALL_ROOT")
+    assert setup_service.service_environment() == {}
+    assert "--install-root" not in setup_service.serve_command(platform="win32")
+    plist = plistlib.loads(setup_service.launchd_plist(["/x"], Path("/l"), None, {}))
+    assert "EnvironmentVariables" not in plist
+
+
+def test_install_makes_the_working_directory(home, fake_runner, manifest):
+    setup_service.install_service(manifest, fake_runner, platform="linux")
+    unit = (home / ".config" / "systemd" / "user" / "dw-serve.service").read_text()
+    assert f"WorkingDirectory={home / 'root'}" in unit and (home / "root").is_dir()
 
 
 def test_installing_twice_on_linux_enables_once_and_records_once(home, manifest):
@@ -144,7 +179,10 @@ def test_a_failed_bootstrap_is_a_setup_error(home, manifest):
         setup_service.install_service(
             manifest, runner, platform="darwin", sleep=lambda _s: None
         )
-    assert not manifest.has("service", "com.github.dkackman.dw-serve")
+    # recorded before bootstrap, so a later run may rewrite the plist it left
+    assert manifest.has("service", "com.github.dkackman.dw-serve")
+    runner.by_command[("launchctl", "bootstrap")] = (0, "")
+    setup_service.install_service(manifest, runner, platform="darwin")
 
 
 def test_bootstrap_is_retried_after_an_async_bootout(home, manifest):
@@ -170,7 +208,7 @@ def test_install_on_windows_creates_and_runs_the_task(home, fake_runner, manifes
     fake_runner.by_command[("schtasks", "/Query")] = (1, "")
     setup_service.install_service(manifest, fake_runner, platform="win32")
     verbs = [c[1] for c in fake_runner.calls if c[0] == "schtasks"]
-    assert verbs == ["/Query", "/Create", "/Run"]
+    assert verbs == ["/Query", "/Create", "/End", "/Run"]
     assert manifest.has("service", "dw-serve")
 
 
@@ -248,3 +286,18 @@ def test_the_default_runner_sanitizes_and_uses_no_shell(monkeypatch):
 
     with pytest.raises(InvalidInputError):
         setup_service.default_runner(["echo", "a;b"])
+
+
+def test_the_default_runner_runs_claude_by_its_full_path(monkeypatch):
+    seen = {}
+
+    def fake_run(args, **kwargs):
+        seen["args"] = args
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        setup_service, "claude_executable", lambda: "/home/u/.local/bin/claude"
+    )
+    setup_service.default_runner(["claude", "mcp", "list"])
+    assert seen["args"] == ["/home/u/.local/bin/claude", "mcp", "list"]

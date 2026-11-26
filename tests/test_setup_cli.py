@@ -23,6 +23,7 @@ class Fakes:
         self.opened = []
         self.out = ""
         self.manifest = None
+        self.shims = []
 
 
 @pytest.fixture
@@ -76,6 +77,18 @@ def fakes(tmp_path, monkeypatch, capsys):
         manifest.save()
         return "removed"
 
+    def write_mcp_shim(manifest, platform=None):
+        f.shims.append("write")
+        manifest.record("shim", "dw-mcp", {})
+        manifest.save()
+        return "added dw-mcp shim"
+
+    def remove_mcp_shim(manifest, platform=None):
+        f.removed.append("shim")
+        manifest.forget("shim", "dw-mcp")
+        manifest.save()
+        return "removed dw-mcp shim"
+
     def enable_linger(run, use_sudo):
         f.linger_calls.append(use_sudo)
         return True
@@ -106,6 +119,8 @@ def fakes(tmp_path, monkeypatch, capsys):
         (setup_clients, "desktop_present"): lambda platform: platform != "linux",
         (setup_clients, "register_code"): register_code,
         (setup_clients, "unregister_code"): unregister_code,
+        (setup_clients, "write_mcp_shim"): write_mcp_shim,
+        (setup_clients, "remove_mcp_shim"): remove_mcp_shim,
         (setup_clients, "code_duplicates"): lambda run: [],
         (setup_clients, "_mcp_servers"): lambda run: {},
     }
@@ -157,7 +172,7 @@ def test_uninstall_removes_only_manifest_entries(fakes):
     fakes.run(["setup", "--yes", "--no-open"])
     assert fakes.run(["setup", "--uninstall", "--yes"]) == 0
     assert fakes.manifest.entries() == []
-    assert sorted(fakes.removed) == ["code", "desktop", "service"]
+    assert sorted(fakes.removed) == ["code", "desktop", "service", "shim"]
 
 
 def test_uninstall_with_nothing_recorded_does_nothing(fakes):
@@ -197,18 +212,23 @@ def test_agent_loads_the_notes_channel():
 
 
 def test_agent_without_claude_says_how_to_install(monkeypatch, capsys):
-    monkeypatch.setattr(setup_cli.shutil, "which", lambda name: None)
+    monkeypatch.setattr(setup_clients, "claude_cli", lambda: None)
     assert setup_cli.main(["agent"]) == 1
     assert "Install it" in capsys.readouterr().err
 
 
-def test_agent_execs_claude(monkeypatch):
-    monkeypatch.setattr(setup_cli.shutil, "which", lambda name: "/bin/claude")
+def test_agent_execs_claude_by_its_full_path(monkeypatch):
+    monkeypatch.setattr(
+        setup_clients, "claude_cli", lambda: "/home/u/.local/bin/claude"
+    )
     monkeypatch.setattr(setup_cli.sys, "platform", "linux")
     seen = []
-    monkeypatch.setattr(setup_cli.os, "execvp", lambda prog, argv: seen.append(argv))
+    monkeypatch.setattr(
+        setup_cli.os, "execvp", lambda prog, argv: seen.append((prog, argv))
+    )
     setup_cli.main(["agent", "-c"])
-    assert seen == [setup_cli.agent_command(["-c"])]
+    expected = ["/home/u/.local/bin/claude", *setup_cli.agent_command(["-c"])[1:]]
+    assert seen == [(expected[0], expected)]
 
 
 def test_linux_asks_before_lingering(fakes):
@@ -244,3 +264,26 @@ def test_own_mcp_server_is_not_reported_as_a_duplicate(fakes, monkeypatch):
     monkeypatch.setattr(setup_clients, "code_duplicates", lambda run: ["dw", "other"])
     fakes.run(["setup", "--yes", "--no-open"])
     assert "named other" in fakes.out and "named dw" not in fakes.out
+
+
+def test_the_shim_is_written_without_the_claude_cli(fakes):
+    fakes.claude_cli = None
+    assert fakes.run(["setup", "--yes", "--no-open"]) == 0
+    assert fakes.shims == ["write"] and fakes.manifest.has("shim", "dw-mcp")
+
+
+def test_the_shim_is_written_for_desktop_alone(fakes):
+    fakes.run(["setup", "--yes", "--no-open", "--no-code"])
+    assert fakes.shims == ["write"]
+
+
+def test_no_shim_without_either_client(fakes):
+    fakes.run(["setup", "--yes", "--no-open", "--no-code", "--no-desktop"])
+    assert fakes.shims == [] and "shim: skipped" in fakes.out
+
+
+def test_uninstall_removes_the_shim_without_the_claude_cli(fakes):
+    fakes.run(["setup", "--yes", "--no-open"])
+    fakes.claude_cli = None
+    fakes.run(["setup", "--uninstall", "--yes"])
+    assert "shim" in fakes.removed and not fakes.manifest.has("shim", "dw-mcp")

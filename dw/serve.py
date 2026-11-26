@@ -156,6 +156,13 @@ def build_parser():
         default=False,
         help="Started by dw setup's service; the service manager restarts it.",
     )
+    parser.add_argument(
+        "--install-root",
+        default=None,
+        help="The install root this server's install record is read from "
+        "(sets DW_INSTALL_ROOT; dw setup's Windows task passes it, having no "
+        "environment of its own).",
+    )
     return parser
 
 
@@ -227,6 +234,8 @@ def configure_environment(args):
     )
     from .workspace import resolve_workspace, set_workspace
 
+    if getattr(args, "install_root", None):
+        os.environ["DW_INSTALL_ROOT"] = os.path.abspath(args.install_root)
     workspace = set_workspace(resolve_workspace(args.workspace))
     workflow_dir = args.workflow_dir or workspace.workflows
     output_dir = args.output_dir or workspace.outputs

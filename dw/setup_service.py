@@ -20,7 +20,13 @@ from pathlib import Path
 from xml.sax.saxutils import escape
 
 from dw.security import sanitize_command_args
-from dw.setup_state import Manifest, SetupError, venv_bin
+from dw.setup_state import (
+    Manifest,
+    SetupError,
+    beside_python,
+    claude_executable,
+    install_root,
+)
 
 Runner = Callable[[list[str]], subprocess.CompletedProcess]
 
@@ -30,7 +36,13 @@ _TIMEOUT = 120
 
 
 def default_runner(args: list[str]) -> subprocess.CompletedProcess:
-    """Run `args` without a shell, capturing output; a missing program is a SetupError."""
+    """Run `args` without a shell, capturing output; a missing program is a SetupError.
+
+    `claude` is run by its full path (`claude_executable`), so it is found off
+    PATH too and npm's `claude.cmd` runs on Windows.
+    """
+    if args and args[0] == "claude":
+        args = [claude_executable() or "claude", *args[1:]]
     try:
         return subprocess.run(
             sanitize_command_args(args),
@@ -47,9 +59,12 @@ def _name(platform: str) -> str:
     return SERVICE_LABEL if platform == "darwin" else _UNIT_NAME
 
 
-def serve_command(port: int = 8765) -> list[str]:
-    return [
-        str(venv_bin("dw-serve")),
+def serve_command(port: int = 8765, platform: str | None = None) -> list[str]:
+    """dw-serve beside the interpreter running setup; on Windows, whose task
+    definition has no environment, it is also told a DW_INSTALL_ROOT."""
+    platform = platform or sys.platform
+    command = [
+        str(beside_python("dw-serve", platform)),
         "--host",
         "127.0.0.1",
         "--port",
@@ -57,6 +72,22 @@ def serve_command(port: int = 8765) -> list[str]:
         "--mcp",
         "--managed",
     ]
+    if platform == "win32" and os.environ.get("DW_INSTALL_ROOT"):
+        command += ["--install-root", os.environ["DW_INSTALL_ROOT"]]
+    return command
+
+
+def service_environment() -> dict[str, str]:
+    """What the service's environment adds: DW_INSTALL_ROOT when it is set,
+    so the server reads the same install record setup did."""
+    root = os.environ.get("DW_INSTALL_ROOT")
+    return {"DW_INSTALL_ROOT": root} if root else {}
+
+
+def working_directory() -> Path:
+    """The install root: never a directory that looks like a workspace, so
+    the server never adopts the service manager's default (often $HOME)."""
+    return install_root()
 
 
 def _uid() -> int:
@@ -79,17 +110,25 @@ def _unit_path() -> Path:
     return Path.home() / ".config" / "systemd" / "user" / f"{_UNIT_NAME}.service"
 
 
-def launchd_plist(command: list[str], log_dir: Path) -> bytes:
-    return plistlib.dumps(
-        {
-            "Label": SERVICE_LABEL,
-            "ProgramArguments": list(command),
-            "RunAtLoad": True,
-            "KeepAlive": True,
-            "StandardOutPath": str(log_dir / "dw-serve.log"),
-            "StandardErrorPath": str(log_dir / "dw-serve.err.log"),
-        }
-    )
+def launchd_plist(
+    command: list[str],
+    log_dir: Path,
+    workdir: Path | None = None,
+    env: dict[str, str] | None = None,
+) -> bytes:
+    plist = {
+        "Label": SERVICE_LABEL,
+        "ProgramArguments": list(command),
+        "RunAtLoad": True,
+        "KeepAlive": True,
+        "StandardOutPath": str(log_dir / "dw-serve.log"),
+        "StandardErrorPath": str(log_dir / "dw-serve.err.log"),
+    }
+    if workdir is not None:
+        plist["WorkingDirectory"] = str(workdir)
+    if env:
+        plist["EnvironmentVariables"] = dict(env)
+    return plistlib.dumps(plist)
 
 
 def _systemd_word(word: str) -> str:
@@ -99,8 +138,17 @@ def _systemd_word(word: str) -> str:
     return word
 
 
-def systemd_unit(command: list[str]) -> str:
+def systemd_unit(
+    command: list[str],
+    workdir: Path | None = None,
+    env: dict[str, str] | None = None,
+) -> str:
     exec_start = " ".join(_systemd_word(w) for w in command)
+    extra = ""
+    if workdir is not None:
+        extra += f"WorkingDirectory={str(workdir).replace('%', '%%')}\n"
+    for key, value in (env or {}).items():
+        extra += f"Environment={_systemd_word(f'{key}={value}')}\n"
     return (
         "[Unit]\n"
         "Description=diffusers-workflow server (dw-serve)\n"
@@ -108,6 +156,7 @@ def systemd_unit(command: list[str]) -> str:
         "\n"
         "[Service]\n"
         f"ExecStart={exec_start}\n"
+        f"{extra}"
         "Restart=always\n"
         "RestartSec=5\n"
         "\n"
@@ -116,11 +165,16 @@ def systemd_unit(command: list[str]) -> str:
     )
 
 
-def windows_task_xml(command: list[str]) -> str:
+def windows_task_xml(command: list[str], workdir: Path | None = None) -> str:
     user = os.environ.get("USERNAME") or getpass.getuser()
     domain = os.environ.get("USERDOMAIN")
     account = escape(f"{domain}\\{user}" if domain else user)
     arguments = escape(subprocess.list2cmdline(command[1:]))
+    where = (
+        f"<WorkingDirectory>{escape(str(workdir))}</WorkingDirectory>"
+        if workdir is not None
+        else ""
+    )
     # RestartOnFailure treats a non-zero exit (75 is the update's restart request)
     # as a failure, so the task is started again up to 3 times, a minute apart
     return (
@@ -142,7 +196,7 @@ def windows_task_xml(command: list[str]) -> str:
         "  </Settings>\n"
         '  <Actions Context="Author">\n'
         f"    <Exec><Command>{escape(command[0])}</Command>"
-        f"<Arguments>{arguments}</Arguments></Exec>\n"
+        f"<Arguments>{arguments}</Arguments>{where}</Exec>\n"
         "  </Actions>\n"
         "</Task>\n"
     )
@@ -185,11 +239,17 @@ def install_service(
     _check_platform(platform)
     name = _name(platform)
     recorded = manifest.has("service", name)
-    command = serve_command()
+    command = serve_command(platform=platform)
+    workdir, env = working_directory(), service_environment()
+    workdir.mkdir(parents=True, exist_ok=True)
     if platform == "darwin":
         path = _plist_path()
         _log_dir().mkdir(parents=True, exist_ok=True)
-        _write_ours(path, launchd_plist(command, _log_dir()), recorded)
+        _write_ours(path, launchd_plist(command, _log_dir(), workdir, env), recorded)
+        # recorded before bootstrap, as on Linux: a bootstrap that keeps
+        # failing must not leave a plist a later run refuses as not ours
+        manifest.record("service", name, {"platform": platform, "path": str(path)})
+        manifest.save()
         domain = f"gui/{_uid()}"
         runner(
             ["launchctl", "bootout", f"{domain}/{SERVICE_LABEL}"]
@@ -208,12 +268,11 @@ def install_service(
                 if attempt == BOOTSTRAP_ATTEMPTS - 1:
                     raise
                 sleep(BOOTSTRAP_DELAY)
-        manifest.record("service", name, {"platform": platform, "path": str(path)})
-        manifest.save()
         return f"started the launchd agent {SERVICE_LABEL} ({path})"
     if platform == "linux":
         path = _unit_path()
-        _write_ours(path, systemd_unit(command).encode("utf-8"), recorded)
+        unit = systemd_unit(command, workdir, env)
+        _write_ours(path, unit.encode("utf-8"), recorded)
         manifest.record("service", name, {"platform": platform, "path": str(path)})
         manifest.save()
         _run(
@@ -223,7 +282,7 @@ def install_service(
         # service recorded but never enabled
         enabled = runner(["systemctl", "--user", "is-enabled", name]).returncode == 0
         if enabled:
-            _run(runner, ["systemctl", "--user", "restart", name], "systemctl restart")
+            restart_service(runner, platform)
             return f"restarted the systemd user unit {name} ({path})"
         _run(
             runner, ["systemctl", "--user", "enable", "--now", name], "systemctl enable"
@@ -235,7 +294,7 @@ def install_service(
         )
     with tempfile.TemporaryDirectory() as tmp:
         xml = Path(tmp) / "dw-serve-task.xml"
-        xml.write_bytes(windows_task_xml(command).encode("utf-16"))
+        xml.write_bytes(windows_task_xml(command, workdir).encode("utf-16"))
         _run(
             runner,
             ["schtasks", "/Create", "/TN", name, "/XML", str(xml), "/F"],
@@ -243,7 +302,9 @@ def install_service(
         )
     manifest.record("service", name, {"platform": platform})
     manifest.save()
-    _run(runner, ["schtasks", "/Run", "/TN", name], "schtasks /Run")
+    # /Create /F replaces the definition but leaves a running server running,
+    # and the new one could not bind its port: end it first
+    restart_service(runner, platform)
     return f"created and started the scheduled task {name}"
 
 

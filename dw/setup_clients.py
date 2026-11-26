@@ -17,7 +17,14 @@ import sys
 from pathlib import Path
 
 from dw.setup_service import Runner
-from dw.setup_state import Manifest, SetupError, merge_json_file, shim_dir, venv_bin
+from dw.setup_state import (
+    Manifest,
+    SetupError,
+    beside_python,
+    claude_executable,
+    merge_json_file,
+    shim_dir,
+)
 
 MARKETPLACE_SOURCE = "dkackman/diffusers-workflow"
 MARKETPLACE_NAME = "diffusers-workflow"
@@ -65,7 +72,7 @@ def desktop_present(platform: str = sys.platform) -> bool:
 
 
 def _dw_mcp() -> str:
-    return str(venv_bin("dw-mcp"))
+    return str(beside_python("dw-mcp"))
 
 
 def register_desktop(manifest: Manifest, platform: str = sys.platform) -> str:
@@ -142,7 +149,7 @@ def unregister_desktop(manifest: Manifest, platform: str = sys.platform) -> str:
 
 
 def claude_cli() -> str | None:
-    return shutil.which("claude")
+    return claude_executable()
 
 
 def code_commands(version: str, ref_syntax: str | None) -> list[list[str]]:
@@ -172,51 +179,106 @@ def _shim_path(platform: str) -> Path:
     return shim_dir() / ("dw-mcp.exe" if platform == "win32" else "dw-mcp")
 
 
+def _locked(shim: Path, e: OSError) -> SetupError:
+    return SetupError(
+        f"cannot replace {shim}: {e}. Close Claude Code and Claude Desktop "
+        "(they run dw-mcp) and run dw setup again"
+    )
+
+
+def _points_to(shim: Path) -> str | None:
+    try:
+        return os.readlink(shim)
+    except OSError:
+        return None
+
+
+def _our_shim(shim: Path, detail: dict, platform: str) -> bool:
+    """Whether the thing at `shim` is still the shim setup made: on Windows a
+    file, elsewhere a symlink that points where setup pointed it (any symlink,
+    for a record that predates keeping the target)."""
+    if platform == "win32":
+        return shim.is_file() and not shim.is_symlink()
+    if not shim.is_symlink():
+        return False
+    wrote = detail.get("target")
+    return wrote is None or _points_to(shim) == wrote
+
+
+def _same_bytes(a: Path, b: Path) -> bool:
+    try:
+        return a.stat().st_size == b.stat().st_size and a.read_bytes() == b.read_bytes()
+    except OSError:
+        return False
+
+
 def write_mcp_shim(manifest: Manifest, platform: str = sys.platform) -> str:
     """Make `shim_dir()/dw-mcp` reach the `dw-mcp` beside the running interpreter.
 
     The plugin's `.mcp.json` names that stable path, so one plugin install carries the
-    tool server wherever dw is installed. POSIX gets a symlink, Windows a copy. A file
-    or link setup did not record is never replaced.
+    tool server wherever dw is installed - Claude Code and Cowork both start it. POSIX
+    gets a symlink, Windows a copy (skipped when the bytes already match, since a
+    running dw-mcp.exe cannot be replaced). Anything at that path setup did not
+    record, or that has changed since, is never replaced.
     """
-    exe = "dw-mcp.exe" if platform == "win32" else "dw-mcp"
-    target = Path(sys.executable).parent / exe
+    target = beside_python("dw-mcp", platform)
     if not target.exists():
         raise SetupError(f"cannot link the dw-mcp shim: {target} does not exist")
     shim = _shim_path(platform)
-    ours = manifest.has("shim", "dw-mcp")
+    recorded = next((e for e in manifest.entries("shim") if e["key"] == "dw-mcp"), None)
+    detail = {"path": str(shim), "target": str(target)}
     if os.path.lexists(shim):
-        if not ours:
-            return f"{shim} already exists and setup did not make it; left as it is"
-        if (
-            platform != "win32"
-            and shim.is_symlink()
-            and shim.resolve() == target.resolve()
-        ):
+        if recorded is None:
+            where = _points_to(shim)
+            if where is not None and Path(where) == target:
+                return f"dw-mcp shim already in place ({shim})"
+            what = (
+                f"it points to {where}" if where is not None else "not a link to dw-mcp"
+            )
+            return (
+                f"warning: {shim} already exists and setup did not make it "
+                f"({what}); left as it is, and the plugin's dw server runs it"
+            )
+        if not _our_shim(shim, recorded.get("detail") or {}, platform):
+            return f"{shim} is not the shim setup made; left as it is"
+        if platform == "win32" and _same_bytes(shim, target):
+            manifest.record("shim", "dw-mcp", detail)
+            manifest.save()
             return f"dw-mcp shim already in place ({shim})"
-        shim.unlink()
+        if platform != "win32" and _points_to(shim) == str(target):
+            return f"dw-mcp shim already in place ({shim})"
+        try:
+            shim.unlink()
+        except OSError as e:
+            raise _locked(shim, e) from e
     shim.parent.mkdir(parents=True, exist_ok=True)
-    if platform == "win32":
-        shutil.copy2(target, shim)
-    else:
-        shim.symlink_to(target)
-    manifest.record("shim", "dw-mcp", {"path": str(shim), "target": str(target)})
+    try:
+        if platform == "win32":
+            shutil.copy2(target, shim)
+        else:
+            shim.symlink_to(target)
+    except OSError as e:
+        raise _locked(shim, e) from e
+    manifest.record("shim", "dw-mcp", detail)
     manifest.save()
     return f"added dw-mcp shim ({shim})"
 
 
 def remove_mcp_shim(manifest: Manifest, platform: str = sys.platform) -> str:
-    """Remove the shim setup recorded; nothing else."""
-    if not manifest.has("shim", "dw-mcp"):
+    """Remove the shim setup recorded, if it is still the one setup made."""
+    recorded = next((e for e in manifest.entries("shim") if e["key"] == "dw-mcp"), None)
+    if recorded is None:
         return "no dw-mcp shim recorded"
     shim = _shim_path(platform)
-    if platform == "win32":
-        ok = shim.is_file()
-    else:
-        ok = shim.is_symlink()
-    if os.path.lexists(shim) and not ok:
-        return f"{shim} is not the shim setup made; left as it is"
-    shim.unlink(missing_ok=True)
+    if os.path.lexists(shim):
+        if not _our_shim(shim, recorded.get("detail") or {}, platform):
+            manifest.forget("shim", "dw-mcp")
+            manifest.save()
+            return f"{shim} is not the shim setup made; left as it is"
+        try:
+            shim.unlink()
+        except OSError as e:
+            raise _locked(shim, e) from e
     manifest.forget("shim", "dw-mcp")
     manifest.save()
     return f"removed dw-mcp shim ({shim})"
@@ -257,7 +319,7 @@ def register_code(manifest: Manifest, runner: Runner, version: str) -> str:
     marketplaces = _listed(runner(["claude", "plugin", "marketplace", "list"]))
     plugins = _listed(runner(["claude", "plugin", "list"]))
     servers = _mcp_servers(runner)
-    notes: list[str] = [write_mcp_shim(manifest)]
+    notes: list[str] = []
     for cmd in code_commands(version, "@"):
         if cmd[1:4] == ["plugin", "marketplace", "add"]:
             kind, key, present = (
@@ -307,8 +369,6 @@ def unregister_code(manifest: Manifest, runner: Runner) -> str:
                 notes.append(f"removed {key}")
             else:
                 notes.append(f"could not remove {key}; run `{' '.join(prefix)} {key}`")
-    if manifest.has("shim", "dw-mcp"):
-        notes.append(remove_mcp_shim(manifest))
     return "Claude Code: " + ("; ".join(notes) if notes else "nothing to remove")
 
 
