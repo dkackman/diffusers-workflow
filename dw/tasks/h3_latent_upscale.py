@@ -23,10 +23,12 @@ feeds it a space it never saw, and the decode is garbage (#499, M-F041).
 
 import logging
 import math
+from contextlib import contextmanager
 
 import numpy
 import torch
 
+from .. import empty_device_cache, get_device_type
 from ..events import emit_warning
 from ..media import media_duration
 from ..media_readers import (
@@ -394,6 +396,26 @@ def _load_decoder(device, model_name):
     return cached_model(("decode_h3_latents", model_name, str(device)), load_decoder)
 
 
+@contextmanager
+def _decoder_on(device, model_name):
+    """The cached VAE pipeline, on `device` only while the caller uses it.
+
+    The float32 VAE is about 10 GB. Left on the card it sits beside the next
+    pipeline's load, and a refine that quantizes on the card as it loads then
+    runs out of memory (#1737). It waits in host memory instead, still cached,
+    whether or not the step sets `release_models`."""
+    pipeline = _load_decoder(device, model_name)
+    if get_device_type(device) == "cpu":
+        yield pipeline
+        return
+    try:
+        pipeline.to(device)
+        yield pipeline
+    finally:
+        pipeline.to("cpu")
+        empty_device_cache()
+
+
 def decoded_frame_count(num_latents, clip_length=17, token_drop=3, temporal_ratio=4):
     """How many frames `AutoencoderKLMiniMaxH3._decode` returns for
     `num_latents` latent frames - for any count, not only the 5m + 2 grid.
@@ -471,9 +493,9 @@ def decode_h3_latents(latents, device="cpu", model_name=None, num_frames=None):
                 f"decode_h3_latents: num_frames {num_frames} is more than the "
                 f"{decodable} frames the latents decode to"
             )
-    pipeline = _load_decoder(device, model_name or DEFAULT_H3_REPO)
-    x = latents.to(device=pipeline._execution_device, dtype=torch.float32)
-    videos = pipeline(latents=x, output_type="pil", output="videos")
+    with _decoder_on(device, model_name or DEFAULT_H3_REPO) as pipeline:
+        x = latents.to(device=pipeline._execution_device, dtype=torch.float32)
+        videos = pipeline(latents=x, output_type="pil", output="videos")
     frames = list(videos[0])
     if num_frames is not None:
         frames = frames[:num_frames]
@@ -700,33 +722,33 @@ def encode_h3_latents(source, device="cpu", model_name=None):
     if problem:
         raise ValueError(problem)
 
-    pipeline = _load_decoder(device, model_name or DEFAULT_H3_REPO)
+    with _decoder_on(device, model_name or DEFAULT_H3_REPO) as pipeline:
 
-    def encode(reader, total):
+        def encode(reader, total):
+            try:
+                return encode_take(
+                    pipeline.vae,
+                    reader,
+                    total,
+                    pipeline.pixel_mean,
+                    pipeline.pixel_std,
+                    pipeline.keyframe_encode_seed,
+                    pipeline._execution_device,
+                )
+            finally:
+                close = getattr(reader, "close", None)
+                if close is not None:
+                    close()
+
         try:
-            return encode_take(
-                pipeline.vae,
-                reader,
-                total,
-                pipeline.pixel_mean,
-                pipeline.pixel_std,
-                pipeline.keyframe_encode_seed,
-                pipeline._execution_device,
-            )
-        finally:
-            close = getattr(reader, "close", None)
-            if close is not None:
-                close()
-
-    try:
-        latents, num_frames = encode(read, source_frames)
-    except ShortFrameRange:
-        if path is None:
-            raise
-        # The header over-counted: encode again on a counted total, from a
-        # fresh forward decode
-        source_frames = bounded_take_frames(count_video_frames(path), path, fps)
-        latents, num_frames = encode(ForwardFrameReader(path), source_frames)
+            latents, num_frames = encode(read, source_frames)
+        except ShortFrameRange:
+            if path is None:
+                raise
+            # The header over-counted: encode again on a counted total, from a
+            # fresh forward decode
+            source_frames = bounded_take_frames(count_video_frames(path), path, fps)
+            latents, num_frames = encode(ForwardFrameReader(path), source_frames)
     logger.info(
         f"Encoded a {source_frames}-frame take ({source_frames / H3_FPS:.2f}s) "
         f"to {latents.shape[2]} latent frames, padded to {num_frames} frames"

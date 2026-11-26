@@ -3224,6 +3224,10 @@ clip at a time, so a take too long to encode whole (a `source_video` refine
 encodes it as one float32 tensor) still reaches a refine. The result is
 bit-identical to the whole-take encode.
 
+The float32 VAE it shares with `decode_h3_latents` (about 10 GB) is on the
+accelerator only while one of the two runs, and waits in host memory between
+uses, so it does not crowd the refine's load.
+
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
 | `source` | Yes | The take: an `output:`/`asset:` video file, read a clip's range at a time, or an earlier step's video. 24 fps, both sides a multiple of 32 |
