@@ -609,3 +609,68 @@ def test_a_vfr_take_clamped_to_its_duration_warns(monkeypatch):
     warned.clear()
     assert bounded_take_frames(49, "x.mp4", 24.0) == 49
     assert not warned
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_the_vae_is_off_the_accelerator_after_either_task(monkeypatch, fails):
+    """#1737: the cached float32 VAE must not stay on the card for the next
+    load - after an encode or a decode, finished or failed - and goes back to
+    it for the next use."""
+    from dw.pipeline_processors.h3_windows import DwH3StreamedVideoDecodeStep
+
+    accelerator = "mps" if torch.backends.mps.is_available() else "cuda"
+    moves = []
+
+    class Pipeline:
+        # the real encode and decode on CPU; only the placement is recorded
+        vae = tiny_vae()
+        pixel_mean, pixel_std, keyframe_encode_seed = PIXEL_MEAN, PIXEL_STD, SEED
+        _execution_device = torch.device("cpu")
+
+        def to(self, device):
+            moves.append(device)
+            return self
+
+        def __call__(self, **kwargs):
+            if fails:
+                raise RuntimeError("out of memory")
+            block = DwH3StreamedVideoDecodeStep().init_pipeline()
+            block.update_components(vae=self.vae)
+            return block(**kwargs)
+
+    pipeline = Pipeline()
+    monkeypatch.setattr(hlu, "_load_decoder", lambda device, name: pipeline)
+    take = AudioVideo(list(frames(22)), None, None, fps=24)
+    if fails:
+
+        def broken(*arguments):
+            raise RuntimeError("out of memory")
+
+        monkeypatch.setattr(hlu, "encode_take", broken)
+        with pytest.raises(RuntimeError, match="out of memory"):
+            encode_h3_latents(take, device=accelerator)
+        with pytest.raises(RuntimeError, match="out of memory"):
+            decode_h3_latents(torch.randn(1, 24, 7, 2, 4), device=accelerator)
+    else:
+        latents = encode_h3_latents(take, device=accelerator)["latents"]
+        assert len(decode_h3_latents(latents, device=accelerator).frames) == 22
+    assert moves == [accelerator, "cpu"] * 2
+
+
+@pytest.mark.skipif(
+    not (torch.cuda.is_available() or torch.backends.mps.is_available()),
+    reason="needs an accelerator to see where the weights end up",
+)
+def test_the_real_pipeline_leaves_no_vae_weights_on_the_accelerator(monkeypatch):
+    from dw.pipeline_processors.h3_windows import DwH3StreamedVideoDecodeStep
+
+    accelerator = "cuda" if torch.cuda.is_available() else "mps"
+    pipeline = DwH3StreamedVideoDecodeStep().init_pipeline()
+    pipeline.update_components(vae=tiny_vae())
+    monkeypatch.setattr(hlu, "_load_decoder", lambda device, name: pipeline)
+    take = AudioVideo(list(frames(22)), None, None, fps=24)
+
+    latents = encode_h3_latents(take, device=accelerator)["latents"]
+    assert {p.device.type for p in pipeline.vae.parameters()} == {"cpu"}
+    assert len(decode_h3_latents(latents, device=accelerator).frames) == 22
+    assert {p.device.type for p in pipeline.vae.parameters()} == {"cpu"}
