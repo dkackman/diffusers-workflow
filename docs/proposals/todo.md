@@ -1008,6 +1008,13 @@ remaining deferred fix is recorded in
   now state the measured mps route. The catalog templates stay CUDA only. An mps
   template, the CUDA two-step split and the edit/warm/16:9 arms are deferred:
   `complete/h3-image-mps-complete.md`.
+- **Temporal flicker probe** (#1747, stage #1749), shipped 2026-11-26 as a
+  bench record. A flow-compensated temporal IIR (after ComfyUI-H3-ReTime's
+  `H3TemporalStabilizer`) cut flicker to 0.79× on an H3 tracking shot but kept
+  only 0.74× of the moving gradient energy, and Don's look was at best
+  marginally better. The `temporal_denoise` task (#1750) was not built; a
+  locked-off shot or a lower strength would reopen it:
+  `complete/temporal-flicker-probe-complete.md`.
 
 ## Declined
 
