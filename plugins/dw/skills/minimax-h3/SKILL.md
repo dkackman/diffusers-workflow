@@ -9,7 +9,7 @@ H3 generates video and audio together. Every template fits a 24 GB card.
 
 ## Before anything
 
-This skill is written for dw `0.23.0-alpha.2`; `get_server_info`'s `plugin` says whether that is current.
+This skill is written for dw `0.23.0-alpha.3`; `get_server_info`'s `plugin` says whether that is current.
 
 1. `get_server_info`: the device (H3 is CUDA) and the workspace.
 2. `list_workflows` with `shape` "shot", "sequence" and "audio": the family's templates by name,
@@ -28,7 +28,7 @@ This skill is written for dw `0.23.0-alpha.2`; `get_server_info`'s `plugin` says
   `minimax-h3-image` skill (CUDA, ~70 GB RAM), else `flux3-klein`.
 - **A locked frame that lip-syncs to a song**: FL2VA with the song held by
   `hold_audio` keeps the first frame's pixels and the mouth follows the track
-  (#985; add it to `templates/minimax/image-to-video`'s fl2va step).
+  (add it to `templates/minimax/image-to-video`'s fl2va step).
   Fallback: Ref2VA `[keyframe completion + audio reuse]`, `<Picture 1>` the
   first frame, `<Audio 1>` the song, also held: framing, not pixels,
   ~4.7x the denoise; a last frame costs 45% more and does not land.
@@ -45,20 +45,19 @@ This skill is written for dw `0.23.0-alpha.2`; `get_server_info`'s `plugin` says
   at a 32-multiple portrait size.
 - **Replace a performer**: `replace-performer-cuts`, pick its `cuts`,
   `replace-performer`; the prompt gives each cut's pose and framing. A
-  cut's own `prompt`/`seed` wins over the workflow `seed`/`prompt`; re-roll one cut by
+  cut's `prompt`/`seed` beats the workflow `seed`/`prompt`; re-roll one cut by
   `rerun_job` with only its `seed` new. Limits:
   1-32 cuts; `render_frames` on 17n+5 in 124-345, ≥ `num_frames`;
   references ≤ 9 images, 12 files. `references/regional-edit.md`.
 - **A good take with a soft small face**: `templates/minimax/face-repair`.
-- **New setting, same action**: the clip as sole video reference, a CHANGE/PRESERVE prompt; confirmed, `bench/records/env-swap-ref2va.md`.
+- **New setting, same action**: the clip as sole video reference, a CHANGE/PRESERVE prompt; `bench/records/env-swap-ref2va.md`.
 - **Sound for a silent clip** (picture kept): `templates/minimax/add-sound`;
   `listen_scale` 0.5 is fastest that keeps lip sync. Never re-voice an on-screen speaker: voice-over.
 - **A consistent subject**: `templates/minimax/reference-to-video`
   (image: appearance, audio clip: voice);
   `templates/minimax/composable-references` adds a video reference for
   framing and camera, at ~4x (a 22-frame window ~1.4x);
-  `templates/minimax/generated-subject-reference` draws the subject with
-  Z-Image in the same workflow;
+  `templates/minimax/generated-subject-reference` draws the subject first;
   `templates/minimax/voice-timbre-reference` fixes a voice from Bark.
 - **Several boards, one generation, unbroken score**:
   `templates/minimax/storyboard`, cuts no concat matches. One beat only;
@@ -66,7 +65,7 @@ This skill is written for dw `0.23.0-alpha.2`; `get_server_info`'s `plugin` says
 - **Longer than one clip (14.4 s)**: read the `long-form` skill first; it
   picks cuts, a chain or a bridge per scene, the chain's `shot` preset and
   its check. H3's chains: `templates/minimax/chained-segments` (default
-  `continuity: "guide"`, `guide_frames` 22 or 39 - default 22 - holds the
+  `continuity: "guide"`, `guide_frames` 22 or 39 (default 22) holds the
   last frames and voice as a guide), `templates/minimax/chain-video-continuity`
   (the previous tail as a video reference), `templates/minimax/chain-matched-to-audio`
   (a track sets the length), `templates/minimax/chain-matched-and-aligned`
@@ -74,7 +73,7 @@ This skill is written for dw `0.23.0-alpha.2`; `get_server_info`'s `plugin` says
   `references/chains.md`. A long monologue held to a narration is
   `long-form`'s narrated take.
 - **A piece with cuts**: fresh shots from shared portraits, then a concat.
-  `templates/minimax/dialogue-short` (Z-Image draws the cast, one shot per
+  `templates/minimax/dialogue-short` (draws the cast, one shot per
   `shots` entry, `concat_videos` splices) and `templates/minimax/music-video`
   (a song, one slice and one lip-synced shot per entry, padded then trimmed
   to its cut - `from_file` reuses an existing cast portrait and skips
@@ -85,12 +84,12 @@ This skill is written for dw `0.23.0-alpha.2`; `get_server_info`'s `plugin` says
 - **Dialogue into a song**, not a concat: `slice_audio`, `join_into_song`,
   `pair_audio`, in that reference's last section.
 - **Unrelated shots, no cut**: `templates/minimax/shots-batch` - one H3
-  step per `shots` entry. `keep_output` each clip, then `templates/assemble-and-score` cuts and scores.
+  step per entry. `keep_output` each clip, then `templates/assemble-and-score` cuts and scores.
 - **Music alone**: `templates/minimax/music`; `minimax-music3` skill:
   `audio_duration` is a ceiling, not a length.
 - **Replace a shot's sound**: `templates/video-to-sound-effects` (MMAudio, 7-25 dB hot: `match_levels` first), then `pair_audio`.
 
-Starting from a result rather than a template: `references/intents.md`.
+From a result, not a template: `references/intents.md`.
 
 Else compose from `list_tasks` (the `workflows` guide's authoring section).
 
@@ -98,7 +97,7 @@ Else compose from `list_tasks` (the `workflows` guide's authoring section).
 
 - `num_frames` is `17n + 5`, from 124 to 345, at a fixed 24 fps: 5.17 to 14.4
   seconds in one clip. Most default to 124 (storyboard 192);
-  `num_frames=345` is the full length, and fits 24 GB at 544p only (#271).
+  `num_frames=345` is the full length, and fits 24 GB at 544p only.
 - Canvas: 768-pixel short edge, at most 768x1344, in multiples of 32, aspect
   1:4 to 4:1. Output audio is 32 kHz stereo.
 - A checkpoint comes with a canvas, a sigma shift and an alpha and they move
@@ -119,10 +118,10 @@ Else compose from `list_tasks` (the `workflows` guide's authoring section).
 - Steps are the LoRA's passes plus one (5 for the 4-step default, 9 for
   8-step): the scheduler counts the terminal zero, so `denoise_total_steps`
   reports 4. A null `lora_model_name` drops the LoRA; raise steps and shifts too.
-  Not Pika H3 Flex (`pika-h3`, an option, not the default): single clips, 6 passes, no steps or shift - `references/pika-flex.md`.
+  Not Pika H3 Flex (`pika-h3`, opt-in): single clips, 6 passes, no steps or shift - `references/pika-flex.md`.
 - Dialogue shots (any `<d>` line) drop the turbo LoRA, which digitizes voices
   (~4 dB more high band): `lora_model_name: null`, `num_inference_steps: 12`,
-  `video_shift: 12.0`, `audio_shift: 3.0`; int4 stays fine without it. Turbo stays the default otherwise (#984 B0).
+  `video_shift: 12.0`, `audio_shift: 3.0`; int4 stays fine without it. Turbo stays the default otherwise.
 - Nothing carries between generations except a passed reference, a
   held track or a `guides` clip. Identity rides
   on a picture, voice timbre on an audio clip, motion/camera on a video
@@ -130,10 +129,12 @@ Else compose from `list_tasks` (the `workflows` guide's authoring section).
 - Lip sync to supplied audio: an audio reference alone, as the
   `match_audio` chains pass it, can sing beats off the track; `music-video`
   holds each slice as well by default, and the chains' `hold_audio` variable adds a
-  hold (`references/cuts.md`, #795, #808).
+  hold (`references/cuts.md`).
 - Guidance-distilled: no `guidance_scale`, no negative prompt.
-- Keep `release_pipeline` where the template puts it (frees Z-Image before
-  H3, H3 before a concat), or a warm worker may SIGKILL near the end.
+- Portraits and boards: `portrait_workflow` (`preference:text_to_image` at
+  tier `standard`, not the run's); a workflow name swaps it.
+- Keep `release_pipeline` where the template puts it (frees portraits before H3,
+  H3 before a concat), or a warm worker may SIGKILL near the end.
 - Ref2VA limits: at most 9 images, 3 videos, 3 audio clips, 12 files; audio can
   never be the only reference. References are labelled in order.
 - Timestamps span the generated length.

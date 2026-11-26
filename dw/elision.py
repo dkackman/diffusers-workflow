@@ -67,11 +67,15 @@ def _saves(step):
 
     A composing step is the one exception: its child workflow saves on its
     own terms, so the parent's `result` block (or its absence) says nothing
-    about whether files are written. It is kept.
+    about whether files are written. It is kept - unless its own `result`
+    says `save: false` outright. That is the author declaring the step's
+    output an intermediate rather than a deliverable: the MiniMax templates'
+    portraits, which went through `portrait_workflow` (#1722) and must
+    still cost nothing when the cast is supplied from files.
     """
-    if "workflow" in step:
-        return True
     result = step.get("result")
+    if "workflow" in step:
+        return not (isinstance(result, dict) and result.get("save", True) is False)
     if not isinstance(result, dict):
         return False
     if result.get("content_type") is None:

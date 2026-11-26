@@ -73,9 +73,10 @@ EXPECTED_SHAPES = {
         "image-edit",
         ["needs-input-media"],
     ),
+    # #1722: its portraits compose portrait_workflow (preference:text_to_image)
     "workflows/templates/minimax/storyboard.json": (
         "shot",
-        ["has-audio", "identity-referenced"],
+        ["composes-workflows", "has-audio", "identity-referenced"],
     ),
     # #1078: the take it edits is input media, and its soundtrack is held
     "workflows/templates/minimax/regional-edit.json": (
@@ -88,13 +89,15 @@ EXPECTED_SHAPES = {
         "shot",
         ["has-audio", "needs-input-media"],
     ),
+    # #1722: its portraits compose portrait_workflow (preference:text_to_image)
     "workflows/templates/minimax/dialogue-short.json": (
         "sequence",
-        ["has-audio", "identity-referenced"],
+        ["composes-workflows", "has-audio", "identity-referenced"],
     ),
+    # #1722: its portraits compose portrait_workflow (preference:text_to_image)
     "workflows/templates/minimax/music-video.json": (
         "sequence",
-        ["has-audio", "identity-referenced"],
+        ["composes-workflows", "has-audio", "identity-referenced"],
     ),
     # #1374: the take it recasts is input media, and its soundtrack is paired back
     "workflows/templates/minimax/replace-performer.json": (
@@ -685,7 +688,10 @@ def test_no_stale_entry_in_the_allowlist():
 # Then to 15_975 (measured 15_951) for `templates/preferred/text-to-image`
 # (#1627 stage A, #1724): the one catalog entry that composes
 # `preference:text_to_image`, so a request naming no model has a name to run.
-COMPACT_BUDGET = 15_975
+# Then to 16_000 (measured 15_991) for #1626 stage C (#1722): four MiniMax
+# templates draw their portraits through `portrait_workflow`, so each now
+# carries the `composes-workflows` trait (summaries shortened to pay for part).
+COMPACT_BUDGET = 16_000
 # The shape=sequence listing to 1_650 (measured 1_642) for
 # `minimax/replace-performer` (#1374), the catalog's only sequence that recasts
 # a take.
