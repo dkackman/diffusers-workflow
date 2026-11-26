@@ -1666,7 +1666,7 @@ const assessReply = (findings: ReturnType<typeof finding>[]) => ({
   source: 'output',
   kind: 'video',
   findings,
-  rules_applied: ['near_silent', 'shot_dead_air'],
+  rules_applied: ['near_silent', 'shot_dead_air', 'shot_bed_drop'],
   rules_skipped: [],
   not_applicable: { analyze_seams: 'no shot boundaries recorded' },
 })

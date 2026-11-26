@@ -19,6 +19,10 @@ running, and the dead-air fix after it finishes.
 A `shot_dead_air` finding means a gap in a voiced shot is digital silence.
 Run `find_loop_bed` on the `output:` cut, then
 `slice_audio`->`loop_audio`->`mix_audio` its pick at its `gain`.
+A `shot_bed_drop` finding means a voiced shot's floor sits more than 20 dB
+under a neighbour's bed (a storm, a crowd): lay the same chain, with
+`find_loop_bed`'s `max_bin_dbfs`/`max_mean_dbfs`/`target_bed_dbfs` raised to
+find the loud bed, unless the cut is a deliberate scene change.
 
 ## Held frames
 

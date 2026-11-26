@@ -20,13 +20,14 @@ the problem. `shot_level_spread` shares its threshold with the run-time
 (concat_videos' warning for a multi-shot input), so the join-time warning
 and the after-the-fact probe cannot disagree about the same cut.
 
-Three rules carry a guard the table alone cannot express, applied by the
+Four rules carry a guard the table alone cannot express, applied by the
 probe and named here in `unless` so it is written down beside the number:
 `seam_hole` holds only while both sides of the seam are voiced,
 `seam_frame_jump` does not fire at a seam whose incoming shot is marked
-`hard_cut: true` - a cut meant as a cut - and `shot_dead_air` does not fire
-inside a shot whose own level is already at or below `HOLE_VOICED_DBFS` - a
-shot that is quiet throughout, on purpose, rather than one holding a gap.
+`hard_cut: true` - a cut meant as a cut - and `shot_dead_air` and
+`shot_bed_drop` do not fire inside a shot whose own level is already at or
+below `HOLE_VOICED_DBFS` - a shot that is quiet throughout, on purpose,
+rather than one holding a gap.
 
 The thresholds were settled against real runs on the server in stage D
 (#386), and `held_frames`'s against stage A of #1527; `docs/WORKFLOW_GUIDE.md` and `docs/TASKS.md` quote every one, and
@@ -120,6 +121,28 @@ RULES = (
             " one shot and the gain to lay it at; cut it with slice_audio, loop it"
             " to the gap's length with loop_audio, and mix it under the line with"
             " mix_audio rather than leaving the drop silent"
+        ),
+        "unless": f"the shot's own rms is at or below {HOLE_VOICED_DBFS} dBFS",
+    },
+    {
+        # One field case (#1620): a storm set's bed near -25 dBFS in the
+        # shots either side, and a voiced shot's gaps between lines at -52 -
+        # above DEAD_AIR_FLOOR_DBFS, so shot_dead_air never saw it. Against
+        # the louder neighbour, so one quiet neighbour does not hide the drop
+        "name": "shot_bed_drop",
+        "probe": "analyze_shots",
+        "field": "floor_below_neighbours_db",
+        "comparator": ">",
+        "threshold": 20.0,
+        "severity": "warn",
+        "says": (
+            "the shot's floor sits this far below the louder neighbouring shot's -"
+            " the bed the shots around it carry drops out between its lines. Lay"
+            " the bed under it: run find_loop_bed on the cut with max_bin_dbfs,"
+            " max_mean_dbfs and target_bed_dbfs raised to find a loud bed, cut"
+            " that stretch with slice_audio, loop it with loop_audio and mix it"
+            " under the shot with mix_audio. Leave it at a deliberate scene"
+            " change, where the set itself goes quiet"
         ),
         "unless": f"the shot's own rms is at or below {HOLE_VOICED_DBFS} dBFS",
     },

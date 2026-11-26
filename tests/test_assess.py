@@ -270,6 +270,151 @@ class TestShotDeadAir:
 
 
 # ---------------------------------------------------------------------------
+# 1b'. A voiced shot whose floor falls 20 dB+ below a neighbour's bed flags
+# shot_bed_drop - the storm set whose gaps sat above the dead-air floor (#1620)
+# ---------------------------------------------------------------------------
+
+
+def _noise(dbfs, samples, seed):
+    rng = numpy.random.default_rng(seed)
+    return (10 ** (dbfs / 20) * rng.standard_normal((2, samples))).astype(numpy.float32)
+
+
+def _bed_shot(bed_dbfs, samples, seed):
+    """A shot of steady white noise at `bed_dbfs` - a set's bed alone."""
+    return _noise(bed_dbfs, samples, seed)
+
+
+def _voiced_shot(gap_dbfs, samples, seed, line_dbfs=-19.0, sample_rate=48000):
+    """A voiced shot: 0.5 s lines of `line_dbfs` tone alternating with 0.5 s
+    gaps whose floor is `gap_dbfs` of noise - the bed falling out between
+    lines."""
+    floor = _noise(gap_dbfs, samples, seed)
+    tone = make_tone(
+        samples, sample_rate, amplitude=math.sqrt(2) * 10 ** (line_dbfs / 20)
+    )
+    gate = (numpy.arange(samples) // (sample_rate // 2)) % 2 == 0
+    return floor + tone * gate
+
+
+def _cut(tracks, sample_rate=48000, fps=24):
+    samples = tracks[0].shape[1]
+    frames_per_shot = samples * fps // sample_rate
+    frames = []
+    for index in range(len(tracks)):
+        frames.extend(make_frames(frames_per_shot, 120, noise=3.0, seed=index))
+    shots = cut_shots(
+        [f"s{index}" for index in range(len(tracks))], frames_per_shot, samples
+    )
+    audio = numpy.concatenate(tracks, axis=1)
+    return AudioVideo(frames, audio, sample_rate, fps=fps, shots=shots)
+
+
+SHOT_SAMPLES = 3 * 48000
+
+
+def _bed_drops(answer):
+    return [f for f in answer["findings"] if f["rule"] == "shot_bed_drop"]
+
+
+class TestShotBedDrop:
+    def test_a_one_shot_cut_has_no_neighbours(self):
+        answer = analyze_shots(_cut([_voiced_shot(-52.0, SHOT_SAMPLES, 1)]))
+        assert answer["shots"][0]["floor_below_neighbours_db"] is None
+        assert not _bed_drops(answer)
+        assert "shot_bed_drop" in answer["rules_applied"]
+
+    def test_the_field_is_the_louder_neighbour_minus_this_shot_unclamped(self):
+        answer = analyze_shots(
+            _cut(
+                [
+                    _bed_shot(-25.0, SHOT_SAMPLES, 1),
+                    _voiced_shot(-52.0, SHOT_SAMPLES, 2),
+                    _bed_shot(-40.0, SHOT_SAMPLES, 3),
+                ]
+            )
+        )
+        shots = answer["shots"]
+        floors = [shot["noise_floor_dbfs"] for shot in shots]
+        assert floors[0] == pytest.approx(-25.0, abs=2.0)
+        assert floors[1] == pytest.approx(-52.0, abs=2.0)
+        below = [shot["floor_below_neighbours_db"] for shot in shots]
+        # Shot 0 has one neighbour (shot 1), shot 2 likewise; shot 1 is read
+        # against the louder of its two (shot 0), not shot 2
+        assert below[0] == pytest.approx(floors[1] - floors[0], abs=0.02)
+        assert below[1] == pytest.approx(floors[0] - floors[1], abs=0.02)
+        assert below[2] == pytest.approx(floors[1] - floors[2], abs=0.02)
+        assert below[0] < 0 and below[2] < 0
+        json.dumps(answer, allow_nan=False)
+
+    def test_a_hole_in_a_loud_bed_fires_once_on_the_voiced_shot(self):
+        answer = analyze_shots(
+            _cut(
+                [
+                    _bed_shot(-25.0, SHOT_SAMPLES, 1),
+                    _voiced_shot(-52.0, SHOT_SAMPLES, 2),
+                    _bed_shot(-25.0, SHOT_SAMPLES, 3),
+                ]
+            )
+        )
+        drops = _bed_drops(answer)
+        assert len(drops) == 1
+        assert drops[0]["at"]["shot"] == "s1"
+        assert drops[0]["at"]["index"] == 1
+        assert drops[0]["value"] > 20.0
+        assert drops[0]["severity"] == "warn"
+        for command in ("find_loop_bed", "slice_audio", "loop_audio", "mix_audio"):
+            assert command in drops[0]["says"]
+        # The gaps sit at -52, above the -65 dead-air floor: shot_dead_air
+        # never saw this hole, which is why the relative rule exists
+        assert not [f for f in answer["findings"] if f["rule"] == "shot_dead_air"]
+
+    def test_a_quiet_room_throughout_does_not_fire(self):
+        answer = analyze_shots(
+            _cut(
+                [
+                    _bed_shot(-55.0, SHOT_SAMPLES, 1),
+                    _voiced_shot(-55.0, SHOT_SAMPLES, 2),
+                    _bed_shot(-55.0, SHOT_SAMPLES, 3),
+                ]
+            )
+        )
+        assert all(
+            abs(shot["floor_below_neighbours_db"]) < 5.0 for shot in answer["shots"]
+        )
+        assert not _bed_drops(answer)
+
+    def test_a_shot_quiet_throughout_is_skipped(self):
+        # The middle shot's floor sits 30 dB under its neighbours', but the
+        # shot itself is quiet (rms at or below -30): its low floor is its own
+        # level, not a hole in a bed
+        answer = analyze_shots(
+            _cut(
+                [
+                    _bed_shot(-25.0, SHOT_SAMPLES, 1),
+                    _bed_shot(-55.0, SHOT_SAMPLES, 2),
+                    _bed_shot(-25.0, SHOT_SAMPLES, 3),
+                ]
+            )
+        )
+        shot = answer["shots"][1]
+        assert shot["rms_dbfs"] <= -30.0
+        assert shot["floor_below_neighbours_db"] > 20.0
+        assert not _bed_drops(answer)
+
+    def test_a_silent_by_design_shot_is_skipped(self):
+        video = _cut(
+            [
+                _bed_shot(-25.0, SHOT_SAMPLES, 1),
+                _voiced_shot(-52.0, SHOT_SAMPLES, 2),
+                _bed_shot(-25.0, SHOT_SAMPLES, 3),
+            ]
+        )
+        video.shots[1]["silent_by_design"] = True
+        assert not _bed_drops(analyze_shots(video))
+
+
+# ---------------------------------------------------------------------------
 # 1c. Per-shot high_share and noise_floor_dbfs (#1442 stage 1, #1464)
 # ---------------------------------------------------------------------------
 

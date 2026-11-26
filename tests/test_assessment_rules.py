@@ -302,3 +302,28 @@ class TestFindingSaysTheRemedy:
         )
         for command in ("find_loop_bed", "slice_audio", "loop_audio", "mix_audio"):
             assert command in says
+
+    def test_shot_bed_drop_names_the_bed_chain_and_the_scene_change(self):
+        """#1620: the hand-built bed chain, with find_loop_bed's thresholds
+        raised for a loud bed, and the deliberate scene change it may be."""
+        says = RULES_BY_NAME["shot_bed_drop"]["says"]
+        for name in (
+            "find_loop_bed",
+            "slice_audio",
+            "loop_audio",
+            "mix_audio",
+            "max_bin_dbfs",
+            "max_mean_dbfs",
+            "target_bed_dbfs",
+            "scene change",
+        ):
+            assert name in says
+
+
+class TestShotBedDropTable:
+    def test_threshold_and_severity(self):
+        rule = RULES_BY_NAME["shot_bed_drop"]
+        assert rule["probe"] == "analyze_shots"
+        assert rule["field"] == "floor_below_neighbours_db"
+        assert (rule["comparator"], rule["threshold"]) == (">", 20.0)
+        assert rule["severity"] == "warn"
