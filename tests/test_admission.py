@@ -999,3 +999,50 @@ def test_a_bad_preset_selector_is_the_callers_error_not_the_documents(server):
     assert not answer["valid"]
     assert [e["path"] for e in answer["errors"]] == ["arguments.tier"]
     assert answer["checked_arguments"] == ["tier"]
+
+
+@pytest.mark.parametrize("root_name", ["assets", "outputs"])
+def test_a_save_reads_the_roots_of_its_own_workspace(
+    server, root, tmp_path, monkeypatch, root_name
+):
+    """A definition validate accepts for a workspace saves into it too: an
+    untrusted server judges a path by that workspace's asset library and
+    outputs, not the default one's (#1739)."""
+    monkeypatch.setenv("DW_TRUST_WORKFLOWS", "0")
+    # What pins discovery to the default workspace on a real deployment
+    monkeypatch.setenv("DW_ASSET_DIR", root.assets)
+    definition = valid_workflow("local-model")
+    with server() as client:
+        assert client.post("/api/workspaces", json={"name": "bench"}).is_success
+        bench = tmp_path / "studio" / "bench"
+        folder = bench / root_name / "prequantized"
+        folder.mkdir(parents=True)
+        definition["steps"] = [
+            {
+                "name": "generate",
+                "pipeline": {
+                    "configuration": {"component_type": "FluxPipeline"},
+                    "from_pretrained_arguments": {"model_name": str(folder)},
+                    "arguments": {"prompt": "a cat"},
+                },
+                "result": {"content_type": "image/png"},
+            }
+        ]
+        query = "?workspace=bench"
+        validated = client.post(
+            f"/api/validate{query}&sizes=false", json={"workflow": definition}
+        ).json()
+        assert validated["valid"], validated
+
+        saved = client.put(
+            f"/api/workflows/local{query}", json={"workflow": definition}
+        )
+        assert saved.status_code == 200, saved.text
+        patched = client.patch(
+            f"/api/workflows/local{query}", json={"description": "Patched."}
+        )
+        assert patched.status_code == 200, patched.text
+        # The default workspace still may not read bench's files
+        refused = client.put("/api/workflows/local", json={"workflow": definition})
+        assert refused.status_code == 400, refused.text
+        assert "resolves outside" in refused.text

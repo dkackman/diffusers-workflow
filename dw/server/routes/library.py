@@ -68,7 +68,7 @@ from ...workspace import (
     workspace_times,
     workspace_usage,
 )
-from ..admission import JobRequest, admit_for
+from ..admission import JobRequest, admit_for, workspace_roots
 from ..catalog import (
     matching_prompts,
     attach_observed,
@@ -448,18 +448,24 @@ def _write_validated(http_request, ws, name, definition):
         path,
         ws.workflows,
     )
-    # A definition that fails validation is a refusal (400); validation itself
-    # failing is the server's (500), its message may carry internals (log only)
-    try:
-        # With the LoRA catalog, as the validate route checks it - a save
-        # the server would refuse to run is refused here too (#870)
-        errors = candidate.validation_errors(
-            context=validation.workflow_context(candidate, lora_index=lora_index(state))
-        )
-    except Exception:
-        raise internal_error("Workflow validation failed outright on save")
-    if errors:
-        raise HTTPException(status_code=400, detail=format_validation_errors(errors))
+    # The same roots a validate or a run in this workspace reads from (#1739)
+    with workspace_roots(ws):
+        # A definition that fails validation is a refusal (400); validation itself
+        # failing is the server's (500), its message may carry internals (log only)
+        try:
+            # With the LoRA catalog, as the validate route checks it - a save
+            # the server would refuse to run is refused here too (#870)
+            errors = candidate.validation_errors(
+                context=validation.workflow_context(
+                    candidate, lora_index=lora_index(state)
+                )
+            )
+        except Exception:
+            raise internal_error("Workflow validation failed outright on save")
+        if errors:
+            raise HTTPException(
+                status_code=400, detail=format_validation_errors(errors)
+            )
     check_write_preconditions(http_request, path, f"Workflow {name}")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as file:
@@ -470,13 +476,16 @@ def _write_validated(http_request, ws, name, definition):
     # just created. An empty summary warns, never refuses: a workflow with
     # no description still runs, it is just invisible to shape-first discovery
     metadata = derive_catalog_metadata(definition)
-    warnings = list(workflow_argument_warnings(definition))
-    warnings += validation.run_warning_check(
-        candidate, "null_variable_argument_warnings", None
-    )
-    # An acceleration setting that can't pay off is said where the
-    # workflow is kept, too, not only at validate and submit (#887)
-    warnings += validation.run_warning_check(candidate, "acceleration_warnings", None)
+    with workspace_roots(ws):
+        warnings = list(workflow_argument_warnings(definition))
+        warnings += validation.run_warning_check(
+            candidate, "null_variable_argument_warnings", None
+        )
+        # An acceleration setting that can't pay off is said where the
+        # workflow is kept, too, not only at validate and submit (#887)
+        warnings += validation.run_warning_check(
+            candidate, "acceleration_warnings", None
+        )
     if not metadata["summary"]:
         warnings.append(
             "No summary: add a 'description' (its first sentence becomes "
