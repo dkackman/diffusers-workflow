@@ -1095,7 +1095,10 @@ it has one, otherwise from the workflow's `cost` block. Quote `minutes`;
   effective (presets-resolved) values of `keys`, plus each list-driver
   entry's `num_frames`. Seen means a succeeded, full (no `resume_from` or
   `stop_after`) run of the same workflow - an inline one's `inherited_from`
-  template - on a card of this card's name. The term is added last, after
+  template - on a card of this card's name that finished after the `triton`
+  cache's newest clear (its `.dw-cleared` record; none, every run counts).
+  `templates/minimax/dialogue-short` declares 6.0 min on the 3090 row
+  (#1697's probe). The term is added last, after
   the checked-chain floor, and `scaled` names up to three unseen shapes;
   `basis`, `warm_minutes`, `cached_minutes` and `low_confidence` are not
   moved, and the fixed share above does not include it. The fingerprint
@@ -1611,7 +1614,10 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
   its `.dw-cache` marker: children are renamed into
   `<root>/.clearing-<pid>-<rand>/`, then deleted. Clearing costs a recompile
   or re-autotune on the next first step of each shape (100-300 s per shape on
-  MiniMax-H3 for `triton`). A populated root that an environment variable
+  MiniMax-H3 for `triton`). A clear also writes its time to a `.dw-cleared`
+  file beside the marker; a `triton` clear makes estimates forget the shapes
+  run before it, so a template's `first_at_shape` term comes back for each
+  one (#1615). A populated root that an environment variable
   points away from its default has no marker and is not clearable until you
   create the `.dw-cache` file in it by hand (read per request, no restart);
   see [SECURITY.md](SECURITY.md#disk-caches). The Server page's Caches panel

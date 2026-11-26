@@ -636,6 +636,22 @@ def test_the_slow_first_pass_warning_names_no_cause(monkeypatch):
     assert "reordering entries by size is not a known remedy" in messages[0]
 
 
+def test_the_slow_first_pass_warning_names_autotune_as_a_possible_cause(
+    monkeypatch,
+):
+    """#1615: a first pass at a shape the box hasn't run can be Triton's
+    autotune, which the estimate quotes when the template declares it."""
+    messages = []
+    monkeypatch.setattr(
+        timing_module, "emit_warning", lambda message, **data: messages.append(message)
+    )
+    clock, timer = new_timer()
+    _passes(clock, timer, True, 351.0, 22.0)
+    assert len(messages) == 1
+    assert "can be Triton autotuning" in messages[0]
+    assert "first_at_shape" in messages[0]
+
+
 @pytest.mark.parametrize(
     "cached, first, steady",
     [(True, 29.0, 28.4), (True, 60.0, 37.0), (False, 202.0, 37.0)],

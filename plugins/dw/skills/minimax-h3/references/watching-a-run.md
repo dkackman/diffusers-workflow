@@ -8,8 +8,11 @@ running, and the dead-air fix after it finishes.
 - `denoise_step` is null at first, through the encode and into the first
   pass, which takes the most time (the measured figures are in the skill).
 - The block cache makes later steps uneven, so two-minute gaps are healthy.
-  A slow first step at a new size is healthy too: autotune runs once per
-  box.
+  A slow first step at a new shape is healthy too: Triton autotunes once per
+  shape per box (about 6 min on a 3090). `dialogue-short`'s quote already
+  includes it: its `scaled` names `first pass at N shape(s) this card hasn't
+  run` when the size, `weights_dtype`, `attention_backend` or a shot's frame
+  count is new here, or the `triton` cache was cleared since it ran.
 - `phase_stall` in `get_job_events` describes the wait; it does not mean a
   fault. Judge progress by `denoise_step`.
 - A cancelled H3 job runs on to its next step boundary before it stops. If

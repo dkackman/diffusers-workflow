@@ -14,7 +14,7 @@ short request, a layout by boxes, or a host that is too small goes to the
 
 ## Before anything
 
-This skill is written for dw `0.23.0-alpha.3`; `get_server_info`'s `plugin` says whether that is current.
+This skill is written for dw `0.23.0-alpha.4`; `get_server_info`'s `plugin` says whether that is current.
 
 1. `get_server_info`: the device and the workspace. The catalog recipe is
    CUDA only. On `cpu`, stop and use the `flux3-klein` skill.

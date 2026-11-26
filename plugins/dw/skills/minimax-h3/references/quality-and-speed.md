@@ -235,6 +235,12 @@ block-level group offload: compute-bound, not PCIe-bound.
   steps only, never with the turbo LoRAs. It is the `cache` argument on every H3
   template, `{"type": "first_block", "threshold": 0.05}`; `null` (the default)
   is off.
+- **A new shape's first pass**: about +6 min (351 s at 226 frames, 374 s at
+  243 on a 3090) the first time a box runs a size, dtype, attention backend or
+  frame count, then nothing (0.8 s on the repeat, #1697). It is Triton
+  autotune, kept in the `triton` cache, so clearing that cache pays it again.
+  `dialogue-short`'s estimate adds it per unseen shape (`first_at_shape`);
+  other H3 templates' quotes don't yet, so budget it for a new shape there.
 - **`torch.compile`**: +289 s on the first pass, ~1% per pass after. A net
   loss for one job; it breaks even only across ~16 shots at one shape in one
   warm worker.

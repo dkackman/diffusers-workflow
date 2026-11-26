@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from dw import _inductor_cache_dir_default, disk_caches
 from dw.disk_caches import (
+    CLEARED,
     MARKER,
     NoEntries,
     NotClearable,
@@ -278,7 +279,7 @@ def test_clear_empties_root_and_keeps_marker(env, tmp_path):
 
     assert result == {"freed": total, "files": count}
     assert root.is_dir()
-    assert [p.name for p in root.iterdir()] == [MARKER]
+    assert sorted(p.name for p in root.iterdir()) == [MARKER, CLEARED]
 
 
 def test_clear_keeps_a_file_written_during_the_clear(env, tmp_path, monkeypatch):
@@ -305,7 +306,7 @@ def test_clear_removes_a_stale_clearing_dir(env, tmp_path):
 
     disk_caches.clear("inductor")
 
-    assert sorted(p.name for p in root.iterdir()) == [MARKER]
+    assert sorted(p.name for p in root.iterdir()) == [MARKER, CLEARED]
 
 
 @pytest.mark.parametrize("name", ["nope", "../x"])
@@ -414,7 +415,7 @@ class TestCacheRoutes:
             "freed": total,
             "files": count,
         }
-        assert tree(root) == [MARKER]
+        assert tree(root) == [MARKER, CLEARED]
 
     def test_clear_refused_while_busy(self, api, tmp_path):
         root, _ = marked_root(tmp_path)
@@ -572,7 +573,7 @@ def test_off_cache_still_lists_and_clears(env, tmp_path):
 
     disk_caches.clear("quantized")
 
-    assert [p.name for p in root.iterdir()] == [MARKER]
+    assert sorted(p.name for p in root.iterdir()) == [MARKER, CLEARED]
 
 
 def test_missing_quantized_root_lists_no_entries_and_is_not_created(env, tmp_path):
@@ -812,7 +813,7 @@ def test_job_submitted_during_a_clear_waits_for_it(api, tmp_path, monkeypatch):
     while job.status not in ("succeeded", "failed") and time.time() < deadline:
         time.sleep(0.02)
     assert job.status == "succeeded"
-    assert tree(root) == [MARKER]
+    assert tree(root) == [MARKER, CLEARED]
 
 
 def test_hold_dispatch_refuses_when_busy_and_releases(api):
@@ -857,7 +858,7 @@ def test_mark_roots_and_clear_remove_a_leftover_staging_directory(env, tmp_path)
     (again / "big.bin").write_bytes(b"x" * 500)
     result = disk_caches.clear("inductor")
     assert not again.exists()
-    assert tree(root) == [MARKER]
+    assert tree(root) == [MARKER, CLEARED]
     assert result["files"] == 3
 
 

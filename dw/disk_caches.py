@@ -39,12 +39,18 @@ instead of starting into a root being emptied. A staging directory a killed
 server left behind is removed at `mark_roots()` and at the next clear, and is
 never counted by a scan. `scan_all()` reuses its answer for a few seconds.
 
+**A clear records its time** in a `.dw-cleared` file beside the marker
+(`last_cleared`), never counted or cleared itself. The estimate's
+`first_at_shape` term (#1615) reads the `triton` one: a shape history says
+this card has run is warm only if it ran after the newest clear.
+
 **An entry id must have a cache key's shape** (`quantized_cache.is_key`, 64
 lowercase hex) before any path is built from it.
 """
 
 import importlib.util
 import logging
+import math
 import os
 import secrets
 import shutil
@@ -59,6 +65,9 @@ from .security import SecurityError, validate_path
 logger = logging.getLogger("dw")
 
 MARKER = ".dw-cache"
+# When the root was last cleared, as epoch seconds (#1615): a shape run
+# before it is no longer warm in that cache
+CLEARED = ".dw-cleared"
 _CLEARING_PREFIX = ".clearing-"
 _MARKER_TEXT = (
     "This directory is a cache dw may empty from its server page or "
@@ -167,7 +176,10 @@ CACHES = {
             enabled=_triton_installed,
             cost_of_clearing=(
                 "The next first step of each SDNQ or compiled shape "
-                "re-autotunes its Triton kernels (100-300 s on MiniMax-H3). "
+                "re-autotunes its Triton kernels (100-300 s on MiniMax-H3; "
+                "about 6 min per new shape on dialogue-short), and estimates "
+                "add the template's first-pass term again for every shape "
+                "run before the clear. "
                 "This directory is shared with any other Triton user on "
                 "this machine, whose kernels are cleared too."
             ),
@@ -206,7 +218,7 @@ def get(name):
 def _children(root):
     """The root's entries other than the marker."""
     with os.scandir(root) as entries:
-        return [entry for entry in entries if entry.name != MARKER]
+        return [entry for entry in entries if entry.name not in (MARKER, CLEARED)]
 
 
 def _has_marker(root):
@@ -219,6 +231,28 @@ def _write_marker(root):
     marker = validate_path(os.path.join(root, MARKER), base_dir=root)
     with open(marker, "w") as f:
         f.write(_MARKER_TEXT)
+
+
+def _write_cleared(root):
+    path = validate_path(os.path.join(root, CLEARED), base_dir=root)
+    with open(path, "w") as f:
+        f.write(f"{time.time()}\n")
+
+
+def last_cleared(name):
+    """When cache `name` was last cleared from dw (epoch seconds), or None
+    when no clear is recorded. `seen_shapes` (#1615) counts only runs that
+    finished after it: the autotuned kernels earlier runs left are gone."""
+    try:
+        root = get(name).root()
+        path = validate_path(os.path.join(root, CLEARED), base_dir=root)
+        if os.path.islink(path) or not os.path.isfile(path):
+            return None
+        with open(path) as f:
+            value = float(f.read().strip())
+    except (OSError, ValueError, SecurityError, UnknownCache):
+        return None
+    return value if math.isfinite(value) else None
 
 
 def _sweep_staging(root):
@@ -296,7 +330,7 @@ def _walk(top):
                         continue
                     if not entry.is_file(follow_symlinks=False):
                         continue
-                    if entry.name == MARKER and directory == top:
+                    if entry.name in (MARKER, CLEARED) and directory == top:
                         continue
                     stat = entry.stat(follow_symlinks=False)
                 except OSError:
@@ -518,6 +552,10 @@ def clear(name):
         freed, files = _stage_out(
             root, [entry.path for entry in _children(root) if not entry.is_symlink()]
         )
+        try:
+            _write_cleared(root)
+        except (OSError, SecurityError) as e:
+            logger.warning(f"Could not record the {name} cache's clear: {e}")
         _forget_scans()
     logger.info(f"Cleared the {name} cache at {root} ({freed} bytes, {files} files)")
     return {"freed": freed, "files": files}

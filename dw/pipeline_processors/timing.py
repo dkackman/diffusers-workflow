@@ -163,8 +163,11 @@ class StepTimer:
     def _warn_on_slow_first_pass(self, segment):
         """Say so once when a cached pipeline's first pass dwarfs the steady one.
 
-        The cause is unknown (#1119: it fired on an equal-shape second entry, and
-        #924's rerun did not reproduce it), so the message states none.
+        One cause is known (#1615): a first pass at a shape the box hasn't
+        autotuned pays Triton's autotune, which the estimate quotes when the
+        template declares `first_at_shape`. Otherwise the cause is unknown
+        (#1119: it fired on an equal-shape second entry, and #924's rerun did
+        not reproduce it), so the message names autotune only as a possibility.
 
         The pipeline is loaded, so the minutes are not a load. The stall has
         followed a later entry at a larger shape (#924) and one at the same
@@ -185,7 +188,10 @@ class StepTimer:
         emit_warning(
             f"First denoise pass took {first:.0f}s against {steady:.0f}s for "
             "the passes after it, with the pipeline already loaded: a one-off "
-            "warm-up whose cause is not identified. It has followed a larger "
+            "warm-up. A first pass at a shape this box has not run before can "
+            "be Triton autotuning its kernels; the estimate quotes that as a "
+            "first-pass term when the template declares `first_at_shape`. "
+            "Otherwise its cause is not identified: it has followed a larger "
             "shape (more frames) and also an entry of the same shape, so "
             "reordering entries by size is not a known remedy. Later passes "
             "run at the steady rate.",

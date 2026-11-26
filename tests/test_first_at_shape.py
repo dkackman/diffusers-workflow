@@ -269,13 +269,110 @@ def test_the_compact_listing_strips_the_key():
     assert entry["cost"][0]["first_at_shape"] == SHAPE
 
 
-def test_no_catalog_workflow_carries_the_key():
+DIALOGUE_SHORT = "workflows/templates/minimax/dialogue-short.json"
+
+
+def test_dialogue_short_carries_the_probed_key():
+    """#1615 stage 4: the probe's 351 s and 374 s, rounded, on the 3090 row."""
+    spec = _repo_json(DIALOGUE_SHORT)
+    assert [entry.get("first_at_shape") for entry in spec["cost"]] == [
+        {
+            "minutes": 6.0,
+            "keys": ["width", "height", "weights_dtype", "attention_backend"],
+        }
+    ]
+
+
+def test_no_other_catalog_workflow_carries_the_key():
+    """Other H3 templates are a data-only follow-up (#1615's non-goals)."""
     import glob
 
     for path in glob.glob("workflows/**/*.json", recursive=True) + glob.glob(
         "dw/workflows/**/*.json", recursive=True
     ):
+        if path.replace("\\", "/").endswith(DIALOGUE_SHORT):
+            continue
         assert "first_at_shape" not in open(path).read(), path
+
+
+class TestCacheClear:
+    """A Triton clear wipes the autotuned kernels, so rows that finished
+    before it no longer count as seen (#1615 stage 4)."""
+
+    CLEAR = 1_700_000_000.0
+
+    def rows(self):
+        return [
+            run(60, {"tier": "draft"}, finished_at=self.CLEAR - 10),
+            run(60, {}, finished_at=self.CLEAR + 10),
+        ]
+
+    def test_a_row_before_the_clear_is_not_seen(self):
+        seen = seen_shapes(definition(), self.rows(), SHAPE["keys"], since=self.CLEAR)
+        assert (896.0, 512.0, 121.0) not in seen
+
+    def test_a_row_after_the_clear_is_seen(self):
+        seen = seen_shapes(definition(), self.rows(), SHAPE["keys"], since=self.CLEAR)
+        assert seen == {(1344.0, 768.0, 121.0)}
+
+    def test_no_marker_counts_every_row(self):
+        seen = seen_shapes(definition(), self.rows(), SHAPE["keys"], since=None)
+        assert seen == {(896.0, 512.0, 121.0), (1344.0, 768.0, 121.0)}
+
+    def test_the_server_reads_the_triton_marker(self, monkeypatch):
+        from types import SimpleNamespace
+
+        import dw.disk_caches as disk_caches
+        from dw.server.deps import seen_shapes_for_name
+
+        asked = []
+        monkeypatch.setattr(
+            disk_caches,
+            "last_cleared",
+            lambda name: asked.append(name) or self.CLEAR,
+        )
+        rows = self.rows()
+
+        class Costs:
+            def rows_on_card(self, name, *, workspace=None, card=None):
+                return rows
+
+        state = SimpleNamespace(observed_costs=Costs())
+        shapes = seen_shapes_for_name(state, "w", definition(), SHAPE["keys"])
+        assert asked == ["triton"]
+        assert shapes == {(1344.0, 768.0, 121.0)}
+
+    def test_clearing_writes_the_marker_and_last_cleared_reads_it(
+        self, tmp_path, monkeypatch
+    ):
+        import dw.disk_caches as disk_caches
+
+        root = tmp_path / "triton"
+        root.mkdir()
+        (root / disk_caches.MARKER).write_text("x")
+        (root / "kernel").mkdir()
+        monkeypatch.setenv("TRITON_CACHE_DIR", str(root))
+        assert disk_caches.last_cleared("triton") is None
+        monkeypatch.setattr(disk_caches.time, "time", lambda: self.CLEAR)
+        result = disk_caches.clear("triton")
+        assert result["files"] == 0
+        assert sorted(p.name for p in root.iterdir()) == sorted(
+            [disk_caches.MARKER, disk_caches.CLEARED]
+        )
+        assert disk_caches.last_cleared("triton") == self.CLEAR
+        # the record is neither counted as cache nor swept by the next clear
+        assert disk_caches.scan(disk_caches.get("triton"))["files"] == 0
+        monkeypatch.setattr(disk_caches.time, "time", lambda: self.CLEAR + 5)
+        disk_caches.clear("triton")
+        assert disk_caches.last_cleared("triton") == self.CLEAR + 5
+
+    @pytest.mark.parametrize("text", ["", "soon", "nan", "inf"])
+    def test_an_unreadable_marker_counts_every_row(self, tmp_path, monkeypatch, text):
+        import dw.disk_caches as disk_caches
+
+        monkeypatch.setenv("TRITON_CACHE_DIR", str(tmp_path))
+        (tmp_path / disk_caches.CLEARED).write_text(text)
+        assert disk_caches.last_cleared("triton") is None
 
 
 def test_build_plan_with_no_shape_key_never_asks(tmp_path):  # noqa: F811
@@ -307,10 +404,13 @@ class TestServerWiring:
         state = SimpleNamespace()
         assert seen_shapes_for_name(state, "w", definition(), ["width"]) is None
 
-    def test_the_rows_come_from_this_card(self):
+    def test_the_rows_come_from_this_card(self, monkeypatch):
         from types import SimpleNamespace
 
+        import dw.disk_caches as disk_caches
         from dw.server.deps import seen_shapes_for_name
+
+        monkeypatch.setattr(disk_caches, "last_cleared", lambda name: None)
 
         asked = {}
 
