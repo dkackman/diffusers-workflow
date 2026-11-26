@@ -1029,6 +1029,14 @@ remaining deferred fix is recorded in
   non-take link mark was not built; a second field report where check items
   clutter a request would bring it back:
   `complete/request-check-export-items-complete.md`.
+- **Task-only workflows priced from declared task rates** (#1619, stage
+  #1698), shipped 2026-11-26. Non-model media commands declare
+  `register_command(cost=...)`, and a task-only workflow with no history gets
+  a `derived`, `low_confidence` price scaled by its probed input length, not
+  `unknown`. Failed runs as weak history and a cross-workflow step-time
+  store were cut. Each comes back on its trigger (a command that keeps
+  failing before it has a rate; declared rates more than 2× off on a host):
+  `complete/task-rate-pricing-complete.md`.
 
 ## Declined
 
