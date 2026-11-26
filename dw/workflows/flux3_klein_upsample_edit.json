@@ -4,7 +4,10 @@
     "variables": {
         "instruction": "put a red bandana around the dog's neck",
         "images": [],
-        "device": "cuda"
+        "device": "cuda",
+        "model_name": "black-forest-labs/flux-3-image-klein-pup",
+        "revision": "3f3edb52b2c55de0d49feab28598b68f7f8e4830",
+        "max_new_tokens": 3584
     },
     "steps": [
         {
@@ -29,18 +32,18 @@
                 "arguments": {
                     "prompt": "previous_result:scaffold",
                     "image": "variable:images",
-                    "model_name": "black-forest-labs/flux-3-image-klein-pup",
-                    "revision": "3f3edb52b2c55de0d49feab28598b68f7f8e4830",
+                    "model_name": "variable:model_name",
+                    "revision": "variable:revision",
                     "system_prompt": {
                         "from_hub": {
-                            "repo": "black-forest-labs/flux-3-image-klein-pup",
+                            "repo": "variable:model_name",
                             "file": "system_prompts.json",
-                            "revision": "3f3edb52b2c55de0d49feab28598b68f7f8e4830",
+                            "revision": "variable:revision",
                             "key": "i2i"
                         }
                     },
                     "chat_template_kwargs": {"enable_thinking": false},
-                    "max_new_tokens": 3584,
+                    "max_new_tokens": "variable:max_new_tokens",
                     "repetition_penalty": 1.0,
                     "device": "variable:device"
                 }

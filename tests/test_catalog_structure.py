@@ -691,7 +691,11 @@ def test_no_stale_entry_in_the_allowlist():
 # Then to 16_000 (measured 15_991) for #1626 stage C (#1722): four MiniMax
 # templates draw their portraits through `portrait_workflow`, so each now
 # carries the `composes-workflows` trait (summaries shortened to pay for part).
-COMPACT_BUDGET = 16_000
+# Then to 16_055 (measured 16_030, 2026-11-26) for #1642 stage A (#1725): the
+# composing templates hand their child's run-affecting values down as parent
+# variables (image_workflow, video_width, video_height, num_frames, ...), and
+# the compact listing carries every variable name.
+COMPACT_BUDGET = 16_055
 # The shape=sequence listing to 1_650 (measured 1_642) for
 # `minimax/replace-performer` (#1374), the catalog's only sequence that recasts
 # a take.

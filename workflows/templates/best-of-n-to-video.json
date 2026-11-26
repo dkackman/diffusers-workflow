@@ -10,6 +10,9 @@
         "scale": [0, 10],
         "num_inference_steps": 25,
         "video_prompt": "prompt:ltx2/best-of-n-video-motion",
+        "video_width": 768,
+        "video_height": 768,
+        "num_frames": 401,
         "seed": null
     },
     "seed": "variable:seed",
@@ -71,7 +74,10 @@
                 "path": "./ltx2/image-to-video.json",
                 "arguments": {
                     "image": "previous_result:pick",
-                    "prompt": "variable:video_prompt"
+                    "prompt": "variable:video_prompt",
+                    "width": "variable:video_width",
+                    "height": "variable:video_height",
+                    "num_frames": "variable:num_frames"
                 }
             },
             "result": {

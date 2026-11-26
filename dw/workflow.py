@@ -146,6 +146,31 @@ def workflow_from_snapshot(definition, output_dir, file_spec, workflow_dir=None)
     return Workflow(definition, validated_output, file_spec, workflow_dir)
 
 
+def hold_null_seed_arguments(definition, variables):
+    """Hand a composed child a null seed where its `workflow` step passes
+    `"seed": "variable:<name>"` and that variable is null - in place, before
+    substitution.
+
+    replace_variables drops a key whose reference resolves to null, so the
+    child would see no seed argument and run under the seed it declares
+    (z-image's 42) rather than the parent's. Handed null, the child's seed
+    resolves to None and prepare_definition falls back to the parent's run
+    seed (#1641), so one recorded seed reproduces the whole run (#1642). A
+    literal seed argument, and a step that passes no seed, are untouched.
+    """
+    steps = definition.get("steps")
+    if not isinstance(steps, list):
+        return
+    for step in steps:
+        reference = step.get("workflow") if isinstance(step, dict) else None
+        arguments = reference.get("arguments") if isinstance(reference, dict) else None
+        if not isinstance(arguments, dict):
+            continue
+        name = references.ref_name(references.VARIABLE, arguments.get("seed"))
+        if name is not None and name in variables and variables[name] is None:
+            arguments["seed"] = None
+
+
 class Workflow:
     """
     Main class for managing and executing workflows defined in JSON format
@@ -441,6 +466,10 @@ class Workflow:
                 "snaps to a count the pipeline accepts"
             )
         if variables is not None:
+            # A composed child's seed handed as a reference left null is
+            # handed as null, not dropped, so the child runs under the
+            # parent's seed rather than one it declares (#1642)
+            hold_null_seed_arguments(definition, variables)
             # replace_variables returns a new structure rather than mutating
             # in place, so the result must be captured here
             definition = replace_variables(definition, variables)

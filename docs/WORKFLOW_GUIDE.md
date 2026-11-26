@@ -3429,7 +3429,10 @@ The seed also reaches sub-workflows: a delegated `workflow` step runs the child 
 the parent's seed unless the child names its own. Declaring `"seed": "variable:seed"`
 with a `null` default, as every catalog template does, is not naming one: the parent's
 seed stands in until the child's seed variable is set, by its own default or by `seed`
-in the step's `arguments`, and either of those wins. Without that a child draws its own
+in the step's `arguments`, and either of those wins. A step that passes
+`"seed": "variable:seed"` while the parent's seed is null hands the child null, not
+nothing, so the parent's drawn seed beats a seed the child declares (z-image's `42`
+under `compose-workflows`) and the run's recorded seed reproduces it. Without that a child draws its own
 random seed, and a workflow whose real generation happens inside a sub-workflow would
 not reproduce from the seed it was given.
 
