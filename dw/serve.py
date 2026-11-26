@@ -253,7 +253,14 @@ def configure_environment(args):
     from .workspace import resolve_workspace, set_workspace
 
     if getattr(args, "install_root", None):
-        os.environ["DW_INSTALL_ROOT"] = os.path.abspath(args.install_root)
+        from .security import SecurityError, validate_path
+
+        # Normalized and refused on traversal; no base, the root is the user's
+        try:
+            os.environ["DW_INSTALL_ROOT"] = validate_path(args.install_root)
+        except SecurityError as error:
+            print(f"dw-serve: --install-root refused: {error}", file=sys.stderr)
+            raise SystemExit(2) from None
     packaged = packaged_examples_dir() if args.examples_dirs is None else None
     if packaged:
         args.examples_dirs = [packaged]

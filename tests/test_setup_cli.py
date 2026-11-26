@@ -25,6 +25,8 @@ class Fakes:
         self.manifest = None
         self.shims = []
         self.service_installed = False
+        # None: the service runs whenever it is installed
+        self.service_running = None
         self.busy = False
 
 
@@ -66,7 +68,7 @@ def fakes(tmp_path, monkeypatch, capsys):
         manifest.save()
         return "removed"
 
-    def register_code(manifest, run, version):
+    def register_code(manifest, run, version, servers=None):
         if not manifest.has("code-marketplace", "m"):
             f.marketplace_adds += 1
         manifest.record("code-marketplace", "m", {})
@@ -112,7 +114,9 @@ def fakes(tmp_path, monkeypatch, capsys):
         (setup_service, "enable_linger"): enable_linger,
         (setup_service, "service_status"): lambda run, platform: {
             "installed": f.service_installed,
-            "running": f.service_installed,
+            "running": f.service_installed
+            if f.service_running is None
+            else f.service_running,
             "stops_at_logout": None,
         },
         (setup_cli, "server_busy"): lambda port: f.busy,
@@ -124,7 +128,7 @@ def fakes(tmp_path, monkeypatch, capsys):
         (setup_clients, "unregister_code"): unregister_code,
         (setup_clients, "write_mcp_shim"): write_mcp_shim,
         (setup_clients, "remove_mcp_shim"): remove_mcp_shim,
-        (setup_clients, "code_duplicates"): lambda run: [],
+        (setup_clients, "code_duplicates"): lambda servers: [],
         (setup_clients, "_mcp_servers"): lambda run: {},
     }
     for (mod, name), value in patches.items():
@@ -137,6 +141,7 @@ def fakes(tmp_path, monkeypatch, capsys):
         return code
 
     f.run = run_main
+    f.runner_calls = runner_calls
     return f
 
 
@@ -394,3 +399,72 @@ def test_plugin_mismatch_compares_pep440_versions(fakes, monkeypatch, plugin, mi
     )
     fakes.run(["setup", "--status", "--json"])
     assert json.loads(fakes.out)["plugin_version_mismatch"] is mismatch
+
+
+def test_a_stopped_service_does_not_claim_an_answering_server(fakes):
+    fakes.manifest.record("service", "svc", {})
+    fakes.manifest.save()
+    fakes.server_answering = True
+    fakes.service_installed = True
+    fakes.service_running = False
+    assert fakes.run(["setup", "--yes", "--no-open"]) == 0
+    assert fakes.service_installs == []
+    assert "already running" in fakes.out
+    assert "restarting it" not in fakes.out
+
+
+def _count_mcp_listings(monkeypatch):
+    reads = []
+
+    def servers(run):
+        reads.append(1)
+        return {}
+
+    monkeypatch.setattr(setup_clients, "_mcp_servers", servers)
+    return reads
+
+
+def test_status_reads_each_claude_listing_once(fakes, monkeypatch):
+    reads = _count_mcp_listings(monkeypatch)
+    assert fakes.run(["setup", "--status"]) == 0
+    plugin_lists = [c for c in fakes.runner_calls if c == ["claude", "plugin", "list"]]
+    assert len(plugin_lists) == 1
+    assert len(reads) == 1
+
+
+def test_install_reads_the_mcp_listing_once(fakes, monkeypatch):
+    reads = _count_mcp_listings(monkeypatch)
+    passed = []
+    real = setup_clients.register_code
+
+    def register_code(manifest, run, version, servers=None):
+        passed.append(servers)
+        return real(manifest, run, version, servers)
+
+    monkeypatch.setattr(setup_clients, "register_code", register_code)
+    assert fakes.run(["setup", "--yes", "--no-open", "--no-service"]) == 0
+    assert passed == [{}]
+    assert len(reads) == 1
+
+
+@pytest.mark.parametrize(
+    "argv", [["setup", "--status", "--uninstall"], ["setup", "--json"]]
+)
+def test_conflicting_flags_exit_2(fakes, argv, capsys):
+    with pytest.raises(SystemExit) as exit_info:
+        setup_cli.main(argv)
+    assert exit_info.value.code == 2
+
+
+def test_json_with_uninstall_names_the_rule(fakes, capsys):
+    with pytest.raises(SystemExit):
+        setup_cli.main(["setup", "--uninstall", "--json"])
+    assert "--json needs --status" in capsys.readouterr().err
+
+
+def test_agent_without_claude_names_dw_by_its_full_path(monkeypatch, capsys):
+    from dw.setup_state import beside_python
+
+    monkeypatch.setattr(setup_clients, "claude_cli", lambda: None)
+    assert setup_cli.main(["agent"]) == 1
+    assert f"`{beside_python('dw')} agent`" in capsys.readouterr().err

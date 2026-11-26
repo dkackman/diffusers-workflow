@@ -315,16 +315,37 @@ def remove_mcp_shim(manifest: Manifest, platform: str = sys.platform) -> str:
     return f"removed dw-mcp shim ({shim})"
 
 
+def _first_section(out: str) -> list[str]:
+    """The lines of a listing's first section: its first non-blank line and the
+    indented lines under it, up to the next unindented one (`From claude.ai:`
+    after `Configured marketplaces:`)."""
+    lines = out.splitlines()
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    section = lines[:1]
+    for line in lines[1:]:
+        if line.strip() and not line[0].isspace():
+            break
+        section.append(line)
+    return section
+
+
 def _listed(result) -> set[str] | None:
-    """The `name`s a `claude plugin ... list` printed (lines like `❯ name`), or None."""
+    """The `name`s a `claude plugin ... list` printed in its first section
+    (lines like `❯ name`), or None. A section with no names is empty only when
+    it says so on a line of its own (`No plugins installed`)."""
     if result.returncode != 0:
         return None
     out = result.stdout or ""
-    names = {
-        m.group(1)
-        for m in re.finditer(r"^\s*[❯>]\s+(\S+)\s*$", out, flags=re.MULTILINE)
-    }
-    if names or not out.strip() or re.search(r"\bno\b", out, flags=re.IGNORECASE):
+    section = _first_section(out)
+    names = set()
+    for line in section:
+        m = re.match(r"^\s*[❯>]\s+(\S+)\s*$", line)
+        if m:
+            names.add(m.group(1))
+    if names or not out.strip():
+        return names
+    if any(re.match(r"^\s*no\s", line, flags=re.IGNORECASE) for line in section):
         return names
     return None
 
@@ -436,15 +457,23 @@ def _register_plugin(
     notes.append(f"{'reinstalled' if present else 'added'} {PLUGIN}")
 
 
-def register_code(manifest: Manifest, runner: Runner, version: str) -> str:
+def register_code(
+    manifest: Manifest,
+    runner: Runner,
+    version: str,
+    servers: dict[str, str] | None = None,
+) -> str:
     """Register the dw marketplace (pinned at this version's tag), the dw
     plugin and the dw-notes channel. A re-run at a new version moves setup's
-    own marketplace pin and reinstalls the plugin from it."""
+    own marketplace pin and reinstalls the plugin from it. `servers` is the
+    caller's `claude mcp list` (`_mcp_servers`), so it is read once; None
+    reads it here."""
     commands = code_commands(version, "@")
     notes: list[str] = []
     moved = _register_marketplace(manifest, runner, commands[0][-1], notes)
     _register_plugin(manifest, runner, moved, notes)
-    servers = _mcp_servers(runner)
+    if servers is None:
+        servers = _mcp_servers(runner)
     if servers is not None and _NOTES in servers:
         notes.append(f"{_NOTES} already present")
     else:
@@ -486,18 +515,21 @@ def unregister_code(manifest: Manifest, runner: Runner) -> str:
     return "Claude Code: " + ("; ".join(notes) if notes else "nothing to remove")
 
 
-def code_duplicates(runner: Runner) -> list[str]:
+def code_duplicates(servers: dict[str, str] | None) -> list[str]:
     """MCP servers, not our notes channel, that would collide with the plugin's dw tools.
 
     Any server named `dw` (even an HTTP one) or whose command is `dw-mcp`.
+    `servers` is `_mcp_servers()`'s listing (None when it could not be read).
+    A command path may hold spaces, so the executable is the line up to the
+    first argument that starts with `-`, or the whole line.
     """
-    servers = _mcp_servers(runner) or {}
     found = []
-    for name, line in servers.items():
+    for name, line in (servers or {}).items():
         words = line.split()
         if name == _NOTES or "--notes-channel" in words:
             continue
-        if name == _SERVER or (words and re.search(r"dw-mcp(\.exe)?$", words[0])):
+        executable = re.split(r"\s+-", line, maxsplit=1)[0].strip()
+        if name == _SERVER or re.search(r"(?:^|[/\\])dw-mcp(\.exe)?$", executable):
             found.append(name)
     return found
 

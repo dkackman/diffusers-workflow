@@ -21,7 +21,13 @@ import webbrowser
 
 import dw
 from dw import setup_clients, setup_service
-from dw.setup_state import Manifest, SetupError, install_root, read_install_record
+from dw.setup_state import (
+    Manifest,
+    SetupError,
+    beside_python,
+    install_root,
+    read_install_record,
+)
 
 DEFAULT_PORT = 8765
 _PROMPT_DONE = "Start a new Claude session to pick up the registration."
@@ -82,12 +88,15 @@ def server_busy(port: int) -> bool | None:
 
 def _our_service_installed(manifest: Manifest, runner, platform: str) -> bool:
     """Whether the answering server is setup's own service: the manifest
-    records one and the service manager reports it installed. A re-run of
-    the bootstrap (the upgrade) then rewrites it and restarts it."""
+    records one and the service manager reports it installed and running. A
+    recorded service that is installed but stopped did not start the server
+    that answers, so that server is left alone. A re-run of the bootstrap (the
+    upgrade) rewrites setup's own service and restarts it."""
     if not manifest.entries("service"):
         return False
     try:
-        return bool(setup_service.service_status(runner, platform)["installed"])
+        status = setup_service.service_status(runner, platform)
+        return bool(status["installed"] and status["running"])
     except SetupError:
         return False
 
@@ -120,8 +129,8 @@ def _confirm(question: str, yes: bool, default: bool) -> bool:
     return default if not answer else answer.startswith("y")
 
 
-def _plugin_version(runner) -> str | None:
-    out = runner(["claude", "plugin", "list"]).stdout or ""
+def _plugin_version(out: str) -> str | None:
+    """The dw plugin's version in a `claude plugin list` output, or None."""
     block = re.search(
         re.escape(setup_clients.PLUGIN) + r"(.*?)(?:\n\s*[❯>]\s|\Z)", out, re.DOTALL
     )
@@ -159,12 +168,13 @@ def _code_state(runner, manifest: Manifest) -> dict:
     listing = runner(["claude", "plugin", "list"])
     state["plugin"] = setup_clients.PLUGIN in (listing.stdout or "")
     if state["plugin"]:
-        state["plugin_version"] = _plugin_version(runner)
-    servers = setup_clients._mcp_servers(runner) or {}
-    state["notes_channel"] = "dw-notes" in servers
+        state["plugin_version"] = _plugin_version(listing.stdout or "")
+    # Each listing is read once per status (they are slow)
+    servers = setup_clients._mcp_servers(runner)
+    state["notes_channel"] = "dw-notes" in (servers or {})
     ours = {e["key"] for e in manifest.entries("code-mcp")}
     state["duplicates"] = [
-        n for n in setup_clients.code_duplicates(runner) if n not in ours
+        n for n in setup_clients.code_duplicates(servers) if n not in ours
     ]
     return state
 
@@ -279,13 +289,17 @@ def _install(args, runner, platform: str) -> int:
     elif setup_clients.claude_cli() is None:
         print(f"Claude Code: skipped, {_NO_CLAUDE}")
     else:
+        # Read once, for the registration and the duplicate warning
+        servers = setup_clients._mcp_servers(runner)
         _step(
             "Claude Code",
             failures,
-            lambda: setup_clients.register_code(manifest, runner, dw.__version__),
+            lambda: setup_clients.register_code(
+                manifest, runner, dw.__version__, servers
+            ),
         )
         ours = {e["key"] for e in manifest.entries("code-mcp")}
-        for name in setup_clients.code_duplicates(runner):
+        for name in setup_clients.code_duplicates(servers):
             if name not in ours:
                 print(
                     f"Warning: Claude Code already has an MCP server named {name} "
@@ -434,7 +448,8 @@ def _agent(extra: list[str]) -> int:
     if claude is None:
         print(
             "Claude Code was not found on PATH. Install it from "
-            "https://claude.com/claude-code, then run `dw agent` again.",
+            f"https://claude.com/claude-code, then run `{beside_python('dw')} agent` "
+            "again.",
             file=sys.stderr,
         )
         return 1
@@ -454,9 +469,11 @@ def _parser() -> argparse.ArgumentParser:
     setup.add_argument("--no-desktop", action="store_true")
     setup.add_argument("--no-code", action="store_true")
     setup.add_argument("--no-open", action="store_true", help="do not open the web UI")
-    setup.add_argument("--status", action="store_true", help="report, change nothing")
+    # --status and --uninstall exclude each other; --json needs --status (main)
+    mode = setup.add_mutually_exclusive_group()
+    mode.add_argument("--status", action="store_true", help="report, change nothing")
+    mode.add_argument("--uninstall", action="store_true")
     setup.add_argument("--json", action="store_true", help="with --status, print JSON")
-    setup.add_argument("--uninstall", action="store_true")
     setup.add_argument("--port", type=int, default=DEFAULT_PORT)
     sub.add_parser("agent", help="start Claude Code with the dw-notes channel")
     return parser
@@ -466,7 +483,11 @@ def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if argv[:1] == ["agent"]:  # everything after `agent` belongs to claude
         return _agent(argv[1:])
-    return _setup(_parser().parse_args(argv))
+    parser = _parser()
+    args = parser.parse_args(argv)
+    if args.json and not args.status:
+        parser.error("--json needs --status")
+    return _setup(args)
 
 
 if __name__ == "__main__":

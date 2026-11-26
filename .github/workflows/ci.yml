@@ -194,6 +194,8 @@ jobs:
             dist/*.whl
             dist/*.tar.gz
       - uses: astral-sh/setup-uv@v10.4.0
+        with:
+          version: "0.9.5"
       - name: Build the dw-mcp bundle
         run: python scripts/build_mcpb.py --out dist/
       - name: Smoke test the bundle

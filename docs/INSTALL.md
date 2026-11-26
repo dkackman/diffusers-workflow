@@ -163,6 +163,10 @@ prints why, the rest still run, and setup exits 1.
 | `--uninstall` | Remove what setup added |
 | `--port N` | The port setup checks for a running server, reports and opens (default 8765). It changes nothing else: the service always listens on 8765 and the registrations are not port-specific |
 
+`--status` and `--uninstall` exclude each other, and `--json` needs
+`--status`: either mistake exits with code 2 and a usage message, changing
+nothing.
+
 `--port` exists for a server you run yourself on another port: `dw setup
 --no-service --port 8800` finds it there and opens its web UI. The Claude
 registrations still reach the server by the plugin and `dw-mcp` defaults
@@ -421,8 +425,9 @@ pre-release checks, not for an install:
 - `DW_BOOTSTRAP_WHEEL` - install this wheel instead of the PyPI release.
 - `DW_BOOTSTRAP_DIFFUSERS_SHA` - use this diffusers commit instead of asking
   GitHub for `main`'s (40 lowercase hex characters, or it is ignored).
-- `DW_BOOTSTRAP_TTY` (`bootstrap.sh` only) - `1` or `0` says whether
-  `/dev/tty` is available instead of probing it.
+- `DW_BOOTSTRAP_TTY` (`bootstrap.sh` only, test-only) - with
+  `DW_BOOTSTRAP_DRY_RUN`, `1` or `0` says whether `/dev/tty` is available instead
+  of probing it. Without a dry run it is ignored.
 
 The scripts ship inside the package (`dw/install_scripts/`) and are attached to
 each GitHub release with `SHA256SUMS`. `docs/RELEASING.md` covers the release
