@@ -322,8 +322,18 @@ class TestCaps:
             write(tmp_path, plan(items=[]), request_id=f"r{n}")
         error = refused(tmp_path, plan(items=[]), code="ledger_full")
         assert error.status == 409 and "delete" in str(error)
-        write(tmp_path, plan(items=[], revision=1, state="done"), request_id="r0")
-        write(tmp_path, plan(items=[], revision=1, state="abandoned"), request_id="r1")
+        write(
+            tmp_path,
+            plan(items=[], revision=1, state="done"),
+            request_id="r0",
+            by="user",
+        )
+        write(
+            tmp_path,
+            plan(items=[], revision=1, state="abandoned"),
+            request_id="r1",
+            by="user",
+        )
         write(tmp_path, plan(items=[]))
         write(tmp_path, plan(items=[]), request_id="more")
         refused(tmp_path, plan(items=[]), code="ledger_full", request_id="again")
@@ -344,13 +354,17 @@ class TestCaps:
             write(tmp_path, plan(items=[]), request_id=f"r{n}")
         for n in range(2):
             write(
-                tmp_path, plan(items=[], revision=1, state="done"), request_id=f"r{n}"
+                tmp_path,
+                plan(items=[], revision=1, state="done"),
+                request_id=f"r{n}",
+                by="user",
             )
         error = refused(
             tmp_path,
             plan(items=[], revision=1, state="done"),
             code="ledger_full",
             request_id="r2",
+            by="user",
         )
         assert "delete" in str(error)
         refused(
@@ -358,11 +372,22 @@ class TestCaps:
             plan(items=[], state="abandoned"),
             code="ledger_full",
             request_id="new",
+            by="user",
         )
         # deleting one makes room, and a closed request stays writable
         ledger.delete_request(str(tmp_path), "r0", 2)
-        write(tmp_path, plan(items=[], revision=1, state="done"), request_id="r2")
-        write(tmp_path, plan(items=[], revision=2, state="abandoned"), request_id="r1")
+        write(
+            tmp_path,
+            plan(items=[], revision=1, state="done"),
+            request_id="r2",
+            by="user",
+        )
+        write(
+            tmp_path,
+            plan(items=[], revision=2, state="abandoned"),
+            request_id="r1",
+            by="user",
+        )
 
     def test_dropped_items_do_not_count_toward_the_item_cap(
         self, tmp_path, monkeypatch

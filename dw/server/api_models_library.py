@@ -7,7 +7,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .api_models_base import ApiModel, JobStatus, OutputKind, sometimes
-from ..ledger import MAX_TITLE_LENGTH, MAX_WHY_LENGTH
+from ..ledger import MAX_CLOSE_REASON_LENGTH, MAX_TITLE_LENGTH, MAX_WHY_LENGTH
 from ..lora_catalog import STATUS_ORDER
 from .catalog_shape import SHAPES, TRAITS
 
@@ -515,6 +515,9 @@ class LedgerHistoryEntry(ApiModel):
         "The state, when this revision set or changed it: who closed or "
         "reopened the request, when and why."
     )
+    close: Literal[
+        "close_proposed", "close_withdrawn", "close_declined", "close_accepted"
+    ] = sometimes("What this revision did to the close proposal.")
     changed: dict[
         str,
         list[
@@ -534,6 +537,22 @@ class LedgerHistoryEntry(ApiModel):
     )
 
 
+class LedgerCloseProposal(ApiModel):
+    state: Literal["done", "abandoned"] = Field(
+        description="The state the agent proposes closing to."
+    )
+    reason: str
+    by: Literal["agent"]
+    at: str
+    revision: int = Field(description="The revision that proposed it.")
+    outcome: Literal["pending", "accepted", "declined"] = Field(
+        description="pending until the user closes the request (accepted) or "
+        "keeps it open (declined)."
+    )
+    decided_at: str = sometimes("When the user accepted or declined it.")
+    note: str = sometimes("The user's note on a decline.")
+
+
 class LedgerRequest(ApiModel):
     id: str
     title: str
@@ -547,6 +566,10 @@ class LedgerRequest(ApiModel):
     next_note: int = Field(description="The number of the next note id.")
     agent_wrote_at: str | None = Field(
         description="When the agent last wrote the plan; null when it never has."
+    )
+    close_proposal: LedgerCloseProposal = sometimes(
+        "The agent's latest proposal to close the request, and the user's "
+        "answer; only the user closes."
     )
     items: list[LedgerItem]
     history: list[LedgerHistoryEntry]
@@ -615,6 +638,27 @@ class LedgerDeleted(ApiModel):
     )
 
 
+class CloseProposalWrite(BaseModel):
+    """The agent's proposal to close a request; the user accepts or declines it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    state: Literal["done", "abandoned"]
+    reason: str = Field(description=f"One line, at most {MAX_CLOSE_REASON_LENGTH}")
+
+
+class CloseDecline(BaseModel):
+    """The user's decline of a pending close proposal."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    outcome: Literal["declined"]
+    note: str | None = Field(
+        default=None,
+        description=f"Optional; one line, at most {MAX_CLOSE_REASON_LENGTH}",
+    )
+
+
 class RequestWrite(BaseModel):
     """One request's whole plan."""
 
@@ -637,6 +681,14 @@ class RequestWrite(BaseModel):
         default=None,
         description="Keys of stored items this plan leaves out, removed for "
         "good instead of kept as dropped; their jobs keep their link and files",
+    )
+    close_proposal: CloseProposalWrite | CloseDecline | None = Field(
+        default=None,
+        description="Only the user closes a request. The agent proposes a "
+        "close with {state, reason}, or withdraws one pending with null; the "
+        'user declines one pending with {outcome: "declined", note} (422 '
+        "`no_close_proposal` when none is), and a user's state done or "
+        "abandoned accepts it. Left out, the stored proposal is kept",
     )
     by: Literal["agent", "user"] = Field(
         default="user", description="Who wrote this revision; the UI is the user"

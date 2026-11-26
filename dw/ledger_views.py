@@ -773,8 +773,12 @@ def _upgrade(request):
     order) becomes one note `{id, text, created, at}` with `created = at`;
     `next_note` counts past the ids handed out; `agent_wrote_at` is filled
     from the latest agent entry in the history when it was never stored.
-    Idempotent, and `comment` is never written again."""
+    Idempotent, and `comment` is never written again. A request with no
+    `close_proposal` (every file before it) needs nothing; one that is not
+    an object is dropped, so the views read a dict or nothing."""
     request.setdefault("next_note", 1)
+    if "close_proposal" in request and not isinstance(request["close_proposal"], dict):
+        del request["close_proposal"]
     for owner in (request, *request["items"]):
         comment = owner.pop("comment", None)
         owner.setdefault("notes", [])

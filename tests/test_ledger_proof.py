@@ -213,7 +213,7 @@ class TestReady:
         ]
 
     def test_a_closed_request_has_nothing_ready(self, tmp_path):
-        write(tmp_path, plan(items=self.plan_items(), state="done"))
+        write(tmp_path, plan(items=self.plan_items(), state="done"), by="user")
         assert self.ready(ledger.get_request(str(tmp_path), "cats")) == []
         assert ledger.list_requests(str(tmp_path))[0]["ready"] == 0
 

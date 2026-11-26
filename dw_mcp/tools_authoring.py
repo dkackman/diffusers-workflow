@@ -94,16 +94,16 @@ class WorkspaceTools:
         state: str | None = None,
         workspace: str | None = None,
         purge: list[str] | None = None,
+        propose_close: object = {},
     ) -> dict:
-        """Write the whole plan for the user's ask; it outlives this session.
-        revision: the one you read, 0 to create; stale refused.
-        prompt: the user's ask, on create. items: ordered {key, title,
-        depends_on, estimate_minutes, workflow, arguments, accepted,
-        review_until}; one left out is dropped. accepted: {job}, the keeper.
-        review_until: an ISO time to hold an unrun item for the user's
-        review. Act on the user's `notes` (request and items, with
-        `refs`); never write them. why: one line. state: open, done or
-        abandoned. purge: dropped keys to delete. get_guide("workspaces", section="Requests")."""
+        """Write a request's whole plan. revision: the one you read,
+        0 to create. prompt: the ask, on create. items: ordered {key, title,
+        workflow, arguments, accepted: {job} the keeper, ...: the guide};
+        one left out is dropped. Act on the user's `notes`; never write
+        them. why: one line. state: `open` reopens; only the user closes:
+        propose_close {state, reason} (null withdraws); open until they
+        accept (get_request: close_proposal.outcome). purge: dropped keys
+        to delete. get_guide("workspaces", section="Requests")."""
         return ledger.set_request(
             self.client,
             request,
@@ -116,6 +116,7 @@ class WorkspaceTools:
             state,
             workspace,
             purge,
+            ... if propose_close == {} else propose_close,
         )
 
 

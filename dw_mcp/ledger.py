@@ -54,9 +54,12 @@ def set_request(
     state=None,
     workspace=None,
     purge=None,
+    propose_close=...,
 ):
     """Write a request's whole plan, as the agent. The user's notes are
-    never sent: the server keeps what is there."""
+    never sent: the server keeps what is there. `propose_close` left as
+    `...` sends nothing (the stored proposal is kept); `{state, reason}`
+    proposes a close, None withdraws a pending one."""
     payload = {
         "title": title,
         "goal": goal,
@@ -71,6 +74,8 @@ def set_request(
         payload["state"] = state
     if purge:
         payload["purge"] = purge
+    if propose_close is not ...:
+        payload["close_proposal"] = propose_close
     return client.put_json(
         api_path(
             "api", "workspaces", _workspace(client, workspace), "requests", request

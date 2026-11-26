@@ -188,7 +188,11 @@ def test_a_dropped_item_has_no_review(tmp_path, clock):
 def test_a_done_request_has_no_review(tmp_path, clock):
     hold(tmp_path, clock)
     clock.at(T0 + timedelta(minutes=1))
-    write(tmp_path, held(stamp(T0 + timedelta(hours=1)), revision=1, state="done"))
+    write(
+        tmp_path,
+        held(stamp(T0 + timedelta(hours=1)), revision=1, state="done"),
+        by="user",
+    )
     assert "review" not in read(tmp_path, T0)
 
 

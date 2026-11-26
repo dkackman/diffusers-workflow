@@ -132,7 +132,7 @@ def test_the_open_requests_list_never_carries_needs(planned):
 
 def test_a_closed_request_needs_nothing(planned):
     found = link.view(planned)
-    write_plan(planned, revision=found["revision"], state="done")
+    write_plan(planned, revision=found["revision"], state="done", by="user")
     url = f"/api/workspaces/{WS}/requests"
     [row] = planned.get(url, params={"needs": "true"}).json()["requests"]
     assert set(row["needs"].values()) == {0}
