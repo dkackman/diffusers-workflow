@@ -985,6 +985,12 @@ remaining deferred fix is recorded in
   The skills run the probe on every take. Record, including what was
   deferred (slow-run widening, chain near-stops, #1327's gate):
   `complete/h3-held-frames-complete.md`.
+- **Qwen-Image-2.1 transparent PNG template** (#1681, stage #1709), shipped
+  2026-11-25. `templates/qwen/transparent` wraps `subject` in the vendor's RGBA
+  sentence with a `compose_text` step and saves PNG, on the base model, so it
+  needs no new download. On lem it gave a 1024² RGBA cut-out. The Turbo
+  catalog entry (~32.5 GB, fixed 8 sigmas) is deferred with triggers, and the
+  PE enhancer is cut: `complete/qwen-image-transparent-complete.md`.
 
 ## Declined
 
