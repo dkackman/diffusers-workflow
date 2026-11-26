@@ -34,6 +34,15 @@
 // - import_cycles / modules_in_import_cycles: strongly connected components
 //   of more than one module over relative imports, type-only imports
 //   included (they still couple the files).
+// - layering_violations: relative import declarations from one folder to
+//   another that the layer rules forbid, type-only imports included, one per
+//   declaration. src/lib/ui/ and the top-level src/lib modules (the shared
+//   layer) import only the shared layer; a feature folder imports itself, the
+//   shared layer and what LAYER_ALLOWS lists for it; pages/ (TOP_LAYER) and
+//   src/App.svelte, src/main.ts import anything. A folder under src/lib in
+//   none of LAYER_ALLOWS, SHARED_LAYER and TOP_LAYER counts every edge out
+//   of it, and arch-metrics.test.ts fails naming it. Detail:
+//   `file:line from-folder -> to-folder`, the top-level modules as `lib`.
 // - prefix_literals: string literals and template parts that start with a
 //   reference prefix, outside PREFIX_OWNERS. The prefixes are read from
 //   dw/references.py, the engine's owner.
@@ -124,7 +133,15 @@
 import { ESLint } from 'eslint'
 import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs'
-import { dirname, join, relative, resolve, extname } from 'node:path'
+import {
+  dirname,
+  join,
+  relative,
+  resolve,
+  extname,
+  isAbsolute,
+  sep,
+} from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { BANNED, COPY_OWNERS } from '../src/lib/terms.ts'
 
@@ -137,6 +154,28 @@ export const HARD_SIZE_CEILING = 900
 export const COMPLEXITY_LIMIT = 10
 export const FUNCTION_LINE_LIMIT = 60
 export const PREFIX_OWNERS = new Set(['src/lib/references.ts'])
+
+const LIB = join(SRC, 'lib')
+/** The shared layer: src/lib/ui/ and the top-level src/lib modules (named
+ * `lib` in detail). It imports only itself */
+export const SHARED_LAYER = new Set(['ui'])
+/** Folders that may import anything, as src/App.svelte and src/main.ts do */
+export const TOP_LAYER = new Set(['pages'])
+/** Which feature folders each feature folder may import, besides itself
+ * and the shared layer. A folder under src/lib in none of these three lists
+ * counts every edge out of it, and arch-metrics.test.ts fails naming it */
+export const LAYER_ALLOWS = {
+  job: ['gallery', 'request', 'workflow', 'editor'],
+  gallery: ['request'],
+  workflow: ['editor'],
+  editor: [],
+  assets: [],
+  request: [],
+  // SchemaNode, read by pages/SchemaPage only
+  schema: [],
+  // test support (apiMock and its kin) - non-test sources should not import it
+  test: [],
+}
 
 export const LOAD_STATE = 'src/lib/ui/LoadState.svelte'
 export const READ_ALIASES = [
@@ -480,6 +519,51 @@ export function cycles(graph) {
   }
   for (const node of Object.keys(graph)) if (!indices.has(node)) visit(node)
   return components
+}
+
+/** A file's layer: its folder under `lib`, `lib` for a top-level module
+ * there, or `src` for anything outside it (App.svelte, main.ts) */
+function layerOf(file, lib) {
+  const rel = relative(lib, file)
+  if (rel.startsWith('..') || isAbsolute(rel)) return 'src'
+  const parts = rel.split(sep)
+  return parts.length === 1 ? 'lib' : parts[0]
+}
+
+const isShared = (layer) => layer === 'lib' || SHARED_LAYER.has(layer)
+
+function layerAllows(from, to) {
+  if (from === to || from === 'src' || TOP_LAYER.has(from)) return true
+  if (isShared(from)) return isShared(to)
+  if (!Object.hasOwn(LAYER_ALLOWS, from)) return false
+  return isShared(to) || LAYER_ALLOWS[from].includes(to)
+}
+
+/** Import edges `{ from, line, target }` that cross folders against the
+ * layer rules, as `file:line from-folder -> to-folder`, sorted */
+export function layeringViolations(edges, lib = LIB) {
+  const found = []
+  for (const { from, line, target } of edges) {
+    const a = layerOf(from, lib)
+    const b = layerOf(target, lib)
+    if (!layerAllows(a, b))
+      found.push(`${relative(UI, from)}:${line} ${a} -> ${b}`)
+  }
+  return found.sort(byPlace)
+}
+
+/** Folders under `lib` in none of LAYER_ALLOWS, SHARED_LAYER, TOP_LAYER */
+export function undeclaredFolders(lib = LIB) {
+  return readdirSync(lib)
+    .filter(
+      (name) =>
+        name !== 'generated' &&
+        statSync(join(lib, name)).isDirectory() &&
+        !Object.hasOwn(LAYER_ALLOWS, name) &&
+        !SHARED_LAYER.has(name) &&
+        !TOP_LAYER.has(name),
+    )
+    .sort()
 }
 
 function resolveImport(from, specifier, known) {
@@ -1177,9 +1261,11 @@ function functionSite(result, message) {
 export async function measure(
   files = sourceFiles(),
   prefixes = referencePrefixes(),
+  lib = LIB,
 ) {
   const known = new Set(files)
   const imports = {}
+  const edges = []
   const prefixHits = []
   const rawToasts = []
   const emptyImports = []
@@ -1247,7 +1333,9 @@ export async function measure(
           return {
             ImportDeclaration(node) {
               const target = resolveImport(from, node.source.value, known)
-              if (target) imports[from].push(target)
+              if (!target) return
+              imports[from].push(target)
+              edges.push({ from, line: node.loc.start.line, target })
             },
           }
         },
@@ -1341,6 +1429,7 @@ export async function measure(
   const graph = {}
   for (const file of scripts) graph[file] = [...new Set(imports[file] ?? [])]
   const components = cycles(graph)
+  const layering = layeringViolations(edges, lib)
 
   const { oversized, overHard, suppressions, svelteTexts } = textFacts(
     files,
@@ -1357,6 +1446,7 @@ export async function measure(
       long_functions: count('max-lines-per-function'),
       import_cycles: components.length,
       modules_in_import_cycles: components.reduce((n, c) => n + c.length, 0),
+      layering_violations: layering.length,
       prefix_literals: prefixHits.length,
       a11y_suppressions: suppressions,
       raw_error_toasts: rawToasts.length,
@@ -1373,6 +1463,7 @@ export async function measure(
       complex_functions: sitesOf('complexity'),
       long_functions: sitesOf('max-lines-per-function'),
       cycles: components.map((c) => c.map((f) => relative(UI, f))),
+      layering_violations: layering,
       prefix_literals: prefixHits,
       raw_error_toasts: rawToasts,
       empty_outside_loadstate: emptyImports,

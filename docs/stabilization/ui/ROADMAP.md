@@ -66,6 +66,7 @@ develop `b290dab4`:
 | `long_functions` (advisory since #1689) | ESLint `max-lines-per-function` over 60 | 2 |
 | `import_cycles` | strongly connected components over relative imports | 1 |
 | `modules_in_import_cycles` | their total size | 2 |
+| `layering_violations` (since #1714, measured at `97e40a3b`) | import edges against `LAYER_ALLOWS`, type-only included, tests excluded | 0 |
 | `prefix_literals` | strings starting with a reference prefix outside `src/lib/references.ts` | 29 |
 | `a11y_suppressions` | `svelte-ignore a11y_*` comments | 7 |
 

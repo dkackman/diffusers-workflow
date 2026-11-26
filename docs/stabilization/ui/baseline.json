@@ -5,6 +5,7 @@
   "long_functions": 0,
   "import_cycles": 0,
   "modules_in_import_cycles": 0,
+  "layering_violations": 0,
   "prefix_literals": 0,
   "a11y_suppressions": 1,
   "raw_error_toasts": 0,

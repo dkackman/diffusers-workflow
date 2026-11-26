@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -14,6 +14,7 @@ import {
   EXPORTED_NOT_WRITES,
   EXPORTED_WRITES,
   isLoadState,
+  LAYER_ALLOWS,
   measure,
   misclassified,
   RAW_MEDIA_OWNERS,
@@ -21,6 +22,7 @@ import {
   regressions,
   sourceFiles,
   STORE_EXCEPTIONS,
+  undeclaredFolders,
 } from './arch-metrics.mjs'
 
 describe('cycles', () => {
@@ -176,6 +178,7 @@ describe('the real tree', () => {
       'files_over_hard_ceiling',
       'files_over_size_ceiling',
       'import_cycles',
+      'layering_violations',
       'long_functions',
       'modules_in_import_cycles',
       'prefix_literals',
@@ -978,5 +981,121 @@ describe('the read classification', () => {
       'getThing: both a read and in NOT_READS',
       'gone: listed, but api has no such key',
     ])
+  })
+})
+
+describe('the layering metric', () => {
+  // A fixture tree laid out as src/: `lib/<folder>/<file>`, plus files
+  // outside lib (App.svelte's place)
+  async function layered(files: Record<string, string>) {
+    const dir = mkdtempSync(join(UI, '.metrics-probe-'))
+    try {
+      const paths = Object.entries(files).map(([name, text]) => {
+        const path = join(dir, name)
+        mkdirSync(dirname(path), { recursive: true })
+        writeFileSync(path, text)
+        return path
+      })
+      const { metrics, detail } = await measure(
+        paths,
+        ['asset:'],
+        join(dir, 'lib'),
+      )
+      return {
+        count: metrics.layering_violations,
+        lines: detail.layering_violations.map((l: string) =>
+          l.replace(/^.*\.metrics-probe-[^/]+\//, ''),
+        ),
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }
+  const leaf = 'export const x = 1\n'
+
+  it('counts a ui -> feature edge, and a top-level lib -> feature edge', async () => {
+    const { count, lines } = await layered({
+      'lib/gallery/order.ts': leaf,
+      'lib/ui/Card.svelte': `<script lang="ts">\n  import { x } from '../gallery/order'\n  console.log(x)\n</script>\n`,
+      'lib/draft.ts': `import { x } from './gallery/order'\nexport const y = x\n`,
+    })
+    expect(count).toBe(2)
+    expect(lines).toEqual([
+      'lib/draft.ts:1 lib -> gallery',
+      'lib/ui/Card.svelte:2 ui -> gallery',
+    ])
+  }, 60_000)
+
+  it('does not count feature -> ui, feature -> lib, or an allowed feature edge', async () => {
+    const { count } = await layered({
+      'lib/ui/Card.ts': leaf,
+      'lib/api.ts': leaf,
+      'lib/request/draft.ts': leaf,
+      'lib/gallery/order.ts': `import { x } from '../ui/Card'\nimport { x as a } from '../api'\nimport { x as r } from '../request/draft'\nexport const y = x + a + r\n`,
+      'lib/ui/Other.ts': `import { x } from './Card'\nimport { x as a } from '../api'\nexport const y = x + a\n`,
+    })
+    expect(count).toBe(0)
+  }, 60_000)
+
+  it('counts a feature edge LAYER_ALLOWS does not list', async () => {
+    const { lines } = await layered({
+      'lib/gallery/order.ts': leaf,
+      'lib/request/draft.ts': `import { x } from '../gallery/order'\nexport const y = x\n`,
+    })
+    expect(lines).toEqual(['lib/request/draft.ts:1 request -> gallery'])
+  }, 60_000)
+
+  it('counts a type-only import', async () => {
+    const { lines } = await layered({
+      'lib/request/draft.ts': 'export type Draft = { a: number }\n',
+      'lib/ui/Note.ts': `import type { Draft } from '../request/draft'\nexport const d: Draft = { a: 1 }\n`,
+    })
+    expect(lines).toEqual(['lib/ui/Note.ts:1 ui -> request'])
+  }, 60_000)
+
+  it('counts every edge out of an undeclared folder, even to the shared layer', async () => {
+    const { lines } = await layered({
+      'lib/request/draft.ts': leaf,
+      'lib/ui/Card.ts': leaf,
+      'lib/newfeature/thing.ts': `import { x } from '../request/draft'\nimport { x as c } from '../ui/Card'\nexport const y = x + c\n`,
+    })
+    expect(lines).toEqual([
+      'lib/newfeature/thing.ts:1 newfeature -> request',
+      'lib/newfeature/thing.ts:2 newfeature -> ui',
+    ])
+  }, 60_000)
+
+  it('never counts an import from pages/ or from outside lib', async () => {
+    const { count } = await layered({
+      'lib/request/draft.ts': leaf,
+      'lib/newfeature/thing.ts': leaf,
+      'lib/pages/Page.ts': `import { x } from '../request/draft'\nimport { x as n } from '../newfeature/thing'\nexport const y = x + n\n`,
+      'App.ts': `import { y } from './lib/pages/Page'\nimport { x } from './lib/request/draft'\nexport const z = x + y\n`,
+    })
+    expect(count).toBe(0)
+  }, 60_000)
+
+  // A new folder under src/lib fails here until someone says which layer it
+  // is in, as the read classification does for an api key
+  it('declares every folder under src/lib', () => {
+    expect(undeclaredFolders()).toEqual([])
+  })
+
+  it('names an undeclared folder', () => {
+    const dir = mkdtempSync(join(UI, '.metrics-probe-'))
+    try {
+      for (const name of [
+        'ui',
+        'pages',
+        'generated',
+        'newfeature',
+        ...Object.keys(LAYER_ALLOWS),
+      ])
+        mkdirSync(join(dir, name))
+      writeFileSync(join(dir, 'api.ts'), leaf)
+      expect(undeclaredFolders(dir)).toEqual(['newfeature'])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
