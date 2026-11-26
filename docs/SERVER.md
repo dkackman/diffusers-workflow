@@ -1089,6 +1089,18 @@ it has one, otherwise from the workflow's `cost` block. Quote `minutes`;
   passes it may pay (`derived`, `scaled` saying so), and the quote is never
   below the same chain unchecked plus what checking adds (`scaled` says when
   that floor was taken).
+- *A first pass at a new shape.* A `cost` entry's `first_at_shape`
+  (`{minutes, keys}`) adds `minutes` once for each distinct shape this run
+  has that this card has not run the workflow at yet: a shape is the
+  effective (presets-resolved) values of `keys`, plus each list-driver
+  entry's `num_frames`. Seen means a succeeded, full (no `resume_from` or
+  `stop_after`) run of the same workflow - an inline one's `inherited_from`
+  template - on a card of this card's name. The term is added last, after
+  the checked-chain floor, and `scaled` names up to three unseen shapes;
+  `basis`, `warm_minutes`, `cached_minutes` and `low_confidence` are not
+  moved, and the fixed share above does not include it. The fingerprint
+  does not cover the minutes, so a shape another job finishes first can
+  drop the term between a 409 and the re-run.
 - *Composed children.* A composed child's cost is added to a curated figure,
   and `partial` is true when a child has none. A parent with no cost of its
   own takes its priced children's basis; when every child's share was this

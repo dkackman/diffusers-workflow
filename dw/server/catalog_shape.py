@@ -496,12 +496,14 @@ def _compact_entry(detail, inputs):
         # `scales_with` is how `plan.estimate` prices a run off the
         # defaults; the quote carries the answer, so the compact
         # listing spends no tokens on the rule (#1199); the
-        # reference exponent (#1429) is a pricing rule alike
+        # reference exponent (#1429) and the first-pass-at-shape
+        # term (#1615) are pricing rules alike
         slim["cost"] = [
             {
                 k: v
                 for k, v in entry.items()
-                if k not in ("scales_with", "video_reference_exponent")
+                if k
+                not in ("scales_with", "video_reference_exponent", "first_at_shape")
             }
             if isinstance(entry, dict)
             else entry
