@@ -14,6 +14,7 @@ import pytest
 
 from dw_mcp import catalog
 from dw_mcp.client import DwClient
+from dw.server import job_prompts
 from dw.server.job_history import JobHistory
 
 from .test_server import (  # noqa: F401 - `server` is a fixture
@@ -128,7 +129,7 @@ def _stored_with_prompt(history, job_id, prompt, created_at):
         )
 
 
-def test_prompts_cover_only_the_listed_page(server):
+def test_prompts_cover_only_the_listed_page(server, monkeypatch):
     """`limit` keeps the newest job; the prompts are that page's, and only
     its ids are read out of history - not every row of it."""
     with server(success_script) as client:
@@ -136,9 +137,13 @@ def test_prompts_cover_only_the_listed_page(server):
         for index in range(3):
             _stored_with_prompt(history, f"p{index}", f"prompt {index}", index)
         asked = []
-        read = history.submitted_prompts
-        history.submitted_prompts = lambda ids, *a, **k: (
-            asked.append(ids) or read(ids, *a, **k)
+        read = job_prompts.submitted_prompts
+        monkeypatch.setattr(
+            job_prompts,
+            "submitted_prompts",
+            lambda history, ids, *a, **k: (
+                asked.append(ids) or read(history, ids, *a, **k)
+            ),
         )
 
         params = {"prompts": "true", "limit": "1"}

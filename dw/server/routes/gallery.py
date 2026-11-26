@@ -72,6 +72,7 @@ from ..deps import (
     workspace_root,
 )
 from ..preconditions import check_if_match, content_etag_of
+from ..job_prompts import run_prompts
 from ..outputs import (
     ArchiveRequest,
     delete_run_directory,
@@ -82,7 +83,6 @@ from ..outputs import (
     probed_duration,
     resolve_output_file,
     run_directory,
-    run_prompts,
     consumed_in,
     output_annotations,
     served_url,

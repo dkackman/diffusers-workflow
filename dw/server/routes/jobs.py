@@ -71,11 +71,11 @@ from ..job_record import (
     RUNNING,
     TERMINAL_STATES,
 )
+from ..job_prompts import job_prompts
 from ..outputs import (
     absolute_served_url,
     asset_library_for_job,
     delete_run_directory,
-    job_prompts,
     output_kinds,
     served_url,
     with_run_state,
