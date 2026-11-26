@@ -1,13 +1,15 @@
 // What the agent changed between two reads of a request, said plainly: the
-// lines Plan changes shows under the write that brought them while the page
+// lines Plan changes shows under the write that made them while the page
 // is open, and since the last visit from a per-browser snapshot. The
 // snapshot is a convenience that may be empty: storage that throws or holds
 // something else, or a revision above the current one, gives no diff.
 import { storageGet, storageRemove, storageSet } from '../storage'
 import type { LedgerRequest } from '../types'
 
+type ChangeKind = 'added' | 'dropped' | 'restored' | 'renamed' | 'changed'
+
 export type PlanChange = {
-  kind: 'added' | 'dropped' | 'restored' | 'renamed' | 'changed'
+  kind: ChangeKind
   key: string
   title: string
   /** The old title of a renamed item */
@@ -217,33 +219,37 @@ export function seenSince(
   }
 }
 
-/** The agent's newest write among those `next` brought over `previous`,
- * with what it changed; null for a first read, the user's own writes, or a
- * write that changed no item. A read that brings several agent writes lists
- * all their changes under the newest of them. The history names no items, so a read that
- * also brings the user's writes lists their changes too: the diff is of
- * the plan, not of one writer */
+/** What `next` brought over `previous`, listed under the write that made
+ * each change (`history[].changed`), by revision; null for a first read, only
+ * the user's own writes, or no item changed. A change no entry names goes
+ * under the agent's newest write. */
 export function agentChanges(
   previous: LedgerRequest | null,
   next: LedgerRequest,
-): { revision: number; changes: PlanChange[] } | null {
+): Record<number, PlanChange[]> | null {
   if (!previous || previous.id !== next.id) return null
-  const brought = next.history.filter(
-    (entry) => entry.revision > previous.revision,
-  )
-  const agent = brought.filter((entry) => entry.by === 'agent')
-  if (!agent.length) return null
-  const revision = Math.max(...agent.map((entry) => entry.revision))
-  const changes = planDiff(previous, next)
-  return changes.length ? { revision, changes } : null
+  const brought = next.history
+    .filter((entry) => entry.revision > previous.revision)
+    .sort((a, b) => b.revision - a.revision)
+  const agent = brought.find((entry) => entry.by === 'agent')
+  if (!agent) return null
+  const diffs: Record<number, PlanChange[]> = {}
+  for (const change of planDiff(previous, next)) {
+    const what = change.what ?? (change.kind as Exclude<ChangeKind, 'changed'>)
+    const writer =
+      brought.find((entry) => entry.changed?.[change.key]?.includes(what)) ??
+      agent
+    ;(diffs[writer.revision] ??= []).push(change)
+  }
+  return Object.keys(diffs).length ? diffs : null
 }
 
-/** What the page shows of what changed: `diffs` under each agent write,
+/** What the page shows of what changed: `diffs` under each write,
  * `since` above them all */
 export type Seen = { diffs: Record<number, PlanChange[]>; since: Since | null }
 export const UNSEEN: Seen = { diffs: {}, since: null }
 
-/** `held` after a read replaced `previous` with `next`: an agent write's
+/** `held` after a read replaced `previous` with `next`: each write's
  * changes kept under it, and on a first read what changed since the last
  * visit. Each diff is against the read the page held, never the snapshot.
  * Every read that moves the revision is what was last seen, so the next
@@ -255,9 +261,7 @@ export function afterRead(
   held: Seen,
 ): Seen {
   const brought = agentChanges(previous, next)
-  const diffs = brought
-    ? { ...held.diffs, [brought.revision]: brought.changes }
-    : held.diffs
+  const diffs = brought ? { ...held.diffs, ...brought } : held.diffs
   if (!previous) return { diffs, since: seenSince(workspace, next) }
   if (next.revision !== previous.revision) markSeen(workspace, next)
   return { diffs, since: held.since }

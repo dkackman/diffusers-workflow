@@ -324,7 +324,11 @@ Read it with `get_request(request=None)` (MCP) or `GET
   `stale_revision`, carrying `current_revision`: read again, merge, write.
   Each write adds a history entry with `by` (`agent` over MCP, `user` from
   the UI), its `why` (one line, at most 200 characters) and the time, plus
-  the `goal` and the `state` when that write set or changed them.
+  the `goal` and the `state` when that write set or changed them. A plan
+  write after the first also carries `changed`: by item key, which of
+  `added`, `dropped`, `restored`, `renamed`, `workflow`, `arguments` and
+  `depends_on` it changed. Only the newest 10 entries that changed an item
+  keep it.
 - **State.** Any write may set `state`, the user's as well as the agent's:
   `open` to `done` or `abandoned`, one closed state to the other, and back
   to `open`. Closing changes nothing else. A closed request takes no new

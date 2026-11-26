@@ -8,6 +8,7 @@ import {
 } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import NoteList from './NoteList.svelte'
+import type { ComponentProps } from 'svelte'
 import { api, resetApi } from '../test/apiMock'
 import { attempt, entry, item, request } from './fixtures'
 import type { LedgerNote, LedgerNoteRef } from '../types'
@@ -62,7 +63,9 @@ const req = (over = {}) =>
     ],
     { agent_wrote_at: at(7) },
   )
-const props = (over = {}) => ({
+const props = (
+  over: Partial<ComponentProps<typeof NoteList>> = {},
+): ComponentProps<typeof NoteList> => ({
   notes,
   request: req(),
   item: 's3' as string | null,
@@ -351,7 +354,7 @@ it('a seeded add merges refs and appends to a draft already there', async () => 
   const view = render(NoteList, {
     ...props({ item: null, about: 'this request', notes: [] }),
     pickItems: true,
-  } as never)
+  })
   const request = () =>
     screen.getByLabelText(
       'Note for the agent on this request',
@@ -380,7 +383,7 @@ it('the warning follows the latest read', async () => {
     notes: [],
     request: request([item('s3', held('holding')), item('s5')]),
   })
-  const view = render(NoteList, given as never)
+  const view = render(NoteList, given)
   await fireEvent.click(
     screen.getByRole('button', { name: 'Add a note for the agent' }),
   )
@@ -394,7 +397,7 @@ it('the warning follows the latest read', async () => {
   await view.rerender({
     ...given,
     request: request([item('s3', held('redirected')), item('s5')]),
-  } as never)
+  })
   expect(screen.queryByText(STOPS)).toBeNull()
   expect(area().value).toBe('warmer')
 })

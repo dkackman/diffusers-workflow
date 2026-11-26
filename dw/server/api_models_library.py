@@ -515,6 +515,23 @@ class LedgerHistoryEntry(ApiModel):
         "The state, when this revision set or changed it: who closed or "
         "reopened the request, when and why."
     )
+    changed: dict[
+        str,
+        list[
+            Literal[
+                "added",
+                "dropped",
+                "restored",
+                "renamed",
+                "workflow",
+                "arguments",
+                "depends_on",
+            ]
+        ],
+    ] = sometimes(
+        "What this revision changed, by item key. Kept on the newest few "
+        "revisions that changed an item."
+    )
 
 
 class LedgerRequest(ApiModel):

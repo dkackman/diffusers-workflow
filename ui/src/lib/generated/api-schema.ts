@@ -3420,6 +3420,13 @@ export interface components {
              */
             by: "agent" | "user";
             /**
+             * Changed
+             * @description What this revision changed, by item key. Kept on the newest few revisions that changed an item.
+             */
+            changed?: {
+                [key: string]: ("added" | "dropped" | "restored" | "renamed" | "workflow" | "arguments" | "depends_on")[];
+            };
+            /**
              * Goal
              * @description The goal, when this revision changed it.
              */

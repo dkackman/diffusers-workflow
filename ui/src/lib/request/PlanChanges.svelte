@@ -7,8 +7,8 @@
 
   // The request's history, newest first: the agent's `why` on each write
   // is the only thing it ever says to the user, so its latest leads. A run
-  // of the user's own writes is one line until asked for. Under an agent
-  // write read while the page was open, what it changed (`diffs`); above
+  // of the user's own writes is one line until asked for. Under a write
+  // read while the page was open, what it changed (`diffs`); above
   // them all, what changed since this browser last looked (`since`)
   let {
     history,
@@ -22,7 +22,7 @@
     revision: number
     /** False inside a fold whose summary already names it */
     heading?: boolean
-    /** What each agent write changed, by the revision a read brought */
+    /** What each write changed, by the revision a read brought */
     diffs?: Record<number, PlanChange[]>
     since?: Since | null
     ondismiss?: () => void

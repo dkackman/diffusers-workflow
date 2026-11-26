@@ -60,6 +60,7 @@ from .ledger_views import (  # noqa: F401 - COVER_* and the views are read as le
     read_requests,
     unreadable,
     _live_keys,
+    item_changes,
     current_prompts,
     is_revised,
     item_view,
@@ -84,6 +85,8 @@ MAX_ARGUMENTS = 64
 MAX_WORKFLOW_NAME_LENGTH = 200
 MAX_FILE_BYTES = 2 * 1024 * 1024
 MAX_HISTORY = 100
+# History entries that keep `changed`, newest first: bounds what it adds to the file
+MAX_CHANGED_HISTORY = 10
 MAX_NOTES = 20  # live notes of one target: an item, or the request itself
 MAX_NOTE_REFS = 16  # references in one note
 MIN_REVIEW_SECONDS = 60  # a review hold's shortest span
@@ -709,6 +712,16 @@ def _history(current, write, state, revision, by, at):
     return history
 
 
+def _record_changes(history, before, after):
+    """Put on the newest history entry which items this write changed, and
+    drop that from all but the newest MAX_CHANGED_HISTORY entries."""
+    changed = item_changes(before, after)
+    if changed:
+        history[-1]["changed"] = changed
+    for entry in [e for e in history if "changed" in e][:-MAX_CHANGED_HISTORY]:
+        del entry["changed"]
+
+
 def put_request(
     root,
     request_id,
@@ -776,6 +789,8 @@ def put_request(
             ),
             "history": _history(current, write, state, revision, by, at),
         }
+        if current is not None:  # nothing diffs against a request's first write
+            _record_changes(request["history"], current["items"], request["items"])
         requests[request_id] = request
         document = {"requests": requests}
         size = len(json.dumps(document, indent=2).encode("utf-8"))

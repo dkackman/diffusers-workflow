@@ -618,3 +618,33 @@ class TestAcceptWithPlanEdit:
             linked_jobs=links("a"),
         )
         assert "warnings" not in view
+
+
+def test_history_names_the_items_each_write_changed(tmp_path):
+    write(tmp_path, plan())
+    reseeded = item("a", arguments={"seed": 2})
+    write(tmp_path, plan(1, [reseeded, item("b", ["a"])], why="reseed"))
+    write(
+        tmp_path,
+        plan(2, [reseeded, item("b", dropped=True), item("c")], why="drop b"),
+        by="user",
+    )
+    write(tmp_path, plan(3, [reseeded, item("c", title="end")], why="rename"))
+    write(tmp_path, plan(4, [reseeded, item("c", title="end")], why="nothing"))
+    history = ledger.get_request(str(tmp_path), "cats")["history"]
+    assert [entry.get("changed") for entry in history] == [
+        None,  # the first write: nothing diffs against it
+        {"a": ["arguments"]},
+        {"b": ["dropped"], "c": ["added"]},  # b: unrun, so deleted
+        {"c": ["renamed"]},
+        None,
+    ]
+
+
+def test_only_the_newest_history_entries_keep_what_changed(tmp_path):
+    write(tmp_path, plan())
+    for n in range(1, ledger.MAX_CHANGED_HISTORY + 4):
+        write(tmp_path, plan(n, [item("a", title=f"take {n}"), item("b", ["a"])]))
+    history = ledger.get_request(str(tmp_path), "cats")["history"]
+    kept = [entry["revision"] for entry in history if "changed" in entry]
+    assert kept == [e["revision"] for e in history][-ledger.MAX_CHANGED_HISTORY :]

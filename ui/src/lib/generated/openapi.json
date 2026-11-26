@@ -3020,6 +3020,26 @@
             "title": "By",
             "type": "string"
           },
+          "changed": {
+            "additionalProperties": {
+              "items": {
+                "enum": [
+                  "added",
+                  "dropped",
+                  "restored",
+                  "renamed",
+                  "workflow",
+                  "arguments",
+                  "depends_on"
+                ],
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": "What this revision changed, by item key. Kept on the newest few revisions that changed an item.",
+            "title": "Changed",
+            "type": "object"
+          },
           "goal": {
             "anyOf": [
               {

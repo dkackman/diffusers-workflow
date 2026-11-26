@@ -100,10 +100,40 @@ it('one read bringing two agent writes lists them all under the newer', () => {
     },
   )
   const brought = agentChanges(before, after)
-  expect(brought?.revision).toBe(5)
-  expect(brought?.changes.map(lineOf)).toEqual([
+  expect(Object.keys(brought ?? {})).toEqual(['5'])
+  expect(brought?.[5].map(lineOf)).toEqual([
     'Renamed Shot 1 to Opening shot',
     'Changed Opening shot: its arguments (seed)',
+  ])
+})
+
+it('lists each change under the writer that made it on a mixed read', () => {
+  const before = request(
+    [item('a', { title: 'Shot 1' }), item('b', { title: 'Shot 2' })],
+    { revision: 1 },
+  )
+  const after = request(
+    [
+      item('a', { title: 'Shot 1', arguments: { seed: 2 } }),
+      item('b', { title: 'Shot 2', dropped: true, status: 'dropped' }),
+      item('c', { title: 'Shot 3' }),
+    ],
+    {
+      revision: 4,
+      history: [
+        entry(2, 'agent', 'reseeded', { changed: { a: ['arguments'] } }),
+        entry(3, 'user', 'dropped b', { changed: { b: ['dropped'] } }),
+        entry(4, 'agent', 'added c', { changed: { c: ['added'] } }),
+      ],
+    },
+  )
+  const brought = agentChanges(before, after) ?? {}
+  expect(
+    Object.entries(brought).map(([r, list]) => [r, list.map(lineOf)]),
+  ).toEqual([
+    ['2', ['Changed Shot 1: its arguments (seed)']],
+    ['3', ['Dropped Shot 2']],
+    ['4', ['Added Shot 3']],
   ])
 })
 

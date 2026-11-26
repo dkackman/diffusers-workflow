@@ -9,6 +9,7 @@ import { createRawSnippet } from 'svelte'
 import { afterEach, expect, it, vi } from 'vitest'
 import RequestHeader from './RequestHeader.svelte'
 import { planState } from './itemState'
+import { LISTENING_POLL_MS } from './listening.svelte'
 import { api } from '../test/apiMock'
 import { attempt, doneItem, entry, item, request } from './fixtures'
 import type { LedgerItem, LedgerRequest } from '../types'
@@ -295,6 +296,29 @@ it('has no Run now when no held row is ready, and no banner with nothing held', 
   unmount()
   const free = render(RequestHeader, props([item('a', { ready: true })]))
   expect(free.container.querySelector('.hold')).toBeNull()
+})
+
+it('the banner flips when the agent connects', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  try {
+    const { container } = render(RequestHeader, {
+      ...props([held('a', 'holding', { ready: true })]),
+      workspace: 'flip',
+      onrunheld: vi.fn(),
+    })
+    await waitFor(() =>
+      expect(banner(container)).toMatch(/The agent isn't connected/),
+    )
+    api.notesChannel.mockResolvedValue({ listening: true, last_seen: null })
+    await vi.advanceTimersByTimeAsync(LISTENING_POLL_MS)
+    await waitFor(() =>
+      expect(banner(container)).toMatch(/The agent will run it at /),
+    )
+    expect(banner(container)).not.toMatch(/isn't connected/)
+  } finally {
+    vi.useRealTimers()
+    api.notesChannel.mockResolvedValue({ listening: false, last_seen: null })
+  }
 })
 
 it('counts down while a session listens, and says a redirect with Run now', async () => {

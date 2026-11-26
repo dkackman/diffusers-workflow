@@ -340,6 +340,40 @@ def _live_keys(items):
     return {item.get("key") for item in items if not item.get("dropped")}
 
 
+def item_changes(before, after):
+    """`{key: [what]}` for the items one write changed, in the kinds the web
+    UI's plan diff lists (planDiff.ts), so it can name each change's writer."""
+    was = {item.get("key"): item for item in before}
+    now = {item["key"]: item for item in after}
+    changes = {}
+    for key, item in now.items():
+        old = was.get(key)
+        if old is None:
+            what = [] if item.get("dropped") else ["added"]
+        else:
+            what = [
+                name
+                for field, name, empty in _COMPARED
+                if (old.get(field) or empty) != (item.get(field) or empty)
+            ]
+            if bool(old.get("dropped")) != bool(item.get("dropped")):
+                what.append("dropped" if item.get("dropped") else "restored")
+        if what:
+            changes[key] = what
+    for key, old in was.items():
+        if key not in now and not old.get("dropped"):
+            changes[key] = ["dropped"]
+    return changes
+
+
+_COMPARED = (
+    ("title", "renamed", ""),
+    ("workflow", "workflow", None),
+    ("arguments", "arguments", {}),
+    ("depends_on", "depends_on", []),
+)
+
+
 def _moment(text):
     """A stored time as an aware datetime, or None when it is not one."""
     try:
