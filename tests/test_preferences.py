@@ -427,7 +427,9 @@ def test_step_arguments_merge_over_target_over_defaults(tmp_path, cuda_session):
 
 
 def test_rung_skips_cuda_only_target_on_mps(tmp_path):
-    session = preferences.Session(host=Host("mps", 18, 64))
+    # 54 GB: the card qwen-image-2.1's mps `cost` was measured on (#1712);
+    # a smaller card would skip qwen on that row's VRAM as well
+    session = preferences.Session(host=Host("mps", 54, 64))
     token = preferences.activate(session)
     try:
         workflow = parent(tmp_path, arguments={"tier": "best"})
