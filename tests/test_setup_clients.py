@@ -153,12 +153,101 @@ def test_code_commands_register_the_notes_channel():
     ]
 
 
+def test_setup_no_longer_adds_a_separate_dw_server():
+    cmds = setup_clients.code_commands("0.23.0", ref_syntax=None)
+    adds = [c for c in cmds if c[:3] == ["claude", "mcp", "add"]]
+    assert [c[5] for c in adds] == ["dw-notes"]
+
+
+def _fake_python(tmp_path, monkeypatch, with_mcp=True, exe="dw-mcp"):
+    bindir = tmp_path / "fake-venv" / "bin"
+    bindir.mkdir(parents=True)
+    (bindir / "python").write_text("")
+    if with_mcp:
+        (bindir / exe).write_text("")
+    monkeypatch.setattr(setup_clients.sys, "executable", str(bindir / "python"))
+    return bindir / exe
+
+
+def test_the_shim_links_the_dw_mcp_beside_the_interpreter(
+    tmp_path, monkeypatch, manifest
+):
+    target = _fake_python(tmp_path, monkeypatch)
+    setup_clients.write_mcp_shim(manifest, platform="linux")
+    shim = setup_state.shim_dir() / "dw-mcp"
+    assert shim.is_symlink() and shim.resolve() == target.resolve()
+    assert shim.is_relative_to(tmp_path)
+    assert manifest.has("shim", "dw-mcp")
+    setup_clients.write_mcp_shim(manifest, platform="linux")
+    assert shim.resolve() == target.resolve()
+
+
+def test_a_stale_recorded_shim_is_replaced(tmp_path, monkeypatch, manifest):
+    target = _fake_python(tmp_path, monkeypatch)
+    shim = setup_state.shim_dir() / "dw-mcp"
+    shim.parent.mkdir(parents=True)
+    shim.symlink_to(tmp_path / "gone")
+    manifest.record("shim", "dw-mcp", {})
+    setup_clients.write_mcp_shim(manifest, platform="linux")
+    assert shim.resolve() == target.resolve()
+
+
+def test_an_unrecorded_shim_is_never_replaced(tmp_path, monkeypatch, manifest):
+    _fake_python(tmp_path, monkeypatch)
+    shim = setup_state.shim_dir() / "dw-mcp"
+    shim.parent.mkdir(parents=True)
+    shim.write_text("mine")
+    assert "left as it is" in setup_clients.write_mcp_shim(manifest, platform="linux")
+    assert shim.read_text() == "mine" and not manifest.has("shim", "dw-mcp")
+
+
+def test_the_windows_shim_is_a_copy(tmp_path, monkeypatch, manifest):
+    _fake_python(tmp_path, monkeypatch, exe="dw-mcp.exe")
+    setup_clients.write_mcp_shim(manifest, platform="win32")
+    shim = setup_state.shim_dir() / "dw-mcp.exe"
+    assert shim.is_file() and not shim.is_symlink()
+    setup_clients.remove_mcp_shim(manifest, platform="win32")
+    assert not shim.exists()
+
+
+def test_no_dw_mcp_beside_the_interpreter_is_an_error(tmp_path, monkeypatch, manifest):
+    _fake_python(tmp_path, monkeypatch, with_mcp=False)
+    with pytest.raises(setup_state.SetupError, match="dw-mcp"):
+        setup_clients.write_mcp_shim(manifest, platform="linux")
+
+
+def test_remove_shim_only_when_recorded(tmp_path, monkeypatch, manifest):
+    _fake_python(tmp_path, monkeypatch)
+    shim = setup_state.shim_dir() / "dw-mcp"
+    shim.parent.mkdir(parents=True)
+    shim.write_text("mine")
+    setup_clients.remove_mcp_shim(manifest, platform="linux")
+    assert shim.exists()
+    manifest.record("shim", "dw-mcp", {})
+    assert "left as it is" in setup_clients.remove_mcp_shim(manifest, platform="linux")
+    assert shim.exists()
+    shim.unlink()
+    shim.symlink_to(tmp_path)
+    setup_clients.remove_mcp_shim(manifest, platform="linux")
+    assert not shim.is_symlink() and not manifest.has("shim", "dw-mcp")
+
+
+def test_register_and_unregister_code_manage_the_shim(tmp_path, monkeypatch, manifest):
+    _fake_python(tmp_path, monkeypatch)
+    setup_clients.register_code(manifest, FakeRunner(), "0.23.0")
+    assert manifest.has("shim", "dw-mcp")
+    setup_clients.unregister_code(manifest, FakeRunner())
+    assert not manifest.has("shim", "dw-mcp")
+    assert not (setup_state.shim_dir() / "dw-mcp").is_symlink()
+
+
 def test_code_commands_pin_the_ref():
     cmds = setup_clients.code_commands("0.22.0", ref_syntax="@")
     assert cmds[0][-1] == "dkackman/diffusers-workflow@v0.22.0"
 
 
-def test_register_code_adds_and_records(manifest):
+def test_register_code_adds_and_records(tmp_path, monkeypatch, manifest):
+    _fake_python(tmp_path, monkeypatch)
     runner = FakeRunner()
     setup_clients.register_code(manifest, runner, "0.23.0")
     assert ["claude", "plugin", "install", "dw@diffusers-workflow"] in runner.calls
@@ -167,7 +256,8 @@ def test_register_code_adds_and_records(manifest):
     assert manifest.has("code-mcp", "dw-notes")
 
 
-def test_a_present_plugin_is_not_installed_twice(manifest):
+def test_a_present_plugin_is_not_installed_twice(tmp_path, monkeypatch, manifest):
+    _fake_python(tmp_path, monkeypatch)
     runner = FakeRunner(
         {"claude plugin list": PLUGINS, "claude plugin marketplace list": MARKETS}
     )
@@ -179,7 +269,8 @@ def test_a_present_plugin_is_not_installed_twice(manifest):
     assert not manifest.has("code-plugin", "dw@diffusers-workflow")
 
 
-def test_a_failed_command_raises(manifest):
+def test_a_failed_command_raises(tmp_path, monkeypatch, manifest):
+    _fake_python(tmp_path, monkeypatch)
     with pytest.raises(setup_state.SetupError, match="boom"):
         setup_clients.register_code(
             manifest, FakeRunner(fail=("claude plugin install",)), "0.23.0"
@@ -279,7 +370,10 @@ def test_a_real_http_dw_server_is_a_duplicate():
     assert setup_clients.code_duplicates(runner) == ["dw"]
 
 
-def test_real_listings_skip_present_marketplace_and_plugin(manifest):
+def test_real_listings_skip_present_marketplace_and_plugin(
+    tmp_path, monkeypatch, manifest
+):
+    _fake_python(tmp_path, monkeypatch)
     runner = FakeRunner(
         {
             "claude plugin list": REAL_PLUGINS,

@@ -319,7 +319,8 @@ def _uninstall(args, runner, platform: str) -> int:
         print("Nothing removed.")
         return 0
     if any(
-        manifest.entries(k) for k in ("code-plugin", "code-marketplace", "code-mcp")
+        manifest.entries(k)
+        for k in ("code-plugin", "code-marketplace", "code-mcp", "shim")
     ):
         if setup_clients.claude_cli() is None:
             print(f"Claude Code: skipped, {_NO_CLAUDE}; its entries stay recorded")

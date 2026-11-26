@@ -21,7 +21,15 @@ from pathlib import Path
 from dw.settings import get_settings_dir
 
 _APP = "diffusers-workflow"
-_KINDS = ("service", "desktop", "code-plugin", "code-marketplace", "code-mcp", "linger")
+_KINDS = (
+    "service",
+    "desktop",
+    "code-plugin",
+    "code-marketplace",
+    "code-mcp",
+    "shim",
+    "linger",
+)
 
 
 class SetupError(Exception):
