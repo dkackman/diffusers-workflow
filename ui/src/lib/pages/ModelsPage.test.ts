@@ -46,6 +46,8 @@ const cache = vi.hoisted(() => ({
   diffusersReads: 0,
   // the diffusers status the page reads; null stays pending
   diffusers: null as unknown,
+  // the dw update state the page reads; null stays pending
+  dw: null as unknown,
 }))
 vi.mock('../confirm.svelte', () => ({ confirmDialog: vi.fn() }))
 
@@ -75,6 +77,10 @@ api.diffusersStatus.mockImplementation(() => {
     : new Promise(() => {})
 })
 api.updateDiffusers.mockImplementation(() => Promise.resolve({}))
+api.dwStatus.mockImplementation(() =>
+  cache.dw ? Promise.resolve(cache.dw) : new Promise(() => {}),
+)
+api.updateDw.mockImplementation(() => Promise.resolve({}))
 api.startDownload.mockImplementation(() => new Promise(() => {}))
 api.deleteModel.mockImplementation(() => Promise.resolve({}))
 vi.mock('../changes.svelte', async () => ({
@@ -88,8 +94,10 @@ afterEach(() => {
   cache.error = null
   cache.diffusersReads = 0
   cache.diffusers = null
+  cache.dw = null
   vi.mocked(confirmDialog).mockReset()
   api.updateDiffusers.mockClear()
+  api.updateDw.mockClear()
   api.startDownload.mockClear()
   api.deleteModel.mockClear()
 })
@@ -245,6 +253,58 @@ it('Update diffusers asks first and runs only on yes', async () => {
       danger: false,
     },
   ])
+})
+
+const dwState = (over: Record<string, unknown>) => ({
+  version: '0.23.0',
+  latest: '0.24.0',
+  managed: true,
+  command: 'curl -LsSf https://example.test/bootstrap.sh | sh',
+  status: 'idle',
+  error: null,
+  log: null,
+  ...over,
+})
+
+it('an unmanaged server shows the install command and no update button', async () => {
+  cache.dw = dwState({ managed: false })
+  render(ModelsPage)
+  await screen.findByText(/bootstrap\.sh/)
+  expect(screen.queryByRole('button', { name: /Update dw/ })).toBeNull()
+  expect(screen.getByTitle('copy the update command')).toBeTruthy()
+})
+
+it('Update dw on a managed server with a newer release asks, then runs', async () => {
+  cache.dw = dwState({})
+  render(ModelsPage)
+  const button = await screen.findByRole('button', { name: /Update dw/ })
+  vi.mocked(confirmDialog).mockResolvedValueOnce(true)
+  await fireEvent.click(button)
+  await waitFor(() => expect(api.updateDw).toHaveBeenCalledTimes(1))
+})
+
+it('a managed server already on the latest offers no update', async () => {
+  cache.dw = dwState({ latest: '0.23.0' })
+  render(ModelsPage)
+  await screen.findByText('up to date')
+  expect(screen.queryByRole('button', { name: /Update dw/ })).toBeNull()
+})
+
+it('a running dw update shows progress and keeps polling', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  try {
+    cache.dw = dwState({ status: 'running' })
+    render(ModelsPage)
+    await screen.findByText(/the server restarts/)
+    expect(screen.queryByRole('button', { name: /Update dw/ })).toBeNull()
+    const reads = api.dwStatus.mock.calls.length
+    await vi.advanceTimersByTimeAsync(2100)
+    await waitFor(() =>
+      expect(api.dwStatus.mock.calls.length).toBeGreaterThan(reads),
+    )
+  } finally {
+    vi.useRealTimers()
+  }
 })
 
 it('a second click while starting a download sends one request', async () => {

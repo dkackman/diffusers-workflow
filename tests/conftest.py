@@ -73,6 +73,22 @@ def _isolate_settings_dir(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_install(tmp_path, monkeypatch):
+    """No test reads the machine's own install record or probes its git.
+
+    `DW_INSTALL_ROOT` points at an empty directory under tmp_path, so
+    read_install_record() finds none, and the diffusers updater's git probe
+    answers "git works" without running git - on a Mac without the Command
+    Line Tools running /usr/bin/git pops their installer. A test of the probe
+    itself (tests/test_updater.py) calls the function it imported.
+    """
+    import dw.server.updater
+
+    monkeypatch.setenv("DW_INSTALL_ROOT", str(tmp_path / "install-root"))
+    monkeypatch.setattr(dw.server.updater, "git_usable", lambda platform=None: True)
+
+
+@pytest.fixture(autouse=True)
 def _isolate_device_capacity(monkeypatch):
     """Check a vram_estimate against the catalog's measured cards, never the
     accelerator the suite happens to run on.

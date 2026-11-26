@@ -1,0 +1,8 @@
+{
+    "mcpServers": {
+        "dw": {
+            "command": "${HOME}/.local/share/diffusers-workflow/bin/dw-mcp",
+            "args": []
+        }
+    }
+}

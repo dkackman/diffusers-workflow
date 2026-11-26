@@ -1,0 +1,16 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.dkackman/dw",
+  "title": "diffusers-workflow",
+  "description": "Generate images, video and audio on a running dw-serve: author, run and diagnose diffusers workflows.",
+  "repository": {"url": "https://github.com/dkackman/diffusers-workflow", "source": "github"},
+  "version": "@VERSION@",
+  "packages": [
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/dkackman/diffusers-workflow/releases/download/v@VERSION@/dw-mcp-@VERSION@.mcpb",
+      "fileSha256": "@SHA@",
+      "transport": {"type": "stdio"}
+    }
+  ]
+}

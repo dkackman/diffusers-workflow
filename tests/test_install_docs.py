@@ -19,6 +19,7 @@ README = REPO / "README.md"
 INSTALL_SH = REPO / "install.sh"
 DOCKER_MD = REPO / "docs" / "DOCKER.md"
 REMOTE_MD = REPO / "docs" / "REMOTE.md"
+INSTALL_MD = REPO / "docs" / "INSTALL.md"
 PYPROJECT = REPO / "pyproject.toml"
 
 CLONE = "git clone https://github.com/dkackman/diffusers-workflow.git"
@@ -58,10 +59,52 @@ def test_docker_guide_has_a_same_host_mcp_line_with_a_placeholder_token():
     assert "login-url" in text[text.index("Connect Claude Code on the same host") :]
 
 
-def test_readme_registers_dw_mcp_for_every_directory():
+def test_readme_checkout_route_runs_setup_without_the_service():
+    # The plugin starts the dw tool server through the shim setup writes, so a
+    # checkout registers Claude Code with setup rather than `claude mcp add dw`
     text = _text(README)
-    assert 'claude mcp add --scope user dw -- "$(pwd)/venv/bin/dw-mcp"' in text
+    assert "venv/bin/dw setup --no-service --no-desktop" in text
     assert "inside Claude Code" in text
+
+
+def test_readme_leads_with_the_one_liner():
+    text = _text(README)
+    assert text.index("releases/latest/download/bootstrap.sh") < text.index(CLONE)
+
+
+@pytest.mark.parametrize("doc", [README, INSTALL_MD], ids=lambda p: p.name)
+def test_docs_carry_the_servers_install_commands_verbatim(doc):
+    from dw.server.self_update import INSTALL_COMMAND_POSIX, INSTALL_COMMAND_WINDOWS
+
+    text = _text(doc)
+    assert INSTALL_COMMAND_POSIX in text
+    assert INSTALL_COMMAND_WINDOWS in text
+
+
+def test_install_md_documents_every_setup_flag():
+    text = _text(INSTALL_MD)
+    for flag in (
+        "--yes",
+        "--no-service",
+        "--no-desktop",
+        "--no-code",
+        "--no-open",
+        "--status",
+        "--json",
+        "--uninstall",
+        "--port",
+        "--torch-index",
+        "--version",
+        "-TorchIndex",
+        "-Version",
+    ):
+        assert flag in text, flag
+
+
+def test_install_md_lists_the_status_contract_keys():
+    text = _text(INSTALL_MD)
+    for key in ("install_root", "plugin_version_mismatch", "missing"):
+        assert f"`{key}`" in text
 
 
 def _ui_block() -> str:

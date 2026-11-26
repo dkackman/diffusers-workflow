@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from ..jobs import SubmissionRefused
 from ..changes import GALLERY, JOBS, NO_CHANGE, ChangeRoute, pending_change, writes
 from ..api_models import (
     JobCancelled,
@@ -230,6 +231,8 @@ def submit_job(
         return manager.describe(job)
     except HTTPException:
         raise
+    except SubmissionRefused as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except Exception:
         raise internal_error("Job submission failed after admission")
 
@@ -560,6 +563,8 @@ def rerun_job(request: Request, job_id: str, body: RerunRequest = RerunRequest()
         return manager.describe(job)
     except HTTPException:
         raise
+    except SubmissionRefused as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except Exception:
         raise internal_error("Job rerun failed after admission")
 

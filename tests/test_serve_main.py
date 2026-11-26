@@ -285,3 +285,107 @@ class TestConfigureDevices:
         monkeypatch.delenv("DW_DEVICE")
         configure_devices(types.SimpleNamespace(devices=None))
         assert "DW_DEVICE" not in os.environ
+
+
+def test_managed_is_passed_to_the_app_and_off_by_default(serve):
+    assert serve()["create_app"]["managed"] is False
+    assert serve("--managed")["create_app"]["managed"] is True
+
+
+@pytest.mark.parametrize("flag", [True, False])
+def test_the_app_records_managed_on_its_state(tmp_path, flag):
+    from dw.server.app import create_app
+    from dw.server.jobs import JobManager
+
+    from .test_server import ScriptedWorkerManager, success_script
+
+    (tmp_path / "workflows").mkdir()
+    manager = JobManager(
+        str(tmp_path / "out"),
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+    )
+    app = create_app(
+        workflow_dir=str(tmp_path / "workflows"),
+        output_dir=str(tmp_path / "out"),
+        job_manager=manager,
+        prompt_dir=str(tmp_path / "prompts"),
+        managed=flag,
+    )
+    assert app.state.managed is flag
+
+
+def test_install_root_flag_sets_the_environment(serve, monkeypatch, tmp_path):
+    # setenv first so monkeypatch restores whatever main() assigns
+    monkeypatch.setenv("DW_INSTALL_ROOT", "unset")
+    serve("--install-root", str(tmp_path / "root"))
+    assert os.environ["DW_INSTALL_ROOT"] == str(tmp_path / "root")
+
+
+def test_the_packaged_catalog_is_the_default_examples_dir(serve, monkeypatch, tmp_path):
+    import dw.serve as serve_module
+
+    packaged = tmp_path / "pkg" / "examples" / "workflows"
+    packaged.mkdir(parents=True)
+    monkeypatch.setattr(serve_module, "packaged_examples_dir", lambda: str(packaged))
+    assert serve()["create_app"]["examples_dirs"] == [str(packaged)]
+    given = serve("--examples-dir", str(tmp_path / "mine"))["create_app"]
+    assert given["examples_dirs"] == [str(tmp_path / "mine")]
+
+
+def test_packaged_examples_dir_is_an_install_only_default(tmp_path):
+    from dw.serve import packaged_examples_dir
+
+    installed = tmp_path / "site-packages" / "dw"
+    assert packaged_examples_dir(installed) is None  # no catalog shipped
+    (installed / "examples" / "workflows").mkdir(parents=True)
+    assert packaged_examples_dir(installed) == str(installed / "examples" / "workflows")
+    checkout = tmp_path / "checkout"
+    (checkout / "dw" / "examples" / "workflows").mkdir(parents=True)
+    (checkout / "workflows").mkdir()
+    (checkout / "pyproject.toml").write_text("")
+    assert packaged_examples_dir(checkout / "dw") is None
+
+
+def test_this_checkout_never_serves_a_packaged_copy():
+    from dw.serve import packaged_examples_dir
+
+    assert packaged_examples_dir() is None
+
+
+def test_build_dist_copies_the_tracked_catalog_into_the_package(tmp_path):
+    """Runs build_dist.sh's catalog step in a scratch git repo: the three
+    trees land in dw/examples/, generated media (untracked) does not."""
+    import re
+    import subprocess
+    import tomllib
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[1]
+    script = (repo / "scripts" / "build_dist.sh").read_text()
+    step = re.search(r"^rm -rf dw/examples\n.*?^done\n", script, re.S | re.M)
+    assert step, "build_dist.sh lost its dw/examples step"
+    for tree in ("workflows/t/a.json", "prompts/p.json", "loras/l.json"):
+        (tmp_path / tree).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / tree).write_text("{}")
+    (tmp_path / "workflows/t/assets").mkdir()
+    (tmp_path / "workflows/t/assets/big.mp4").write_text("media")
+    git = ["git", "-c", "user.email=t@t", "-c", "user.name=t"]
+    subprocess.run([*git, "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(
+        [*git, "add", "workflows/t/a.json", "prompts", "loras"],
+        cwd=tmp_path,
+        check=True,
+    )
+    subprocess.run(["bash", "-c", step.group(0)], cwd=tmp_path, check=True)
+    examples = tmp_path / "dw" / "examples"
+    assert sorted(
+        str(p.relative_to(examples)) for p in examples.rglob("*") if p.is_file()
+    ) == ["loras/l.json", "prompts/p.json", "workflows/t/a.json"]
+    # and the wheel and sdist carry what it copied
+    package_data = tomllib.loads((repo / "pyproject.toml").read_text())["tool"][
+        "setuptools"
+    ]["package-data"]
+    assert "examples/**" in package_data["dw"]
+    assert "recursive-include dw/examples *" in (repo / "MANIFEST.in").read_text()
+    assert "dw/examples/" in (repo / ".gitignore").read_text().splitlines()

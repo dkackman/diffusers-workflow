@@ -12,6 +12,11 @@ tool fails with a message telling you to start it.
 
 ## Install and run
 
+On an installed copy ([INSTALL.md](INSTALL.md)) there is nothing to do here:
+the one-liner installs `dw-mcp`, `dw setup` runs the engine as a service and
+registers `dw-mcp` with Claude, and the rest of this section is reference. From
+a checkout:
+
 ```bash
 pip install -e ".[server,mcp]"
 dw-serve          # the engine; leave it running
@@ -38,9 +43,10 @@ usually means `dw.serve` is not up yet. The notes channel never exits on a
 failed probe; it retries. [REMOTE.md](REMOTE.md) covers the
 remote setup end to end.
 
-Claude Code users can add the composition skills with
+The `dw` plugin carries the composition skills and the `dw` tool server, and
+`dw setup` installs it in Claude Code. By hand, add it with
 `/plugin marketplace add dkackman/diffusers-workflow` then
-`/plugin install dw@diffusers-workflow`: one skill per model family (MiniMax
+`/plugin install dw@diffusers-workflow`. Its skills are one per model family (MiniMax
 H3, MiniMax Music 3, LTX-2.5, Kandinsky 6, FLUX 3 Klein, MiniMax-H3-Image) plus cross-cutting
 skills for scripts, series, cinematography and storyboards. See
 `plugins/dw/README.md`, which also gives the optional
@@ -74,6 +80,26 @@ echo "$(pwd)/venv/bin/dw-mcp"    # the value to register
 
 ## Clients
 
+Which registration each Claude surface uses:
+
+| Surface | Tools from | Set up by |
+| --- | --- | --- |
+| Claude Code | the plugin's `dw` server, which launches `~/.local/share/diffusers-workflow/bin/dw-mcp` (a shim `dw setup` writes to the `dw-mcp` beside the `dw` that ran it; Cowork starts the same shim) | `dw setup`, or [by hand](#claude-code) |
+| Cowork | the plugin's `dw` server, from the plugin installed on your claude.ai account | adding the plugin in Claude Desktop ([INSTALL.md](INSTALL.md#which-claude-uses-what)) |
+| Claude Desktop chat | `mcpServers.dw` in `claude_desktop_config.json`; Desktop chat ignores a plugin's server | `dw setup`, or [by hand](#claude-desktop) |
+| Claude Desktop, double-click | the `dw-mcp-<version>.mcpb` bundle attached to each release (also listed in the MCP Registry as `io.github.dkackman/dw`, once the maintainer switches publishing on) | opening the file |
+| Any other MCP host | `dw-mcp` over stdio, or `dw.serve --mcp` over HTTP | its own config ([below](#client-configuration)) |
+
+The bundle is `dw_mcp` alone, run with `uv run --frozen` from the lock made at
+release, with the server URL (default `http://127.0.0.1:8765`) and an optional
+token as its settings. Claude Code does not run it. Whether Desktop honours the
+lock depends on it running the manifest's launch command, which is unverified.
+
+The plugin's server needs the shim. On a machine that has the plugin but never
+ran `dw setup` (a checkout, or a laptop that uses a remote box) it fails to
+start; [INSTALL.md](INSTALL.md#the-plugin-without-dw-setup) gives the two ways
+out.
+
 Claude Code with the `dw` plugin is the tested path. Any MCP client gets every
 tool and every served guide. A no-plugin Claude Sonnet session
 (`bench/records/drill.md`) found, ran and checked catalog work from those
@@ -100,6 +126,13 @@ stdio setup below is for a machine with its own `dw` install, and also works
 against a remote `--url` with `--token`.
 
 ### Claude Code
+
+`dw setup` does this: it installs the plugin, whose `dw` server is the tool
+registration, and adds the [notes channel](#the-notes-channel). From a checkout,
+`venv/bin/dw setup --no-service --no-desktop`. The rest of this section is the
+manual route, for a host without the plugin or a server elsewhere. Beside the
+plugin, a hand-added `dw` duplicates its tools; setup reports one and never
+removes it.
 
 From the project directory:
 
@@ -133,6 +166,9 @@ The same registration as a hand-written `.mcp.json`:
 
 ### Claude Desktop
 
+`dw setup` does this on macOS and Windows: it merges the entry below into
+`claude_desktop_config.json`, backing the file up first
+([INSTALL.md](INSTALL.md#what-setup-writes)). By hand,
 `claude_desktop_config.json` takes the same shape. The absolute path matters
 more here, because a desktop app never inherits a shell's `PATH`:
 
@@ -240,6 +276,9 @@ behind a dependency is announced when the dependency finishes. A request
 whose revision does not move still produces the event once its deadline
 passes: the channel reads it again then.
 
+Claude Desktop has no channels, so a Desktop agent sees a note when it next
+reads the request.
+
 It uses Claude Code [channels](https://code.claude.com/docs/en/channels-reference),
 a **research preview**: the flag, the capability and the notification below
 are Claude Code's and may change. It works only in an interactive session
@@ -326,6 +365,11 @@ holding the token can send it, and the worst result is a wrong label.
 
 ### Set it up
 
+`dw setup` does this: it adds `dw-notes` to Claude Code at user scope
+(`claude mcp add --scope user dw-notes -- <venv>/bin/dw-mcp --notes-channel`),
+and `dw agent` starts a session that listens
+([INSTALL.md](INSTALL.md#dw-agent)). The rest is the manual route.
+
 Channels are stdio only, so this needs a local install of `dw-mcp` even when
 the tools themselves come from a remote `dw.serve --mcp`. Add the process to
 the project's `.mcp.json` under the name `dw-notes`:
@@ -383,10 +427,10 @@ If nothing arrives:
   reads the variable, not the server, so the server's `env` block in
   `.mcp.json` is the wrong place for it.
 
-The `dw` plugin does not declare this server. A plugin's MCP server starts
-in every session the plugin is enabled in, so declaring it there would run
-a poller - and report a failed server wherever `dw-mcp` is not installed -
-for everyone who installed the plugin for its skills.
+The `dw` plugin declares the `dw` tool server but not this one. A plugin's
+MCP server starts in every session the plugin is enabled in, so declaring the
+channel there would run a poller for everyone who installed the plugin, in
+sessions not started to listen.
 
 ### Whose text it is
 
@@ -672,6 +716,7 @@ client can reach.
 | The server shows connected, but every tool fails | "Connected" means `dw-mcp` launched, not that the engine is reachable. Check `dw.serve` is running |
 | "Cannot reach diffusers-workflow at …" | `dw.serve` is not running. Start it with `dw-serve` (or `python -m dw.serve`) |
 | `dw-mcp` exits 2 at startup | A non-loopback `--url` with no token, the startup probe failed against a remote URL (unreachable, or the token was rejected with a 401), or `--interval` under 2. The reason is on stderr, prefixed `dw-mcp:` |
+| The plugin's `dw` server shows failed in `/mcp` | No shim at `~/.local/share/diffusers-workflow/bin/dw-mcp`: `dw setup` was never run on this machine ([INSTALL.md](INSTALL.md#the-plugin-without-dw-setup)) |
 | A config change has no effect | A running session holds the old config. Start a new session |
 | It broke after rebuilding the venv | Re-run `pip install -e ".[server,mcp]"`. If the repo moved, re-register the new absolute path |
 | A tool call times out | One API request exceeded `--timeout` (30 s); raise it. For a long job use `wait_for_job`, which returns at its cap rather than timing out |

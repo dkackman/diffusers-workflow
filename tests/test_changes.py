@@ -370,6 +370,7 @@ UNCASED = {
     "delete_cache_entry": "needs a quantized entry on disk: the same route "
     "code as clear_cache, declared the same way",
     "update_diffusers": "runs pip: test_a_finished_update_moves_models",
+    "update_dw": "runs pip, then exits for a restart: tests/test_server.py::TestDwUpdate",
 }
 
 

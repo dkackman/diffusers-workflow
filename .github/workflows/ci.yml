@@ -188,8 +188,25 @@ jobs:
       - run: bash scripts/build_dist.sh
       - uses: actions/upload-artifact@v7
         with:
+          # Only what PyPI receives: the wheel and the sdist
           name: diffusers-workflow-dist
-          path: dist/*
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+      - uses: astral-sh/setup-uv@v10.4.0
+      - name: Build the dw-mcp bundle
+        run: python scripts/build_mcpb.py --out dist/
+      - name: Smoke test the bundle
+        # Unpack it and start its server under uv, the way a host would
+        run: |
+          python scripts/build_mcpb.py --unpack dist/dw-mcp-*.mcpb "$RUNNER_TEMP/mcpb"
+          cd "$RUNNER_TEMP/mcpb"
+          test -f uv.lock
+          uv run --frozen --directory . python -m dw_mcp --help
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dw-mcp-bundle
+          path: dist/dw-mcp-*.mcpb
 
   release:
     # A v<semver> tag that passed the full test and build chain becomes a
@@ -216,6 +233,15 @@ jobs:
         with:
           name: diffusers-workflow-dist
           path: dist
+      - uses: actions/download-artifact@v8
+        with:
+          name: dw-mcp-bundle
+          path: dist
+      - name: Add the bootstrap scripts and checksums
+        run: |
+          cp dw/install_scripts/bootstrap.sh dw/install_scripts/bootstrap.ps1 dist/
+          (cd dist && sha256sum -- * > ../SHA256SUMS)
+          mv SHA256SUMS dist/
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -227,6 +253,37 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --title "$GITHUB_REF_NAME" \
             --generate-notes --verify-tag $prerelease
+
+  mcp-registry:
+    # The bundle is listed in the MCP Registry under io.github.dkackman/dw,
+    # logged in through GitHub OIDC. A registry outage must not fail a release.
+    # Off until the repo variable MCP_REGISTRY_PUBLISH is 'true': it is set
+    # once Claude Desktop is confirmed to run the bundle (docs/RELEASING.md)
+    needs: release
+    if: vars.MCP_REGISTRY_PUBLISH == 'true'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: dw-mcp-bundle
+          path: dist
+      - name: Render server.json
+        run: python3 scripts/build_mcpb.py --server-json dist/dw-mcp-*.mcpb > server.json
+      - name: Install mcp-publisher
+        run: |
+          # Pinned release; the sha256 is the asset digest GitHub reports for it
+          tag=v1.8.16
+          sha=6e2f799550cf843c6fd3350498d56cc49be3dc0af1e6237eb0e6435c7a9d5c05
+          curl -fsSL -o mcp-publisher.tar.gz "https://github.com/modelcontextprotocol/registry/releases/download/${tag}/mcp-publisher_linux_amd64.tar.gz"
+          echo "${sha}  mcp-publisher.tar.gz" | sha256sum -c -
+          tar xzf mcp-publisher.tar.gz mcp-publisher
+          sudo mv mcp-publisher /usr/local/bin/
+      - run: mcp-publisher login github-oidc
+      - run: mcp-publisher publish
 
   pypi:
     # Trusted publishing (OIDC) - register on pypi.org first: project

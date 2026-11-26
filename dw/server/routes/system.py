@@ -21,6 +21,7 @@ from ..api_models import (
     PipelineNames,
     TaskList,
     DiffusersStatus,
+    DwUpdateState,
     DiskCacheCleared,
     DiskCacheEntryDeleted,
     DiskCacheList,
@@ -45,6 +46,7 @@ from ...introspection import (
 )
 from ...schema import SchemaSectionError, load_schema, schema_section
 from ...security import InvalidInputError, validate_commit_hash
+from ... import __version__
 from ...trust import workflows_are_trusted
 from ...workspace import Workspace
 from .. import guides
@@ -53,6 +55,7 @@ from ..deps import selected_workspace
 from ..guides import GuideError
 from ..jobs import JobsActive, WorkerBusy
 from ..netinfo import local_addresses
+from ..self_update import install_command, latest_version
 from ..sysinfo import runtime_info
 
 logger = logging.getLogger("dw")
@@ -435,6 +438,12 @@ def update_diffusers(
             detail="A model download is in progress - replacing package "
             "files while it runs could corrupt the download",
         )
+    if state.dw_updater.status()["status"] == "running":
+        raise HTTPException(
+            status_code=409,
+            detail="A dw update is running - two pip runs in one "
+            "environment could corrupt it",
+        )
     try:
         return state.updater.start(
             on_success=manager.restart_worker_if_idle,
@@ -443,6 +452,69 @@ def update_diffusers(
         )
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
+
+
+# ------------------------------------------------------------ dw update
+
+
+def _dw_state(request):
+    state = request.app.state
+    return {
+        "version": __version__,
+        "latest": latest_version(),
+        "managed": bool(state.managed),
+        "command": install_command(),
+        **state.dw_updater.status(),
+    }
+
+
+@router.get("/api/system/dw", response_model=DwUpdateState)
+def dw_state(request: Request):
+    """The installed dw version, the newest release, whether this server can
+    update itself, and the state of any update."""
+    return _dw_state(request)
+
+
+@router.post("/api/system/dw/update", status_code=202, response_model=DwUpdateState)
+@writes(MODELS)
+def update_dw(request: Request):
+    """Update dw in the background on an installed copy, then restart the
+    server through its service manager.
+
+    Refused on an unmanaged server (its `command` is the way), and while a
+    job is running or queued or a download is active: pip replacing package
+    files under a loaded pipeline is the diffusers update's hazard, and the
+    restart that follows would end the job."""
+    state = request.app.state
+    if not state.managed:
+        raise HTTPException(
+            status_code=409,
+            detail="This server is not managed by a service, so it cannot "
+            f"restart itself - update it by running: {install_command()}",
+        )
+    if state.job_manager.is_busy():
+        raise HTTPException(
+            status_code=409,
+            detail="A job is running or queued - updating dw would restart "
+            "the server underneath it",
+        )
+    if state.downloads.is_active():
+        raise HTTPException(
+            status_code=409,
+            detail="A model download is in progress - the restart that "
+            "follows the update would cut it off",
+        )
+    if state.updater.status()["status"] == "running":
+        raise HTTPException(
+            status_code=409,
+            detail="A diffusers update is running - two pip runs in one "
+            "environment could corrupt it",
+        )
+    try:
+        state.dw_updater.start()
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return _dw_state(request)
 
 
 # --------------------------------------------------------- memory/health

@@ -51,12 +51,83 @@ agent starts, not a limit. The full list is in [workflows/](workflows/) and the
 
 ## Getting started
 
-**What you need first.**
+**What you need first.** A GPU driver (an NVIDIA driver **580 or newer** gets the
+CUDA 13 torch build; an older one gets PyPI's CUDA 12 build, and no working driver
+gets CPU-only torch, which runs everything slowly; Apple Silicon needs nothing
+extra), and disk: torch and the venv take several GB, the first run downloads
+SD 1.5, a few GB more, and most other models are tens of GB each. To drive it,
+[Claude Code](https://code.claude.com/docs/en/setup) or Claude Desktop. The
+installer brings its own Python; you need no git, Python or Node.
+
+**1. Install.** Paste one line. It installs uv, Python, dw with the right torch
+build for your machine and diffusers from GitHub, then runs `dw setup`, which
+starts the server at login and connects Claude Desktop and Claude Code if you have
+them. The torch download takes a while.
+
+```bash
+curl -LsSf https://github.com/dkackman/diffusers-workflow/releases/latest/download/bootstrap.sh | bash
+```
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://github.com/dkackman/diffusers-workflow/releases/latest/download/bootstrap.ps1 | iex"
+```
+
+Re-running the same line upgrades dw. Where everything goes, every `dw setup`
+flag, checking the script's SHA-256 first, and troubleshooting are in
+[Installing dw](docs/INSTALL.md).
+
+**2. Open the UI.** Setup opens `http://127.0.0.1:8765`. The server runs in the
+background from now on and starts again at login.
+
+**3. Start your agent.** In a terminal, start Claude Code with
+[the notes channel](docs/MCP.md#the-notes-channel), so a note you save in the UI
+reaches the session as you save it. `dw` is not on your `PATH`, so run it from
+the install's venv
+([INSTALL.md](docs/INSTALL.md#what-the-bootstrap-installs-and-where)):
+
+```bash
+~/.local/share/diffusers-workflow/venv/bin/dw agent
+```
+
+```powershell
+& "$env:LOCALAPPDATA\diffusers-workflow\venv\Scripts\dw.exe" agent
+```
+
+Or open
+Claude Desktop, which lists dw as connected. Start a new session either way: a
+session that was already open does not see the registration.
+
+**4. Make the first image.** Ask the agent: *"Run `templates/text-to-image` with the
+prompt 'a lighthouse at dusk'."* The example catalog ships with dw, so an
+installed copy and a checkout both have it. The agent quotes the cost, and a direct ask like this one counts as the go-ahead, so it
+may run straight away. The first run downloads SD 1.5 (about 4 GB), so it takes
+about a minute on a fast connection and longer on a slow one; later runs reuse it.
+The agent shows you the image, and it is in the web UI's gallery and under the
+workspace's `outputs/` folder ([Workspaces](docs/WORKSPACES.md#which-directory-is-used)).
+
+The [dw plugin](plugins/dw/README.md) gives Claude Code its skills and its `dw`
+tools; setup installs it. To update it by hand later (`get_server_info` tells the
+agent when the installed skills are older than the server), refresh the
+marketplace and reinstall, then `/reload-plugins` or start a new session:
+
+```
+/plugin marketplace update diffusers-workflow
+/plugin uninstall dw@diffusers-workflow
+/plugin install dw@diffusers-workflow
+```
+
+Most of the shipped models (Flux, LTX, MiniMax, ...) are **gated**. Request access on
+the model's Hugging Face page and run `hf auth login` once (setup offers to). Without it a run fails
+partway through with a 401/403 from the Hub. `templates/text-to-image` uses a small,
+ungated model, so it makes a good first run.
+
+### From a checkout (development)
+
+To work on dw itself, install from a clone instead.
 
 - **Everywhere:** git; Python 3.12-3.14; [Node.js](https://nodejs.org) 24.20 or
   newer, which brings npm (`install.sh` uses it to build the web UI, and without it
-  there is no page at `/`); and [Claude Code](https://code.claude.com/docs/en/setup),
-  the `claude` command.
+  there is no page at `/`); and Claude Code, the `claude` command.
 - **macOS:** the system `python3` is too old. Install Python from
   [Homebrew](https://brew.sh) (`brew install python@3.13`) or
   [python.org](https://www.python.org/downloads/macos/), and git with the Xcode
@@ -68,15 +139,9 @@ agent starts, not a limit. The full list is in [workflows/](workflows/) and the
   [nodejs.org](https://nodejs.org/en/download) (its nvm line needs that `curl`). On
   Ubuntu, `install.sh` may ask for your `sudo` password once, to `apt install bc`
   when it is missing.
-- **NVIDIA:** a driver **580 or newer** gets the CUDA 13 torch build. With an older
-  driver `install.sh` installs PyPI's CUDA 12 build, and with no working driver it
-  installs CPU-only torch, which runs everything slowly.
-- **Disk:** torch and the venv take several GB, and the first run downloads SD 1.5,
-  a few GB more. Most other models are tens of GB each.
 
-**1. Install.** Clone the repository, then run the install script. It picks the
-right torch build for your platform, creates a virtual environment and installs
-everything: the server, the MCP server and the web UI.
+Clone the repository and run the install script. It picks the torch build the same
+way, creates `venv/` and installs the server, the MCP server and the web UI:
 
 ```bash
 git clone https://github.com/dkackman/diffusers-workflow.git
@@ -85,53 +150,29 @@ bash ./install.sh && source ./activate      # Linux / macOS
 .\install.ps1; .\venv\scripts\activate      # Windows
 ```
 
-**2. Start the engine.** Run it from the checkout and leave it running; the agent and
-the browser both talk to it.
+Start the engine from the checkout and leave it running (it uses the checkout as
+its workspace):
 
 ```bash
 dw-serve        # web UI on http://127.0.0.1:8765
 ```
 
-**3. Connect your agent.** In a second terminal, from the checkout, register the MCP
-server with the absolute path to `dw-mcp` in the venv you just made (a relative path
-is the setup detail that most often goes wrong). `--scope user` makes it available in
-every directory, not only this one:
+In a second terminal, from the checkout, connect Claude Code without installing a
+service:
 
 ```bash
-claude mcp add --scope user dw -- "$(pwd)/venv/bin/dw-mcp"
+venv/bin/dw setup --no-service --no-desktop
 ```
 
-Then start `claude` and add the [dw plugin](plugins/dw/README.md). These lines are
-typed **inside Claude Code**, not in the shell:
+That installs the dw plugin and points its `dw` tool server at this venv, and adds
+the notes channel. To add the plugin by hand instead, type these lines
+**inside Claude Code**, not in the shell; the plugin's `dw` server then starts only
+once `dw setup` has written its launcher ([INSTALL.md](docs/INSTALL.md#the-plugin-without-dw-setup)):
 
 ```
 /plugin marketplace add dkackman/diffusers-workflow
 /plugin install dw@diffusers-workflow
 ```
-
-**4. Make the first image.** Ask the agent: *"Run `templates/text-to-image` with the
-prompt 'a lighthouse at dusk'."* The agent quotes the cost, and a direct ask like
-this one counts as the go-ahead, so it may run straight away. The first run
-downloads SD 1.5 (about 4 GB), so it takes about a minute on a fast connection and
-longer on a slow one; later runs reuse it. The agent shows you the
-image, and it is in the web UI's gallery and under the checkout's `outputs/`
-folder (a `dw-serve` started in the checkout uses it as its workspace;
-[Workspaces](docs/WORKSPACES.md#which-directory-is-used)).
-
-To update the plugin later (`get_server_info` tells the agent when the installed skills are
-older than the server), refresh the marketplace and reinstall, then `/reload-plugins`
-or start a new session:
-
-```
-/plugin marketplace update diffusers-workflow
-/plugin uninstall dw@diffusers-workflow
-/plugin install dw@diffusers-workflow
-```
-
-Most of the shipped models (Flux, LTX, MiniMax, ...) are **gated**. Request access on
-the model's Hugging Face page and run `hf auth login` once. Without it a run fails
-partway through with a 401/403 from the Hub. `templates/text-to-image` uses a small,
-ungated model, so it makes a good first run.
 
 <details>
 <summary><b>GPU on another machine, or in Docker?</b></summary>
@@ -341,6 +382,7 @@ acts on it.
 
 **Using it**
 
+- [Installing dw](docs/INSTALL.md) - the one-line install, `dw setup`, `dw agent`, updating and troubleshooting
 - [MCP Server](docs/MCP.md) - the agent's tool surface (Claude Code, Claude Desktop, [other MCP hosts](docs/MCP.md#clients))
 - [dw plugin](plugins/dw/README.md) - the model-family and composition skills
 - [Server & Web UI](docs/SERVER.md) - the web UI, the command line, and the [HTTP API](docs/SERVER.md#the-http-api) with its OpenAPI spec

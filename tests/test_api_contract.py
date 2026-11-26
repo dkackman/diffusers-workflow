@@ -158,6 +158,8 @@ UI_READ_ROUTES = [
     ("delete", "/api/caches/{name}/entries/{entry}"),
     ("get", "/api/system/diffusers"),
     ("post", "/api/system/diffusers/update"),
+    ("get", "/api/system/dw"),
+    ("post", "/api/system/dw/update"),
     ("get", "/api/jobs"),
     ("post", "/api/jobs"),
     ("get", "/api/jobs/{job_id}"),

@@ -64,6 +64,15 @@ def _pyproject_version():
     return re.search(r'^version = "(.*)"$', text, re.M).group(1)
 
 
+def test_the_plugin_declares_the_dw_server_at_the_stable_shim_path():
+    with open(os.path.join(PLUGIN_DIR, ".mcp.json"), encoding="utf-8") as f:
+        servers = json.load(f)["mcpServers"]
+    assert set(servers) == {"dw"}
+    assert servers["dw"]["command"] == (
+        "${HOME}/.local/share/diffusers-workflow/bin/dw-mcp"
+    )
+
+
 def test_the_marketplace_names_the_plugin():
     import json
 

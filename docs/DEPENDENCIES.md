@@ -2,14 +2,23 @@
 
 ## Installation
 
-### Linux / macOS (Recommended)
+### An installed copy (recommended)
+
+One line installs uv, a Python 3.12 venv, the torch build for your machine,
+`diffusers-workflow[server,mcp]` from PyPI and diffusers from GitHub `main`, then
+runs `dw setup`. No git, Python or Node is needed. [INSTALL.md](INSTALL.md) has the
+one-liners, where everything goes and every option.
+
+The rest of this section is the checkout path, for working on dw itself.
+
+### Checkout, Linux / macOS
 
 ```bash
 bash ./install.sh
 source ./activate
 ```
 
-### Windows
+### Checkout, Windows
 
 ```powershell
 .\install.ps1

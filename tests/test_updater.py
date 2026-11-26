@@ -3,14 +3,20 @@ release-floor lookup. The HTTP-facing lifecycle (start/status, busy/refused
 states) is covered in tests/test_server.py::TestDiffusersUpdate; these tests
 stay below the FastAPI layer and never spawn a real pip subprocess."""
 
+import json
 import sys
+from types import SimpleNamespace
 
+import pytest
+
+from dw.server import updater
 from dw.server.updater import (
     DIFFUSERS_GIT_URL,
     PYPI_PACKAGE,
     build_pip_commands,
     release_floor,
 )
+from dw.server.updater import git_usable as real_git_usable
 
 
 class TestBuildPipCommands:
@@ -183,3 +189,125 @@ class TestDiffusersUpdaterRunFn:
         assert len(calls) == 1
         assert calls[0][0][-1] == f"{PYPI_PACKAGE}=={release_floor()}"
         assert "git+" not in calls[0][0][-1]
+
+
+class TestWithoutGit:
+    def test_without_git_head_installs_the_main_archive(self):
+        cmds = updater.build_pip_commands(git=False, commit="a" * 40)
+        assert (
+            cmds[0][-1]
+            == f"https://github.com/huggingface/diffusers/archive/{'a' * 40}.zip"
+        )
+
+    def test_without_git_head_resolves_main(self, monkeypatch):
+        monkeypatch.setattr(updater, "main_commit", lambda fetch=None: "c" * 40)
+        assert updater.build_pip_commands(git=False)[0][-1].endswith(f"{'c' * 40}.zip")
+
+    def test_without_git_a_short_commit_is_refused(self):
+        with pytest.raises(ValueError):
+            updater.build_pip_commands(git=False, commit="abc1234")
+
+    def test_with_git_the_target_is_unchanged(self):
+        assert updater.build_pip_commands(git=True)[0][-1] == updater.DIFFUSERS_GIT_URL
+
+    def test_main_commit_reads_the_sha(self):
+        seen = {}
+
+        def fetch(url, timeout):
+            seen["url"] = url
+            return {"sha": "d" * 40}
+
+        assert updater.main_commit(fetch=fetch) == "d" * 40
+        assert seen["url"].startswith("https://api.github.com/")
+
+    def test_main_commit_failure_is_a_runtime_error(self):
+        def fetch(url, timeout):
+            raise OSError("offline")
+
+        with pytest.raises(RuntimeError, match="offline"):
+            updater.main_commit(fetch=fetch)
+
+    def test_main_commit_rejects_a_malformed_sha(self):
+        with pytest.raises(RuntimeError):
+            updater.main_commit(fetch=lambda url, timeout: {"sha": "zz"})
+
+    def test_the_commit_is_read_from_an_archive_install(self, monkeypatch):
+        url = f"https://github.com/huggingface/diffusers/archive/{'b' * 40}.zip"
+        fake = SimpleNamespace(
+            version="0.1",
+            read_text=lambda name: json.dumps({"url": url, "archive_info": {}}),
+        )
+        monkeypatch.setattr("importlib.metadata.distribution", lambda name: fake)
+        assert updater.diffusers_install_info()["commit"] == "b" * 40
+
+
+class TestGitUsable:
+    """The real probe (conftest pins `updater.git_usable` to True for the rest)."""
+
+    @staticmethod
+    def probe(monkeypatch, which, results):
+        ran = []
+
+        def fake_run(args, **kwargs):
+            ran.append(list(args))
+            return SimpleNamespace(returncode=results.get(args[0], 0))
+
+        monkeypatch.setattr(updater.shutil, "which", lambda name: which)
+        monkeypatch.setattr(updater.subprocess, "run", fake_run)
+        return ran
+
+    def test_an_installed_copy_always_uses_the_archive(self, tmp_path, monkeypatch):
+        (tmp_path / "install-root").mkdir(exist_ok=True)
+        (tmp_path / "install-root" / "install.json").write_text("{}")
+        ran = self.probe(monkeypatch, "/opt/homebrew/bin/git", {})
+        assert real_git_usable(platform="darwin") is False and ran == []
+
+    def test_no_git_on_path(self, monkeypatch):
+        self.probe(monkeypatch, None, {})
+        assert real_git_usable(platform="linux") is False
+
+    def test_a_working_git_counts(self, monkeypatch):
+        ran = self.probe(monkeypatch, "/usr/bin/git", {})
+        assert real_git_usable(platform="linux") is True
+        assert ran == [["/usr/bin/git", "--version"]]
+
+    def test_a_failing_git_does_not_count(self, monkeypatch):
+        self.probe(monkeypatch, "/usr/bin/git", {"/usr/bin/git": 1})
+        assert real_git_usable(platform="linux") is False
+
+    def test_the_macos_stub_is_not_run_without_the_command_line_tools(
+        self, monkeypatch
+    ):
+        ran = self.probe(monkeypatch, "/usr/bin/git", {"xcode-select": 2})
+        assert real_git_usable(platform="darwin") is False
+        assert ran == [["xcode-select", "-p"]]
+
+    def test_the_macos_stub_counts_with_the_command_line_tools(self, monkeypatch):
+        ran = self.probe(monkeypatch, "/usr/bin/git", {})
+        assert real_git_usable(platform="darwin") is True
+        assert ran == [["xcode-select", "-p"], ["/usr/bin/git", "--version"]]
+
+    def test_build_pip_commands_without_usable_git_uses_the_archive(self, monkeypatch):
+        monkeypatch.setattr(updater, "git_usable", lambda platform=None: False)
+        monkeypatch.setattr(updater, "main_commit", lambda fetch=None: "e" * 40)
+        assert build_pip_commands()[0][-1].endswith(f"{'e' * 40}.zip")
+
+
+class TestRunCommands:
+    def test_stops_at_the_first_failure_and_keeps_every_output(self, monkeypatch):
+        calls = []
+
+        def fake_run(args, **kwargs):
+            calls.append(args)
+            assert kwargs.get("shell", False) is False
+            return SimpleNamespace(
+                returncode=len(calls) - 1, stdout=f"o{len(calls)}", stderr="e"
+            )
+
+        monkeypatch.setattr(updater.subprocess, "run", fake_run)
+        result = updater.run_commands([["a"], ["b"], ["c"]])
+        assert calls == [["a"], ["b"]] and result.returncode == 1
+        assert result.stdout == "o1\no2"
+
+    def test_no_commands_succeed(self):
+        assert updater.run_commands([]).returncode == 0

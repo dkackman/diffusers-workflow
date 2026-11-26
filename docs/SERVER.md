@@ -35,6 +35,58 @@ The body decodes to the same bytes. The web UI's `/assets/*` files carry
 content hashes and are cached as immutable for a year; `index.html` is
 `no-cache`, so a reload after an upgrade fetches the new build.
 
+## The service dw setup installs
+
+On an installed copy ([INSTALL.md](INSTALL.md)), `dw setup` runs the server as a
+per-user service that starts at login:
+`dw-serve --host 127.0.0.1 --port 8765 --mcp --managed`, from the venv of the
+`dw` that ran setup, in the install root as its working directory (so the
+workspace is never your home by accident: [WORKSPACES.md](WORKSPACES.md#an-installed-copy)).
+It binds loopback with no token, as a plain `dw-serve` does. With no
+`--examples-dir` it offers the example catalog the package carries. A re-run
+of `dw setup` rewrites the service and restarts it.
+
+| | macOS | Linux | Windows |
+| --- | --- | --- | --- |
+| Definition | launchd agent `~/Library/LaunchAgents/com.github.dkackman.dw-serve.plist` | systemd user unit `~/.config/systemd/user/dw-serve.service` | scheduled task `dw-serve`, at logon |
+| Restarts | always (`KeepAlive`) | always (`Restart=always`, after 5 s) | on a non-zero exit, 3 times a minute apart, per login |
+| Logs | `~/Library/Logs/diffusers-workflow/dw-serve.log`, `dw-serve.err.log` | `journalctl --user -u dw-serve` | none kept; run `dw-serve` by hand to see an error |
+| Restart | `launchctl kickstart -k gui/$(id -u)/com.github.dkackman.dw-serve` | `systemctl --user restart dw-serve` | `schtasks /End /TN dw-serve`, then `schtasks /Run /TN dw-serve` |
+| Stop | `launchctl bootout gui/$(id -u)/com.github.dkackman.dw-serve` | `systemctl --user stop dw-serve` | `schtasks /End /TN dw-serve` |
+| Start again | `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.github.dkackman.dw-serve.plist` | `systemctl --user start dw-serve` | `schtasks /Run /TN dw-serve` |
+
+On macOS a killed server comes straight back (`KeepAlive`); `bootout` is the way
+to stop it. It is started again at the next login either way.
+
+**Lingering on Linux.** A user unit stops at logout unless lingering is on for
+your user, which a headless box reached over ssh needs. Setup offers
+`sudo loginctl enable-linger <you>`; `dw setup --status` says whether the server
+stops at logout. `sudo loginctl disable-linger $USER` turns it off.
+
+`dw setup --uninstall` removes the service along with the registrations.
+
+### Update dw
+
+The Models page shows the installed dw version (`GET /api/system/dw`). On a
+server setup's service started (`--managed`), when PyPI has a newer release
+(checked at most every ten minutes), an **Update dw** button asks first, then
+(`POST /api/system/dw/update`) upgrades `diffusers-workflow[server,mcp]` in the
+server's venv with torch pinned to the installed build and the recorded torch
+index, moves diffusers to `main`, runs `dw setup --yes --no-open --no-service`
+to refresh the registrations (best effort: a failed refresh is logged and the
+restart still happens, since the new packages are installed), and exits with
+code 75 so the service manager
+restarts the server. The page reconnects when it is back.
+
+The update is refused (409) while a job is running or queued, while a model
+download is active, or while a diffusers update runs. If a job is queued after
+the packages are installed, the restart is withheld so the job is not killed,
+and the status says to restart `dw-serve` when it finishes.
+
+Any other server - a checkout, the `contrib/systemd` unit, a LaunchDaemon,
+Docker - has nobody to restart it, so the page shows the one-liner to run
+instead (the POST answers 409 with the same command).
+
 ## The HTTP API
 
 Everything the web UI and the MCP server do goes through one HTTP API, and a
@@ -502,6 +554,9 @@ them instead.
   release. Refused while a job is running or queued; on success the idle
   worker restarts so the next job imports the new version. Pinning a commit
   or reverting is the API's (`POST /api/system/diffusers/update`, below).
+  Without git (an installed copy) it installs the GitHub archive of `main`'s
+  commit. Beside it, the dw version, with **Update dw** on an installed copy
+  ([Update dw](#update-dw)).
 
   ![The model manager: each cached repo with its size, file count and last use](img/ui-models.png)
 
@@ -1549,6 +1604,11 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
   includes `before` (the version/commit that was installed when the update
   started) alongside the live `version`/`commit`, so a revert has a
   concrete before/after to compare
+- `GET /api/system/dw`, `POST /api/system/dw/update` — the installed dw
+  version, the newest release on PyPI (`latest`, `null` when it cannot be
+  read), whether this server is `managed`, the `command` that updates it by
+  hand, and the state of a running update; the POST starts one
+  ([Update dw](#update-dw))
 - `GET /api/memory`, `GET /api/health` — worker VRAM/RAM stats and liveness;
   memory answers `live` (whether `info` was measured by this call), `stale`,
   `reason` (`job_running`, `worker_stopped`, `worker_busy`,

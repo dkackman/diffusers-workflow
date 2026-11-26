@@ -257,6 +257,9 @@ class TestErrors:
 class TestTheRealDocs:
     """Over the repo's own docs/, so a renamed file or heading fails here."""
 
+    def test_install_is_a_served_guide(self):
+        assert guides.GUIDES["install"][0] == "INSTALL.md"
+
     def test_every_curated_guide_file_exists(self):
         for name in guides.GUIDES:
             assert guides.read_guide(name).strip()

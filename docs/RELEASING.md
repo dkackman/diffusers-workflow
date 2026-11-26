@@ -34,8 +34,9 @@ git push origin master v0.38.0
 `.github/workflows/ci.yml` runs on `v<semver>` tags:
 
 - **backend** and **ui**: the same checks as on every push.
-- **wheel** (after both): `scripts/build_dist.sh` builds the SPA, copies it into `dw/server/ui`, copies `docs/*.md` into `dw/docs` (the guides an installed server serves), and runs `python -m build`. It uploads `dist/*` as an artifact.
-- **release** (after wheel): fails unless the tag is `v` + semver and equals the `pyproject.toml` version, then creates a GitHub release named after the tag, with auto-generated notes and the wheel and sdist attached. A tag with a pre-release part (`v0.38.0-rc1`) is marked as a pre-release.
+- **wheel** (after both): `scripts/build_dist.sh` builds the SPA, copies it into `dw/server/ui`, copies `docs/*.md` into `dw/docs` (the guides an installed server serves), and runs `python -m build`. It uploads the wheel and sdist as an artifact. It then builds the MCP bundle, `dw-mcp-<version>.mcpb` (`python scripts/build_mcpb.py --out dist/`: `dw_mcp` alone with a `uv lock`, packed by the pinned `@anthropic-ai/mcpb`), smoke-tests it by unpacking it and running `uv run --frozen ... python -m dw_mcp --help`, and uploads it as a second artifact.
+- **release** (after wheel): fails unless the tag is `v` + semver and equals the `pyproject.toml` version, copies `dw/install_scripts/bootstrap.sh` and `bootstrap.ps1` beside the wheel, sdist and bundle, writes `SHA256SUMS` over all of them, and creates a GitHub release named after the tag, with auto-generated notes and every file attached. The README's one-liners fetch `releases/latest/download/bootstrap.sh` (or `.ps1`), so a published release is what new installs and the **Update dw** command run. A tag with a pre-release part (`v0.38.0-rc1`) is marked as a pre-release.
+- **mcp-registry** (after release): renders `server.json` from the bundle (`registryType: "mcpb"`, the release-asset URL, `fileSha256`), installs the pinned, checksum-verified `mcp-publisher`, logs in with `mcp-publisher login github-oidc` and publishes `io.github.dkackman/dw` to the [MCP Registry](https://registry.modelcontextprotocol.io). The registry is in preview, so the job is `continue-on-error`: a failed publish does not fail the release; re-run the job. The job runs only when the repository variable `MCP_REGISTRY_PUBLISH` is `true`, so nothing is listed until the bundle is known to work. One-time setup: confirm that Claude Desktop installs and runs the release's `dw-mcp-<version>.mcpb` (double-click it), then set the variable (Settings > Secrets and variables > Actions > Variables, or `gh variable set MCP_REGISTRY_PUBLISH --body true`). Nothing else is stored: the `io.github.dkackman` namespace comes from the GitHub OIDC login of a workflow in a `dkackman` repository, and the job's `id-token: write` permission is all it needs. To move `mcp-publisher` or `mcpb`, change the pinned tag and sha256 in `ci.yml` or `MCPB_PACKAGE` in `scripts/build_mcpb.py`.
 - **pypi** (after release): publishes the same artifacts to PyPI by [trusted publishing](https://docs.pypi.org/trusted-publishers/) (OIDC; no token is stored). One-time setup on pypi.org under *Publishing*: a trusted publisher for project `diffusers-workflow`, owner `dkackman`, repository `diffusers-workflow`, workflow `ci.yml`, environment `pypi` (a pending publisher before the first release). A pre-release needs `pip install --pre`.
 - **docker** (after release): builds `docker/Dockerfile`, starts the image on the CPU runner and waits for `/api/health`, then pushes `dkackman/diffusers-workflow:<version>` to Docker Hub. A release also moves `latest`; a pre-release does not. One-time setup: the public Docker Hub repository `dkackman/diffusers-workflow`, a read/write access token, and a GitHub environment `dockerhub` holding it as secret `DOCKERHUB_TOKEN`. A failed push leaves the GitHub release and PyPI as they are; re-run the job.
 
@@ -48,6 +49,37 @@ A PyPI install gets released `diffusers`, which may lag the newest pipelines; in
 ## Unreleased
 
 GitHub generates notes from commits at tag time. The sections below are the hand-written notes: the newest is drafted at release prep and pasted into the GitHub release body once the tag has published (`gh release edit v<version> --notes-file ...`). Items a branch's author wants the next note to name go in a new section at the top.
+
+### 0.23.0
+
+<!-- Branch notes (feat/installer). Fold into the release-prep draft for 0.23.0. -->
+
+**One-line install** (docs/INSTALL.md)
+
+- `curl -LsSf https://github.com/dkackman/diffusers-workflow/releases/latest/download/bootstrap.sh | bash`
+  on macOS and Linux, and the `bootstrap.ps1` line on Windows, install uv, a
+  Python 3.12 venv, the right torch build, dw from PyPI and diffusers `main`
+  (from a GitHub archive, so no git), then run `dw setup`. Re-running the line
+  upgrades dw and keeps the torch build chosen the first time. The scripts and
+  their `SHA256SUMS` are attached to every release.
+- `dw setup` starts `dw-serve` at login as a per-user service (launchd,
+  systemd with an offer to enable lingering, or Task Scheduler), registers dw
+  with Claude Desktop, and installs the `dw` plugin and the `dw-notes` channel
+  in Claude Code. It merges every config change, backs the file up first and
+  removes only what its manifest records. `--status --json` is a contract a
+  wrapper can poll; `--uninstall` undoes it.
+- `dw agent` starts Claude Code with the notes channel loaded.
+- **The plugin carries the `dw` tool server.** One plugin install gives Claude
+  Code and Cowork both the skills and the tools. A machine with the plugin that
+  never ran `dw setup` (a checkout, or a laptop using a remote GPU box) sees
+  that server fail to start: run `venv/bin/dw setup --no-service --no-desktop`
+  from a checkout, or keep a hand-added `dw` registration, which setup reports
+  as a duplicate.
+- **Update dw** on the Models page upgrades an installed copy and restarts it;
+  any other server shows the one-liner instead.
+- Each release carries `dw-mcp-<version>.mcpb` for Claude Desktop, and lists it
+  in the MCP Registry as `io.github.dkackman/dw` once `MCP_REGISTRY_PUBLISH` is
+  set (after the Desktop check).
 
 ### 0.22.0
 

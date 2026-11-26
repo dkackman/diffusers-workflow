@@ -4487,6 +4487,118 @@ class TestDiffusersUpdate:
         assert calls == [{"commit": None, "revert": True}]
 
 
+class TestDwUpdate:
+    """The Update dw routes: managed servers update themselves, an unmanaged
+    one is told the install command. The exit is injected, so nothing stops."""
+
+    @pytest.fixture(autouse=True)
+    def offline(self, monkeypatch):
+        # No route test reaches pypi.org
+        monkeypatch.setattr("dw.server.routes.system.latest_version", lambda: "9.9.9")
+
+    def make_client(self, tmp_path, managed, busy=False, run_fn=lambda: None):
+        from dw.server.self_update import DwUpdater
+
+        manager = JobManager(
+            str(tmp_path / "outputs"),
+            worker_manager=ScriptedWorkerManager(success_script),
+            history_path=str(tmp_path / "jobs.sqlite"),
+        )
+        manager.is_busy = lambda: busy
+        self.exit_codes = []
+        app = create_app(
+            workflow_dir=str(tmp_path),
+            output_dir=str(tmp_path / "outputs"),
+            job_manager=manager,
+            dw_updater=DwUpdater(
+                run_fn=run_fn, exit_fn=self.exit_codes.append, delay=0
+            ),
+            managed=managed,
+        )
+        return TestClient(app, base_url="http://localhost")
+
+    def test_state_reports_version_command_and_managed(self, tmp_path, monkeypatch):
+        with self.make_client(tmp_path, managed=True) as client:
+            state = client.get("/api/system/dw").json()
+        assert state["latest"] == "9.9.9" and state["managed"] is True
+        assert state["status"] == "idle" and "bootstrap" in state["command"]
+        assert state["version"]
+
+    def test_an_unmanaged_server_refuses_and_returns_the_command(self, tmp_path):
+        with self.make_client(tmp_path, managed=False) as client:
+            r = client.post("/api/system/dw/update")
+        assert r.status_code == 409
+        assert "bootstrap" in r.json()["detail"]
+        assert self.exit_codes == []
+
+    def test_a_queued_job_refuses_the_update(self, tmp_path):
+        with self.make_client(tmp_path, managed=True, busy=True) as client:
+            r = client.post("/api/system/dw/update")
+        assert r.status_code == 409
+        assert "running or queued" in r.json()["detail"]
+
+    def test_a_managed_update_runs_then_asks_for_a_restart(self, tmp_path):
+        with self.make_client(tmp_path, managed=True) as client:
+            r = client.post("/api/system/dw/update")
+            assert r.status_code == 202
+            deadline = time.time() + 5
+            while not self.exit_codes and time.time() < deadline:
+                time.sleep(0.02)
+            state = client.get("/api/system/dw").json()
+        assert self.exit_codes == [75]
+        assert state["status"] == "succeeded"
+
+    def test_a_job_submitted_during_the_update_is_refused(self, tmp_path):
+        import threading
+
+        gate = threading.Event()
+        with self.make_client(
+            tmp_path, managed=True, run_fn=lambda: gate.wait(5)
+        ) as client:
+            assert client.post("/api/system/dw/update").status_code == 202
+            r = client.post("/api/jobs", json={"workflow": valid_workflow()})
+            gate.set()
+        assert r.status_code == 409
+        assert "updating" in r.json()["detail"]
+
+    def test_the_restart_is_withheld_when_a_job_is_running(self, tmp_path):
+        with self.make_client(tmp_path, managed=True) as client:
+            app_busy = {"v": True}
+            client.app.state.dw_updater.is_busy = lambda: app_busy["v"]
+            assert client.post("/api/system/dw/update").status_code == 202
+            deadline = time.time() + 5
+            state = {}
+            while time.time() < deadline:
+                state = client.get("/api/system/dw").json()
+                if state["status"] != "running":
+                    break
+                time.sleep(0.02)
+        assert self.exit_codes == []
+        assert state["status"] == "failed"
+        assert state["error"] == "a job is running; restart dw-serve when it finishes"
+
+    def test_the_two_updaters_refuse_each_other(self, tmp_path):
+        import threading
+
+        gate = threading.Event()
+        with self.make_client(
+            tmp_path, managed=True, run_fn=lambda: gate.wait(5)
+        ) as client:
+            assert client.post("/api/system/dw/update").status_code == 202
+            r = client.post("/api/system/diffusers/update")
+            gate.set()
+        assert r.status_code == 409 and "dw update" in r.json()["detail"]
+
+        class Running:
+            def status(self):
+                return {"status": "running"}
+
+        with self.make_client(tmp_path, managed=True) as client:
+            client.app.state.updater = Running()
+            r = client.post("/api/system/dw/update")
+        assert r.status_code == 409 and "diffusers update" in r.json()["detail"]
+
+
 class TestPromptLibrary:
     """CRUD over the prompt directory, mirroring workflow browsing:
     subfolder round trips, schema validation before disk, confinement."""

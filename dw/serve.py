@@ -38,6 +38,8 @@ class ServeConfig:
     token: str | None
     # --devices as resolved: one worker per entry, None for the one default
     devices: list | None = None
+    # started by dw setup's service, which restarts it
+    managed: bool = False
 
 
 def build_parser():
@@ -148,6 +150,19 @@ def build_parser():
         "http://<host>:<port>/mcp --header 'Authorization: Bearer <token>'`). "
         "Refused on a non-loopback --host without a token.",
     )
+    parser.add_argument(
+        "--managed",
+        action="store_true",
+        default=False,
+        help="Started by dw setup's service; the service manager restarts it.",
+    )
+    parser.add_argument(
+        "--install-root",
+        default=None,
+        help="The install root this server's install record is read from "
+        "(sets DW_INSTALL_ROOT; dw setup's Windows task passes it, having no "
+        "environment of its own).",
+    )
     return parser
 
 
@@ -201,6 +216,24 @@ def configure_devices(args):
     return devices
 
 
+def packaged_examples_dir(package_dir=None):
+    """The example catalog an installed wheel carries, or None.
+
+    scripts/build_dist.sh copies the checkout's workflows/, prompts/ and
+    loras/ into dw/examples/ (as docker/Dockerfile copies them into
+    /opt/dw/examples/), so an installed server offers them read-only beside
+    the workspace's own when no --examples-dir is given. A checkout has its
+    own catalog and never uses a copy left behind by a build."""
+    from pathlib import Path
+
+    package = Path(package_dir or os.path.dirname(os.path.abspath(__file__)))
+    checkout = package.parent
+    if (checkout / "pyproject.toml").is_file() and (checkout / "workflows").is_dir():
+        return None
+    candidate = package / "examples" / "workflows"
+    return str(candidate) if candidate.is_dir() else None
+
+
 def configure_environment(args):
     """Resolve the directories and pin them in the environment.
 
@@ -219,6 +252,11 @@ def configure_environment(args):
     )
     from .workspace import resolve_workspace, set_workspace
 
+    if getattr(args, "install_root", None):
+        os.environ["DW_INSTALL_ROOT"] = os.path.abspath(args.install_root)
+    packaged = packaged_examples_dir() if args.examples_dirs is None else None
+    if packaged:
+        args.examples_dirs = [packaged]
     workspace = set_workspace(resolve_workspace(args.workspace))
     workflow_dir = args.workflow_dir or workspace.workflows
     output_dir = args.output_dir or workspace.outputs
@@ -303,6 +341,7 @@ def configure_environment(args):
         asset_dir=asset_dir,
         token=token,
         devices=devices,
+        managed=args.managed,
     )
 
 
@@ -366,6 +405,7 @@ def run(config):
         mcp=config.mcp,
         port=config.port,
         devices=config.devices,
+        managed=config.managed,
     )
     ui = " - UI at /" if default_ui_dir() else ""
     mcp = " - MCP at /mcp" if config.mcp else ""
@@ -376,21 +416,31 @@ def run(config):
         # would otherwise hold this line back until shutdown
         flush=True,
     )
-    uvicorn.run(
-        app,
-        host=config.host,
-        port=config.port,
-        log_level=config.log_level.lower(),
-        # a streamable-HTTP MCP client left connected otherwise holds SIGTERM
-        # off indefinitely (#477); a few seconds still lets lifespan cleanup run
-        timeout_graceful_shutdown=5,
-    )
+    from .server.self_update import restart_requested
+
+    try:
+        uvicorn.run(
+            app,
+            host=config.host,
+            port=config.port,
+            log_level=config.log_level.lower(),
+            # a streamable-HTTP MCP client left connected otherwise holds SIGTERM
+            # off indefinitely (#477); a few seconds still lets lifespan cleanup run
+            timeout_graceful_shutdown=5,
+        )
+    except KeyboardInterrupt:
+        # uvicorn re-raises the SIGINT that stopped it once its shutdown has
+        # run. An update asked for that stop; Ctrl-C did not.
+        if restart_requested() is None:
+            raise
+    # The update's exit code, so the service manager restarts the server
+    return restart_requested()
 
 
 def main():
     args = build_parser().parse_args()
-    run(configure_environment(args))
+    return run(configure_environment(args))
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
