@@ -419,3 +419,12 @@ def test_an_update_restart_exits_with_75(serve, monkeypatch):
 def test_ctrl_c_without_a_restart_request_still_interrupts(serve, monkeypatch):
     with pytest.raises(KeyboardInterrupt):
         _run_with_uvicorn_interrupted(serve, monkeypatch, None)
+
+
+def test_an_install_root_flag_with_traversal_exits_2(serve, monkeypatch, capsys):
+    monkeypatch.setenv("DW_INSTALL_ROOT", "unset")
+    with pytest.raises(SystemExit) as exit_info:
+        serve("--install-root", "/x/../y")
+    assert exit_info.value.code == 2
+    assert "--install-root refused" in capsys.readouterr().err
+    assert os.environ["DW_INSTALL_ROOT"] == "unset"

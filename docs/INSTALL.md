@@ -163,6 +163,10 @@ prints why, the rest still run, and setup exits 1.
 | `--uninstall` | Remove what setup added |
 | `--port N` | The port setup checks for a running server, reports and opens (default 8765). It changes nothing else: the service always listens on 8765 and the registrations are not port-specific |
 
+`--status` and `--uninstall` exclude each other, and `--json` needs
+`--status`: either mistake exits with code 2 and a usage message, changing
+nothing.
+
 `--port` exists for a server you run yourself on another port: `dw setup
 --no-service --port 8800` finds it there and opens its web UI. The Claude
 registrations still reach the server by the plugin and `dw-mcp` defaults

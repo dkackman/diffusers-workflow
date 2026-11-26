@@ -366,10 +366,28 @@ def service_status(runner: Runner, platform: str = sys.platform) -> dict:
         except SetupError:
             stops = None
         return {"installed": installed, "running": running, "stops_at_logout": stops}
-    result = runner(["schtasks", "/Query", "/TN", name, "/FO", "LIST", "/V"])
-    installed = result.returncode == 0
-    running = installed and "Running" in (result.stdout or "")
-    return {"installed": installed, "running": running, "stops_at_logout": True}
+    installed = runner(["schtasks", "/Query", "/TN", name]).returncode == 0
+    return {
+        "installed": installed,
+        "running": installed and _task_running(runner, name),
+        "stops_at_logout": True,
+    }
+
+
+def _task_running(runner: Runner, name: str) -> bool:
+    """Whether the scheduled task is running, read from `Get-ScheduledTask`'s
+    `State`: an enum name, the same in every locale, where schtasks' own
+    status text is translated."""
+    result = runner(
+        [
+            "powershell",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            f"(Get-ScheduledTask -TaskName '{name}').State",
+        ]
+    )
+    return result.returncode == 0 and (result.stdout or "").strip() == "Running"
 
 
 def restart_service(runner: Runner, platform: str = sys.platform) -> None:

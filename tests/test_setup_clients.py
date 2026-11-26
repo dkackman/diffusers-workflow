@@ -45,6 +45,10 @@ class FakeRunner:
         )
 
 
+def _servers(runner):
+    return setup_clients._mcp_servers(runner)
+
+
 PLUGINS = "Installed plugins:\n\n  ❯ dw@diffusers-workflow\n    Version: 1\n"
 MARKETS = (
     "Configured marketplaces:\n\n  ❯ diffusers-workflow\n"
@@ -381,14 +385,17 @@ def test_a_hand_added_dw_mcp_is_a_duplicate():
         "dw-notes: /x/venv/bin/dw-mcp --notes-channel - ✔ Connected\n"
         "other: npx foo - ✔ Connected\n"
     )
-    assert setup_clients.code_duplicates(FakeRunner({"claude mcp list": listing})) == [
-        "dw"
-    ]
+    assert setup_clients.code_duplicates(
+        _servers(FakeRunner({"claude mcp list": listing}))
+    ) == ["dw"]
 
 
 def test_unparseable_listing_means_no_duplicates():
-    assert setup_clients.code_duplicates(FakeRunner({"claude mcp list": "???"})) == []
-    assert setup_clients.code_duplicates(FakeRunner(fail=("claude",))) == []
+    assert (
+        setup_clients.code_duplicates(_servers(FakeRunner({"claude mcp list": "???"})))
+        == []
+    )
+    assert setup_clients.code_duplicates(_servers(FakeRunner(fail=("claude",)))) == []
 
 
 def test_desktop_plugin_steps_name_the_marketplace():
@@ -448,7 +455,7 @@ def test_real_listings_parse():
 
 def test_a_real_http_dw_server_is_a_duplicate():
     runner = FakeRunner({"claude mcp list": REAL_MCP})
-    assert setup_clients.code_duplicates(runner) == ["dw"]
+    assert setup_clients.code_duplicates(_servers(runner)) == ["dw"]
 
 
 def test_real_listings_skip_present_marketplace_and_plugin(
@@ -593,3 +600,82 @@ def test_uninstall_forgets_what_the_person_already_removed(manifest):
 
     message = setup_clients.unregister_code(manifest, runner)
     assert "already removed" in message and manifest.entries() == []
+
+
+def test_a_store_dir_without_a_config_is_where_the_config_goes(tmp_path):
+    store = (
+        tmp_path / "Local" / "Packages" / "Claude_abc" / "LocalCache" / "Roaming"
+    ) / "Claude"
+    store.mkdir(parents=True)
+    assert setup_clients.desktop_config_path("win32") == (
+        store / "claude_desktop_config.json"
+    )
+
+
+def test_with_no_claude_dir_the_config_goes_under_appdata(tmp_path):
+    assert setup_clients.desktop_config_path("win32") == (
+        tmp_path / "Roaming" / "Claude" / "claude_desktop_config.json"
+    )
+
+
+def _done(stdout):
+    return subprocess.CompletedProcess([], 0, stdout=stdout)
+
+
+def test_a_listing_naming_no_is_not_read_as_empty():
+    assert (
+        setup_clients._listed(_done("Installed plugins:\n  * no-op@m weird\n")) is None
+    )
+
+
+def test_the_empty_phrase_counts_only_in_the_first_section():
+    listing = (
+        "Installed plugins:\n  * dw@x odd\n\nFrom claude.ai:\n  No plugins installed\n"
+    )
+    assert setup_clients._listed(_done(listing)) is None
+    assert (
+        setup_clients._listed(_done("Installed plugins:\n\n  No plugins installed\n"))
+        == set()
+    )
+    assert setup_clients._listed(_done("")) == set()
+
+
+def test_names_after_the_first_section_are_not_listed():
+    assert setup_clients._listed(_done(REAL_MARKETS)) == {"diffusers-workflow"}
+
+
+def test_an_unparseable_listing_never_removes_during_register(
+    tmp_path, monkeypatch, manifest
+):
+    _fake_python(tmp_path, monkeypatch)
+    manifest.record("code-marketplace", "diffusers-workflow", {"wanted": "x@v0.1.0"})
+    runner = FakeRunner(
+        {
+            "claude plugin list": "???",
+            "claude plugin marketplace list": "???",
+            "claude mcp list": "???",
+        }
+    )
+    setup_clients.register_code(manifest, runner, "0.23.0")
+    assert not any("remove" in c or "uninstall" in c for c in runner.calls)
+    assert ["claude", "plugin", "install", "dw@diffusers-workflow"] in runner.calls
+
+
+def test_register_code_reads_no_mcp_listing_when_given_one(
+    tmp_path, monkeypatch, manifest
+):
+    _fake_python(tmp_path, monkeypatch)
+    runner = FakeRunner()
+    setup_clients.register_code(manifest, runner, "0.23.0", {"dw-notes": "x"})
+    assert ["claude", "mcp", "list"] not in runner.calls
+    assert not manifest.has("code-mcp", "dw-notes")
+
+
+def test_a_dw_mcp_under_a_path_with_spaces_is_a_duplicate():
+    servers = {
+        "dwx": "/Users/A B/venv/bin/dw-mcp",
+        "dwy": "C:\\Program Files\\dw\\dw-mcp.exe --flag",
+        "notes": "C:\\Program Files\\dw\\dw-mcp.exe --notes-channel",
+        "other": "/Users/A B/bin/not-dw-mcp serve",
+    }
+    assert setup_clients.code_duplicates(servers) == ["dwx", "dwy"]

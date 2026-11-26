@@ -19,6 +19,7 @@ import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
+from dw.security import SecurityError, validate_path
 from dw.settings import get_settings_dir
 
 _APP = "diffusers-workflow"
@@ -38,10 +39,16 @@ class SetupError(Exception):
 
 
 def install_root() -> Path:
-    """Where dw is installed: `DW_INSTALL_ROOT`, else the per-OS user data directory."""
+    """Where dw is installed: `DW_INSTALL_ROOT`, else the per-OS user data directory.
+
+    The override goes through `validate_path()` with no base (the root is the
+    user's choice): normalized, and refused with a SetupError on traversal."""
     override = os.environ.get("DW_INSTALL_ROOT")
     if override:
-        return Path(override)
+        try:
+            return Path(validate_path(override))
+        except SecurityError as e:
+            raise SetupError(f"DW_INSTALL_ROOT {override!r} refused: {e}") from e
     if sys.platform == "win32":
         base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
         return Path(base) / _APP
