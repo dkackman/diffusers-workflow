@@ -11,6 +11,7 @@ imports `dw.plan` back.
 """
 
 import json
+import logging
 import math
 
 from . import references
@@ -33,6 +34,8 @@ from .cost_scaling import (
 )
 from .presets import effective_variables
 from .realize import read_sub_workflow
+
+logger = logging.getLogger("dw")
 
 
 # An observed block's median of its cold runs' summed per-entry `num_frames`:
@@ -614,3 +617,37 @@ def first_at_shape_term(entry, definition, variables, seen):
         f"hasn't run ({named})"
     )
     return term, clause
+
+
+def with_first_at_shape(result, definition, arguments, device, seen_shapes):
+    """`result` (the floored estimate, `dw/plan.py` `_checked_estimate`) plus
+    the first pass at each shape this card has not run (`first_at_shape`,
+    #1615): added once, after the floor, so the floor cannot swallow it and
+    neither of `estimate`'s exits (observed or curated) adds it twice. It
+    moves `minutes` and names itself in `scaled`; `warm_minutes` and
+    `cached_minutes` keep their figures - a run kept warm or served by the
+    cache has, by construction, run its shape - and `basis` and
+    `low_confidence` are unchanged. `seen_shapes` None (no history to judge
+    by), or a row without the key, adds nothing and the callable is never
+    called."""
+    if seen_shapes is None or result.get("minutes") is None:
+        return result
+    entry = _choose_entry(definition.get("cost"), device)[0]
+    declared = first_at_shape(entry)
+    if declared is None:
+        return result
+    try:
+        seen = seen_shapes(declared[1])
+        term, clause = first_at_shape_term(
+            entry, definition, effective_variables(definition, arguments), seen
+        )
+    except Exception:
+        logger.warning("No first-pass-at-shape term", exc_info=True)
+        return result
+    if not term:
+        return result
+    return {
+        **result,
+        "minutes": round(result["minutes"] + term, 1),
+        "scaled": "; ".join(part for part in (result.get("scaled"), clause) if part),
+    }
