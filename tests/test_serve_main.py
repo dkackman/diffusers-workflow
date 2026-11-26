@@ -389,3 +389,33 @@ def test_build_dist_copies_the_tracked_catalog_into_the_package(tmp_path):
     assert "examples/**" in package_data["dw"]
     assert "recursive-include dw/examples *" in (repo / "MANIFEST.in").read_text()
     assert "dw/examples/" in (repo / ".gitignore").read_text().splitlines()
+
+
+def _run_with_uvicorn_interrupted(serve, monkeypatch, restart_code):
+    """dw.serve.main when uvicorn.run ends in the KeyboardInterrupt that a
+    SIGINT leaves behind, with a restart asked for (or not)."""
+    import uvicorn
+
+    import dw.serve as serve_module
+    from dw.server import self_update
+
+    serve()  # the fixture's stubs and environment are in place
+
+    def interrupted(app, **kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(uvicorn, "run", interrupted)
+    monkeypatch.setitem(self_update._restart, "code", restart_code)
+    return serve_module.main()
+
+
+def test_an_update_restart_exits_with_75(serve, monkeypatch):
+    from dw.server.self_update import RESTART_EXIT_CODE
+
+    code = _run_with_uvicorn_interrupted(serve, monkeypatch, RESTART_EXIT_CODE)
+    assert code == 75
+
+
+def test_ctrl_c_without_a_restart_request_still_interrupts(serve, monkeypatch):
+    with pytest.raises(KeyboardInterrupt):
+        _run_with_uvicorn_interrupted(serve, monkeypatch, None)
