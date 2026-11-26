@@ -19,7 +19,7 @@ from collections.abc import Callable
 from pathlib import Path
 from xml.sax.saxutils import escape
 
-from dw.security import sanitize_command_args
+from dw.security import InvalidInputError, sanitize_command_args
 from dw.setup_state import (
     Manifest,
     SetupError,
@@ -36,7 +36,8 @@ _TIMEOUT = 120
 
 
 def default_runner(args: list[str]) -> subprocess.CompletedProcess:
-    """Run `args` without a shell, capturing output; a missing program is a SetupError.
+    """Run `args` without a shell, capturing output; a missing program, or an
+    argument `sanitize_command_args()` refuses, is a SetupError.
 
     `claude` is run by its full path (`claude_executable`), so it is found off
     PATH too and npm's `claude.cmd` runs on Windows.
@@ -44,8 +45,12 @@ def default_runner(args: list[str]) -> subprocess.CompletedProcess:
     if args and args[0] == "claude":
         args = [claude_executable() or "claude", *args[1:]]
     try:
+        safe = sanitize_command_args(args)
+    except InvalidInputError as e:  # a home or user path holding `$`, `&`, ...
+        raise SetupError(f"refused to run {args[0]}: {e}") from e
+    try:
         return subprocess.run(
-            sanitize_command_args(args),
+            safe,
             capture_output=True,
             text=True,
             check=False,

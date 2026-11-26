@@ -282,9 +282,7 @@ def test_the_default_runner_sanitizes_and_uses_no_shell(monkeypatch):
     monkeypatch.setattr(subprocess, "run", fake_run)
     setup_service.default_runner(["echo", "hi"])
     assert seen["kwargs"].get("shell", False) is False
-    from dw.security import InvalidInputError
-
-    with pytest.raises(InvalidInputError):
+    with pytest.raises(SetupError, match="dangerous characters"):
         setup_service.default_runner(["echo", "a;b"])
 
 
