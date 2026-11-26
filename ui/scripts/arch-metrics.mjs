@@ -32,8 +32,10 @@
 //   initializer.
 // - empty_outside_loadstate: imports of `*/Empty.svelte` anywhere but
 //   LOAD_STATE; a page states an empty list through LoadState.
-// - unwatched_reads: in a .svelte file, `api.<read>(...)` calls with no
-//   `resource(` or `poll(` call around them. A read is `get*`, `list*` or a
+// - unwatched_reads: in a .svelte file or a .svelte.ts store,
+//   `api.<read>(...)` calls with no `resource(` or `poll(` call around them,
+//   less a store's STORE_EXCEPTIONS. In a store `this.api` and `this.#api`
+//   count as `api`. A read is `get*`, `list*` or a
 //   name in READ_ALIASES. Every other `api` key is in NOT_READS, and
 //   arch-metrics.test.ts fails, naming the key, when one is in neither list
 //   or in both - so a new method cannot dodge this count unclassified.
@@ -41,7 +43,6 @@
 // - `resource` and `poll` are matched by callee name.
 // - `api` is matched by identifier name, so an alias or destructuring is
 //   invisible.
-// - `.svelte.ts` stores are not measured for reads.
 // - a read made through a plain `.ts` helper is not counted here.
 //   src/lib/freshness.test.ts sees one import level: a .svelte file that
 //   imports a src/lib .ts module calling an `api` read must have a
@@ -52,7 +53,9 @@
 // - window_dialogs: calls to `confirm`, `prompt` or `alert`, bare or on
 //   `window`, `globalThis` or `self` (`window.confirm`, `self['alert']`) -
 //   a dialog is `confirmDialog`/`chooseDialog` (src/lib/confirm.svelte.ts).
-// - unguarded_mutations: in a .svelte file, an `api.<write>` call (WRITES),
+// - unguarded_mutations: in a .svelte.ts store, an `api.<write>` call or
+//   value (WRITES) inside no `action(` call's arguments, less its
+//   STORE_EXCEPTIONS; and in a .svelte file, an `api.<write>` call (WRITES),
 //   an `api.<write>` handed on as a value, or a use of an imported plain .ts
 //   function whose code calls one, lexically inside no `action(` call's
 //   arguments and inside no guarded function declaration. `action` is the
@@ -94,9 +97,10 @@
 //   a `url(`). Detail: `file:line form`, sorted.
 // Known limits of those four rules:
 // - a write two or more imports away (a .ts helper that writes through
-//   another module) is not counted, nor a write through a `.svelte.ts`
-//   store (enhancer, planStore, runQueue): their exports are classes and
-//   factories whose methods write, so a use is not a write.
+//   another module) is not counted. A use of a `.svelte.ts` store is not a
+//   write either (their exports are classes and factories whose methods
+//   write); the write is counted, or excepted, in the store.
+// - a store's `api` handed to it under another name than `api` is invisible.
 // - only `function` declarations can be guarded helpers; a write inside an
 //   arrow helper (`const f = () => api.x()`) counts even when an action
 //   names it. Make it a `function` declaration that only an action names,
@@ -499,6 +503,170 @@ function isActionCall(node, sourceCode) {
     importedName(def.node) === 'action' &&
     ACTION_MODULE.test(def.parent.source.value)
   )
+}
+
+/** The reads and writes a `.svelte.ts` store makes outside `resource(`,
+ * `poll(` and `action(`, each with why that is right. Keyed
+ * `<file> <declaration> <api name>` - the outermost function, method or
+ * top-level const holding it - so another one in the same file is counted.
+ * arch-metrics.test.ts fails on an entry nothing matches any more. */
+export const STORE_EXCEPTIONS = {
+  reads: {
+    'src/lib/assetlib.svelte.ts assets listAssets':
+      'read-once picker cache (lazyListing): per workspace, reloaded after an upload; nothing watches it',
+    'src/lib/outputlib.svelte.ts outputs gallery':
+      'read-once picker cache (lazyListing): per workspace, reloaded when MediaPicker opens on it again; nothing watches it',
+    'src/lib/promptlib.svelte.ts loadPromptLibrary listPrompts':
+      'read when a page that offers prompts loads; nothing watches it',
+    'src/lib/editorLists.svelte.ts loadEditorLists listPipelines':
+      'class and task names of the installed engine, read when the editor loads',
+    'src/lib/editorLists.svelte.ts loadEditorLists listClasses':
+      'class and task names of the installed engine, read when the editor loads',
+    'src/lib/editorLists.svelte.ts loadEditorLists listTasks':
+      'class and task names of the installed engine, read when the editor loads',
+    'src/lib/editorLists.svelte.ts loadEditorLists listBuiltinWorkflows':
+      'packaged fragments of the installed engine, read when the editor loads',
+    'src/lib/changes.svelte.ts ChangeFeed.refresh workspaceChanges':
+      'the change feed resource() subscribes to; refresh() runs under its own poll()',
+    'src/lib/enhancer.svelte.ts Enhancer.load listEnhancers':
+      'presets of the installed engine, read when the enhance panel opens',
+    'src/lib/enhancer.svelte.ts Enhancer.refreshModels listModels':
+      'the cached-model chip: read when the panel opens and after a download',
+    'src/lib/enhancer.svelte.ts Enhancer.downloadModel listDownloads':
+      'the loop following a download this panel started, until it ends or stop()',
+    'src/lib/enhancer.svelte.ts Enhancer.#follow getJob':
+      'read only when the job event stream drops, to tell whether the job ended',
+    'src/lib/enhancer.svelte.ts Enhancer.#finish getJob':
+      'the one read of a finished job, for its result',
+    'src/lib/request/linkedRequest.svelte.ts LinkedRequest.read getRequest':
+      'read when the job page or gallery box opens a link; its note box then rereads it in a poll() and after each change',
+    'src/lib/request/listening.svelte.ts NotesChannel.refresh notesChannel':
+      'run by the poll() in hold() while a note list is on screen, and before a save',
+    'src/lib/request/planStore.svelte.ts requestRoutes getRequest':
+      "PlanStore's get: RequestPage's resource loads through PlanStore.refresh",
+    'src/lib/workspace.svelte.ts readListing listWorkspaces':
+      'behind loadWorkspaces(), which Sidebar and Overview run in a resource watching `workspaces`',
+  },
+  writes: {
+    'src/lib/enhancer.svelte.ts Enhancer.downloadModel startDownload':
+      'the Download button gives way to a "downloading" chip as soon as it is pressed',
+    'src/lib/enhancer.svelte.ts Enhancer.generate enhance':
+      'Generate is disabled while `busy`, set before the call; a failure is shown in the panel',
+    'src/lib/enhancer.svelte.ts Enhancer.cancel cancelJob':
+      'cancelling twice is harmless, and a refusal means the job had already ended',
+    'src/lib/request/planStore.svelte.ts requestRoutes putRequest':
+      "PlanStore's put: one write at a time from its queue, each failure shown to the page",
+    'src/lib/request/runQueue.svelte.ts RunQueue.#send submitJob':
+      'RunQueue sends nothing while `busy`, set before the first call; each row shows its failure',
+  },
+}
+
+/** The `api` key `node` reaches in a store: `api.x`, or `x` on the `api` a
+ * class holds (`this.api.x`, `this.#api.x`) */
+function storeApiName(node) {
+  if (node.type !== 'MemberExpression' || node.computed) return null
+  const on = node.object
+  const held =
+    (on.type === 'Identifier' && on.name === 'api') ||
+    (on.type === 'MemberExpression' &&
+      on.object.type === 'ThisExpression' &&
+      on.property.name === 'api')
+  return held ? node.property.name : null
+}
+
+/** The outermost named declaration holding `node`: `fn`, `Class.method` or
+ * a top-level const */
+function declarationOf(node, sourceCode) {
+  let cls = ''
+  for (const a of sourceCode.getAncestors(node)) {
+    if (a.type === 'ClassDeclaration') cls = `${a.id.name}.`
+    if (a.type === 'MethodDefinition' || a.type === 'PropertyDefinition') {
+      const hash = a.key.type === 'PrivateIdentifier' ? '#' : ''
+      return `${cls}${hash}${a.key.name}`
+    }
+    if (a.type === 'FunctionDeclaration' || a.type === 'VariableDeclarator')
+      return a.id.name
+  }
+  return '(module)'
+}
+
+/** A store's site: its exception key, and the detail line it counts as */
+function storeSite(node, name, context) {
+  const file = relative(UI, context.filename).replaceAll('\\', '/')
+  return {
+    key: `${file} ${declarationOf(node, context.sourceCode)} ${name}`,
+    site: `${file}:${node.loc.start.line} ${name}`,
+  }
+}
+
+const isStore = (file) => file.endsWith('.svelte.ts')
+
+/** Every `api` read in a .svelte file with no `resource(` or `poll(` around
+ * it goes into `found`; a store's into `stores`, for its exceptions */
+function readsRule(found, stores) {
+  return {
+    create(context) {
+      const store = isStore(context.filename)
+      if (!store && !context.filename.endsWith('.svelte')) return {}
+      return {
+        CallExpression(node) {
+          const callee = node.callee
+          const name = store
+            ? storeApiName(callee)
+            : isMember(callee, 'api', null) && callee.property.name
+          if (!name || !isRead(name)) return
+          const watched = context.sourceCode
+            .getAncestors(node)
+            .some(
+              (a) =>
+                a.type === 'CallExpression' &&
+                a.callee.type === 'Identifier' &&
+                (a.callee.name === 'resource' || a.callee.name === 'poll'),
+            )
+          if (watched) return
+          if (store) stores.push(storeSite(node, name, context))
+          else found.push(relative(UI, context.filename))
+        },
+      }
+    },
+  }
+}
+
+/** Every `api` write a store calls or hands on that no `action(` call's
+ * arguments hold, into `stores` */
+function storeWritesRule(stores) {
+  return {
+    create(context) {
+      if (!isStore(context.filename)) return {}
+      const writes = []
+      const actionRanges = []
+      return {
+        CallExpression(node) {
+          if (isActionCall(node, context.sourceCode))
+            for (const a of node.arguments) actionRanges.push(a.range)
+        },
+        MemberExpression(node) {
+          const name = storeApiName(node)
+          if (WRITES.includes(name)) writes.push({ node, name })
+        },
+        'Program:exit'() {
+          for (const { node, name } of writes)
+            if (!actionRanges.some((r) => within(node.range, r)))
+              stores.push(storeSite(node, name, context))
+        },
+      }
+    },
+  }
+}
+
+/** The store sites `exceptions` does not cover go into `found`; returns the
+ * keys that matched */
+function applyExceptions(sites, exceptions, found) {
+  const used = new Set()
+  for (const { key, site } of sites)
+    if (Object.hasOwn(exceptions, key)) used.add(key)
+    else found.push(site)
+  return [...used].sort()
 }
 
 const isWrite = (node) =>
@@ -954,6 +1122,8 @@ export async function measure(
   const rawToasts = []
   const emptyImports = []
   const unwatched = []
+  const storeReads = []
+  const storeWrites = []
   const dialogs = []
   const unguarded = []
   const sites = {
@@ -1006,30 +1176,8 @@ export async function measure(
           }
         },
       },
-      reads: {
-        create(context) {
-          if (!context.filename.endsWith('.svelte')) return {}
-          return {
-            CallExpression(node) {
-              const callee = node.callee
-              if (
-                !isMember(callee, 'api', null) ||
-                !isRead(callee.property.name)
-              )
-                return
-              const watched = context.sourceCode
-                .getAncestors(node)
-                .some(
-                  (a) =>
-                    a.type === 'CallExpression' &&
-                    a.callee.type === 'Identifier' &&
-                    (a.callee.name === 'resource' || a.callee.name === 'poll'),
-                )
-              if (!watched) unwatched.push(relative(UI, context.filename))
-            },
-          }
-        },
-      },
+      reads: readsRule(unwatched, storeReads),
+      storeWrites: storeWritesRule(storeWrites),
       imports: {
         create(context) {
           const from = context.filename
@@ -1091,6 +1239,7 @@ export async function measure(
           'arch/reads': 'error',
           'arch/dialogs': 'error',
           'arch/mutations': 'error',
+          'arch/storeWrites': 'error',
           'arch/copy': 'error',
           'arch/media': 'error',
         },
@@ -1113,6 +1262,10 @@ export async function measure(
     )
 
   unguarded.push(...resolveSites(sites, known))
+  const excepted = {
+    reads: applyExceptions(storeReads, STORE_EXCEPTIONS.reads, unwatched),
+    writes: applyExceptions(storeWrites, STORE_EXCEPTIONS.writes, unguarded),
+  }
   unguarded.sort(byPlace)
 
   const graph = {}
@@ -1147,6 +1300,7 @@ export async function measure(
       raw_error_toasts: rawToasts,
       empty_outside_loadstate: emptyImports,
       unwatched_reads: unwatched,
+      store_exceptions: excepted,
       window_dialogs: dialogs,
       unguarded_mutations: unguarded,
       banned_terms: banned,

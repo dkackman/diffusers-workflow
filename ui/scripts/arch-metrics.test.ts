@@ -18,6 +18,7 @@ import {
   referencePrefixes,
   regressions,
   sourceFiles,
+  STORE_EXCEPTIONS,
 } from './arch-metrics.mjs'
 
 describe('cycles', () => {
@@ -95,6 +96,14 @@ describe('the real tree', () => {
     ])
     for (const value of Object.values(metrics))
       expect(Number.isInteger(value)).toBe(true)
+  }, 60_000)
+
+  it('has no store exception that nothing matches', async () => {
+    const { detail } = await measure()
+    expect(detail.store_exceptions).toEqual({
+      reads: Object.keys(STORE_EXCEPTIONS.reads).sort(),
+      writes: Object.keys(STORE_EXCEPTIONS.writes).sort(),
+    })
   }, 60_000)
 })
 
@@ -218,6 +227,30 @@ describe('the page-quality metrics', () => {
       'b.ts': `declare const api: any\napi.listJobs()\n`,
     })
     expect(m.unwatched_reads).toBe(2)
+  })
+
+  it("counts a store's reads and writes", async () => {
+    const m = await measured({
+      'a.svelte.ts': `import { action } from '../action.svelte'
+import { api } from '../api'
+export class Store {
+  #api = api
+  async load() {
+    await api.listJobs()
+    await this.#api.getJob('1')
+    poll(() => api.health(), 5000)
+    resource(() => api.listJobs(), { watch: [] })
+  }
+  async send() {
+    await this.#api.submitJob({})
+    await api.cancelJob('1')
+    action(() => api.cancelJob('1'))
+  }
+}
+`,
+    })
+    expect(m.unwatched_reads).toBe(2)
+    expect(m.unguarded_mutations).toBe(2)
   })
 })
 
