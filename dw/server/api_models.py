@@ -888,14 +888,20 @@ class PlanEstimate(ApiModel):
         "With basis `inherited`: what this workflow sets differently from "
         "`inherited_from` among offload, quantization, frame count, attention "
         "backend, cache, LoRA and reference count; empty "
-        "when nothing does. Otherwise: the cost drivers with no rule to scale "
+        "when nothing does. Priced from declared task rates (`scaled` starts "
+        "`task rates:`): the steps whose input length was not known, so were "
+        "priced at the longest input resolved or at the fixed seconds alone. "
+        "Otherwise: the cost drivers with no rule to scale "
         "by that moved off the default the figure was measured at, with "
         "`low_confidence` true."
     )
     scaled: str = sometimes(
         "With basis `derived` (or `other_device`, or a tempered `observed`): "
         "what the curated figure was scaled along - steps, canvas or frames "
-        "moved off the variable defaults it was measured at (#866). With basis "
+        "moved off the variable defaults it was measured at (#866) - or, for a "
+        "task-only workflow priced from its commands' declared rates, "
+        "`task rates: ` and each step's fixed seconds plus seconds per input "
+        "second over its input media's length (#1619). With basis "
         "`inherited`: why the template's minutes were re-priced "
         "linearly (more pipeline steps or frames than the template run measured) "
         "- an approximation, with `low_confidence` true."
@@ -907,7 +913,9 @@ class PlanEstimate(ApiModel):
     )
     unpriced_reason: str = sometimes(
         "With basis `unknown` and no `withheld`: why a task-only workflow has no "
-        "price - no pipeline to inherit one from; its length follows its input media."
+        "price - `no declared rate: ` and the commands with no declared task rate "
+        "to price it from (no pipeline to inherit one from, no cost block and no "
+        "run history of its own)."
     )
     per_segment: bool = sometimes(
         "True when an `observed` figure is a matched chain's, read per segment "

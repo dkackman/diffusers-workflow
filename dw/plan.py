@@ -55,6 +55,8 @@ from .plan_pricing import (
     _own_price,
     _read_child,
     _unresolved_list_note,
+    task_rate_price,
+    undeclared_task_commands,
     list_entries,
 )
 from .presets import effective_variables
@@ -764,6 +766,11 @@ def estimate(
     own = _own_price(
         definition, expanded, list_entries, device, measured_entries, base_dir
     )
+    if own["minutes"] is None and not definition.get("cost"):
+        # A task-only workflow with no cost block of its own is priced from
+        # its commands' declared rates, probed against its input media - the
+        # own slot only, so this box's history above still wins (#1619)
+        own = task_rate_price(expanded, base_dir) or own
     baseline = observed.get("baseline") if isinstance(observed, dict) else None
     if measured is not None and _entry_cost_field_shifted(definition, expanded):
         # The history's drivers match on the list's length, not on what each
@@ -837,6 +844,9 @@ def estimate(
         if note and child["minutes"] is not None:
             totals.differs.append(note)
     result = _rolled_up_estimate(own, totals, device, cached_steps, total_steps)
+    if own.get("task_rates") and result["minutes"] is not None:
+        # A declared rate is a bound, never a measurement (#1619)
+        result["low_confidence"] = True
     withheld = observed.get("withheld") if isinstance(observed, dict) else None
     if withheld and result["basis"] == UNKNOWN and result["minutes"] is None:
         # History exists but could not be re-priced for this workflow's size:
@@ -855,17 +865,16 @@ def _unpriced_reason(definition):
     is not a shape this can name (#948). #797 prices an inline workflow from
     the catalog template with the same pipeline identity, so a workflow of
     task steps alone has nothing to match and its cost is simply unmeasured -
-    which says nothing about whether the run is seconds or an hour."""
-    steps = [s for s in definition.get("steps") or [] if isinstance(s, dict)]
-    tasks = [s for s in steps if isinstance(s.get("task"), dict)]
-    if not tasks or len(tasks) != len(steps):
+    which says nothing about whether the run is seconds or an hour. One
+    whose every command declares a rate is priced from those (#1619), so
+    what is left unpriced names the commands that declare none."""
+    undeclared = undeclared_task_commands(definition)
+    if not undeclared:
         return None
-    commands = sorted({str(s["task"].get("command", "unknown")) for s in tasks})
     return (
-        "task-only workflow (" + ", ".join(commands) + "): no pipeline step "
-        "to inherit a price from a catalog template, no cost block and no "
-        "run history of its own. The run's length depends on its input "
-        "media, which nothing here measures"
+        "no declared rate: " + ", ".join(undeclared) + " - a task-only "
+        "workflow with no cost block and no run history of its own, and a "
+        "command with no declared task rate to price it from"
     )
 
 

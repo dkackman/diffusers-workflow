@@ -506,7 +506,10 @@ class TestTaskOnlyWorkflowSaysWhyUnpriced:
             plan = build_plan(candidate, {}, device="cpu", lookup_sizes=False)
         estimate = plan["estimate"]
         assert estimate["basis"] == "unknown" and estimate["minutes"] is None
-        assert "separate_stems" in estimate["unpriced_reason"]
+        # separate_stems runs a model, so it declares no task rate (#1619)
+        assert estimate["unpriced_reason"].startswith(
+            "no declared rate: separate_stems"
+        )
         assert "task-only" in estimate["unpriced_reason"]
 
     def test_a_pipeline_workflow_gets_no_task_only_reason(self, tmp_path):

@@ -11,6 +11,7 @@ imports `dw.plan` back.
 """
 
 import json
+import math
 
 from . import references
 from .cost_scaling import (
@@ -305,3 +306,167 @@ def _repriced(minutes, list_entries, measured_entries):
     if measured_with <= 0:
         return None, UNKNOWN
     return minutes * count / measured_with, DERIVED
+
+
+# The registrations' declared task rates (`register_command(cost=...)`,
+# dw/tasks/registry.py): {"fixed_seconds", "per_input_second"} per command
+def _task_rates():
+    from .tasks.registry import RegistryTable
+
+    return RegistryTable("cost")
+
+
+def _task_steps(definition):
+    """The steps when every one is a task step, else None - the shape
+    `observed_cost._is_task_only` reads, here over the steps alone."""
+    steps = (definition or {}).get("steps") or []
+    if not steps or not all(
+        isinstance(step, dict)
+        and isinstance(step.get("task"), dict)
+        and not any(
+            key in step for key in ("pipeline", "pipeline_reference", "workflow")
+        )
+        for step in steps
+    ):
+        return None
+    return steps
+
+
+def undeclared_task_commands(definition):
+    """The commands of a task-only workflow that declare no rate, sorted, or
+    None when the workflow is not task-only (#1619)."""
+    steps = _task_steps(definition)
+    if steps is None:
+        return None
+    rates = _task_rates()
+    return sorted(
+        {
+            str(step["task"].get("command", "unknown"))
+            for step in steps
+            if step["task"].get("command") not in rates
+        }
+    )
+
+
+def _is_media_argument(command, name):
+    from .locations import MEDIA_KEY_NAMES, MEDIA_KEY_SUFFIXES, TASK_MEDIA_ARGUMENTS
+
+    return (
+        name in MEDIA_KEY_NAMES
+        or name.endswith(MEDIA_KEY_SUFFIXES)
+        or name in TASK_MEDIA_ARGUMENTS.get(command, ())
+    )
+
+
+def _media_seconds(path, probes):
+    """A probed file's length in seconds, or None, memoised in `probes`."""
+    if path not in probes:
+        from .media import probe_metadata
+
+        try:
+            info = probe_metadata(path) or {}
+        except Exception:
+            info = {}
+        seconds = info.get("duration_seconds")
+        if not seconds and info.get("frame_count") and info.get("fps"):
+            seconds = info["frame_count"] / info["fps"]
+        probes[path] = float(seconds) if seconds else None
+    return probes[path]
+
+
+def _step_input_seconds(command, arguments, base_dir, probes):
+    """(seconds, deferred) for one task step's media inputs: the longest
+    argument's length, a list argument summed over its entries (a join's
+    `videos`), or None when none resolved. `deferred` is whether an input
+    is an earlier step's output, unknown until the run."""
+    from .probe_paths import resolve_probe_path
+
+    longest, deferred = None, False
+    for name, value in (arguments or {}).items():
+        if not isinstance(name, str) or not _is_media_argument(command, name):
+            continue
+        values = value if isinstance(value, list) else [value]
+        total, found = 0.0, False
+        for entry in values:
+            if isinstance(entry, str) and references.is_ref(
+                references.UNRESOLVED, entry
+            ):
+                deferred = True
+                continue
+            path = resolve_probe_path(entry, base_dir, f"{command} {name}")
+            seconds = _media_seconds(path, probes) if path else None
+            if seconds is not None:
+                total += seconds
+                found = True
+        if found and (longest is None or total > longest):
+            longest = total
+    return longest, deferred
+
+
+def _seconds_text(value):
+    return f"{value:g}"
+
+
+def task_rate_price(expanded, base_dir=None, probes=None):
+    """A task-only workflow priced from its commands' declared rates (#1619),
+    or None when it is not task-only or any command declares none.
+
+    Each step costs its command's `fixed_seconds` plus `per_input_second`
+    for every second of input media, probed at validate time. A step whose
+    input is an earlier step's output (`previous_result:`) takes the longest
+    length any step's inputs resolved to; one with no input that resolves is
+    priced at its fixed seconds alone. Either is named in `differs`. The
+    whole is an estimate - `derived` and always `low_confidence` - rounded
+    up to a tenth of a minute.
+    """
+    steps = _task_steps(expanded)
+    if steps is None:
+        return None
+    rates = _task_rates()
+    if any(step["task"].get("command") not in rates for step in steps):
+        return None
+    probes = {} if probes is None else probes
+    measured = []
+    for step in steps:
+        command = step["task"]["command"]
+        arguments = step["task"].get("arguments")
+        seconds, deferred = _step_input_seconds(
+            command, arguments if isinstance(arguments, dict) else {}, base_dir, probes
+        )
+        measured.append((step, command, seconds, deferred))
+    resolved = [seconds for _, _, seconds, _ in measured if seconds is not None]
+    longest = max(resolved) if resolved else None
+    total, parts, differs = 0.0, [], []
+    for index, (step, command, seconds, deferred) in enumerate(measured):
+        rate = rates[command]
+        fixed, per = rate["fixed_seconds"], rate["per_input_second"]
+        name = step.get("name") or f"step {index}"
+        if seconds is None and deferred and longest is not None:
+            seconds = longest
+            differs.append(
+                f"{name}: its input is an earlier step's output, so its length "
+                f"is unknown until the run; priced at the longest input "
+                f"resolved ({_seconds_text(round(longest, 1))} s)"
+            )
+        elif seconds is None:
+            differs.append(
+                f"{name}: no input media resolved to a length, so it is "
+                f"priced at {command}'s fixed {_seconds_text(fixed)} s alone"
+            )
+        total += fixed + per * (seconds or 0.0)
+        part = f"{command} {_seconds_text(fixed)} s"
+        if seconds is not None:
+            part += (
+                f" + {_seconds_text(per)} s/input-s over "
+                f"{_seconds_text(round(seconds, 1))} s"
+            )
+        parts.append(part)
+    minutes = math.ceil(round(total / 60.0 * 10, 6)) / 10.0
+    return {
+        "minutes": minutes,
+        "basis": DERIVED,
+        "measured_on": None,
+        "scaled": "task rates: " + "; ".join(parts),
+        "differs": differs,
+        "task_rates": True,
+    }
