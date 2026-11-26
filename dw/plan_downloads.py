@@ -440,14 +440,22 @@ def _task_weights(command, arguments):
     return [entry for entry in entries or [] if isinstance(entry, dict)]
 
 
-def missing_repo_errors(downloads_required):
+def missing_repo_errors(downloads_required, value_paths=()):
     """One validation error per required repo the hub says does not exist -
     a misspelled or renamed `model_name` the run would only find when it
     reached that step. A private repo this box's token cannot see gets the
-    same answer from the hub, and fails the run the same way."""
+    same answer from the hub, and fails the run the same way.
+
+    `value_paths` is the `(path, string)` pairs of what the caller wrote:
+    the error points at the first that names the repo. One written nowhere
+    there (a composed child's, a task's own weight) has no path to give and
+    keeps the bare `model_name`."""
+    written = {}
+    for path, value in value_paths:
+        written.setdefault(value, path)
     return [
         {
-            "path": "model_name",
+            "path": written.get(entry["repo"], "model_name"),
             "message": (
                 f"'{entry['repo']}' is not a model repo on Hugging Face (or is "
                 "private and this box's token cannot see it) - check the "

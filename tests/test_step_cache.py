@@ -932,7 +932,7 @@ TEMPLATE_PIPELINE_KEYS = {
         "main": "ccf1f3dcbc544e882885bddcc983995af6585d4d15231099fcdbe8b68cb59b06"
     },
     "qr-code.json": {
-        "main": "f52e468931a9e9d546696cb9fccc365e7347b47e07730470b7a3ac419722fce5"
+        "main": "29e6aa24618a4fa930946c49d30367670f652ab49fb7d653d77db74aecb19ad9"
     },
     "recenter-crop.json": {},
     "relevel-clip.json": {},

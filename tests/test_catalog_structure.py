@@ -1311,3 +1311,16 @@ def test_cost_drivers_show_the_default_preset_bundle_value(tmp_path):
     )
     found, _ = library_path("workflows", None, primary=str(tmp_path)).entries()
     assert workflow_details(found)["w"]["cost_drivers"] == {"steps": 40}
+
+
+def test_the_qr_code_template_pairs_one_family():
+    """#1757: its SD 2.1 base left the Hub. The base and the ControlNet are
+    chosen together - an SD 1.5 base cannot take an SD 2.1 ControlNet."""
+    definition = load(os.path.join("workflows", "templates", "qr-code.json"))
+    pipeline = definition["steps"][-1]["pipeline"]
+    assert pipeline["from_pretrained_arguments"]["model_name"] == (
+        "stable-diffusion-v1-5/stable-diffusion-v1-5"
+    )
+    assert pipeline["controlnet"]["from_pretrained_arguments"]["model_name"] == (
+        "DionTimmer/controlnet_qrcode-control_v1p_sd15"
+    )

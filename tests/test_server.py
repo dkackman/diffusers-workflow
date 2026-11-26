@@ -5824,7 +5824,9 @@ class TestValidatePlan:
             ).json()
         assert result["valid"] is False
         assert result["plan"]["downloads_required"][0]["not_found"] is True
-        assert [e["path"] for e in result["errors"]] == ["model_name"]
+        assert [e["path"] for e in result["errors"]] == [
+            "steps[0].pipeline.from_pretrained_arguments.model_name"
+        ]
         assert "'m'" in result["error"]
 
     def test_the_estimate_quotes_this_box_s_own_history(self, server, monkeypatch):
