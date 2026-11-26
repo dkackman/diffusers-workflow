@@ -480,7 +480,8 @@ and wakes no notes-channel event, so an agent sees it on its next
 by (path, mtime). `ready` is true when a job could be queued
 for the item now: it is `planned` or `revised`, stores a `workflow`, every item it
 depends on is `done`, and the request is open. `attempts` lists the jobs
-oldest first as `{job, status, note?, minutes, output}`; `result` is the
+oldest first as `{job, status, note?, minutes, output}` (`note` is the run's
+current note, so a later `set_note` on the take shows here); `result` is the
 accepted job's `{job, run_id, output}`, else the latest succeeded job whose
 run still exists, else null; `accepted_missing: true` appears when the
 accepted job's run is gone. `output` is the one file that stands for the

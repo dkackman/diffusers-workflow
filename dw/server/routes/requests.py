@@ -42,11 +42,14 @@ router = APIRouter(route_class=ChangeRoute)
 # one) must match here and meet `validate_ledger_key`, not be a bare 404/405.
 
 
-def _jobs_for(request, name, reasons=False):
-    """`rid -> its linked jobs`, each with its `reason` only if `reasons`."""
+def _jobs_for(request, name, reasons=False, current_notes=False):
+    """`rid -> its linked jobs`, each with its `reason` only if `reasons`,
+    and its run's current note (a notes.json read per take) only if
+    `current_notes`: a view that shows attempts, never a list."""
     manager = request.app.state.job_manager
     return lambda rid: [
-        j if reasons else {**j, "reason": None} for j in manager.request_jobs(name, rid)
+        j if reasons else {**j, "reason": None}
+        for j in manager.request_jobs(name, rid, current_notes)
     ]
 
 
@@ -177,7 +180,10 @@ def get_request(request: Request, name: str, request_id: str, reasons: bool = Fa
     root = _ledger_root(request.app.state, name)
     try:
         found = ledger.get_request(
-            root, request_id, _jobs_for(request, name, reasons), _prompts(request)
+            root,
+            request_id,
+            _jobs_for(request, name, reasons, current_notes=True),
+            _prompts(request),
         )
     except SecurityError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -217,7 +223,7 @@ def put_request(
             payload,
             by=body.by,
             linked_jobs=_linked_jobs_for(request, name),
-            jobs_for=_jobs_for(request, name, reasons),
+            jobs_for=_jobs_for(request, name, reasons, current_notes=True),
             prompts=_prompts(request),
         )
     except ledger.LedgerError as e:

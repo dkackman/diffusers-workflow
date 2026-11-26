@@ -554,7 +554,7 @@ class JobManager(Dispatcher, Reruns):
         historical = self.history.get(job_id)
         return (historical or {}).get("arguments") or {}
 
-    def request_jobs(self, workspace, request_id):
+    def request_jobs(self, workspace, request_id, current_notes=False):
         """Every job linked to `request_id` in `workspace`, live queue and
         history, oldest first, as `{job, item, status, run_id, run_dir,
         run_exists, started_at, finished_at, created_at, note, reason,
@@ -563,11 +563,13 @@ class JobManager(Dispatcher, Reruns):
         for an inline one), `arguments` as submitted, `output` and
         `prompt_digests` callables (no manifest is read for a job nobody
         shows), `run_exists` whether the run directory `delete_job_run`
-        removes is still on disk. One indexed history query."""
+        removes is still on disk. One indexed history query. `note` is as
+        submitted unless `current_notes`, which reads each run's notes.json:
+        for a single request's view, never a polled list."""
         found = {}
         for row in self.history.request_jobs(workspace, request_id):
             found[row["id"]] = self._linked(
-                row["id"], row, row["run_dir"], row["output_dir"]
+                row["id"], row, row["run_dir"], row["output_dir"], current_notes
             )
         with self._lock:
             live = [
@@ -593,10 +595,11 @@ class JobManager(Dispatcher, Reruns):
                 },
                 job.run_dir,
                 job.spec.get("output_dir"),
+                current_notes,
             )
         return sorted(found.values(), key=lambda entry: entry["created_at"] or 0)
 
-    def _linked(self, job_id, row, run_dir, output_dir):
+    def _linked(self, job_id, row, run_dir, output_dir, current_notes):
         directory = None
         if run_dir:
             try:
@@ -605,7 +608,7 @@ class JobManager(Dispatcher, Reruns):
             except SecurityError:
                 directory = None
         exists = directory is not None
-        return {
+        entry = {
             "job": job_id,
             "item": row["item"],
             "status": row["status"],
@@ -627,6 +630,7 @@ class JobManager(Dispatcher, Reruns):
             # only a take the status rule reaches is read
             "prompt_digests": lambda: self._prompt_digests(job_id, directory),
         }
+        return with_run_note(entry, directory) if current_notes else entry
 
     def _prompt_digests(self, job_id, directory):
         """A take's recorded prompt digests (`workflow.prompt_digests` in its

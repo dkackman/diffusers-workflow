@@ -1300,6 +1300,8 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
   - `ready` - a job could be queued for it now.
   - `attempts` - `[{job, status, note?, reason?, minutes, output}]`, oldest
     first; `reason` (why a take failed or was cancelled) only with `reasons=true`.
+    `note` is the take's run note as it stands now (an edit with `PUT /api/notes`
+    replaces the one submitted, a cleared one drops the key).
   - `result` - `{job, run_id, output}` or null.
   - `accepted_missing` - only when true.
   - `spent_minutes`.
