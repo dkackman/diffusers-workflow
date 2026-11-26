@@ -1,5 +1,6 @@
 <script lang="ts">
   import Suggest from '../ui/Suggest.svelte'
+  import { SvelteMap } from 'svelte/reactivity'
   import { PROMPT, reference } from '../references'
   import { Plus, Trash2 } from '@lucide/svelte'
   import ExpandingText from './ExpandingText.svelte'
@@ -23,7 +24,7 @@
   import ClampedText from '../ui/ClampedText.svelte'
   import { latestOnly } from '../latest'
   import { sleep } from '../poll'
-  import type { StepArguments } from '../types'
+  import type { PipelineDescription, StepArguments } from '../types'
   import { resource } from '../resource.svelte'
 
   let {
@@ -61,7 +62,10 @@
       const current = typing()
       if (!wanted) return null
       await sleep(300)
-      return current() ? classDescription(wanted, kind) : null
+      if (!current()) return null
+      const found = await classDescription(wanted, kind)
+      if (found && current()) recommit(found)
+      return found
     },
     { watch: [] },
   )
@@ -89,7 +93,40 @@
   }
 
   function update(key: string, raw: string) {
-    write(key, commitArgument(parameters.get(key), raw, args?.[key]))
+    const previous = args?.[key]
+    write(key, commitArgument(parameters.get(key), raw, previous))
+    if (!description) holdEarly(key, raw, previous)
+  }
+
+  // Edits typed before the signature arrived, committed again by the lookup
+  // once it does (#1708). Each holds the arguments object, so it still lands
+  // if the editor has closed
+  type Early = {
+    held: StepArguments
+    raw: string
+    written: unknown
+    original: unknown
+  }
+  const early = new SvelteMap<string, Early>()
+
+  function holdEarly(key: string, raw: string, previous: unknown) {
+    const held = args!
+    // a second edit of early text still answers to the value first replaced
+    const prior = early.get(key)
+    const original =
+      prior && prior.written === previous ? prior.original : previous
+    early.set(key, { held, raw, written: held[key], original })
+  }
+
+  /** A value changed since its edit is left alone */
+  function recommit(found: PipelineDescription) {
+    for (const [key, { held, raw, written, original }] of early) {
+      const parameter = found.parameters.find((p) => p.name === key)
+      if (parameter && held[key] === written) {
+        held[key] = commitArgument(parameter, raw, original)
+      }
+    }
+    early.clear()
   }
 
   /** A ReferenceField's commit: a media argument holds a location, anything
