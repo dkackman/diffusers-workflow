@@ -18,6 +18,7 @@
     listWithPrompts,
     listingRefused,
     listingWorkspace,
+    queueFirst,
     queueLength,
     queuedEverywhere,
     runningProgress,
@@ -171,10 +172,12 @@
   )
   const olderBy = $derived(Math.min(JOBS_PAGE, finished - paging.shown))
   const visible = $derived(
-    jobs.filter(
-      (job) =>
-        (!statusFilter.value || job.status === statusFilter.value) &&
-        jobMatches(job, prompts[job.id] ?? '', nameFilter.value),
+    queueFirst(
+      jobs.filter(
+        (job) =>
+          (!statusFilter.value || job.status === statusFilter.value) &&
+          jobMatches(job, prompts[job.id] ?? '', nameFilter.value),
+      ),
     ),
   )
   // Batches a preview found nothing left to rerun in: their banner stays
