@@ -2,7 +2,7 @@
 Judge - score a candidate image against a rubric using a vision-language
 model.
 
-The first scorer for the select reducer (docs/proposals/score-and-select.md):
+The first scorer for the select reducer:
 `select` needs a number per candidate, and this is the cheapest way to get
 one without a purpose-built model - prompt the VLM `image_to_text` already
 loads with a rubric and a scale, and parse its reply to one number. Delegates

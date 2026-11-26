@@ -4,8 +4,7 @@
 Each ref is measured by *this* script's rules over an archive of that ref,
 never by the script as it stood then, so every column counts the same way.
 Default columns: before Phase 0 (3afd70e9), every stabilization-gate-N
-tag, and HEAD when it is not the newest tag. Markdown on stdout, for the
-Gate reports section of docs/stabilization/ROADMAP.md.
+tag, and HEAD when it is not the newest tag. Markdown on stdout.
 
 Reports, never gates: nothing here fails a build.
 """

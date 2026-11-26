@@ -17,8 +17,7 @@ logger = logging.getLogger("dw")
 # and (since emitting a stall event itself counts as an event - see
 # RunContext._watchdog_loop) the cadence it repeats on while the stall
 # continues. 30s is well past the 7-10s lead-in a healthy step-callback
-# pipeline shows before its first `pipeline_step` (see
-# docs/proposals/step-callback-lead-in-instrumentation.md) but short enough
+# pipeline shows before its first `pipeline_step`, but short enough
 # that a genuine stall is visible long before a human would give up on it.
 # The report goes to the event log only - the job's persisted `warnings`
 # list filters `kind == "phase_stall"` (dw/server/jobs.py), because a stall
@@ -131,8 +130,7 @@ class RunContext:
     def _watchdog_loop(self):
         """Generic, pipeline-agnostic: this only ever looks at 'how long
         since any event' and 'what phase are we in', never at what a
-        particular pipeline does inside a phase (see
-        docs/proposals/step-callback-lead-in-instrumentation.md, Option A).
+        particular pipeline does inside a phase.
         A stall report is itself an event, so it bumps _last_event_at and
         naturally repeats on PHASE_STALL_THRESHOLD_SECONDS while the silence
         continues and stops the moment a real progress event arrives -

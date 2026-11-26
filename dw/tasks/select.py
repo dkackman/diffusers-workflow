@@ -4,7 +4,7 @@ The README's headline shape is N candidates -> choose one -> spend an
 expensive stage on the winner. Today that choice lives at the agent
 boundary (keep_output + asset:); this task is the version of it that needs
 no judgment - argmax, a threshold, or a fixed index - so the recipe stays
-inside the workflow and replays. See docs/proposals/score-and-select.md.
+inside the workflow and replays.
 """
 
 import logging

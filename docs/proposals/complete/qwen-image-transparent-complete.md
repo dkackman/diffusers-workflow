@@ -85,7 +85,7 @@ plan v2's stage A design unchanged:
   quality;
 - a Qwen-Image-2.1 workload shows up on lem.
 
-**The design kept for the reopen:** `workflows/models/qwen-image-2.1-turbo.json`
+**The design kept for the reopen:** a `qwen-image-2.1-turbo.json` entry in the models catalog
 is a copy of the base entry with these changes:
 - `model_name: Qwen/Qwen-Image-2.1-Turbo` and id `QwenImage21Turbo`;
 - no `num_inference_steps` variable or argument, and

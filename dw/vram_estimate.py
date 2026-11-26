@@ -31,7 +31,7 @@ latents, so an optional `bytes_per_guide_voxel` charges each guide the step
 lays in - its own `guides`, plus the one a `continuity: "guide"` chain
 appends - at its snapped frame count times the canvas (every voxel variable
 but `num_frames`), measured in #694's Stage A (docs/proposals/
-h3-guide-vram.md). A clip's frame count comes from the same header probe
+complete/h3-guide-vram-complete.md). A clip's frame count comes from the same header probe
 validation memoizes (`guides.guide_lengths`), so validate, admission and run
 answer the same number; a clip no probe can count - a `previous_result:`, an
 unreadable header - is charged at the step's own `num_frames`, the most a
