@@ -101,3 +101,35 @@ test('shared prompts and server models are reachable from the sidebar', async ({
   await nav.getByRole('link', { name: 'Models' }).click()
   await expect(page).toHaveURL(/#\/server\/models$/)
 })
+
+// #1694: a row's other text once left its name no width at all
+test('a sidebar row shows its whole name beside its size', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 })
+  const name = `gilded-${Date.now().toString(36).slice(-5)}`
+  const created = await page.request.post('/api/workspaces', {
+    data: { name },
+  })
+  expect(created.ok()).toBe(true)
+  try {
+    await page.goto('/')
+    const nav = page.getByRole('complementary', { name: 'navigation' })
+    const row = nav.locator(`a[title="${name}"]`)
+    await expect(row.locator('.size')).toBeVisible()
+    const label = row.locator('.name')
+    await expect(label).toHaveText(name)
+    // neither squeezed away nor elided
+    expect(
+      await label.evaluate(
+        (el) => el.clientWidth > 0 && el.scrollWidth <= el.clientWidth,
+      ),
+    ).toBe(true)
+    // and nothing in the row runs past the sidebar's edge
+    const edge = (await nav.boundingBox())!
+    const size = (await row.locator('.size').boundingBox())!
+    expect(size.x + size.width).toBeLessThanOrEqual(edge.x + edge.width)
+  } finally {
+    await page.request.delete(
+      `/api/workspaces/${encodeURIComponent(name)}?acknowledged=true`,
+    )
+  }
+})
