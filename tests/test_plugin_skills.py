@@ -13,6 +13,7 @@ import inspect
 import json
 import os
 import re
+import shutil
 
 import pytest
 
@@ -2644,6 +2645,116 @@ class TestLongFormPointers:
     def test_every_touched_skill_holds_its_budget(self, path):
         size = len(skill_body(path).encode("utf-8"))
         assert size <= SKILL_SIZE_LIMIT, f"{path} is {size} bytes"
+
+
+RUN_AND_REPAIR = os.path.join(LONG_FORM_DIR, "references", "run-and-repair.md")
+FINISH_HEADING = "## Finish the cut in one job"
+
+
+class TestFinishTheCut:
+    """#1622 stage #1700: the finishing recipe composes
+    `templates/assemble-and-score` by name and grades what it returns in the
+    same job, export stays a second job (#1613 refuses `previous_result:`
+    there), and the score-placement rule sits beside the template's entry."""
+
+    def _recipe(self):
+        return json.loads(_fenced_block_after(_read(RUN_AND_REPAIR), FINISH_HEADING))
+
+    def test_the_recipe_composes_the_template_and_grades_its_result(self):
+        cut, graded, grain = self._recipe()["steps"]
+        assert cut["workflow"]["path"] == "templates/assemble-and-score"
+        assert cut["result"]["subfolder"] == "intermediate"
+        assert graded["task"]["command"] == "apply_lut"
+        assert graded["task"]["arguments"]["media"] == "previous_result:cut"
+        assert grain["task"]["command"] == "film_grain"
+        assert grain["task"]["arguments"]["media"] == "previous_result:graded"
+        assert grain["result"]["subfolder"] == "final"
+
+    def test_the_recipe_validates_with_no_undeclared_argument(self, tmp_path):
+        from dw import validation
+        from dw.workflow import workflow_from_file
+
+        # The real template, laid out as a catalog the recipe names it from
+        catalog = tmp_path / "workflows"
+        (catalog / "templates").mkdir(parents=True)
+        shutil.copy(
+            os.path.join(
+                REPO_ROOT, "workflows", "templates", "assemble-and-score.json"
+            ),
+            catalog / "templates" / "assemble-and-score.json",
+        )
+        path = catalog / "finished-cut.json"
+        path.write_text(json.dumps(self._recipe()), encoding="utf-8")
+        workflow = workflow_from_file(str(path), str(tmp_path))
+        assert workflow.validation_errors() == []
+        assert (
+            validation.run_warning_check(workflow, "sub_workflow_warnings", None) == []
+        )
+
+    def test_the_recipe_s_look_is_a_named_grade(self):
+        grades = json.loads(
+            _fenced_block_after(
+                _read(os.path.join(CINE_DIR, "references", "grades.md")),
+                "## The grades",
+            )
+        )
+        recipe = self._recipe()
+        graded, grain = recipe["steps"][1:]
+        grade = grades["teal-orange"]
+        assert recipe["variables"]["look"] == grade["palette"]
+        assert graded["task"]["arguments"]["strength"] == grade["strength"]
+        arguments = dict(grain["task"]["arguments"])
+        arguments.pop("media")
+        assert arguments == grade["film_grain"]
+
+    def test_the_page_says_name_not_copy_and_export_is_a_second_job(self):
+        body = _read(RUN_AND_REPAIR)
+        section = _flat(body[body.index(FINISH_HEADING) : body.index("\n## Export")])
+        assert "a copy stops tracking the original" in section
+        assert "Export is a second job" in section
+        export = _flat(body[body.index("## Export the cut for an editor") :])
+        assert "*Finish the cut in one job*" in export
+        assert "Run it as a second job" in export
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            os.path.join(CINE_DIR, "references", "grades.md"),
+            LONG_FORM_SKILL,
+            SCRIPT_SKILL,
+            os.path.join(LONG_FORM_DIR, "references", "audio.md"),
+        ],
+        ids=["grades", "long-form", "script-to-video", "audio"],
+    )
+    def test_the_pointers_name_the_recipe(self, path):
+        assert "*Finish the cut in one job*" in _flat(_read(path))
+
+    def test_the_placement_rule_counts_frames_at_the_template_s_fps(self):
+        with open(
+            os.path.join(
+                REPO_ROOT, "workflows", "templates", "assemble-and-score.json"
+            ),
+            encoding="utf-8",
+        ) as handle:
+            spec = json.load(handle)
+        (soundtrack,) = [s for s in spec["steps"] if s["name"] == "soundtrack"]
+        arguments = soundtrack["task"]["arguments"]
+        assert soundtrack["task"]["command"] == "slice_audio"
+        assert arguments["start_frame"] == "variable:score_start_frame"
+        assert arguments["fps"] == "variable:fps"
+        audio = _flat(_read(os.path.join(LONG_FORM_DIR, "references", "audio.md")))
+        rule = audio[audio.index("**Placing the score on a beat.**") :]
+        for claim in (
+            "`get_gallery_metadata(envelope=true)`",
+            "`interval_seconds`",
+            "`score_start_frame = round(t_peak × fps) − B`",
+            "comes out negative",
+            "`score_start_frame + total_frames`",
+        ):
+            assert claim in rule, claim
+        assert audio.index("**Placing the score on a beat.**") > audio.index(
+            "**`templates/assemble-and-score`**"
+        )
 
 
 SCRIPT_REQUEST = os.path.join(os.path.dirname(SCRIPT_SKILL), "references", "request.md")

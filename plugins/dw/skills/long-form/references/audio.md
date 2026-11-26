@@ -96,7 +96,22 @@ audio_duration}`. Each section is trimmed, faded and crossfaded into the next
   them. It mixes each shot's own sound beneath the score. Even the shots by
   loudness with `match_levels: lufs`; deliver at -16 LUFS with the
   template's `target_lufs: -16`, which its `balanced` step's
-  `normalize_audio` applies. `series-episodes` has the full procedure.
+  `normalize_audio` applies. `series-episodes` has the full procedure. To
+  grade the scored cut in the same job, see `run-and-repair.md`, *Finish
+  the cut in one job*.
+- **Placing the score on a beat.** `score_start_frame` is where in the
+  score the cut begins, counted in frames at the template's `fps` (its
+  `slice_audio` step reads it that way). To land the score's swell on a
+  beat, read the score's `get_gallery_metadata(envelope=true)` with a small
+  `interval_seconds` (for example 0.25) and take the bin where `rms_dbfs`
+  peaks: bin `i` starts at `t_peak = i × interval_seconds` seconds. With
+  the beat at frame `B` of the cut, set `score_start_frame = round(t_peak ×
+  fps) − B`. If that comes out negative, the swell can't land that late:
+  pick another beat, or a score whose peak comes later. Then check that the
+  score runs at least `score_start_frame + total_frames` frames, or its
+  tail is padded with silence (`slice_past_end`). A broad swell spans
+  several bins: take the one where it crests, and narrow `interval_seconds`
+  around it if two bins tie.
 - **Room tone.** `find_loop_bed` picks the window of a recording worth
   looping, measured as it will sound looped. `loop_audio` then lays it under
   dialogue gaps.
