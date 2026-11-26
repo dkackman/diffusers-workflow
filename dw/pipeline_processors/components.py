@@ -418,8 +418,15 @@ def apply_compile(component, component_name, compile_configuration, device):
     """
     # Inductor support on MPS is too immature to be worth the compile time
     if get_device_type(device) == "mps":
-        logger.warning(
-            f"torch.compile is not supported on MPS, skipping {component_name}"
+        emit_warning(
+            f"Skipping torch.compile for {component_name} on MPS - inductor "
+            "support there is too immature to be worth the compile time; it "
+            "runs uncompiled",
+            kind="device_adjusted",
+            setting="compile",
+            component=component_name,
+            requested=True,
+            applied=False,
         )
         return
 
@@ -870,9 +877,16 @@ def _warn_float16_on_mps(component_name, from_pretrained_arguments, device):
     else:
         names = [component_name] if torch_dtype == torch.float16 else []
     for name in names:
-        logger.warning(
-            f"{name} loads in float16 on MPS, which can produce NaN "
-            "values (black images) on Apple Silicon - bfloat16 is the usual fix"
+        # Warns only: the dtype is left as asked, so the message must not
+        # read as a rewrite (#1727)
+        emit_warning(
+            f"{name} loads in float16 on MPS, as asked, which can produce NaN "
+            "values (black images) on Apple Silicon - bfloat16 is the usual fix",
+            kind="device_adjusted",
+            setting="torch_dtype",
+            component=name,
+            requested="float16",
+            applied="float16",
         )
 
 

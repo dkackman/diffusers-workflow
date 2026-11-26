@@ -59,8 +59,10 @@ def load(path, monkeypatch, device_type):
         )
     finally:
         deactivate_context(token)
-    warnings = [e["message"] for e in events if e.get("event") == "warning"]
-    return model, warnings
+    warnings = [e for e in events if e.get("event") == "warning"]
+    # Every one is a device correction the job reports (#1727)
+    assert all(e.get("kind") == "device_adjusted" for e in warnings)
+    return model, [e["message"] for e in warnings]
 
 
 def test_a_folder_saved_with_matmul_loads_without_it_on_mps(saved_folder, monkeypatch):

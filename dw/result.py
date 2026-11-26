@@ -564,6 +564,7 @@ class Result:
         if content_type.startswith("video"):
             self._write_video_file(artifact, output_path, content_type)
         elif content_type == "image/gif":
+            self.warn_if_fps_defaulted(artifact)
             export_to_gif(artifact, output_path, fps=self.video_fps(artifact))
         elif content_type.startswith("audio"):
             return self._write_audio_file(
@@ -590,6 +591,7 @@ class Result:
         if isinstance(artifact, AudioVideo):
             self.save_audio_video(artifact, output_path, content_type)
         else:
+            self.warn_if_fps_defaulted(artifact)
             export_to_video(
                 _frames_for_export_to_video(artifact),
                 output_path,
@@ -714,6 +716,25 @@ class Result:
             )
         return declared
 
+    def warn_if_fps_defaulted(self, artifact):
+        """Say so when a file is about to be written at DEFAULT_VIDEO_FPS
+        because nothing chose a rate: no declared `result.fps` and none the
+        frames carry (#1727). Called at the writes only, not from
+        conform_artifacts - a composed child's unsaved artifact may still get
+        its rate from the parent that writes it."""
+        if self.result_definition.get("fps") is not None:
+            return
+        if getattr(artifact, "fps", None):
+            return
+        emit_warning(
+            f"The video is written at {DEFAULT_VIDEO_FPS} fps because no rate "
+            f"was declared and its frames carry none - a video that played at "
+            f"24 fps will be three times slow. Declare 'fps' (the source's "
+            f"rate) on the step's result.",
+            kind="video_fps_defaulted",
+            fps=DEFAULT_VIDEO_FPS,
+        )
+
     def conform_artifact(self, artifact):
         """Stamp this result's declared fps onto artifact and fit its audio
         to its own frame count. Returns the resolved fps.
@@ -820,6 +841,7 @@ class Result:
             content_type: MIME type of the video being written
         """
         fps = self.conform_artifact(artifact)
+        self.warn_if_fps_defaulted(artifact)
         sample_rate = self.result_definition.get(
             "audio_sample_rate", artifact.sample_rate
         )
