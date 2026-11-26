@@ -486,10 +486,11 @@ is refused at validate rather than at the pipeline, so
 `arguments.images`. A list with no `min_length` is not judged by its length.
 
 `"required": true` marks a variable that has no default. Declare it `null` in
-`variables` and set the flag: a run, or a validation given `arguments`, refuses
+`variables` and set the flag: a run, a validation given `arguments`, or a
+validation of a stored workflow by name (with or without `arguments`) refuses
 it while it is still null, with `'<name>' is required and has no default` and
-the `reason`; a document check with no `arguments` does not judge the stored
-null. Pair it with `min_length: 1` so an empty string is refused too. It is for
+the `reason`; only a check of the document itself (an inline definition with no
+`arguments`, or a save) does not judge the stored null. Pair it with `min_length: 1` so an empty string is refused too. It is for
 a value a placeholder default would quietly fill with something the caller did
 not choose: `voice-clone`, `narration-long` and `narration-from-takes` use it
 for `reference_audio`, so a stray `voice.wav` asset can never be cloned by

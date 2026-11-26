@@ -411,6 +411,26 @@ def checked_refusal(name, value, constraint, arguments, like=None):
     return refusal(name, value, constraint, like)
 
 
+def omitted_required_errors(definition):
+    """Every `required` variable that a run given no arguments would leave
+    null, as [{path, message}]. Validating a stored workflow by name asks
+    whether it can run, even with no `arguments` (#1758); `constraint_errors`
+    leaves the same null unjudged, since it reads that as the document."""
+    constraints = declared_constraints(definition)
+    if not constraints:
+        return []
+    values = effective_variables(definition, None)
+    errors = []
+    for name in sorted(constraints):
+        constraint = constraints[name]
+        if not isinstance(constraint, dict) or name not in values:
+            continue
+        message = required_refusal(name, values[name], constraint)
+        if message is not None:
+            errors.append({"path": f"variables.{name}", "message": message})
+    return errors
+
+
 def snap_notice(name, value, constraint):
     """The wording for a value that will be rounded, or None.
 
