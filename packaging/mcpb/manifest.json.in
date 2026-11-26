@@ -13,7 +13,7 @@
     "entry_point": "dw_mcp/__main__.py",
     "mcp_config": {
       "command": "uv",
-      "args": ["run", "--directory", "${__dirname}", "python", "-m", "dw_mcp"],
+      "args": ["run", "--frozen", "--directory", "${__dirname}", "python", "-m", "dw_mcp"],
       "env": {
         "DW_MCP_URL": "${user_config.url}",
         "DW_API_TOKEN": "${user_config.token}"

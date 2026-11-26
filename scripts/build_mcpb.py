@@ -3,6 +3,7 @@
 
     python scripts/build_mcpb.py --out dist/           # stage, pack
     python scripts/build_mcpb.py --out dist/ --stage-only
+    python scripts/build_mcpb.py --unpack dist/dw-mcp-<v>.mcpb <dir>
     python scripts/build_mcpb.py --server-json dist/dw-mcp-<v>.mcpb   # print server.json
 
 The bundle's dependency floors are read from the root pyproject.toml, so they
@@ -22,6 +23,8 @@ REPO = Path(__file__).resolve().parents[1]
 TEMPLATES = REPO / "packaging" / "mcpb"
 # dw_mcp imports anyio directly; the root pyproject only gets it through mcp
 ANYIO_FLOOR = "anyio>=4.0"
+# The one owner of the packer's version: pack and unpack both use it
+MCPB_PACKAGE = "@anthropic-ai/mcpb@2.1.2"
 BUNDLE_DEPENDENCIES = ("httpx", "anyio", "packaging")
 
 
@@ -56,6 +59,10 @@ def render_server_json(version, sha):
     return _fill("server.json.in", version=version, sha=sha)
 
 
+def mcpb_command(*args):
+    return ["npx", "-y", MCPB_PACKAGE, *map(str, args)]
+
+
 def stage(out, project=None):
     project = project or _pyproject()
     version = project["version"]
@@ -77,6 +84,9 @@ def stage(out, project=None):
         f"dependencies = [\n{deps}]\n"
     )
     shutil.copy(REPO / "LICENSE", root / "LICENSE")
+    # Ship the resolution: the launch is `uv run --frozen`, so what runs is
+    # what was locked here, not whatever the floors resolve to later
+    subprocess.run(["uv", "lock"], cwd=root, check=True)
     return root
 
 
@@ -84,6 +94,9 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", default="dist", help="output directory")
     parser.add_argument("--stage-only", action="store_true")
+    parser.add_argument(
+        "--unpack", nargs=2, metavar=("BUNDLE", "DIR"), help="unpack a bundle"
+    )
     parser.add_argument(
         "--server-json", metavar="BUNDLE", help="print server.json for a built bundle"
     )
@@ -93,6 +106,9 @@ def main(argv=None):
         sha = hashlib.sha256(Path(args.server_json).read_bytes()).hexdigest()
         print(json.dumps(render_server_json(version, sha), indent=2))
         return 0
+    if args.unpack:
+        subprocess.run(mcpb_command("unpack", *args.unpack), check=True)
+        return 0
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     root = stage(out)
@@ -100,7 +116,8 @@ def main(argv=None):
         return 0
     bundle = out / f"dw-mcp-{version}.mcpb"
     subprocess.run(
-        ["npx", "-y", "@anthropic-ai/mcpb", "pack", str(root), str(bundle)], check=True
+        mcpb_command("pack", root, bundle),
+        check=True,
     )
     shutil.rmtree(root)
     print(bundle)
