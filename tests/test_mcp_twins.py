@@ -10,13 +10,20 @@ import re
 
 import pytest
 
+from dw import ledger as dw_ledger
 from dw import media as dw_media
 from dw import cost_scaling, references, run as dw_run, workspace
 from dw.server import assess, job_record, netinfo
+from dw.server.api_models_library import CloseProposalWrite
 from dw.server.routes import assets as asset_routes
 from dw_mcp import assets, client, diagnose, media
 from dw_mcp.server import INSTRUCTIONS
-from dw_mcp.tools_authoring import AuthoringTools, PromptTools, WorkspaceTools
+from dw_mcp.tools_authoring import (
+    PROPOSE_CLOSE,
+    AuthoringTools,
+    PromptTools,
+    WorkspaceTools,
+)
 from dw_mcp.tools_catalog import CatalogTools
 from dw_mcp.tools_jobs import JobTools
 from dw_mcp.tools_media import MediaTools
@@ -32,6 +39,26 @@ from dw_mcp.tools_media import MediaTools
         (set(diagnose.TERMINAL_STATUSES), set(job_record.TERMINAL_STATES)),
         (set(dw_run.TERMINAL_STATUSES), set(job_record.TERMINAL_STATES)),
         (media.MAX_RETURNED_BYTES, dw_media.MAX_INLINE_AUDIO_BYTES),
+        (
+            set(PROPOSE_CLOSE["anyOf"][0]["properties"]["state"]["enum"]),
+            set(dw_ledger.CLOSED_STATES),
+        ),
+        (
+            set(PROPOSE_CLOSE["anyOf"][0]["properties"]),
+            set(CloseProposalWrite.model_fields),
+        ),
+        (
+            set(PROPOSE_CLOSE["anyOf"][0]["required"]),
+            {
+                name
+                for name, field in CloseProposalWrite.model_fields.items()
+                if field.is_required()
+            },
+        ),
+        (
+            set(CloseProposalWrite.model_fields["state"].annotation.__args__),
+            set(dw_ledger.CLOSED_STATES),
+        ),
     ],
     ids=[
         "upload extensions",
@@ -41,6 +68,10 @@ from dw_mcp.tools_media import MediaTools
         "terminal job states (dw_mcp)",
         "terminal job states (dw.run)",
         "inline payload cap",
+        "propose_close states",
+        "propose_close fields",
+        "propose_close required fields",
+        "close proposal model states",
     ],
 )
 def test_a_copied_constant_equals_its_owner(copy, owner):
