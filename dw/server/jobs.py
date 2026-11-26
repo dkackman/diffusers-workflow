@@ -115,6 +115,11 @@ class JobsActive(Exception):
     """A job is running or queued."""
 
 
+class SubmissionRefused(Exception):
+    """The server is not taking jobs right now (a dw update is replacing the
+    engine); a route answers it with 409."""
+
+
 class JobManager(Dispatcher, Reruns):
     """Queues jobs and dispatches them onto one worker process per card."""
 
@@ -136,6 +141,8 @@ class JobManager(Dispatcher, Reruns):
         # Confines workflow_path/base_dir/sub-workflow resolution for every
         # job this manager submits - the server's configured workflow_dir
         self.workflow_dir = workflow_dir
+        # Set by the app: returns why jobs are refused right now, or None
+        self.submission_refusal = None
         os.makedirs(self.output_dir, exist_ok=True)
         self.log_level = log_level
         if worker_managers is None:
@@ -372,6 +379,9 @@ class JobManager(Dispatcher, Reruns):
         caller made it, kept for a rerun (which admits afresh) and for
         `definition()`; the snapshot is not persisted.
         """
+        refusal = self.submission_refusal() if self.submission_refusal else None
+        if refusal:
+            raise SubmissionRefused(refusal)
         arguments = arguments or {}
         if (workflow_path is None) == (workflow is None):
             raise ValueError("Provide exactly one of workflow_path or workflow")

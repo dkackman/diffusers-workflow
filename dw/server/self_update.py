@@ -188,12 +188,16 @@ class DwUpdater:
     """One self-update at a time, in a background thread, with a status
     dict the UI polls."""
 
-    def __init__(self, run_fn=None, exit_fn=None, delay=EXIT_DELAY_SECONDS):
+    def __init__(
+        self, run_fn=None, exit_fn=None, delay=EXIT_DELAY_SECONDS, is_busy=None
+    ):
         # Injectable for tests: the default runs pip, the default exit
         # restarts this process
         self._run_fn = run_fn or _run_commands
         self._exit_fn = exit_fn or request_restart
         self._delay = delay
+        # True while a job runs or is queued; the app wires the job manager's
+        self.is_busy = is_busy or (lambda: False)
         self._lock = threading.Lock()
         self._thread = None
         self._state = {"status": "idle", "error": None, "log": None}
@@ -246,6 +250,14 @@ class DwUpdater:
                 on_success()
             # After the response that reports success has been written
             time.sleep(self._delay)
+            if self.is_busy():
+                # The packages are installed; only the restart is withheld,
+                # so it cannot kill the job
+                error = "a job is running; restart dw-serve when it finishes"
+                with self._lock:
+                    self._state = {**self._state, "status": "failed", "error": error}
+                logger.error(f"dw update: {error}")
+                return
             logger.info("dw updated; exiting so the service manager restarts it")
             self._exit_fn(RESTART_EXIT_CODE)
 

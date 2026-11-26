@@ -34,6 +34,7 @@ from ..api_models import (
 )
 
 from ..api_models_library import WorkspaceChanges
+from ..jobs import SubmissionRefused
 from ..changes import ASSETS, GALLERY, PROMPTS, WORKFLOWS, WORKSPACES, ChangeRoute
 from ..changes import JOBS, Change, pending_change, writes
 from ...argument_warnings import workflow_argument_warnings
@@ -986,5 +987,7 @@ def enhance(
             repos_named=admission.repos_named,
         )
         return manager.describe(job)
+    except SubmissionRefused as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except Exception:
         raise internal_error("Enhance job submission failed after admission")

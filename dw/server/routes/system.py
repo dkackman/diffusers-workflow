@@ -438,6 +438,12 @@ def update_diffusers(
             detail="A model download is in progress - replacing package "
             "files while it runs could corrupt the download",
         )
+    if state.dw_updater.status()["status"] == "running":
+        raise HTTPException(
+            status_code=409,
+            detail="A dw update is running - two pip runs in one "
+            "environment could corrupt it",
+        )
     try:
         return state.updater.start(
             on_success=manager.restart_worker_if_idle,
@@ -497,6 +503,12 @@ def update_dw(request: Request):
             status_code=409,
             detail="A model download is in progress - the restart that "
             "follows the update would cut it off",
+        )
+    if state.updater.status()["status"] == "running":
+        raise HTTPException(
+            status_code=409,
+            detail="A diffusers update is running - two pip runs in one "
+            "environment could corrupt it",
         )
     try:
         state.dw_updater.start()
