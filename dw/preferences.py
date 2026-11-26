@@ -38,6 +38,7 @@ warnings, realization, validation and the run all follow the resolved child.
 import json
 import logging
 import os
+from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -193,6 +194,16 @@ def activate(session):
 
 def deactivate(token):
     _SESSION.reset(token)
+
+
+@contextmanager
+def activated(session):
+    """`session` as the active one for the block."""
+    token = activate(session)
+    try:
+        yield session
+    finally:
+        deactivate(token)
 
 
 def active_session():

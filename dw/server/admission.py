@@ -18,6 +18,7 @@ the same plan is what a bound acknowledgement is checked against
 import copy
 import logging
 import os
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Union
@@ -76,6 +77,32 @@ class ValidatorFailure(Exception):
     invalid workflow whose detail is in the server log; a submit answers
     400 with the message, which names the failure's exception type only -
     its text can carry internals (a path, a value), so the log keeps it."""
+
+
+@contextmanager
+def workspace_roots(workspace):
+    """Make `workspace`'s asset library and output root the active ones for
+    the checks run inside. Every route that validates a definition for a
+    workspace (admit, and a workflow save) does so in this scope.
+
+    The checks resolve 'asset:' references and judge which paths may be read
+    through dw.assets' default discovery, which a real deployment's
+    DW_ASSET_DIR pins to the default workspace - so the request's own
+    workspace is made active, the same ContextVar the worker activates before
+    it runs. Its outputs are the active root for the same reason: an
+    'output:' source a check probes otherwise resolves under the default
+    workspace's outputs, misses, and the check stays silent (#666, #1739)."""
+    token = activate_asset_dir(workspace.assets) if workspace.assets else None
+    output_token = (
+        activate_output_root(workspace.outputs) if workspace.outputs else None
+    )
+    try:
+        yield
+    finally:
+        if output_token is not None:
+            deactivate_output_root(output_token)
+        if token is not None:
+            deactivate_asset_dir(token)
 
 
 def _validator_failure(error):
@@ -194,26 +221,12 @@ def admit(
     checked = arguments if supplied else None
     admission = Admission(candidate, arguments, supplied)
 
-    # validation_errors() and the warnings resolve 'asset:' references
-    # themselves (dissolve_frame_errors, video_size_errors,
-    # window_count_errors, slice_past_end_warnings, shot_span_warnings) through dw.assets' default
-    # discovery, which a real deployment's DW_ASSET_DIR pins to the default
-    # workspace - so this request's own workspace is the active library for
-    # every check, the same ContextVar the worker activates before it runs.
-    # Its outputs are the active root for the same reason: an 'output:' source
-    # a check probes otherwise resolves under the default workspace's outputs,
-    # misses, and the check stays silent (#666)
-    token = activate_asset_dir(workspace.assets) if workspace.assets else None
-    output_token = (
-        activate_output_root(workspace.outputs) if workspace.outputs else None
-    )
     host = preferences.default_host()
     if smallest_card_gb:
         host.smallest_card_gb = smallest_card_gb
     host.gate_check = preferences.downloads_gate_check()
     session = preferences.Session(host=host, pinned=dict(preferences_pinned or {}))
-    preference_token = preferences.activate(session)
-    try:
+    with workspace_roots(workspace), preferences.activated(session):
         try:
             # Checked against the caller's arguments, not the document alone:
             # a content_type (or reference_name, ...) that only becomes
@@ -279,12 +292,6 @@ def admit(
         if plan_for is not None and admission.ok:
             admission.plan = plan_for(candidate, admission.vram_need)
         return admission
-    finally:
-        preferences.deactivate(preference_token)
-        if output_token is not None:
-            deactivate_output_root(output_token)
-        if token is not None:
-            deactivate_asset_dir(token)
 
 
 def _repos_named(candidate, context):
