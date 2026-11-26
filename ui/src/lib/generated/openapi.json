@@ -1123,6 +1123,82 @@
         "title": "DownloadRequest",
         "type": "object"
       },
+      "DwUpdateState": {
+        "additionalProperties": false,
+        "properties": {
+          "command": {
+            "description": "The one-line install command for this OS: how an unmanaged copy updates.",
+            "title": "Command",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "latest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The newest release on PyPI; null when it could not be read.",
+            "title": "Latest"
+          },
+          "log": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The last lines of the update's output.",
+            "title": "Log"
+          },
+          "managed": {
+            "description": "True when a service manager restarts this server, which is what lets it update itself.",
+            "title": "Managed",
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "idle",
+              "running",
+              "succeeded",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "description": "The installed dw version.",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "latest",
+          "managed",
+          "command",
+          "status",
+          "error",
+          "log"
+        ],
+        "title": "DwUpdateState",
+        "type": "object"
+      },
       "ElidedStep": {
         "additionalProperties": false,
         "properties": {
@@ -11412,6 +11488,44 @@
           }
         },
         "summary": "Update Diffusers"
+      }
+    },
+    "/api/system/dw": {
+      "get": {
+        "description": "The installed dw version, the newest release, whether this server can\nupdate itself, and the state of any update.",
+        "operationId": "dw_state_api_system_dw_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DwUpdateState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Dw State"
+      }
+    },
+    "/api/system/dw/update": {
+      "post": {
+        "description": "Update dw in the background on an installed copy, then restart the\nserver through its service manager.\n\nRefused on an unmanaged server (its `command` is the way), and while a\njob is running or queued or a download is active: pip replacing package\nfiles under a loaded pipeline is the diffusers update's hazard, and the\nrestart that follows would end the job.",
+        "operationId": "update_dw_api_system_dw_update_post",
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DwUpdateState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Update Dw"
       }
     },
     "/api/tasks": {

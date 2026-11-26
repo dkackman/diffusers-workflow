@@ -1590,6 +1590,53 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/system/dw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Dw State
+         * @description The installed dw version, the newest release, whether this server can
+         *     update itself, and the state of any update.
+         */
+        get: operations["dw_state_api_system_dw_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/system/dw/update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Update Dw
+         * @description Update dw in the background on an installed copy, then restart the
+         *     server through its service manager.
+         *
+         *     Refused on an unmanaged server (its `command` is the way), and while a
+         *     job is running or queued or a download is active: pip replacing package
+         *     files under a loaded pipeline is the diffusers update's hazard, and the
+         *     restart that follows would end the job.
+         */
+        post: operations["update_dw_api_system_dw_update_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tasks": {
         parameters: {
             query?: never;
@@ -2575,6 +2622,41 @@ export interface components {
              * @description Hub repo to download, e.g. org/model
              */
             repo_id: string;
+        };
+        /** DwUpdateState */
+        DwUpdateState: {
+            /**
+             * Command
+             * @description The one-line install command for this OS: how an unmanaged copy updates.
+             */
+            command: string;
+            /** Error */
+            error: string | null;
+            /**
+             * Latest
+             * @description The newest release on PyPI; null when it could not be read.
+             */
+            latest: string | null;
+            /**
+             * Log
+             * @description The last lines of the update's output.
+             */
+            log: string | null;
+            /**
+             * Managed
+             * @description True when a service manager restarts this server, which is what lets it update itself.
+             */
+            managed: boolean;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "idle" | "running" | "succeeded" | "failed";
+            /**
+             * Version
+             * @description The installed dw version.
+             */
+            version: string;
         };
         /** ElidedStep */
         ElidedStep: {
@@ -7642,6 +7724,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    dw_state_api_system_dw_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DwUpdateState"];
+                };
+            };
+        };
+    };
+    update_dw_api_system_dw_update_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DwUpdateState"];
                 };
             };
         };

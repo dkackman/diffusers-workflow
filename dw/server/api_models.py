@@ -446,6 +446,24 @@ class DiffusersStatus(ApiModel):
     commit: str | None
 
 
+class DwUpdateState(ApiModel):
+    version: str = Field(description="The installed dw version.")
+    latest: str | None = Field(
+        description="The newest release on PyPI; null when it could not be read."
+    )
+    managed: bool = Field(
+        description="True when a service manager restarts this server, which is "
+        "what lets it update itself."
+    )
+    command: str = Field(
+        description="The one-line install command for this OS: how an unmanaged "
+        "copy updates."
+    )
+    status: Literal["idle", "running", "succeeded", "failed"]
+    error: str | None
+    log: str | None = Field(description="The last lines of the update's output.")
+
+
 # ------------------------------------------------------------------- jobs
 
 

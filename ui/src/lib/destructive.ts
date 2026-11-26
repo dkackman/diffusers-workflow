@@ -197,6 +197,14 @@ export function serverConfirm(spec: ServerSpec): ConfirmSpec {
   return { ...spec, danger: false }
 }
 
+/** Updating dw itself: the server restarts, so the page goes quiet briefly */
+export const UPDATE_DW_CONFIRM: ConfirmSpec = serverConfirm({
+  title: 'Update dw?',
+  message:
+    "This upgrades dw in the server's Python environment, moves diffusers to GitHub main, and restarts the server. The page reconnects when it is back.",
+  confirmLabel: 'Update dw',
+})
+
 /** Deleting a repo from the hub cache: its size, and that it comes back */
 export function modelDeleteConfirm(repoId: string, gb: string): ConfirmSpec {
   return serverConfirm({

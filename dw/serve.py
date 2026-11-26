@@ -386,21 +386,31 @@ def run(config):
         # would otherwise hold this line back until shutdown
         flush=True,
     )
-    uvicorn.run(
-        app,
-        host=config.host,
-        port=config.port,
-        log_level=config.log_level.lower(),
-        # a streamable-HTTP MCP client left connected otherwise holds SIGTERM
-        # off indefinitely (#477); a few seconds still lets lifespan cleanup run
-        timeout_graceful_shutdown=5,
-    )
+    from .server.self_update import restart_requested
+
+    try:
+        uvicorn.run(
+            app,
+            host=config.host,
+            port=config.port,
+            log_level=config.log_level.lower(),
+            # a streamable-HTTP MCP client left connected otherwise holds SIGTERM
+            # off indefinitely (#477); a few seconds still lets lifespan cleanup run
+            timeout_graceful_shutdown=5,
+        )
+    except KeyboardInterrupt:
+        # uvicorn re-raises the SIGINT that stopped it once its shutdown has
+        # run. An update asked for that stop; Ctrl-C did not.
+        if restart_requested() is None:
+            raise
+    # The update's exit code, so the service manager restarts the server
+    return restart_requested()
 
 
 def main():
     args = build_parser().parse_args()
-    run(configure_environment(args))
+    return run(configure_environment(args))
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

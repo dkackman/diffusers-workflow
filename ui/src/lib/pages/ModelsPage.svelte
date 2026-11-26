@@ -17,7 +17,11 @@
   } from '@lucide/svelte'
   import { api } from '../api'
   import { action } from '../action.svelte'
-  import { modelDeleteConfirm, UPDATE_DIFFUSERS_CONFIRM } from '../destructive'
+  import {
+    modelDeleteConfirm,
+    UPDATE_DIFFUSERS_CONFIRM,
+    UPDATE_DW_CONFIRM,
+  } from '../destructive'
   import CopyButton from '../CopyButton.svelte'
   import LastUsedCell, { LAST_USED_TIP } from '../LastUsedCell.svelte'
   import type { ModelDownload, ModelRepo } from '../types'
@@ -56,6 +60,36 @@
   const diffusers = $derived(diffusersRead.data)
   // Polled while pip runs so the badge flips when it finishes
   const updating = $derived(diffusers?.status === 'running')
+
+  // dw itself: an installed copy updates in place and restarts; any other
+  // server shows the command that does it
+  const dwRead = resource(() => api.dwStatus(), {
+    watch: ['models'],
+    alsoLive: (): number | null => (dwUpdating ? 2000 : null),
+  })
+  const dw = $derived(dwRead.data)
+  const dwUpdating = $derived(dw?.status === 'running')
+  // Release versions, with a pre-release (0.23.0-alpha.1) older than its release
+  function isNewer(latest: string, current: string): boolean {
+    const nums = (v: string) =>
+      (v.match(/^\d+(?:\.\d+)*/)?.[0] ?? '0').split('.').map(Number)
+    const a = nums(latest)
+    const b = nums(current)
+    for (let i = 0; i < Math.max(a.length, b.length); i++) {
+      const d = (a[i] ?? 0) - (b[i] ?? 0)
+      if (d !== 0) return d > 0
+    }
+    return /[a-z]/i.test(current) && !/[a-z]/i.test(latest)
+  }
+  const dwNewer = $derived(!!dw?.latest && isNewer(dw.latest, dw.version))
+
+  const updateDw = action(
+    async () => {
+      await api.updateDw()
+      await dwRead.reload()
+    },
+    { doing: 'start the dw update', confirm: () => UPDATE_DW_CONFIRM },
+  )
 
   const update = action(
     async () => {
@@ -192,6 +226,48 @@
           {:else if diffusers.status === 'succeeded'}
             <span class="updated">updated - the next job uses it</span>
           {/if}
+        {/if}
+      </div>
+    {/if}
+  </LoadState>
+
+  <LoadState of={dwRead} label="the dw version" quiet>
+    {#if dw}
+      <div class="engine">
+        <span class="enginename">dw</span>
+        <code>{dw.version}</code>
+        {#if dwUpdating}
+          <span class="muted busy">
+            <RefreshCw size={14} class="spin" />updating - the server restarts
+            when it is done…
+          </span>
+        {:else if dw.managed}
+          {#if dwNewer}
+            <button
+              class="quiet withicon"
+              onclick={() => updateDw.run()}
+              disabled={updateDw.busy}
+              title="upgrade dw to {dw.latest} and move diffusers to GitHub main, then restart the server"
+            >
+              <RefreshCw size={14} />Update dw
+            </button>
+            <span class="muted">{dw.latest} is available</span>
+          {:else if dw.latest}
+            <span class="muted">up to date</span>
+          {/if}
+          {#if dw.status === 'failed'}
+            <span class="bad" title={dw.log ?? ''}>
+              update failed: {dw.error} (hover for the output)
+            </span>
+          {/if}
+        {:else}
+          <span class="muted">
+            {dwNewer
+              ? `${dw.latest} is available - update with`
+              : 'update with'}
+          </span>
+          <code>{dw.command}</code>
+          <CopyButton text={dw.command} title="copy the update command" />
         {/if}
       </div>
     {/if}

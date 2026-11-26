@@ -7,6 +7,7 @@ import type {
   ClassList,
   Deleted,
   DiffusersStatus,
+  DwUpdateState,
   DiskCacheCleared,
   DiskCacheEntryDeleted,
   DiskCacheList,
@@ -270,6 +271,9 @@ export const api = {
     request<DiffusersStatus>('/api/system/diffusers/update', {
       method: 'POST',
     }),
+  dwStatus: () => request<DwUpdateState>('/api/system/dw'),
+  updateDw: () =>
+    request<DwUpdateState>('/api/system/dw/update', { method: 'POST' }),
   health: () => request<HealthInfo>('/api/health'),
   server: () => request<ServerInfo>('/api/server'),
   /** dw's own disk caches (dw/disk_caches.py) - Inductor's and Triton's

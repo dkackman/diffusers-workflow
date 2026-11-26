@@ -32,6 +32,7 @@ from .netinfo import LOOPBACK_HOSTS, WILDCARD_HOSTS
 from .observed_cost import ObservedCosts
 from .outputs import MEDIA_KINDS, RAW_MEDIA_EXTENSIONS
 from .routes import include_file_routes, include_routers
+from .self_update import DwUpdater
 from .updater import DiffusersUpdater
 
 logger = logging.getLogger("dw")
@@ -201,6 +202,7 @@ def create_app(
     ui_dir=None,
     download_manager=None,
     diffusers_updater=None,
+    dw_updater=None,
     prompt_dir="./prompts",
     asset_dir=None,
     examples_dirs=None,
@@ -278,6 +280,7 @@ def create_app(
     )
     app.state.downloads.changes = app.state.changes
     app.state.updater.changes = app.state.changes
+    app.state.dw_updater = dw_updater or DwUpdater()
     # Before install_middleware: outside its streams, GZip ignores minimum_size
     app.add_middleware(_compress)
     install_middleware(app)

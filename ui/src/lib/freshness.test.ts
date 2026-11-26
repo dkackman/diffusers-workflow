@@ -79,6 +79,7 @@ const PAGE_TABLE: Record<string, Freshness[]> = {
     { watch: ['models'] },
     { watch: ['models'], alsoLive: true },
     { watch: ['models'], alsoLive: true },
+    { watch: ['models'], alsoLive: true },
   ],
   'pages/OverviewPage.svelte': [
     { watch: ['gallery'] },
