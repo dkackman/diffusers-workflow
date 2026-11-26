@@ -98,10 +98,7 @@ async function send(
   // accepted since: it must not lock the app again
   if (response.status !== 401 || getApiToken() === token)
     reportResponse(response.status)
-  const cached = /max-age=[1-9]/.test(
-    response.headers?.get('cache-control') ?? '',
-  )
-  if (!cached) reportServerDate(response.headers?.get('date') ?? null)
+  reportServerDate(response.headers)
   if (!response.ok) throw await refusal(response)
   return response
 }

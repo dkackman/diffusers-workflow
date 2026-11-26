@@ -95,13 +95,19 @@ it('takes the server clock from Date, ignoring second-sized noise', async () => 
   try {
     const { reportServerDate, serverNow } = await import('./connection.svelte')
     const off = () => serverNow() - Date.now() / 1000
-    const dated = (s: number) => new Date(Date.now() + s * 1000).toUTCString()
+    const dated = (s: number, cache = 'no-cache') =>
+      new Headers({
+        date: new Date(Date.now() + s * 1000).toUTCString(),
+        'cache-control': cache,
+      })
     reportServerDate(dated(-1))
     expect(off()).toBe(0)
     reportServerDate(dated(-30))
     expect(off()).toBe(-29.5)
-    reportServerDate(null)
-    reportServerDate('not a date')
+    reportServerDate(undefined)
+    reportServerDate(new Headers())
+    reportServerDate(new Headers({ date: 'not a date' }))
+    reportServerDate(dated(-300, 'public, max-age=31536000, immutable'))
     expect(off()).toBe(-29.5)
     reportServerDate(dated(0))
     expect(off()).toBe(0)
