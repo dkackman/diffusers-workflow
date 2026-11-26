@@ -19,7 +19,7 @@
   } from '../outputlib.svelte'
   import { ASSET, OUTPUT, reference, referenceName } from '../references'
   import { kindWithArticle } from '../referenceField'
-  import { matchesWords } from './suggest'
+  import { matchWords } from '../matchWords'
   import { compareNames } from '../names'
   import type { AssetFile } from '../types'
   import { workspace } from '../workspace.svelte'
@@ -94,7 +94,7 @@
   // workspace's own comes first
   const assetSections = $derived.by((): Section[] => {
     const matching = (assetLibrary.items ?? []).filter(
-      (asset) => fits(asset.kind) && matchesWords(query, asset.name),
+      (asset) => fits(asset.kind) && matchWords(query, asset.name),
     )
     return ORDER.map((origin) => ({
       key: origin,
@@ -116,7 +116,7 @@
   // (the listing is newest first, so first seen is newest)
   const outputSections = $derived.by((): Section[] => {
     const matching = (outputLibrary.items ?? []).filter(
-      (file) => fits(file.kind) && matchesWords(query, file.name, file.label),
+      (file) => fits(file.kind) && matchWords(query, file.name, file.label),
     )
     const folders = [...new Set(matching.map((file) => file.folder))]
     // A latest name marks the newest file it would resolve to

@@ -7,7 +7,8 @@ import { leafName } from './names'
 import { formatMtime } from './format'
 import type { AssetFile, GalleryFile } from './types'
 import { workspace } from './workspace.svelte'
-import { matchesWords, type SuggestItem } from './ui/suggest'
+import { matchWords } from './matchWords'
+import type { SuggestItem } from './ui/suggest'
 
 // How much of a prompt's text a row shows: enough to recognize it by
 const DETAIL_CHARS = 90
@@ -62,7 +63,7 @@ export function promptChoices(query: string): SuggestItem[] {
   const names = promptLibrary.names ?? []
   const found = names
     .filter((name) =>
-      matchesWords(
+      matchWords(
         query,
         name,
         promptLibrary.texts[name] ?? '',
@@ -87,7 +88,7 @@ export function assetChoices(
   ensureAssetLibrary()
   const found = (assetLibrary.items ?? []).filter(
     (asset) =>
-      (!kind || asset.kind === kind) && matchesWords(query, asset.name),
+      (!kind || asset.kind === kind) && matchWords(query, asset.name),
   )
   return ranked(found, query).map((asset) => ({
     value: asset.name,
@@ -121,7 +122,7 @@ export function outputChoices(
   const found = (outputLibrary.items ?? []).filter(
     (file) =>
       (!kind || file.kind === kind) &&
-      matchesWords(query, file.name, file.label),
+      matchWords(query, file.name, file.label),
   )
   return ranked(found, query, true).map((file) => outputRow(file))
 }

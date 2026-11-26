@@ -11,7 +11,16 @@ it('matches part of a word, but never across two fields', () => {
   expect(matchWords('redfox', 'red', 'fox')).toBe(false)
 })
 
+it('takes the words in either order and ignores extra spaces', () => {
+  expect(matchWords('red car', 'a car, red')).toBe(true)
+  expect(matchWords('car red', 'a red car')).toBe(true)
+  expect(matchWords('red car', 'a blue car')).toBe(false)
+  expect(matchWords('  RED  ', 'red')).toBe(true)
+  expect(matchWords('red \t  car', 'red car')).toBe(true)
+})
+
 it('matches everything on a blank query, and skips absent fields', () => {
+  expect(matchWords('', 'fox')).toBe(true)
   expect(matchWords('  ')).toBe(true)
   expect(matchWords('fox', undefined, null, 'fox')).toBe(true)
   expect(matchWords('null', null)).toBe(false)

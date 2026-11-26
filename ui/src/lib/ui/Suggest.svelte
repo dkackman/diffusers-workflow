@@ -3,6 +3,7 @@
   import { portalTarget } from './layers.svelte'
   import OutputTile from './OutputTile.svelte'
   import type { SuggestItem } from './suggest'
+  import { matchWords } from '../matchWords'
 
   let {
     value = $bindable(''),
@@ -40,9 +41,8 @@
   function matching(text: string): SuggestItem[] {
     const completed = complete?.(text) ?? []
     const offered = new Set(completed.map((item) => item.value))
-    const query = text.toLowerCase()
     const plain = suggestions
-      .filter((s) => !offered.has(s) && s.toLowerCase().includes(query))
+      .filter((s) => !offered.has(s) && matchWords(text, s))
       .map((value) => ({ value }))
     return [...completed, ...plain].slice(0, MAX_SHOWN)
   }
