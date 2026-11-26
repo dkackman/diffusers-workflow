@@ -4,3 +4,5 @@
 # A later refactor lists the files it is restructuring here while it runs.
 # The harness must never edit its own ruler, so this entry is permanent.
 scripts/arch_metrics.py
+# The UI ruler is the same kind of entry (#1689 Q9), added last on #1714.
+ui/scripts/arch-metrics.mjs
