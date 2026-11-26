@@ -80,7 +80,8 @@ def _blob_dir_size(blob_dir):
                 except OSError:
                     # A blob renamed or published mid-scan is not a fault
                     continue
-    except FileNotFoundError:
+    except OSError:
+        # No directory yet, or one that cannot be read: nothing to count
         return 0
     return total
 
@@ -218,12 +219,18 @@ class DownloadWatch:
             return max(self._transferred, self._written)
 
     def __enter__(self):
+        # What is already cached is measured here, before the load can write:
+        # the thread may not be scheduled until bytes have landed (#1734)
+        baseline = _blob_dir_size(self._blob_dir)
         with _lock:
             if not _active:
                 _install_hooks()
             _active.append(self)
         self._thread = threading.Thread(
-            target=self._run, daemon=True, name="dw-download-watch"
+            target=self._run,
+            args=(baseline,),
+            daemon=True,
+            name="dw-download-watch",
         )
         self._thread.start()
         return self
@@ -248,8 +255,7 @@ class DownloadWatch:
             raise WorkflowCancelled("Workflow run was cancelled") from exc
         return False
 
-    def _run(self):
-        baseline = _blob_dir_size(self._blob_dir)
+    def _run(self, baseline):
         disk_high_water = 0
         downloaded = 0
         emitted = 0
