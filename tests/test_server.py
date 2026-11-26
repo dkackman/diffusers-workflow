@@ -4487,6 +4487,88 @@ class TestDiffusersUpdate:
         assert calls == [{"commit": None, "revert": True}]
 
 
+class TestDwLatestLookup:
+    """#1743: GET /api/system/dw through the real latest_version, with only
+    the PyPI fetch stubbed. A slow upstream never makes a second read wait."""
+
+    @staticmethod
+    def make_client(tmp_path):
+        from dw.server.self_update import DwUpdater
+
+        app = create_app(
+            workflow_dir=str(tmp_path),
+            output_dir=str(tmp_path / "outputs"),
+            job_manager=JobManager(
+                str(tmp_path / "outputs"),
+                worker_manager=ScriptedWorkerManager(success_script),
+                history_path=str(tmp_path / "jobs.sqlite"),
+            ),
+            dw_updater=DwUpdater(run_fn=lambda: None, exit_fn=lambda c: None, delay=0),
+            managed=True,
+        )
+        return TestClient(app, base_url="http://localhost")
+
+    @pytest.fixture(autouse=True)
+    def fresh_cache(self):
+        from dw.server import self_update
+
+        self_update.forget_latest()
+        yield
+        self_update.forget_latest()
+
+    def test_a_second_read_does_not_wait_on_a_blocked_fetch(
+        self, tmp_path, monkeypatch
+    ):
+        import threading
+        import time
+
+        from dw.server import self_update
+
+        entered, release = threading.Event(), threading.Event()
+        calls = []
+
+        def fetch(url, timeout):
+            calls.append(url)
+            if len(calls) == 1:
+                entered.set()
+                release.wait(10)
+            return {"info": {"version": "7.0.0"}}
+
+        monkeypatch.setattr(self_update, "_fetch_pypi", fetch)
+        responses = {}
+        with self.make_client(tmp_path) as client:
+            first = threading.Thread(
+                target=lambda: responses.update(first=client.get("/api/system/dw"))
+            )
+            first.start()
+            try:
+                assert entered.wait(5)
+                started = time.monotonic()
+                second = client.get("/api/system/dw")
+                elapsed = time.monotonic() - started
+            finally:
+                release.set()
+                first.join(5)
+        assert second.status_code == 200 and elapsed < 1
+        assert second.json()["latest"] == "7.0.0"
+        assert responses["first"].status_code == 200
+        assert responses["first"].json()["latest"] == "7.0.0"
+
+    def test_offline_answers_latest_null(self, tmp_path, monkeypatch):
+        from dw.server import self_update
+
+        def offline(url, timeout):
+            raise OSError("offline")
+
+        monkeypatch.setattr(self_update, "_fetch_pypi", offline)
+        with self.make_client(tmp_path) as client:
+            r = client.get("/api/system/dw")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["latest"] is None and body["version"]
+        assert body["status"] == "idle"
+
+
 class TestDwUpdate:
     """The Update dw routes: managed servers update themselves, an unmanaged
     one is told the install command. The exit is injected, so nothing stops."""
