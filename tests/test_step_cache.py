@@ -935,6 +935,9 @@ TEMPLATE_PIPELINE_KEYS = {
     "prompt-weighting.json": {
         "txt2img": "745df144eb83ac12caa01de34dc7238b8595b28b70db7c960f4d1c0366b2f2f4"
     },
+    "qwen/transparent.json": {
+        "main": "ccf1f3dcbc544e882885bddcc983995af6585d4d15231099fcdbe8b68cb59b06"
+    },
     "qr-code.json": {
         "main": "f52e468931a9e9d546696cb9fccc365e7347b47e07730470b7a3ac419722fce5"
     },

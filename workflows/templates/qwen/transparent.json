@@ -1,0 +1,77 @@
+{
+    "id": "QwenImage21Transparent",
+    "description": "A transparent-background PNG of one subject, from Qwen-Image-2.1's native RGBA output. The subject is wrapped in the vendor's alpha prompt (This is an RGBA image with transparency. <subject>. The image has alpha channel and the background is transparent.) by a compose_text step, so give it without a trailing period. The result stays image/png: a jpeg result would flatten the alpha onto white. 40 steps at 1024x1024, half the base's 2K, suits a cut-out; width and height must be multiples of 32. Qwen Research License: non-commercial use only.",
+    "cost_drivers": [
+        "num_inference_steps",
+        "width",
+        "height"
+    ],
+    "variables": {
+        "subject": "a red apple with a green leaf",
+        "num_inference_steps": 40,
+        "width": 1024,
+        "height": 1024,
+        "seed": null
+    },
+    "variable_constraints": {
+        "width": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "Qwen-Image-2.1 rounds width/height down to a multiple of 32 (vae_scale_factor * 2), so an off-grid value would be silently shrunk - refused here instead"
+        },
+        "height": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "Qwen-Image-2.1 rounds width/height down to a multiple of 32 (vae_scale_factor * 2), so an off-grid value would be silently shrunk - refused here instead"
+        }
+    },
+    "seed": "variable:seed",
+    "steps": [
+        {
+            "name": "wrap",
+            "task": {
+                "command": "compose_text",
+                "arguments": {
+                    "parts": [
+                        "This is an RGBA image with transparency. ",
+                        "variable:subject",
+                        ". The image has alpha channel and the background is transparent."
+                    ],
+                    "separator": ""
+                }
+            },
+            "result": {
+                "content_type": "text/plain",
+                "save": false
+            }
+        },
+        {
+            "name": "main",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "QwenImage21Pipeline",
+                    "offload": "model",
+                    "vae": {
+                        "enable_slicing": true,
+                        "enable_tiling": true
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "Qwen/Qwen-Image-2.1",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "arguments": {
+                    "prompt": "previous_result:wrap",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "width": "variable:width",
+                    "height": "variable:height"
+                }
+            },
+            "result": {
+                "content_type": "image/png",
+                "embed_metadata": true,
+                "subfolder": "final"
+            }
+        }
+    ]
+}
