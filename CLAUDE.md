@@ -18,9 +18,13 @@ dw setup    # service + Claude registrations (docs/INSTALL.md); checkout: venv/b
 dw agent    # Claude Code with the dw-notes channel
 
 # Run a workflow - dw.run only queues the job on a running dw.serve. This
-# template uses a small, ungated model, so it needs no Hugging Face login
+# template is the SD 1.5 smoke test: small and ungated, so it needs no Hugging
+# Face login. It proves the engine works; it is not the default picture
 python -m dw.run workflows/templates/text-to-image.json
 python -m dw.run workflows/templates/text-to-image.json prompt="a cat" num_images_per_prompt=4
+
+# A picture on the model this server prefers (preference:text_to_image), by tier
+python -m dw.run workflows/templates/preferred/text-to-image.json prompt="a cat" tier=best
 
 # A gated model (workflows/models/flux-dev.json) needs `hf auth login` first
 
@@ -31,7 +35,7 @@ python -m dw.validate workflows/models/z-image.json
 pytest tests/ -v
 pytest tests/test_security.py -v
 
-# System test - downloads SD 1.5 (a few GB) and generates one image
+# System test (the smoke test) - downloads SD 1.5 (a few GB) and generates one image
 python -m dw.test
 ```
 
@@ -75,7 +79,8 @@ The guides in `docs/`, by topic:
 states the family's hard rules, plus cross-cutting composition skills (`script-to-video`, `series-episodes`, `cinematography`,
 `storyboard`, `long-form`) - shapes above the families that orchestrate the decision trees, cast consistency across multiple
 generations, one camera-and-look vocabulary compiled per family, boards and a timed animatic before video, and the measured playbook
-for pieces longer than one clip. Every skill the directory holds is named in `plugins/dw/README.md` and here, pinned by
+for pieces longer than one clip - and `choosing-a-model`, for a request that names no family, workflow or model: it routes to the
+server's `preference:` ladder (`templates/preferred/text-to-image`) and keeps SD 1.5 for smoke tests. Every skill the directory holds is named in `plugins/dw/README.md` and here, pinned by
 `tests/test_plugin_skills.py`; that README says how the rest is pinned and versioned.
 
 ## Security Rules

@@ -140,11 +140,12 @@ SERVER_FIRST_SKILLS = [
 ]
 
 
-def test_ten_skills_start_at_get_server_info():
+def test_eleven_skills_start_at_get_server_info():
     """Every skill but cinematography, which makes no server call. A skill
-    added without the first step, or with it, moves this count on purpose."""
+    added without the first step, or with it, moves this count on purpose
+    (choosing-a-model, #1724, made it eleven)."""
     names = sorted(os.path.basename(os.path.dirname(p)) for p in SERVER_FIRST_SKILLS)
-    assert len(names) == 10, names
+    assert len(names) == 11, names
     assert "cinematography" not in names
 
 
@@ -2915,12 +2916,14 @@ class TestSkillRequests:
 
 
 AGENT_RULES = os.path.join(REPO_ROOT, "docs", "AGENT_RULES.md")
+CHOOSING_SKILL = os.path.join(PLUGIN_DIR, "skills", "choosing-a-model", "SKILL.md")
 
 # Each agent-rules section and the skill whose rules it copies (#1547).
 AGENT_RULES_SKILLS = {
     "FLUX 3 Klein": FLUX3_SKILL,
     "MiniMax H3": H3_SKILL,
     "Longer than one clip": LONG_FORM_SKILL,
+    "Choosing a model": CHOOSING_SKILL,
 }
 
 # A rule's load-bearing words, which both copies must hold verbatim.
@@ -2957,6 +2960,17 @@ AGENT_RULES_PINS = {
         "768x448",
         '`assess_output(probe="analyze_seams")`',
         "`get_output_frames(seams=true)`",
+    ],
+    "Choosing a model": [
+        "A named family, workflow or model wins over the preference",
+        'A "does it work" ask is the smoke test',
+        "`templates/text-to-image`",
+        "It is not the default picture",
+        "`templates/preferred/text-to-image`",
+        "`preference:text_to_image`",
+        "Pass the tier the user asked for.",
+        "If they asked for none, pass none, so the store's default applies.",
+        "`arguments.tier`",
     ],
 }
 

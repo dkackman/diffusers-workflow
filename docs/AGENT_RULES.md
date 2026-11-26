@@ -1,7 +1,8 @@
 # Agent rules
 
-Hard rules per model family, and for pieces longer than one clip, for an MCP
-client that has no dw plugin loaded. Claude Code with the `dw` plugin gets
+Hard rules per model family, for pieces longer than one clip, and for
+choosing a model when the user names none, for an MCP client that has no dw
+plugin loaded. Claude Code with the `dw` plugin gets
 these from its composition skills; any other client gets them here. Read the
 section for the family you are about to run, before you write a prompt or
 pick a template.
@@ -82,3 +83,22 @@ The Claude Code skill `long-form` carries the same rules, with their evidence.
 - Judge the result: listen with `get_output_audio`, and check the seams with
   `assess_output(probe="analyze_seams")` and `get_output_frames(seams=true)`.
   The mechanics are in get_guide("workflows", section="Chained Video Generation").
+
+## Choosing a model
+
+The Claude Code skill `choosing-a-model` carries the same rules.
+
+- A named family, workflow or model wins over the preference: run that, and
+  don't swap it for the preferred one.
+- A "does it work" ask is the smoke test: `templates/text-to-image`, the
+  SD 1.5 baseline. It is not the default picture.
+- A picture request that names no model runs
+  `templates/preferred/text-to-image`, which composes
+  `preference:text_to_image`. Use the matching `preference:` key for the task.
+- `tier` is `draft`, `standard` or `best`. Pass the tier the user asked for.
+  If they asked for none, pass none, so the store's default applies. An
+  unknown tier is refused at `arguments.tier`.
+- Before spending, read the resolution line in `validate_workflow`'s
+  `plan.preferences`, `preference:text_to_image (tier standard) -> <workflow>`:
+  the workflow after `->` is what will run on this host. Tell the user which
+  model that is.

@@ -118,8 +118,9 @@ GUIDES = {
     ),
     "agent-rules": (
         "AGENT_RULES.md",
-        "Hard rules per model family and for pieces longer than one clip, for "
-        "a client without the dw plugin.",
+        "Hard rules per model family, for pieces longer than one clip and for "
+        "choosing a model when the user names none, for a client without the "
+        "dw plugin.",
     ),
 }
 

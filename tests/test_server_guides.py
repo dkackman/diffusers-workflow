@@ -556,13 +556,15 @@ class TestAgentRules:
             g for g in guides.list_guides()["guides"] if g["name"] == "agent-rules"
         )
         assert listed["summary"] == (
-            "Hard rules per model family and for pieces longer than one clip, "
-            "for a client without the dw plugin."
+            "Hard rules per model family, for pieces longer than one clip and "
+            "for choosing a model when the user names none, for a client "
+            "without the dw plugin."
         )
         assert listed["sections"] == [
             "FLUX 3 Klein",
             "MiniMax H3",
             "Longer than one clip",
+            "Choosing a model",
         ]
 
     def test_a_section_matches_loosely(self):

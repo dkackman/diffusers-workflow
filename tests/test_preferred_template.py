@@ -19,7 +19,9 @@ from dw.workflow import workflow_from_file
 
 from tests.test_examples import REPO_ROOT
 
-PATH = os.path.join(REPO_ROOT, "workflows", "templates", "preferred", "text-to-image.json")
+PATH = os.path.join(
+    REPO_ROOT, "workflows", "templates", "preferred", "text-to-image.json"
+)
 
 
 @pytest.fixture
@@ -78,10 +80,14 @@ def test_standard_is_the_default_and_its_plan_line_names_the_target(
     tmp_path, cuda_session
 ):
     flow = workflow(tmp_path)
-    assert flow.expanded_definition()["steps"][0]["workflow"]["path"] == "models/z-image"
+    assert (
+        flow.expanded_definition()["steps"][0]["workflow"]["path"] == "models/z-image"
+    )
     lines = flow.preference_lines()
     assert len(lines) == 1
-    assert lines[0].startswith("preference:text_to_image (tier standard) -> models/z-image")
+    assert lines[0].startswith(
+        "preference:text_to_image (tier standard) -> models/z-image"
+    )
 
 
 def test_draft_resolves_the_sd15_baseline_at_its_native_size(tmp_path, cuda_session):
