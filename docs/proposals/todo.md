@@ -1015,6 +1015,13 @@ remaining deferred fix is recorded in
   marginally better. The `temporal_denoise` task (#1750) was not built; a
   locked-off shot or a lower strength would reopen it:
   `complete/temporal-flicker-probe-complete.md`.
+- **Request close handshake** (#1604, stages #1716-#1717), shipped
+  2026-11-26. Only a user write closes a request. An agent's `done` or
+  `abandoned` is refused `close_needs_user`, and the agent proposes through
+  `set_request(propose_close=...)`. The request page shows the proposal with
+  Close and Keep open, and the list tags it. The re-proposal gate and a decline
+  event are left out, each with its trigger:
+  `complete/request-close-handshake-complete.md`.
 
 ## Declined
 
