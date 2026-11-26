@@ -315,3 +315,44 @@ class TestRefusalsNameTheBed:
         assert message.startswith("Step 'render': hold_audio is a MiniMax-H3")
         assert message.count("Step '") == 1
         assert "vendor/model" not in message
+
+    @pytest.mark.parametrize(
+        "chain, artifacts, says",
+        [
+            (
+                {"lines": "previous_result:script"},
+                ["not a list"],
+                "Chain 'lines' reference",
+            ),
+            (
+                {"keystone_images": "previous_result:script"},
+                [],
+                "Chain 'keystone_images' reference",
+            ),
+        ],
+    )
+    def test_a_bad_chain_list_reference_is_labelled_once_with_the_step_name(
+        self, monkeypatch, chain, artifacts, says
+    ):
+        # resolve_chain_lists runs inside the step (dw/step.py), so run_step
+        # labels it; the step action's own name is the model's, not the step's
+        from types import SimpleNamespace
+
+        from dw import workflow_run
+        from dw.previous_results import resolve_chain_lists
+
+        action = SimpleNamespace(
+            name="vendor/model", pipeline_definition={"chain": chain}
+        )
+        results = {"script": SimpleNamespace(get_artifacts=lambda: artifacts)}
+
+        def refuse(*args, **kwargs):
+            resolve_chain_lists(action, results)
+
+        monkeypatch.setattr(workflow_run, "_start_step", refuse)
+        with pytest.raises(ValueError) as caught:
+            workflow_run.run_step(None, None, 0, {"name": "render"}, None)
+        message = workflow_run.failed_step_label(caught.value) + str(caught.value)
+        assert message.startswith(f"Step 'render': {says}"), message
+        assert message.count("Step '") == 1
+        assert "vendor/model" not in message

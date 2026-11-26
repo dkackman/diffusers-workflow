@@ -270,9 +270,10 @@ def _resolve_chain_list(step_action, key, value, previous_results):
         )
         found = artifacts[0] if artifacts else None
         if not isinstance(found, list) or not all(isinstance(e, str) for e in found):
+            # No step label here: run_step is the one labeller, and
+            # step_action.name is the model's name, not the step's
             raise ValueError(
-                f"Step {getattr(step_action, 'name', '?')!r}: chain '{key}' "
-                f"reference '{value}' must name a list of strings, "
+                f"Chain '{key}' reference '{value}' must name a list of strings, "
                 f"got {found!r}"
             )
         return list(found)
@@ -317,8 +318,7 @@ def _resolve_image_list(step_action, value, previous_results):
             artifacts = artifacts[0]
         if not artifacts:
             raise ValueError(
-                f"Step {getattr(step_action, 'name', '?')!r}: chain "
-                f"'keystone_images' reference '{value}' produced no images"
+                f"Chain 'keystone_images' reference '{value}' produced no images"
             )
         return [_first_image(artifact) for artifact in artifacts]
     resolved = _resolve_chain_list(
