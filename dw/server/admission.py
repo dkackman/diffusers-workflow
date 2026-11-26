@@ -38,6 +38,7 @@ from ..notes import MAX_NOTE_LENGTH, NoteTooLong, clean_note
 from ..plan import build_plan
 from ..plan_pricing import list_entries
 from ..plan_downloads import repos_named
+from .. import preferences
 from ..prompts import resolve_prompt_reference
 from ..runs import (
     activate_output_root,
@@ -110,6 +111,10 @@ class Admission:
     # submit hands them to the job, which stamps them in dw/model_use.py
     # when its run starts (#1445). Empty for a refused request
     repos_named: list = field(default_factory=list)
+    # What each 'preference:' step resolved to, by pin key
+    # (dw/preferences.py) - a submit hands the map to the job, whose worker
+    # and reruns replay it rather than resolve again. Empty when none
+    preferences: dict = field(default_factory=dict)
 
     @property
     def ok(self):
@@ -142,6 +147,8 @@ def admit(
     capacity_gb=None,
     capacity_label=None,
     lora_index=None,
+    preferences_pinned=None,
+    smallest_card_gb=None,
 ):
     """Load the request's workflow once and check it once, with the
     workspace's asset library active for every check (the validate route
@@ -161,6 +168,12 @@ def admit(
     media probe cache. A check that raises is an internal finding - an
     invalid verdict for an error check, one `internal:` warning for a
     warning source, which never refuses (B10).
+
+    A 'preference:' step resolves inside the same scope, against this host
+    (`smallest_card_gb`, the pool's smallest card, else the process's own)
+    with the gated-access probe on, replaying `preferences_pinned` - a
+    rerun's pinned map - where it names a path and tier
+    (dw/preferences.py).
 
     Raises what constructing the Workflow raises (ValueError, SecurityError,
     ...) and ValidatorFailure when building the context, validation_errors'
@@ -194,6 +207,12 @@ def admit(
     output_token = (
         activate_output_root(workspace.outputs) if workspace.outputs else None
     )
+    host = preferences.default_host()
+    if smallest_card_gb:
+        host.smallest_card_gb = smallest_card_gb
+    host.gate_check = preferences.downloads_gate_check()
+    session = preferences.Session(host=host, pinned=dict(preferences_pinned or {}))
+    preference_token = preferences.activate(session)
     try:
         try:
             # Checked against the caller's arguments, not the document alone:
@@ -256,10 +275,12 @@ def admit(
         )
         if admission.ok:
             admission.repos_named = _repos_named(candidate, context)
+            admission.preferences = dict(session.resolved)
         if plan_for is not None and admission.ok:
             admission.plan = plan_for(candidate, admission.vram_need)
         return admission
     finally:
+        preferences.deactivate(preference_token)
         if output_token is not None:
             deactivate_output_root(output_token)
         if token is not None:
@@ -544,6 +565,8 @@ def admit_for(
     `catalog_name` and `history_workspace` say whose runs the fit reads, as
     `ObservedCosts.rows_for` takes them; None for an inline definition."""
     capacity_gb, capacity_label = pool_capacity(state)
+    manager = getattr(state, "job_manager", None)
+    smallest = getattr(manager, "smallest_card_gb", None)
     admission = admit(
         workspace=workspace,
         ceiling_index=ceiling_index(state, workspace),
@@ -552,6 +575,7 @@ def admit_for(
         capacity_label=capacity_label,
         asset_library=resolution_library(state, workspace),
         prompt_library=server_prompt_library(state),
+        smallest_card_gb=smallest() if callable(smallest) else None,
         **request,
     )
     if admission.ok:

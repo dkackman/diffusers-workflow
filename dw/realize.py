@@ -54,6 +54,7 @@ def realize_workflow(
     output_root=None,
     workflow_dir=None,
     pin_outputs=True,
+    preference_targets=(),
 ):
     """A copy of `definition` with every mutable input pinned.
 
@@ -78,6 +79,10 @@ def realize_workflow(
             (dw/plan.py) passes False so a run finishing between a validate
             call and the queue call does not change the fingerprint of
             identical work.
+        preference_targets: The catalog workflows the run's 'preference:'
+            steps resolved to (Workflow.preference_pins) - digested in their
+            place, since the copy keeps each step's path as written and the
+            manifest's `preferences` map says what it ran (dw/preferences.py).
 
     Returns:
         (realized, annotations) - the pinned copy, and
@@ -116,6 +121,8 @@ def realize_workflow(
         realized, annotations, base_dir, prompt_dir, output_root, pin_outputs
     )
     _record_sub_workflows(realized.get("steps"), annotations, base_dir, workflow_dir)
+    for target in preference_targets:
+        annotations["sub_workflows"][target] = _digest(target, base_dir, workflow_dir)
     return realized, annotations
 
 
@@ -245,7 +252,7 @@ def _record_sub_workflows(steps, annotations, base_dir, workflow_dir):
             if isinstance(reference, dict):
                 path = reference.get("path")
                 if isinstance(path, str) and not references.is_ref(
-                    references.BUILTIN, path
+                    (references.BUILTIN, references.PREFERENCE), path
                 ):
                     annotations["sub_workflows"][path] = _digest(
                         path, base_dir, workflow_dir

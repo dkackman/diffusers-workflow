@@ -47,7 +47,7 @@ class Execute(_Message):
     """Run the admitted snapshot (see _handle_execute)."""
 
     TYPE: ClassVar[str] = "execute"
-    OPTIONAL: ClassVar[Tuple[str, ...]] = ("asset_dir",)
+    OPTIONAL: ClassVar[Tuple[str, ...]] = ("asset_dir", "preferences")
     definition: Dict[str, Any]
     file_spec: str
     source: str
@@ -56,6 +56,9 @@ class Execute(_Message):
     arguments: Dict[str, Any]
     log_level: str
     asset_dir: Optional[str] = None
+    # Admission's pinned 'preference:' resolutions, by pin key - the run
+    # replays them rather than resolving again (dw/preferences.py)
+    preferences: Optional[Dict[str, Any]] = None
 
 
 @dataclass(frozen=True)

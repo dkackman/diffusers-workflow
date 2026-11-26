@@ -223,6 +223,7 @@ def submit_job(
             vram_need=admission.vram_need,
             host_ram_need=admission.host_ram_need,
             repos_named=admission.repos_named,
+            preferences=admission.preferences,
             note=note,
             request=request.request,
             item=request.item,
@@ -462,6 +463,8 @@ def _admit_rerun(state, spec, arguments, *, with_plan):
         base_dir=spec.get("base_dir"),
         output_dir=spec.get("output_dir") or manager.output_dir,
         workflow_dir=spec.get("workflow_dir") or manager.workflow_dir,
+        # The original's resolutions, replayed for the tier it ran at
+        preferences_pinned=spec.get("preferences"),
         plan_for=(
             bound_plan_for(
                 state,
@@ -554,6 +557,7 @@ def rerun_job(request: Request, job_id: str, body: RerunRequest = RerunRequest()
             vram_need=admission.vram_need,
             host_ram_need=admission.host_ram_need,
             repos_named=admission.repos_named,
+            preferences=admission.preferences,
         )
         if job is None:
             raise HTTPException(status_code=404, detail="Unknown job")

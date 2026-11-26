@@ -984,6 +984,7 @@ def enhance(
             vram_need=admission.vram_need,
             host_ram_need=admission.host_ram_need,
             repos_named=admission.repos_named,
+            preferences=admission.preferences,
         )
         return manager.describe(job)
     except Exception:

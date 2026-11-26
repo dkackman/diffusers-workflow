@@ -98,6 +98,7 @@ class Reruns:
         vram_need=None,
         host_ram_need=None,
         repos_named=None,
+        preferences=None,
         overrides=None,
     ):
         """Queue a fresh job from a previous job's spec.
@@ -162,6 +163,7 @@ class Reruns:
             vram_need=vram_need,
             host_ram_need=host_ram_need,
             repos_named=repos_named,
+            preferences=preferences,
             preferred_device=self._original_device(job_id),
             note=spec.get("note"),
             rerun_of=job_id,
@@ -293,6 +295,7 @@ class Reruns:
                         vram_need=admission.vram_need,
                         host_ram_need=admission.host_ram_need,
                         repos_named=admission.repos_named,
+                        preferences=admission.preferences,
                     )
                 except Exception as e:
                     logger.warning(f"Batch rerun of {member_id} failed: {e}")

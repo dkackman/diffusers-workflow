@@ -13,6 +13,8 @@ export const ITEM = 'item:'
 export const GATHER = 'gather:'
 export const BUILTIN = 'builtin:'
 export const CONSTRAINT = 'constraint:'
+// A sub-workflow path naming a model preference (dw/preferences.py)
+export const PREFERENCE = 'preference:'
 // Not a workflow reference, so not in PREFIXES: names a workspace as a note
 // target (PUT /api/notes)
 export const WORKSPACE = 'workspace:'
@@ -28,6 +30,7 @@ export const PREFIXES = [
   GATHER,
   BUILTIN,
   CONSTRAINT,
+  PREFERENCE,
 ] as const
 
 /** The characters a variable name may hold after its first letter or `_`:

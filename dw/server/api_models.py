@@ -703,6 +703,11 @@ class JobDetail(JobSummary):
         "shared + device-mapped pages), the figure the host-RAM gate projects "
         "from; null until a reading lands.",
     )
+    preferences: dict[str, Any] = sometimes(
+        "What each 'preference:<key>' sub-workflow step resolved to, keyed "
+        "'<path>@<tier>': {target, arguments, skipped: [{workflow, reason}], "
+        "source}. A rerun replays it; only on a job that resolved one."
+    )
     output_kinds: dict[str, OutputKind | None] = sometimes(
         "Each output file's kind; null for a kind the gallery does not "
         "show. On GET /api/jobs/{id} only."

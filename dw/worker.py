@@ -19,6 +19,7 @@ from dw import workflow_run
 from dw.workflow import workflow_from_snapshot
 from dw.step_cache import step_cache
 from dw.assets import activate_asset_dir, asset_library, deactivate_asset_dir
+from dw import preferences
 from dw.path_redaction import redact_event, redact_paths
 from dw.log_setup import setup_logging, set_log_level
 from dw.settings import load_settings, resolve_path
@@ -110,6 +111,7 @@ class _Job:
     workflow: Any = None
     context: Optional[RunContext] = None
     asset_token: Any = None
+    preference_token: Any = None
     baseline_peak_rss_mb: Optional[float] = None
     job_peak_rss_mb: Optional[float] = None
 
@@ -337,6 +339,8 @@ class WorkflowWorker:
                 logger.error("CUDA context is poisoned - worker will restart")
                 self.pending_shutdown = True
         finally:
+            if job.preference_token is not None:
+                preferences.deactivate(job.preference_token)
             if job.asset_token is not None:
                 deactivate_asset_dir(job.asset_token)
 
@@ -372,6 +376,11 @@ class WorkflowWorker:
             activate_asset_dir(command["asset_dir"])
             if command.get("asset_dir")
             else None
+        )
+        # The resolutions admission pinned: every 'preference:' step runs
+        # the target it was admitted with, whatever the store says now
+        job.preference_token = preferences.activate(
+            preferences.Session(pinned=dict(command.get("preferences") or {}))
         )
 
     def _prepare_workflow(self, command: Dict[str, Any], job: "_Job"):

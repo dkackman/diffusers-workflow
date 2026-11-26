@@ -265,6 +265,7 @@ def fake_admit(manager, delay=0.0):
             host_ram_need=None,
             repos_named=[],
             plan=None,
+            preferences={},
         )
         return arguments, admission
 
