@@ -4,6 +4,9 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import ReferenceField from './ReferenceField.svelte'
 import { api } from '../test/apiMock'
 import type { AssetFile } from '../types'
+import { quiet, useQuietClock } from '../test/quiet'
+
+useQuietClock()
 
 vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
 // The listings are set by hand below; a fetch never lands
@@ -78,7 +81,6 @@ async function pickFile(container: HTMLElement, file: File) {
 }
 
 const png = () => new File(['x'], 'cat.png', { type: 'image/png' })
-const tick = () => new Promise((r) => setTimeout(r, 0))
 
 it('revokes the local preview blob URL when the component is destroyed', async () => {
   const createObjectURL = vi.fn(() => 'blob:preview-1')
@@ -90,7 +92,7 @@ it('revokes the local preview blob URL when the component is destroyed', async (
 
   const { container, unmount } = field()
   await pickFile(container, png())
-  await tick()
+  await quiet()
 
   expect(createObjectURL).toHaveBeenCalledTimes(1)
   expect(revokeObjectURL).not.toHaveBeenCalled()
@@ -171,7 +173,7 @@ it('a skipped upload keeps the field value and the preview, and says so', async 
   const onchange = vi.fn()
   const { container } = field({ value: 'asset:cast/priya.png', onchange })
   await pickFile(container, png())
-  await tick()
+  await quiet()
   expect(onchange).not.toHaveBeenCalled()
   expect(notifySuccess).toHaveBeenCalledWith('Skipped 1 existing file: cat.png')
   expect(revokeObjectURL).toHaveBeenCalledWith('blob:p-1')
@@ -190,7 +192,7 @@ it('a finished upload writes its reference into the field', async () => {
   const onchange = vi.fn()
   const { container } = field({ onchange })
   await pickFile(container, png())
-  await tick()
+  await quiet()
   expect(onchange).toHaveBeenCalledWith('asset:uploads/cat.png')
 })
 
@@ -202,7 +204,7 @@ it('a reference to a missing file keeps its text and shows the glyph', async () 
   const tile = container.querySelector('.preview .filetile')
   expect(tile?.querySelector('.tile-glyph')).not.toBeNull()
   expect(container.querySelector('img')).toBeNull()
-  await tick()
+  await quiet()
   expect(onchange).not.toHaveBeenCalled()
   expect(input.value).toBe('output:shots/r9/gone.png')
 })
@@ -246,8 +248,8 @@ it('an upload that finishes after the field changed leaves it alone', async () =
   // Meanwhile the field is cleared
   await rerender({ value: '' })
   finish({ reference: 'asset:uploads/cat.png', url: '/inputs/uploads/cat.png' })
-  await tick()
-  await tick()
+  await quiet()
+  await quiet()
   expect(onchange).not.toHaveBeenCalled()
   expect(notifySuccess).toHaveBeenCalledWith(
     'The upload finished after the field changed; nothing was written.',
@@ -267,8 +269,8 @@ it('an upload that finishes while the person is typing leaves their text alone',
   const input = screen.getByRole('combobox') as HTMLInputElement
   await fireEvent.input(input, { target: { value: 'asset:mine.png' } })
   finish({ reference: 'asset:uploads/cat.png', url: '/inputs/uploads/cat.png' })
-  await tick()
-  await tick()
+  await quiet()
+  await quiet()
   expect(onchange).not.toHaveBeenCalled()
   expect(input.value).toBe('asset:mine.png')
   expect(notifySuccess).toHaveBeenCalledWith(
@@ -286,8 +288,8 @@ it('an upload that finishes after the field is gone writes nothing', async () =>
   await pickFile(container, png())
   unmount()
   finish({ reference: 'asset:uploads/cat.png', url: '/inputs/uploads/cat.png' })
-  await tick()
-  await tick()
+  await quiet()
+  await quiet()
   expect(onchange).not.toHaveBeenCalled()
   expect(notifySuccess).toHaveBeenCalledOnce()
   expect(notifySuccess).toHaveBeenCalledWith(

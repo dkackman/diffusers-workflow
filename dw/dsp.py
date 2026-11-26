@@ -1078,3 +1078,8 @@ def warp_times(times, knots_from, knots_to):
         anchor = 0 if a == 0 else -1
         warped[end] = knots_to[anchor] + (times[end] - knots_from[anchor]) * slope
     return warped
+
+
+def rounded(value, places=2):
+    """A measurement as a rounded float, None kept as None."""
+    return None if value is None else round(float(value), places)

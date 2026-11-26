@@ -4,6 +4,8 @@ Waveforms are handled as (channels, samples) float32 numpy arrays throughout -
 as_channels_samples normalizes the shapes pipelines and files actually produce
 into that layout. The slice_audio task is `audio_slice.py`, which reads
 `as_track` and `waveform_and_rate` from here; this module never imports it.
+The level, dead-air and noise-floor measures the assessment probes report
+(`measure_dead_air`, `measure_noise_floor`) are here too.
 """
 
 import io
@@ -13,6 +15,8 @@ import logging
 import numpy
 import soundfile
 
+from .. import dsp
+from ..assessment_rules import DEAD_AIR_FLOOR_DBFS
 from ..dsp import (
     as_channels_samples,
     fade_curve,
@@ -768,3 +772,97 @@ def waveform_and_rate(audio, sample_rate, command):
     if sample_rate is None:
         raise ValueError(f"{command} needs 'sample_rate' with a raw waveform")
     return as_channels_samples(audio), sample_rate
+
+
+# The window a dead-air run inside a shot is measured in, seconds - fine
+# enough that a half-second gap the rule cares about still spans several
+# windows, coarse enough that ordinary syllable-to-syllable dips don't read
+# as a run on their own (#465)
+DEAD_AIR_WINDOW = 0.05
+# A shot's noise floor is this percentile of its DEAD_AIR_WINDOW levels, and
+# is reported only over at least this many windows (0.5 s): fewer leave the
+# percentile resting on one or two windows (#1442)
+NOISE_FLOOR_PERCENTILE = 10
+NOISE_FLOOR_MIN_WINDOWS = 10
+SILENCE_PEAK = 1e-10
+
+
+def to_dbfs(value):
+    return None if value is None or value <= SILENCE_PEAK else dsp.dbfs(value)
+
+
+def window_levels(media, start, count):
+    """The RMS level of each whole `DEAD_AIR_WINDOW`-second window inside a
+    shot's audio span, in dBFS, None for a window of digital silence; and the
+    window's length in samples. `measure_dead_air` and `measure_noise_floor` both read these,
+    so the two can't disagree about what a window measured. ([], None) when
+    the span can't be placed."""
+    rate = media.sample_rate
+    if start is None or count is None or not rate:
+        return [], None
+    window_samples = max(1, int(round(DEAD_AIR_WINDOW * rate)))
+    end = min(media.audio.shape[1], start + count)
+    rms = dsp.window_rms(media.audio, start, end, window_samples)
+    return [to_dbfs(level) for level in rms], window_samples
+
+
+def measure_noise_floor(media, start, count, rms_dbfs):
+    """The `NOISE_FLOOR_PERCENTILE`th percentile of a shot's window levels, in
+    dBFS: the room tone plus any hiss under its quiet moments (#1442).
+
+    Nearest rank, counting a silent window as the quietest, so the answer is
+    always one window's own level and never NaN. None under
+    `NOISE_FLOOR_MIN_WINDOWS` windows, and None when that window is digital
+    silence - the value `rms_dbfs` gives for silence. Never above the shot's
+    own `rms_dbfs`: the partial window past the last whole one and a level
+    that is flat throughout could otherwise round the floor a hair above it.
+    """
+    levels, _window_samples = window_levels(media, start, count)
+    if len(levels) < NOISE_FLOOR_MIN_WINDOWS:
+        return None
+    floor = dsp.nearest_rank(levels, NOISE_FLOOR_PERCENTILE)
+    if floor is None or rms_dbfs is None:
+        return None
+    return min(floor, rms_dbfs)
+
+
+def measure_dead_air(media, start, count):
+    """The longest run of consecutive `DEAD_AIR_WINDOW`-second windows inside
+    a shot's audio span that sit at or below `DEAD_AIR_FLOOR_DBFS` - a gap in
+    the middle of the take, not the shot's own overall level (`_findings`'s
+    `unless` guard reads that separately). A window whose RMS is digital
+    silence (`to_dbfs` answers None) counts as below the floor too - it is
+    quieter than the floor, not un-measurable.
+
+    Returns (seconds, at, floor_dbfs): `at` is seconds into the *file*
+    (matching the seams probe's own seconds fields), so a caller does not
+    have to add the shot's own start back on. All three are None when the
+    span holds fewer than two windows; `seconds` is 0.0 with no run found.
+    """
+    levels, window_samples = window_levels(media, start, count)
+    if len(levels) < 2:
+        return None, None, None
+    rate = media.sample_rate
+    best_len, best_start, best_levels = 0, None, []
+    run_start, run_levels = None, []
+    for index, level in enumerate(levels):
+        if level is None or level <= DEAD_AIR_FLOOR_DBFS:
+            if run_start is None:
+                run_start = index
+            run_levels.append(level)
+            continue
+        if len(run_levels) > best_len:
+            best_len, best_start, best_levels = len(run_levels), run_start, run_levels
+        run_start, run_levels = None, []
+    if len(run_levels) > best_len:
+        best_len, best_start, best_levels = len(run_levels), run_start, run_levels
+    if best_len == 0:
+        return 0.0, None, None
+    floor_values = [level for level in best_levels if level is not None]
+    seconds = best_len * window_samples / rate
+    at = (start + best_start * window_samples) / rate
+    return (
+        dsp.rounded(seconds, 2),
+        dsp.rounded(at, 2),
+        dsp.rounded(min(floor_values)) if floor_values else None,
+    )
