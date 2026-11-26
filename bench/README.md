@@ -45,6 +45,8 @@ A new `records/*.md` owes its row in a family's `plugins/dw/skills/<family>/refe
 
 `temporal_flicker.py run <clip> --out-dir <dir>` runs the flow-compensated temporal IIR over a clip on the CPU (DIS flow, forward-backward consistency mask, forward and backward passes averaged), measures flicker on the static region and gradient energy on what moves, before and after, and writes the before/after/side-by-side videos and a JSON record; `report` prints the table. Its record is `records/temporal-flicker.md` (#1747, #1749).
 
+`encode_cadence.py run --out-dir <dir> [--clip <clip> ...]` encodes a deterministic synthetic line-art pan, and any real clip given, four ways on the CPU: dw's audio path (`writers.encode_video`), its silent path (`export_to_video`), libx264 `bf=0` and libx264 crf 18. It decodes each and reports PSNR and SSIM against the source, B-frame against P-frame PSNR, the strongest short period in the per-frame PSNR, and file size; `report` prints the table. Its record is `records/encode-cadence.md` (#1748, #1752).
+
 ## Measures
 
 `python bench/driver.py measure <record>` re-measures a record's succeeded runs; `report` prints them as a table. Each run's `measures`:

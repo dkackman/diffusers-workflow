@@ -43,6 +43,7 @@ EXEMPT = {
     "h3-hybrid.md": "an engine experiment with no template; its look verdict is Don's and pending (#1441)",
     "h3-audio-encode-context.md": "an engine-question probe with no template; its verdict (bar not met) settles #1516 stage A's gate (#1544)",
     "temporal-flicker.md": "a CPU bench probe with no task or template yet; it gates #1747 stage B, which owns the skill pointer (#1749)",
+    "encode-cadence.md": "a CPU encode probe with no template; it settles #1748 stage A's confirmed/not-confirmed line, and stage B would own any skill pointer (#1752)",
     "held-frames.md": "a corpus probe with no template; its verdict settles #1527 stage A's gate (#1551)",
     "sol-h3-vae.md": "an engine-question probe with no template; its verdict settles #1574's build-or-not (#1583)",
     "hybrid-windows.md": "a flag-gated engine experiment with no template; its walk verdict is Don's and pending, and it settles #1188's S4-or-not (#1571)",
