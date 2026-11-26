@@ -89,6 +89,72 @@ describe('replacing a reference with a literal', () => {
   })
 })
 
+describe('editing before the signature loads (#1708)', () => {
+  /** A signature that arrives when the test says so */
+  function describeLater(...parameters: PipelineParameter[]) {
+    let arrive = () => {}
+    const description = { parameters, accepts_kwargs: false }
+    vi.spyOn(api, 'describePipeline').mockReturnValue(
+      new Promise((resolve) => {
+        arrive = () => resolve(description as unknown as PipelineDescription)
+      }),
+    )
+    return async () => {
+      // the lookup is debounced: wait for it to ask before answering
+      await vi.waitFor(() => expect(api.describePipeline).toHaveBeenCalled())
+      arrive()
+      await new Promise((resolve) => setTimeout(resolve))
+    }
+  }
+
+  const commit = async (shown: string, value: string) => {
+    const field = screen.getByDisplayValue(shown)
+    await fireEvent.input(field, { target: { value } })
+    await fireEvent.change(field, { target: { value } })
+  }
+
+  it('takes the type once it arrives, however often it was edited', async () => {
+    const arrive = describeLater(
+      parameter('num_images_per_prompt', { default: 1, annotation: 'int' }),
+      parameter('output_type', { default: 'pil', annotation: 'str' }),
+    )
+    const args: Record<string, unknown> = {
+      num_images_per_prompt: 'variable:count',
+      output_type: 'variable:kind',
+    }
+    render(ArgumentsEditor, { args, componentType: 'LatePipeline' })
+    await commit('variable:count', '3')
+    await commit('3', '2')
+    await commit('variable:kind', '7')
+    await arrive()
+    expect(args).toEqual({ num_images_per_prompt: 2, output_type: '7' })
+  })
+
+  it('takes the type even if the editor has closed meanwhile', async () => {
+    const arrive = describeLater(
+      parameter('flag', { default: false, annotation: 'bool' }),
+    )
+    const args: Record<string, unknown> = { flag: 'variable:flag' }
+    render(ArgumentsEditor, { args, componentType: 'ClosedPipeline' })
+    await commit('variable:flag', 'true')
+    cleanup()
+    await arrive()
+    expect(args.flag).toBe(true)
+  })
+
+  it('leaves a value that changed since the edit', async () => {
+    const arrive = describeLater(
+      parameter('steps', { default: 50, annotation: 'int' }),
+    )
+    const args: Record<string, unknown> = { steps: 'variable:steps' }
+    render(ArgumentsEditor, { args, componentType: 'ChangedPipeline' })
+    await commit('variable:steps', '30')
+    args.steps = 'variable:other'
+    await arrive()
+    expect(args.steps).toBe('variable:other')
+  })
+})
+
 describe('setNumber', () => {
   it('keeps a reference, and shows what the document holds otherwise', () => {
     const target: Record<string, unknown> = { scale: 0.5 }
