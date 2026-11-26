@@ -89,6 +89,10 @@ def resolve_reference(path, base_dir, variables=None):
         if not isinstance(default, str):
             return None  # supplied at run time
         path = default
+    if path.startswith("preference:"):
+        # The host picks the target; test_preference_defaults pins that every
+        # ladder target is in the catalog
+        return None
     if path.startswith("builtin:"):
         return os.path.join(BUILTIN_DIR, path.removeprefix("builtin:"))
     if os.path.isabs(path):

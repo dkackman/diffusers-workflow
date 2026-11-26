@@ -1,0 +1,40 @@
+{
+    "variables": {
+        "prompt": "a lighthouse on a rocky point at dusk, warm light in the lamp room, waves breaking below",
+        "seed": null,
+        "width": 1024,
+        "height": 1024,
+        "tier": "standard"
+    },
+    "presets": {
+        "tier": {
+            "draft": {"width": 512, "height": 512},
+            "standard": {"width": 1024, "height": 1024},
+            "best": {"width": 1024, "height": 1024}
+        }
+    },
+    "id": "preferred-text-to-image",
+    "shape": "image",
+    "description": "Text-to-image on the model this server prefers, picked by 'tier' rather than named. It composes preference:text_to_image. 'tier' is draft, standard (the default) or best: draft is the SD 1.5 baseline at 512x512, standard and best are the server's chosen models at 1024x1024, each the first target in its rung that fits this host. An explicit 'width' or 'height' wins over the tier's. validate_workflow's plan names what will run here in its preferences line, 'preference:text_to_image (tier standard) -> <workflow>', and every target it skipped with the reason. It makes one image per run.",
+    "seed": "variable:seed",
+    "steps": [
+        {
+            "name": "main",
+            "workflow": {
+                "path": "preference:text_to_image",
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "seed": "variable:seed",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_images_per_prompt": 1
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg",
+                "embed_metadata": true,
+                "subfolder": "final"
+            }
+        }
+    ]
+}
