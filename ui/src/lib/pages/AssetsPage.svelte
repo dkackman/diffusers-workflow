@@ -8,7 +8,6 @@
   // beside it.
   import { FolderOpen } from '@lucide/svelte'
   import { api } from '../api'
-  import { matchWords } from '../matchWords'
   import {
     assetMedia,
     viewLabels,
@@ -16,11 +15,10 @@
     durationsByName,
   } from '../media'
   import { openInHash } from '../mediaViewer'
-  import { groupNames } from '../grouping'
   import MissingFile from '../ui/MissingFile.svelte'
   import { missingFile } from '../missingFile.svelte'
   import OutputTile from '../ui/OutputTile.svelte'
-  import ListSort, { listSort, newestFirst } from '../ui/ListSort.svelte'
+  import ListSort, { listSort } from '../ui/ListSort.svelte'
   import Time from '../ui/Time.svelte'
   import { untrack } from 'svelte'
   import { resource } from '../resource.svelte'
@@ -34,7 +32,7 @@
   import { assetConfirm, assetsConfirm } from '../assets/deletion'
   import BulkBar from '../BulkBar.svelte'
   import { Picks, actOnEach, reportFailures } from '../picks.svelte'
-  import { overlayOpen } from '../ui/layers.svelte'
+  import { clearOnEscape, revealOnce } from '../mediaGrid.svelte'
   import { notify } from '../toast'
   import { collapsedState, type Collapsed } from '../collapsed.svelte'
   import type {
@@ -56,22 +54,22 @@
   import AssetViewer from '../assets/AssetViewer.svelte'
   import LibraryRow from '../assets/LibraryRow.svelte'
   import ShadowedAssets from '../assets/ShadowedAssets.svelte'
-
-  type Origin = AssetFile['origin']
+  import {
+    LIBRARY_LABELS,
+    assetSections,
+    folderGroup,
+    matchedAssets,
+    onPage,
+    pickableAssets,
+    shows,
+    viewerNames,
+    visibleAssets,
+  } from '../assets/sections'
 
   let { shared = false }: { shared?: boolean } = $props()
 
   const COLLAPSE_KEY = 'collapsed-asset-libraries'
   const DURATIONS = 200
-  // What each library is called in the page's own voice. `common` is the
-  // shared library and `examples` a read-only tree an --examples-dir
-  // brought; neither name means anything to someone who has not read the
-  // server's flags
-  const LIBRARY_LABELS: Record<Origin, string> = {
-    workspace: 'This workspace',
-    common: 'Shared library',
-    examples: 'Examples',
-  }
 
   // An asset an agent adds or removes shows within one feed interval. The
   // search path itself, in order, and the entries a nearer library on it
@@ -164,33 +162,17 @@
   }
 
   const filterActive = $derived(filter.value !== '')
-  const matches = (name: string) => matchWords(filter.value, name)
-  const matched = $derived(assets.filter((a) => matches(a.name)))
+  const matched = $derived(matchedAssets(assets, filter.value))
   const byName = $derived(new Map(matched.map((a) => [a.name, a])))
   // Newest first is one list across a library's folders
   const newest = $derived(sort.value === 'newest')
-  const visible = $derived(
-    newest
-      ? newestFirst([...byName.keys()], (n) => byName.get(n)?.mtime).map((n) =>
-          byName.get(n)!,
-        )
-      : matched,
-  )
+  const visible = $derived(visibleAssets(matched, newest))
   // Same-leaf assets in different folders are told apart by their caption
   const labelled = $derived(viewLabels(assets.map((a) => a.name)))
   const folderByName = $derived(new Map(assets.map((a) => [a.name, a.folder])))
   const originOf = $derived(new Map(assets.map((a) => [a.name, a.origin])))
-  // A workspace's page shows the shared and examples libraries only as far
-  // as its own workflows reach into them - the whole shared library is the
-  // Shared assets page's, and listing it in every workspace buried what the
-  // workspace made. Those workflows resolve their `asset:` names through
-  // the workspace first, so a hidden shared copy is shown when the name is
-  // one they use
-  const onPage = (asset: AssetFile) =>
-    shared
-      ? asset.origin !== 'workspace'
-      : asset.origin === 'workspace' || !!asset.used_by?.length
-  const shownCount = $derived(assets.filter(onPage).length)
+  const groupOf = $derived(folderGroup((n) => folderByName.get(n), newest))
+  const shownCount = $derived(assets.filter((a) => onPage(a, shared)).length)
   const usedNames = $derived(
     new Set(assets.filter((a) => a.used_by?.length).map((a) => a.name)),
   )
@@ -202,52 +184,16 @@
   // would make the filter look broken, as FolderGroups has it
   const isOpen = (origin: string) => filterActive || !collapsed.has(origin)
 
-  // One section per library on the search path, in the order the server
-  // resolves them - the path is the page's top level and folders sit
-  // inside it, because which library a name is in is what decides whether
-  // it can be deleted, what a delete costs, and what it hides. An empty
-  // library still shows its header, so an empty workspace says where an
-  // upload would land; while a filter is on, a section with nothing to
-  // show is skipped instead
-  const shows = (section: { assets: unknown[]; shadowed: unknown[] }) =>
-    section.assets.length > 0 || section.shadowed.length > 0
+  // One section per library on the search path (assets/sections.ts)
   const sections = $derived(
-    libraries
-      .map((library) => ({
-        ...library,
-        label:
-          (LIBRARY_LABELS[library.origin] ?? library.origin) +
-          (shared || library.origin === 'workspace' ? '' : ', used here'),
-        assets: visible.filter((a) => a.origin === library.origin && onPage(a)),
-        shadowed: shadowed.filter(
-          (s) =>
-            s.origin === library.origin &&
-            matches(s.name) &&
-            (shared || usedNames.has(s.name)),
-        ),
-      }))
-      .filter((section) => !shared || section.origin !== 'workspace')
-      .filter(
-        (section) =>
-          section.assets.length > 0 ||
-          section.shadowed.length > 0 ||
-          // Unfiltered, an empty library still shows its header, so an
-          // empty workspace says where an upload would land - but on a
-          // workspace's page a shared library it uses nothing from is left
-          // out rather than shown as an empty "used here"
-          (!filterActive && (shared || section.origin === 'workspace')),
-      ),
+    assetSections(libraries, visible, shadowed, {
+      shared,
+      filter: filter.value,
+      usedNames,
+    }),
   )
-  // What the bulk actions can reach: the grid in the order the page lays
-  // it out, minus anything not on screen or not tickable. A shut section
-  // is hidden, and a read-only library's tile carries no checkbox and
-  // would answer 403 - selecting either is a bulk action touching what
-  // the user cannot see or undo from the tile
-  const ordered = $derived(
-    sections
-      .filter((section) => isOpen(section.origin) && section.writable)
-      .flatMap((section) => section.assets),
-  )
+  // What the bulk actions can reach: open, writable sections' assets
+  const ordered = $derived(pickableAssets(sections, isOpen))
 
   // Names ticked in the grid, for the bulk actions
   const picks = new Picks(() => ordered.map((a) => a.name))
@@ -287,13 +233,12 @@
   const items = $derived.by((): MediaFile[] => {
     if (!viewed) return []
     const shut = shutFolders[viewed.origin]
-    const grouped = groupNames(
-      viewed.assets.map((a) => a.name),
-      (name) => (newest ? '' : (folderByName.get(name) ?? '')),
-    )
-    return [...grouped.entries()]
-      .flatMap(([g, names]) => (!filterActive && shut?.has(g) ? [] : names))
-      .map((name) => tileOf(byName.get(name)!))
+    return viewerNames(
+      viewed,
+      groupOf,
+      (g) => !!shut?.has(g),
+      filterActive,
+    ).map((name) => tileOf(byName.get(name)!))
   })
 
   // An open= naming no asset on the page (a filter can hide one), once
@@ -306,22 +251,16 @@
   })
   $effect(() => void (stray.missing && untrack(() => (open = null))))
   // A link to one in a shut library or folder opens it, once
-  let revealed: string | null = null
-  $effect(() => {
-    const name = open
-    const origin = viewing?.origin
-    if (!name || !origin) return
-    untrack(() => {
-      if (name === revealed) return
-      revealed = name
-      reveal(origin, folderByName.get(name) ?? '')
-    })
-  })
-  function reveal(origin: string, folder: string) {
-    if (filterActive) return
-    if (collapsed.has(origin)) collapsed.toggle(origin)
-    if (shutFolders[origin]?.has(folder)) shutFolders[origin]?.toggle(folder)
-  }
+  revealOnce(
+    () => open,
+    () => viewing?.origin || undefined,
+    (name, origin) => {
+      if (filterActive) return
+      const folder = folderByName.get(name) ?? ''
+      if (collapsed.has(origin)) collapsed.toggle(origin)
+      if (shutFolders[origin]?.has(folder)) shutFolders[origin]?.toggle(folder)
+    },
+  )
 
   function startUpload(target: 'workspace' | 'shared') {
     uploadTarget = target
@@ -394,16 +333,12 @@
   const working = $derived(
     uploading.busy || downloading.busy || removing.busy || removingPicked.busy,
   )
+  // Escape closes the thing on top: the viewer and a dialog answer it
+  // themselves, and the selection clears under them
+  const onKeydown = clearOnEscape(picks)
 </script>
 
-<svelte:window
-  onkeydown={(e) => {
-    // Escape closes the thing on top: the viewer and a dialog answer it
-    // themselves, and the selection clears under them
-    if (e.key !== 'Escape' || overlayOpen()) return
-    picks.clear()
-  }}
-/>
+<svelte:window onkeydown={onKeydown} />
 
 <div
   class="dropzone"
@@ -505,7 +440,7 @@
     {#if isOpen(section.origin)}
       <FolderGroups
         names={section.assets.map((a) => a.name)}
-        groupOf={(name) => (newest ? '' : (folderByName.get(name) ?? ''))}
+        {groupOf}
         collapseKey="collapsed-asset-folders-{section.origin}"
         collapsed={shutFolders[section.origin]}
         {filterActive}

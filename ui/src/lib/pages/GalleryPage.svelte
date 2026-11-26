@@ -21,7 +21,7 @@
   import FolderGroups from '../FolderGroups.svelte'
   import BulkBar from '../BulkBar.svelte'
   import { Picks, actOnEach, reportFailures, starAction } from '../picks.svelte'
-  import { overlayOpen } from '../ui/layers.svelte'
+  import { clearOnEscape, revealOnce } from '../mediaGrid.svelte'
   import { action } from '../action.svelte'
   import { askDeletion, fileConfirm } from '../gallery/deletion'
   import type { GalleryFile, OutputRole } from '../types'
@@ -291,17 +291,14 @@
   $effect(() => void (stray.missing && untrack(() => (open = null))))
   // A link to a file in a shut folder or day opens the group too, so the
   // viewer's count and the grid agree; once, so the person can shut it
-  let revealed: string | null = null
-  $effect(() => {
-    const name = open
-    if (!name || !byName.has(name)) return
-    untrack(() => {
+  revealOnce(
+    () => open,
+    (name) => (byName.has(name) ? name : undefined),
+    (name) => {
       const g = groups.groupOf(name)
-      if (name !== revealed && !filterActive && collapsed.has(g))
-        collapsed.toggle(g)
-      revealed = name
-    })
-  })
+      if (!filterActive && collapsed.has(g)) collapsed.toggle(g)
+    },
+  )
   // Another workspace's files are another view: the viewer closes
   let openedIn = workspace.current
   $effect(() => {
@@ -328,11 +325,9 @@
     return true
   }
 
-  // Escape clears the ticks; the viewer and a dialog answer it themselves
-  function onKeydown(e: KeyboardEvent) {
-    if (overlayOpen()) return
-    if (e.key === 'Escape' && picks.size) picks.clear()
-  }
+  // Escape clears the ticks, when one is shown; the viewer and a dialog
+  // answer it themselves
+  const onKeydown = clearOnEscape(picks, { keepHidden: true })
 </script>
 
 <svelte:window onkeydown={onKeydown} />
