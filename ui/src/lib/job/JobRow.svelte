@@ -32,8 +32,9 @@
     prompt: string
     /** How far a running job's denoise loop is, in whole percent */
     percent: number | null
-    /** The run's proof, listed in this job's workspace */
-    proof: GalleryFile | null
+    /** The run's proof, listed in this job's workspace; null draws the
+     * empty slot, and undefined (another workspace's job) draws none */
+    proof: GalleryFile | null | undefined
     onmove: (e: MouseEvent, id: string, way: 'up' | 'down' | 'front') => void
     /** The job whose move is in flight: it is busy, and no move starts
      * until it ends (a click is dropped), so every move button says so */
@@ -77,13 +78,15 @@
     : ''}
 >
   <span class="proof">
-    <ItemProof
-      output={proof ? { name: proof.name, kind: proof.kind } : null}
-      state={job.status}
-      workspace={job.workspace}
-      alt=""
-      size="cover"
-    />
+    {#if proof !== undefined}
+      <ItemProof
+        output={proof && { name: proof.name, kind: proof.kind }}
+        state={job.status}
+        workspace={job.workspace}
+        alt=""
+        size="cover"
+      />
+    {/if}
   </span>
   <span class="state">
     <StatusChip status={job.status} />
