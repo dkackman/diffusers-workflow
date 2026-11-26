@@ -1,5 +1,6 @@
 {
     "version": 1,
+    "default_tier": "standard",
     "contracts": {
         "text_to_image": {
             "required": ["prompt", "seed", "width", "height"],
@@ -10,7 +11,10 @@
         "text_to_image": {
             "draft": ["templates/text-to-image"],
             "standard": ["models/z-image", "models/z-image-sdnq"],
-            "best": ["models/minimax-h3-image", "models/qwen-image-2.1"]
+            "best": [
+                {"workflow": "models/minimax-h3-image", "devices": ["cuda"]},
+                "models/qwen-image-2.1"
+            ]
         }
     },
     "declines": {

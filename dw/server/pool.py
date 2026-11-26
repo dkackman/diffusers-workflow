@@ -15,6 +15,14 @@ import threading
 
 from ..devices import device_ordinal
 
+# The gate's margin over a projected peak lives beside the declared-need
+# refusal that shares it (dw/host_ram_declared.py)
+from ..host_ram_declared import (  # noqa: F401
+    HOST_RAM_MARGIN_FRACTION,
+    HOST_RAM_MARGIN_MIN_MB,
+    with_margin,
+)
+
 logger = logging.getLogger("dw")
 
 
@@ -239,22 +247,6 @@ def dispatch_need(slots, need):
 
 
 # ---------------------------------------------------------------- host RAM
-
-
-# The share of a projected peak the gate keeps free above it, and its floor.
-# A recorded committed peak is the largest of readings taken at phase
-# boundaries (dw/worker.py's _on_event), not a high-water mark - committed
-# memory has none to read - so a transient between two boundaries (a
-# component's weights staged before its old copy is freed) is not in it and
-# the peak is a lower bound. The RSS peak it replaced hid this: ru_maxrss
-# counted ~80 GB of checkpoint page cache on an H3 run (#869)
-HOST_RAM_MARGIN_FRACTION = 0.10
-HOST_RAM_MARGIN_MIN_MB = 2048
-
-
-def with_margin(peak_mb):
-    """`peak_mb` with the gate's margin over it."""
-    return peak_mb + max(peak_mb * HOST_RAM_MARGIN_FRACTION, HOST_RAM_MARGIN_MIN_MB)
 
 
 def host_ram_wait(need_mb, available_mb, running, idle_rss_mb=None):

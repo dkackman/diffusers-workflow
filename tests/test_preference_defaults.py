@@ -1,7 +1,7 @@
 """The shipped default preferences (`dw/preference_defaults.json`, #1625).
 
 The file maps a task key (`text_to_image`) to tiers of catalog targets that
-#1626's resolver ranks. Swapping one target for another is only safe if every
+#1626's resolver (`dw/preferences.py`, whose `SHIPPED_PATH` it is) ranks. Swapping one target for another is only safe if every
 target in a key takes the same variables, so the file carries a per-key
 variable contract and these pins hold the catalog to it:
 
@@ -47,11 +47,11 @@ def catalog():
 
 def resolve(target):
     """A target's workflow name and its arguments. A target is a catalog
-    name, or `{"workflow": name, "arguments": {...}}`."""
+    name, or `{"workflow": name, "arguments": {...}, "devices": [...]}`."""
     if isinstance(target, str):
         return target, {}
     assert isinstance(target, dict), f"target {target!r} is neither a name nor a dict"
-    assert set(target) <= {"workflow", "arguments"}, target
+    assert set(target) <= {"workflow", "arguments", "devices"}, target
     return target["workflow"], target.get("arguments", {})
 
 
@@ -95,6 +95,7 @@ def test_the_file_has_its_sections():
     assert DEFAULTS["version"] == 1
     assert set(DEFAULTS) == {
         "version",
+        "default_tier",
         "contracts",
         "preferences",
         "declines",
@@ -103,6 +104,7 @@ def test_the_file_has_its_sections():
     # Every ladder has a contract, and every contract a ladder
     assert set(DEFAULTS["preferences"]) == set(DEFAULTS["contracts"])
     assert set(DEFAULTS["left_out"]) <= set(DEFAULTS["preferences"])
+    assert DEFAULTS["default_tier"] in TIERS
 
 
 def test_the_shipped_ladder_is_text_to_image_only():
@@ -304,3 +306,13 @@ def test_the_file_ships_in_the_wheel(tmp_path):
         assert "dw/preference_defaults.json" in archive.namelist()
         shipped = json.loads(archive.read("dw/preference_defaults.json"))
     assert shipped == DEFAULTS
+
+
+def test_the_resolver_reads_this_file(tmp_path):
+    """One owner for the ladders: the resolver's shipped store is this file."""
+    from dw import preferences
+
+    assert os.path.samefile(preferences.SHIPPED_PATH, DEFAULTS_PATH)
+    loaded = preferences.load_preferences(overlay=tmp_path / "none.json")
+    assert loaded["default_tier"] == DEFAULTS["default_tier"]
+    assert loaded["preferences"] == DEFAULTS["preferences"]

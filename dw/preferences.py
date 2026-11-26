@@ -7,7 +7,8 @@ that a composing step names instead of a catalog path:
 
 The engine names no key. This module owns the three parts:
 
-  - `load_preferences()`: the shipped `workflows/preferences.json`, overlaid
+  - `load_preferences()`: the shipped `dw/preference_defaults.json` (#1625's
+    ladders, in the package so a wheel carries it), overlaid
     key by key by `preferences.json` in the settings directory
     (`~/.diffusers_helper/`, beside `settings.json`). An overlay key replaces
     the whole shipped key - tiers are never merged - and the overlay's
@@ -21,11 +22,14 @@ The engine names no key. This module owns the three parts:
 
 A target is a catalog name or `{"workflow": name, "arguments": {...},
 "devices": [...]}`. It is skipped, with its reason, when its `devices` list
-leaves out `get_device_type()`, its declared `host_ram_gb` is above this
-host's RAM, its `cost` entry for this device type needs more VRAM than the
-smallest card, or it is gated and this host has no access. Not downloaded is
-a note, not a skip; a target with no `cost` entry for this device is not
-skipped. No fit refuses - a resolution never drops to another tier.
+leaves out `get_device_type()`, its declared `host_ram_gb` (with the gate's
+margin) is more than this host's RAM (`host_ram_declared.host_too_small`, the
+verdict admission refuses on), the VRAM it needs on this device type
+(`vram_estimate.required_vram_gb`, the figure dispatch holds a card to) is
+more than the smallest card, or it is gated and this host has no access. Not
+downloaded is a note, not a skip; a target with no `vram_estimate` and no
+`cost` entry for this device is not skipped. No fit refuses - a resolution
+never drops to another tier.
 
 The tier comes from the composing step's `tier` argument, else the enclosing
 workflow's folded `tier` variable (walking up the composition chain), else
@@ -57,7 +61,7 @@ PREFERENCES_FILE = "preferences.json"
 SOURCE_SHIPPED = "shipped"
 SOURCE_SERVER = "server"
 
-SHIPPED_PATH = Path(__file__).resolve().parent.parent / "workflows" / PREFERENCES_FILE
+SHIPPED_PATH = Path(__file__).resolve().parent / "preference_defaults.json"
 
 
 class PreferenceError(InvalidInputError):
@@ -310,50 +314,43 @@ def _target(entry, key, tier):
     )
 
 
-def _number(value):
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    return float(value)
+def card_need_gb(definition, arguments, device_type, child=None):
+    """What a card must hold for a target on `device_type`, in GB, or None
+    when nothing says (no `vram_estimate` and no `cost` entry for this
+    device: not skipped, there is no figure). The figure is the dispatcher's
+    own (`vram_estimate.required_vram_gb`), read off the target's expanded
+    definition with its arguments, so a target the fit passes is one the
+    pool admits."""
+    from .vram_estimate import required_vram_gb
+
+    expanded = definition
+    base_dir = None
+    if child is not None:
+        try:
+            expanded = child.expanded_definition(arguments or None)
+            base_dir = os.path.dirname(child.file_spec)
+        except Exception:  # an unexpandable target is refused elsewhere
+            expanded = definition
+    need = required_vram_gb(expanded, arguments, device_type, base_dir)
+    return need[0] if need else None
 
 
-def declared_host_ram_gb(definition, arguments):
-    """The host RAM (GB) a target declares (`host_ram_gb`, a number or a
-    `variable:` a presets bundle sets), or None."""
-    if not isinstance(definition, dict) or "host_ram_gb" not in definition:
-        return None
-    from .presets import effective_variables
-    from .variables import VariableNotFoundError, replace_variables
-
-    try:
-        variables = effective_variables(definition, arguments)
-        value = replace_variables({"v": definition["host_ram_gb"]}, variables)["v"]
-    except (VariableNotFoundError, ValueError, TypeError):
-        return None
-    value = _number(value)
-    return value if value and value > 0 else None
-
-
-def card_need_gb(definition, device_type):
-    """The least VRAM a target's `cost` entries for `device_type` declare, or
-    None when it has no entry for this device (not skipped: no figure)."""
-    needs = [
-        _number(entry.get("vram_gb"))
-        for entry in (definition.get("cost") or [])
-        if isinstance(entry, dict) and entry.get("device") == device_type
-    ]
-    needs = [need for need in needs if need is not None]
-    return min(needs) if needs else None
-
-
-def skip_reason(definition, arguments, devices, host):
+def skip_reason(definition, arguments, devices, host, child=None):
     """Why a target does not fit `host`, or None when it does."""
+    from .host_ram_declared import host_too_small
+
     device = host.device_type
     if devices is not None and device is not None and device not in devices:
         return f"{'/'.join(devices) or 'no-device'}-only"
-    ram = declared_host_ram_gb(definition, arguments)
-    if ram is not None and host.host_ram_gb and ram > host.host_ram_gb:
-        return f"needs {ram:g} GB host RAM, this host has {host.host_ram_gb:.0f} GB"
-    need = card_need_gb(definition, device) if device else None
+    # Admission's own verdict, margin included (#1227)
+    total_mb = host.host_ram_gb * 1024.0 if host.host_ram_gb else None
+    try:
+        too_small = host_too_small(definition, arguments, total_mb)
+    except (ValueError, TypeError):  # an unreadable declaration is no figure
+        too_small = None
+    if too_small:
+        return f"host RAM: {too_small}"
+    need = card_need_gb(definition, arguments, device, child) if device else None
     if need is not None and host.smallest_card_gb and need > host.smallest_card_gb:
         return (
             f"needs {need:g} GB VRAM on {device}, the smallest card has "
@@ -453,7 +450,7 @@ def resolve(path, tier, host, open_target, store, *, pinned=None):
                 "are refused: "
                 + "; ".join(f"{error['path']}: {error['message']}" for error in bad)
             )
-        reason = skip_reason(definition, arguments, devices, host)
+        reason = skip_reason(definition, arguments, devices, host, child)
         notes = []
         if reason is None and host.gate_check is not None:
             try:

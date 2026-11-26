@@ -77,7 +77,35 @@ def test_host_ram_skip():
         {"best": ["a", "b"]}, catalog, host=Host("cuda", 48, host_ram_gb=16)
     )
     assert found.target == "b"
-    assert "64 GB host RAM" in found.skipped[0]["reason"]
+    assert "declares about 64 GB of host RAM" in found.skipped[0]["reason"]
+
+
+def test_host_ram_fit_keeps_the_gates_margin():
+    """The resolver's verdict is admission's (`host_too_small`): a target
+    declaring exactly the host's RAM is refused there, so it is skipped
+    here, never resolved into a refusal."""
+    from dw.host_ram_declared import host_too_small
+
+    catalog = {"a": definition("a", host_ram_gb=64), "b": definition("b")}
+    host = Host("cuda", 48, host_ram_gb=64)
+    found = resolve({"best": ["a", "b"]}, catalog, host=host)
+    assert found.target == "b"
+    refusal = host_too_small(catalog["a"], {}, 64 * 1024)
+    assert refusal and refusal in found.skipped[0]["reason"]
+    # With room for the margin it fits
+    assert resolve({"best": ["a"]}, catalog, host=Host("cuda", 48, 72)).target == "a"
+
+
+def test_host_ram_from_a_tier_variable_is_read_with_the_arguments():
+    tiered = definition(
+        "a",
+        host_ram_gb="variable:ram",
+        variables={"prompt": "x", "ram": 8},
+    )
+    ladder = {"best": [{"workflow": "a", "arguments": {"ram": 200}}, "b"]}
+    found = resolve(ladder, {"a": tiered, "b": definition("b")})
+    assert found.target == "b"
+    assert "200 GB" in found.skipped[0]["reason"]
 
 
 def test_vram_skip_against_smallest_card():
@@ -86,6 +114,35 @@ def test_vram_skip_against_smallest_card():
     found = resolve({"best": ["a", "b"]}, catalog, host=Host("cuda", 24, 128))
     assert found.target == "b"
     assert "40 GB VRAM on cuda" in found.skipped[0]["reason"]
+
+
+def test_vram_cost_on_a_numbered_card_counts():
+    """`cuda:0` is a cuda entry: the dispatcher's figure splits the ordinal."""
+    big = definition("a", cost=[{"device": "cuda:0", "vram_gb": 40, "minutes": 1}])
+    catalog = {"a": big, "b": definition("b")}
+    found = resolve({"best": ["a", "b"]}, catalog, host=Host("cuda", 24, 128))
+    assert found.target == "b"
+    assert "40 GB VRAM on cuda" in found.skipped[0]["reason"]
+
+
+def test_declared_vram_estimate_is_the_figure():
+    """A `vram_estimate` (768x512x121 voxels at 200 B + 20 GB = ~28.9 GB)
+    is what dispatch holds a card to, above a smaller measured cost."""
+    estimated = definition(
+        "a",
+        cost=[{"device": "cuda", "vram_gb": 20, "minutes": 1}],
+        variables={"prompt": "x", "width": 768, "height": 512, "num_frames": 121},
+        vram_estimate={
+            "voxel_variables": ["width", "height", "num_frames"],
+            "base_gb": 20,
+            "bytes_per_voxel": 200,
+        },
+    )
+    catalog = {"a": estimated, "b": definition("b")}
+    found = resolve({"best": ["a", "b"]}, catalog, host=Host("cuda", 24, 128))
+    assert found.target == "b"
+    assert "28.86" in found.skipped[0]["reason"]
+    assert resolve({"best": ["a"]}, catalog, host=Host("cuda", 32, 128)).target == "a"
 
 
 def test_vram_cost_for_another_device_is_not_a_skip():
@@ -590,8 +647,13 @@ def test_shipped_tiers_are_valid():
         assert set(ladder) <= set(preferences.TIERS)
 
 
-def test_shipped_file_is_not_listed_as_a_workflow():
+def test_shipped_file_is_the_packaged_defaults():
+    """The ladders live in the package (#1625's file), not in the examples
+    tree a library lists as workflows."""
     from dw.library import workflow_names
 
-    assert "preferences" not in workflow_names(WORKFLOWS)
+    assert preferences.SHIPPED_PATH.name == "preference_defaults.json"
+    assert preferences.SHIPPED_PATH.parent.name == "dw"
     assert os.path.isfile(preferences.SHIPPED_PATH)
+    assert not os.path.exists(os.path.join(WORKFLOWS, "preferences.json"))
+    assert "preferences" not in workflow_names(WORKFLOWS)
