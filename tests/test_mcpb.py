@@ -4,13 +4,12 @@ import ast
 import importlib.util
 import json
 import re
-import shutil
 import subprocess
 import sys
 import tomllib
 
-import pytest
 from pathlib import Path
+
 
 REPO = Path(__file__).resolve().parents[1]
 PYPROJECT_VERSION = tomllib.loads((REPO / "pyproject.toml").read_text())["project"][
@@ -47,6 +46,7 @@ def test_the_stage_carries_the_engine_version_and_the_floors(tmp_path):
             sys.executable,
             "scripts/build_mcpb.py",
             "--stage-only",
+            "--no-lock",
             "--out",
             str(tmp_path),
         ],
@@ -72,24 +72,20 @@ def test_the_stage_carries_the_engine_version_and_the_floors(tmp_path):
     assert "--frozen" in manifest["server"]["mcp_config"]["args"]
 
 
-@pytest.mark.skipif(shutil.which("uv") is None, reason="uv is not installed")
-def test_the_stage_ships_a_lock(tmp_path):
-    try:
-        subprocess.run(
-            [
-                sys.executable,
-                "scripts/build_mcpb.py",
-                "--stage-only",
-                "--out",
-                str(tmp_path),
-            ],
-            check=True,
-            cwd=REPO,
-            capture_output=True,
-        )
-    except subprocess.CalledProcessError:
-        pytest.skip("uv lock needs the package index (offline)")
-    assert (tmp_path / "stage" / "uv.lock").is_file()
+def test_the_stage_locks_with_uv_in_the_stage(tmp_path, monkeypatch):
+    script = _script()
+    calls = []
+    monkeypatch.setattr(script.subprocess, "run", lambda *a, **k: calls.append((a, k)))
+    root = script.stage(tmp_path)
+    assert calls == [((["uv", "lock"],), {"cwd": root, "check": True})]
+
+
+def test_the_stage_without_lock_runs_nothing(tmp_path, monkeypatch):
+    script = _script()
+    calls = []
+    monkeypatch.setattr(script.subprocess, "run", lambda *a, **k: calls.append((a, k)))
+    script.stage(tmp_path, lock=False)
+    assert calls == []
 
 
 def test_pack_and_unpack_name_the_pinned_packer():

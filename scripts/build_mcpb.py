@@ -63,7 +63,7 @@ def mcpb_command(*args):
     return ["npx", "-y", MCPB_PACKAGE, *map(str, args)]
 
 
-def stage(out, project=None):
+def stage(out, project=None, lock=True):
     project = project or _pyproject()
     version = project["version"]
     root = Path(out) / "stage"
@@ -86,7 +86,8 @@ def stage(out, project=None):
     shutil.copy(REPO / "LICENSE", root / "LICENSE")
     # Ship the resolution: the launch is `uv run --frozen`, so what runs is
     # what was locked here, not whatever the floors resolve to later
-    subprocess.run(["uv", "lock"], cwd=root, check=True)
+    if lock:
+        subprocess.run(["uv", "lock"], cwd=root, check=True)
     return root
 
 
@@ -94,6 +95,9 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", default="dist", help="output directory")
     parser.add_argument("--stage-only", action="store_true")
+    parser.add_argument(
+        "--no-lock", action="store_true", help="stage without running uv lock"
+    )
     parser.add_argument(
         "--unpack", nargs=2, metavar=("BUNDLE", "DIR"), help="unpack a bundle"
     )
@@ -111,7 +115,7 @@ def main(argv=None):
         return 0
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    root = stage(out)
+    root = stage(out, lock=not args.no_lock)
     if args.stage_only:
         return 0
     bundle = out / f"dw-mcp-{version}.mcpb"
