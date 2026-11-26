@@ -16,16 +16,26 @@ export const editorLists = $state({
 
 /** Fetch the class lists and task commands the editor suggests. The
  * workflow files arrive with the listing the editor reads anyway, so the
- * page fills those itself. */
+ * page fills those itself. A list whose read fails keeps what it had: the
+ * inputs it feeds just suggest less. */
 export function loadEditorLists(): void {
-  api.listPipelines().then((r) => (editorLists.pipelines = r.pipelines))
-  api.listClasses('models').then((r) => (editorLists.modelClasses = r.classes))
+  const keep = () => {}
+  api
+    .listPipelines()
+    .then((r) => (editorLists.pipelines = r.pipelines))
+    .catch(keep)
+  api
+    .listClasses('models')
+    .then((r) => (editorLists.modelClasses = r.classes))
+    .catch(keep)
   api
     .listClasses('schedulers')
     .then((r) => (editorLists.schedulerClasses = r.classes))
+    .catch(keep)
   api
     .listClasses('quantization')
     .then((r) => (editorLists.quantizationClasses = r.classes))
+    .catch(keep)
   api
     .listTasks()
     .then(
@@ -36,10 +46,11 @@ export function loadEditorLists(): void {
           ...r.video_processors,
         ].sort()),
     )
+    .catch(keep)
+  // An older server has no such route, and the call may not even exist -
+  // the path field just offers the library
   Promise.resolve()
     .then(() => api.listBuiltinWorkflows())
     .then((r) => (editorLists.builtinWorkflows = r.workflows))
-    .catch(() => {
-      /* an older server - the path field just offers the library */
-    })
+    .catch(keep)
 }

@@ -17,8 +17,10 @@
 // beside a watched one fails too. Only the script is read: a helper called
 // from the markup (an `onclick`) is out of reach. One import level is
 // followed: a helper that reaches the api through another module (two or
-// more levels) is out of reach here and of the metric, as are `.svelte.ts`
-// stores, which keep their own freshness (below).
+// more levels) is out of reach here and of the metric. `.svelte.ts` stores
+// are not in this table: the metric measures their reads itself, and each one
+// outside `resource(` and `poll(` is in arch-metrics.mjs's STORE_EXCEPTIONS
+// with the reason it stands.
 //
 // Outside this table: the app shell's status poll (statusPoll.ts, 5 s, also
 // while the tab is hidden), the notes channel's 15 s poll
