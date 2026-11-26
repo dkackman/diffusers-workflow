@@ -750,6 +750,30 @@ it("a request's queued job mid-queue can move both ways, though it is the only r
   await waitFor(() => expect(moves('q3')).toEqual(['front', 'up', 'down']))
 })
 
+it('queued rows lead in queue order, and a move moves the row', async () => {
+  location.hash = '#/ws/default/jobs'
+  data.queued = 2
+  // Newest first by creation: done, second, run, first - with the older
+  // queued job second in line
+  const rows = (a: number, b: number) => [
+    summary({ id: 'a', status: 'queued', created_at: 1, queue_position: a }),
+    summary({ id: 'run', status: 'running', created_at: 2 }),
+    summary({ id: 'b', status: 'queued', created_at: 3, queue_position: b }),
+    summary({ id: 'done', status: 'succeeded', created_at: 4 }),
+  ]
+  const order = () =>
+    [...document.querySelectorAll('.jobid')].map((el) => el.textContent)
+  data.jobs = rows(0, 1)
+  api.moveJob.mockImplementation(async () => {
+    data.jobs = rows(1, 0)
+    return {}
+  })
+  render(JobsPage)
+  await waitFor(() => expect(order()).toEqual(['a', 'b', 'done', 'run']))
+  await fireEvent.click(screen.getByLabelText('move b up one place'))
+  await waitFor(() => expect(order()).toEqual(['b', 'a', 'done', 'run']))
+})
+
 it('a double click on a move sends one request', async () => {
   location.hash = '#/ws/default/jobs'
   data.queued = 2
