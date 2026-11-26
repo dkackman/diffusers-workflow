@@ -295,6 +295,15 @@ class JobManager(Dispatcher, Reruns):
 
     # ------------------------------------------------------------- submission
 
+    def _check_submission(self, workflow_path, workflow):
+        """Refuse a submission while jobs are refused (SubmissionRefused) or
+        one naming neither or both of a path and a definition (ValueError)."""
+        refusal = self.submission_refusal() if self.submission_refusal else None
+        if refusal:
+            raise SubmissionRefused(refusal)
+        if (workflow_path is None) == (workflow is None):
+            raise ValueError("Provide exactly one of workflow_path or workflow")
+
     def submit(
         self,
         *,
@@ -379,12 +388,8 @@ class JobManager(Dispatcher, Reruns):
         caller made it, kept for a rerun (which admits afresh) and for
         `definition()`; the snapshot is not persisted.
         """
-        refusal = self.submission_refusal() if self.submission_refusal else None
-        if refusal:
-            raise SubmissionRefused(refusal)
+        self._check_submission(workflow_path, workflow)
         arguments = arguments or {}
-        if (workflow_path is None) == (workflow is None):
-            raise ValueError("Provide exactly one of workflow_path or workflow")
 
         confinement = workflow_dir or self.workflow_dir
         job_output_dir = (
