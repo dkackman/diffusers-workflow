@@ -3,9 +3,10 @@ submitted with) and the memo on its `media=true` duration probe."""
 
 import os
 
+from dw.server import job_prompts as job_prompts_mod
 from dw.server import outputs
-from dw.server import outputs as job_prompts_mod
-from dw.server.outputs import PROMPT_TEXT_MAX, job_prompts, prompt_text, run_prompts
+from dw.server.job_prompts import job_prompts, run_prompts
+from dw.server.outputs import PROMPT_TEXT_MAX, prompt_text
 
 RUN = "20261122-000000-aaaaaaaa"
 OTHER_RUN = "20261122-000001-bbbbbbbb"
@@ -196,14 +197,18 @@ def test_a_shared_run_id_takes_the_newest_job(gallery_client):
     assert run_prompts(history, "default", [RUN]) == {RUN: "second"}
 
 
-def test_an_invalid_row_is_read_once(gallery_client):
+def test_an_invalid_row_is_read_once(gallery_client, monkeypatch):
     history = _history(gallery_client)
     _record(history, "job-bad", RUN, {"prompt": "x"})
     with history._connect() as connection:
         connection.execute("UPDATE jobs SET arguments = 'not json'")
     calls = []
-    real = history.submitted_prompts
-    history.submitted_prompts = lambda *a, **k: calls.append(a) or real(*a, **k)
+    real = job_prompts_mod.submitted_prompts
+    monkeypatch.setattr(
+        job_prompts_mod,
+        "submitted_prompts",
+        lambda *a, **k: calls.append(a) or real(*a, **k),
+    )
     manager = gallery_client.app.state.job_manager
     job_prompts_mod._PROMPT_MEMO.clear()
     assert job_prompts(manager, ["job-bad"]) == {}

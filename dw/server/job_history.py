@@ -625,19 +625,12 @@ class JobHistory:
             rows = connection.execute(sql, params).fetchall()
         return {row["run_id"] for row in rows}
 
-    def submitted_prompts(self, ids, by_run=False, workspace=None):
-        """(id, run id, json_type, json_extract) of `$.prompt` for `workspace`'s
-        rows (any for None) whose id (run id `by_run`) is in `ids`, oldest first
-        so the newest of a shared run id comes last - not the blob."""
-        p, rows, col = "arguments, '$.prompt'", [], ("id", "run_id")[by_run]
-        sql = f"SELECT id, run_id, json_type({p}), json_extract({p}) FROM jobs"
-        for chunk in (ids[at : at + 500] for at in range(0, len(ids), 500)):
-            with self._lock, self._connect() as connection:
-                query = f"{sql} WHERE {col} IN ({','.join('?' * len(chunk))})"
-                query += " AND IFNULL(?, workspace) IS workspace"
-                query += " AND json_valid(arguments) ORDER BY created_at"
-                rows += connection.execute(query, [*chunk, workspace]).fetchall()
-        return rows
+    def select(self, sql, params):
+        """The rows of one read query, for a reader that lives outside this
+        module (`job_prompts.py`): the same lock and connection as every
+        other read."""
+        with self._lock, self._connect() as connection:
+            return connection.execute(sql, params).fetchall()
 
     def device_ordinal(self, job_id):
         """The ordinal of the card a finished job ran on ('cuda:1'), or None
