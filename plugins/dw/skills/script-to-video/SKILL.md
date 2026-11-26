@@ -15,7 +15,7 @@ engine; "Not in scope" lists its refusals.
 
 ## 1. Read the script and the server
 
-This skill is written for dw `0.23.0-alpha.2`; `get_server_info`'s `plugin` says whether that is current.
+This skill is written for dw `0.23.0-alpha.3`; `get_server_info`'s `plugin` says whether that is current.
 
 `get_server_info` for device and workspace, as every dw skill starts.
 Read the script as prose and dialogue; this skill does not parse screenplay

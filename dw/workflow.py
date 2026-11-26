@@ -540,6 +540,7 @@ class Workflow:
                 continue
             path = reference.get("path")
             if not references.is_ref(references.PREFERENCE, path):
+                self._drop_undeclared_tier(reference)
                 continue
             if session is None:
                 session = preferences.current_session()
@@ -580,6 +581,33 @@ class Workflow:
             self._preferences[pin] = resolution
             session.resolved[pin] = resolution.pin()
         return definition
+
+    def _drop_undeclared_tier(self, reference):
+        """A step's `tier` argument is the resolver's (design 6 of #1626):
+        handed on only to a child that declares a `tier` variable. A
+        `variable:` path that held a 'preference:' and was overridden with a
+        workflow name reaches here with the step's pinned tier still in its
+        arguments; a child with no `tier` would refuse it at run as an
+        unknown variable (#1722). A child that cannot be opened is left
+        alone, for sub_workflow_errors to report."""
+        from . import preferences
+
+        arguments = reference.get("arguments")
+        if not isinstance(arguments, dict):
+            return
+        if preferences.TIER_ARGUMENT not in arguments:
+            return
+        path = reference.get("path")
+        if not isinstance(path, str) or not path:
+            return
+        try:
+            definition, _ = self._open_preference_target(path)
+        except Exception:  # noqa: BLE001 - reported by validation, not here
+            return
+        if preferences.TIER_ARGUMENT not in (definition.get("variables") or {}):
+            arguments = dict(arguments)
+            arguments.pop(preferences.TIER_ARGUMENT)
+            reference["arguments"] = arguments
 
     def _open_preference_target(self, name):
         """(definition, Workflow) of one preference target, opened the way
