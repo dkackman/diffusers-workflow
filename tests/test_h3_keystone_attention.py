@@ -508,6 +508,100 @@ def test_the_pre_hook_checks_the_rows_once_per_publish():
     uninstall(fake)
 
 
+# 7b. Per forward (#1188 S4: the hybrid windows publish K and C per forward)
+
+
+def _window_tags(text=3, keystone=2, audio=2, video=8):
+    return torch.tensor([1] * text + [0] * keystone + [2] * audio + [0] * video)
+
+
+def test_check_window_rows_passes_and_returns_the_target():
+    tags = _window_tags()
+    indices = torch.zeros(len(tags), dtype=torch.long)
+    indices[9:] = 3  # the window's free rows, at their own timestep
+    assert ka.check_window_rows(((3, 2), (7, 2)), tags, indices) == 7
+    assert ka.check_window_rows(((3, 2), (7, 2)), tags, None) == 7
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [
+        ((3, 0), (7, 2)),
+        ((3, 2), (7, 0)),
+        ((3, 2), (4, 2)),  # C overlaps K
+        ((3, 2), (5, 2)),  # C in the audio, not the trailing video
+        ((0, 2), (7, 2)),  # K on text rows
+        ((3, 2), (14, 4)),  # past the end
+    ],
+)
+def test_check_window_rows_refuses(rows):
+    with pytest.raises(ValueError):
+        ka.check_window_rows(rows, _window_tags(), None)
+
+
+def test_check_window_rows_refuses_a_held_run_on_two_timesteps():
+    tags = _window_tags()
+    indices = torch.zeros(len(tags), dtype=torch.long)
+    indices[8] = 1
+    with pytest.raises(ValueError, match="held rows do not share"):
+        ka.check_window_rows(((3, 2), (7, 2)), tags, indices)
+
+
+def test_publish_window_rows_needs_a_per_forward_install():
+    fake = FakeTransformer()
+    assert ka.publish_window_rows(fake, (3, 2), (7, 2), 2) is None
+    install(fake, KeystoneAttentionSettings(20.0, "1"))
+    with pytest.raises(ValueError, match="per forward"):
+        ka.publish_window_rows(fake, (3, 2), (7, 2), 2)
+    uninstall(fake)
+
+
+def test_a_per_forward_install_checks_only_the_forwards_with_rows():
+    fake = FakeTransformer()
+    state = install(fake, KeystoneAttentionSettings(20.0, "1"), per_forward=True)
+    assert state.per_forward
+    tags = _window_tags()
+    fake(token_tags=tags, timestep_indices=None)  # no rows: no check, no count
+    assert state.forwards == 0 and state.target is None
+    assert ka.publish_window_rows(fake, (3, 2), (7, 2), 2) == ((3, 2), (7, 2))
+    assert state.frame_rows == 2
+    fake(token_tags=tags, timestep_indices=None)
+    assert state.forwards == 1 and state.target == 7
+    ka.publish_window_rows(fake, (3, 2), (5, 2), 2)
+    with pytest.raises(ValueError, match="trailing video"):
+        fake(token_tags=tags, timestep_indices=None)
+    ka.clear_rows(fake)
+    assert state.rows is None
+    fake(token_tags=tags, timestep_indices=None)
+    assert state.forwards == 1
+    uninstall(fake)
+    assert not fake._forward_pre_hooks
+
+
+def test_a_per_forward_processor_with_no_rows_is_the_original():
+    calls = []
+
+    def original(attn, hidden_states, rotary_emb=None, attention_mask=None):
+        calls.append((attn, hidden_states, rotary_emb, attention_mask))
+        return "original"
+
+    state = ka._KeystoneAttentionState(
+        KeystoneAttentionSettings(20.0, "1"), per_forward=True
+    )
+    processor = KeystoneAttentionH3Processor(original, state, 1)
+    assert processor("attn", "hidden", rotary_emb="rope") == "original"
+    assert calls == [("attn", "hidden", "rope", None)]
+
+
+def test_transformer_refusal():
+    fake = FakeTransformer()
+    assert ka.transformer_refusal(fake) is None
+    assert "no transformer blocks" in ka.transformer_refusal(FakeTransformer(0))
+    install(fake, KeystoneAttentionSettings(20.0, "1"), per_forward=True)
+    assert "already installed" in ka.transformer_refusal(fake)
+    uninstall(fake)
+
+
 # 8. The processor against H3's stock one
 
 

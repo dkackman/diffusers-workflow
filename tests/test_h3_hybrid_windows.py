@@ -768,9 +768,24 @@ def test_keystone_attention_is_on_for_ordered_steps_and_off_for_blended(
         return real(*args, **kwargs)
 
     monkeypatch.setattr(h3_keystone_attention, "resplit_attention", counting)
+    published = []
+    publish = h3_keystone_attention.publish_window_rows
+
+    def recording(component, keystone_rows, held_rows, frame_rows):
+        state = getattr(component, h3_keystone_attention._STATE)
+        published.append((state.per_forward, keystone_rows, held_rows, frame_rows))
+        return publish(component, keystone_rows, held_rows, frame_rows)
+
+    monkeypatch.setattr(h3_keystone_attention, "publish_window_rows", recording)
     originals = [b.attn.processor for b in transformer.transformer_blocks]
     k = 2
     run_keystone({**KEYSTONE, "switch_step": k}, transformer)
+    # the owner's per-forward install took each ordered forward's rows: K the
+    # keystone, C the pinned overlap right after it, one latent frame each
+    assert len(published) == k
+    assert all(per_forward for per_forward, *_ in published)
+    for _, (k0, kn), (c0, cn), frame_rows in published:
+        assert kn == frame_rows and cn % frame_rows == 0 and c0 > k0
     # window 1's STEPS - 1 forwards, window 2's k ordered ones, then blended
     ordered = range(STEPS - 1, STEPS - 1 + k)
     assert len(forwards) > STEPS - 1 + k
@@ -778,3 +793,20 @@ def test_keystone_attention_is_on_for_ordered_steps_and_off_for_blended(
     assert len(resplits) == k * 2  # two blocks per forward
     # the original processors are back
     assert [b.attn.processor for b in transformer.transformer_blocks] == originals
+    assert not h3_keystone_attention.installed(transformer)
+
+
+def test_keystone_attention_blocks_past_the_transformer_raise(flag_on, monkeypatch):
+    from dw.pipeline_processors import h3_keystone_attention
+
+    monkeypatch.setattr(
+        h3_windows,
+        "KEYSTONE_ATTENTION",
+        h3_keystone_attention.KeystoneAttentionSettings(blocks="0-5"),
+    )
+    transformer = tiny_transformer()
+    originals = [b.attn.processor for b in transformer.transformer_blocks]
+    with pytest.raises(ValueError, match="anchor keystone"):
+        run_keystone({**KEYSTONE, "switch_step": 2}, transformer)
+    assert [b.attn.processor for b in transformer.transformer_blocks] == originals
+    assert not h3_keystone_attention.installed(transformer)

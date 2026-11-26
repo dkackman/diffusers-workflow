@@ -133,9 +133,13 @@ def splice_guide_rows(layout, num_text_tokens, guide_positions, video_tag):
     """The packed layout with guide rows inserted after the existing condition rows.
 
     `layout` is `(position_ids, token_tags, video_indices, audio_indices,
-    text_indices, num_condition_video_rows)` as the stock layout built it, on the
-    CPU. Returns the same six, widened by `len(guide_positions)` video rows that
-    sit between the keyframe rows and the target audio.
+    text_indices, num_condition_video_rows)` as the stock layout built it, on
+    any one device. Returns the same six, widened by `len(guide_positions)`
+    video rows that sit between the keyframe rows and the target audio. It
+    holds for any layout that is [text][condition video][audio][video] with
+    the video trailing, so a hybrid window's keystone (h3_windows.
+    keystone_inputs: [text][audio][window video], no condition rows) is
+    spliced here too.
     """
     position_ids, token_tags, video_indices, audio_indices, text_indices, rows = layout
     count = guide_positions.shape[0]
@@ -143,13 +147,16 @@ def splice_guide_rows(layout, num_text_tokens, guide_positions, video_tag):
         return layout
     at = num_text_tokens + rows
     sequence_length = position_ids.shape[0] + count
+    device = video_indices.device
     position_ids = torch.cat(
-        [position_ids[:at], guide_positions.to(position_ids.dtype), position_ids[at:]]
+        [position_ids[:at], guide_positions.to(position_ids), position_ids[at:]]
     )
     token_tags = torch.cat(
         [
             token_tags[:at],
-            torch.full((count,), video_tag, dtype=token_tags.dtype),
+            torch.full(
+                (count,), video_tag, dtype=token_tags.dtype, device=token_tags.device
+            ),
             token_tags[at:],
         ]
     )
@@ -157,8 +164,8 @@ def splice_guide_rows(layout, num_text_tokens, guide_positions, video_tag):
     video_start = audio_start + audio_indices.numel()
     video_indices = torch.cat(
         [
-            torch.arange(num_text_tokens, audio_start + count),
-            torch.arange(video_start + count, sequence_length),
+            torch.arange(num_text_tokens, audio_start + count, device=device),
+            torch.arange(video_start + count, sequence_length, device=device),
         ]
     )
     audio_indices = audio_indices + count
