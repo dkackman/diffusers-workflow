@@ -8,15 +8,15 @@ import math
 import jsonschema
 import pytest
 
-from dw.cost_scaling import (
+from dw.cost_scaling import fixed_minutes
+from dw.plan import build_plan
+from dw.plan_pricing import (
+    _own_price,
     first_at_shape,
     first_at_shape_errors,
     first_at_shape_term,
-    fixed_minutes,
     run_shapes,
 )
-from dw.plan import build_plan
-from dw.plan_pricing import _own_price
 from dw.server.catalog_shape import _compact_entry
 from dw.server.observed_cost import seen_shapes
 from dw.workflow import workflow_from_definition

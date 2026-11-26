@@ -188,7 +188,7 @@ def seen_shapes(definition, rows, keys):
     `run_shapes` at its own stored arguments, presets resolved. A partial
     chain (`_was_partial`) is left out: it may not have reached every shape
     its arguments name."""
-    from ..cost_scaling import run_shapes
+    from ..plan_pricing import run_shapes
 
     shapes = set()
     for row in rows:

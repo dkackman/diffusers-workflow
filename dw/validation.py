@@ -105,7 +105,7 @@ from .type_references import (
     unbraced_type_warnings,
 )
 from .presets import preset_errors
-from .cost_scaling import first_at_shape_errors
+from .plan_pricing import first_at_shape_errors
 from .variable_constraints import (
     ConstraintReferenceError,
     composed_constraint_errors,

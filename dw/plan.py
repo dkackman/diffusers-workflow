@@ -43,13 +43,13 @@ from .cost_scaling import (
     _chain_blocks,
     _chain_retries,
     _choose_entry,
-    first_at_shape,
-    first_at_shape_term,
 )
 from .elision import elide_definition
 from . import references
 from .plan_downloads import _sub_workflow_paths, downloads_required
 from .plan_pricing import (
+    first_at_shape,
+    first_at_shape_term,
     ENTRY_FRAMES_KEY,
     list_entry_frames,
     _child_catalog_price,
