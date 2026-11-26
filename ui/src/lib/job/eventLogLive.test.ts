@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { tick } from 'svelte'
+import { reportResponse, reportUnreachable } from '../connection.svelte'
 import { api } from '../test/apiMock'
 import type { EventLogReply, JobEvent } from '../types'
 import EventLogHarness from './EventLogHarness.svelte'
@@ -206,6 +207,30 @@ describe('EventLog live reads', () => {
     expect(
       screen.getByRole('button', { name: 'Refresh event log' }),
     ).toBeTruthy()
+  })
+
+  it('Retry reads again after a failed read', async () => {
+    api.eventLog.mockRejectedValueOnce(new Error('lost'))
+    const { container } = await opened({ live: false })
+    expect(seqs(container)).toEqual([])
+    await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    await flush()
+    expect(seqs(container)).toEqual(['0'])
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+  })
+
+  it('a failed read is made again when the server comes back', async () => {
+    api.eventLog.mockRejectedValueOnce(new Error('down'))
+    const { container } = await opened({ live: false })
+    reportUnreachable()
+    reportResponse(200)
+    await flush()
+    expect(seqs(container)).toEqual(['0'])
+    // Nothing failed this time, so the next reconnect reads nothing
+    reportUnreachable()
+    reportResponse(200)
+    await flush()
+    expect(calls()).toBe(2)
   })
 
   it('leaves the kind column blank for a row with no sentence of its own', async () => {

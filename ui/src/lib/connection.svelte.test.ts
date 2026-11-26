@@ -45,6 +45,22 @@ it('a fetch TypeError is offline and an AbortError is not', async () => {
   expect(mod.connection.state).toBe('ok')
 })
 
+it('one request lost while the server answers is not an outage', async () => {
+  const { api } = await import('./api')
+  const { describeError, UnsentError } = await import('./apiErrors')
+  vi.stubGlobal('fetch', (url: string) =>
+    url === '/api/health'
+      ? Promise.resolve({ ok: false, status: 401 })
+      : Promise.reject(new TypeError('Failed to fetch')),
+  )
+  mod.reportResponse(200)
+  const failed = await api.eventLog('j1').catch((e) => e)
+  expect(failed).toBeInstanceOf(UnsentError)
+  expect(describeError(failed).title).toBe("This request didn't get through")
+  expect(mod.connection.state).toBe('ok')
+  expect(mod.connection.epoch).toBe(0)
+})
+
 it('a 401 to a token replaced since does not lock the app again', async () => {
   const { api } = await import('./api')
   const { setApiToken } = await import('./token')

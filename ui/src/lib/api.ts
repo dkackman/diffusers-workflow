@@ -139,9 +139,9 @@ export const api = {
    * readable. */
   getJobWorkflow: (id: string) =>
     request<JobWorkflow>(`/api/jobs/${segment(id)}/workflow`),
-  /** One JSON page of a job's events, after `after` (exclusive). `kinds`
-   * repeats, keeping events whose `event` or `kind` is one of them. A
-   * finished job answers from the kept tail, with a `note`; unknown: 404. */
+  /** A JSON page of job events after `after` (exclusive); `kinds` keeps those
+   * whose `event` or `kind` matches. A finished job answers from the kept
+   * tail, with a `note`; unknown: 404. Content blockers cancel `event-log?`. */
   eventLog: (
     id: string,
     {
@@ -155,7 +155,7 @@ export const api = {
     if (limit !== undefined) query.set('limit', String(limit))
     for (const kind of kinds ?? []) query.append('kinds', kind)
     const qs = query.toString()
-    const path = `/api/jobs/${segment(id)}/event-log`
+    const path = `/api/jobs/${segment(id)}/journal`
     return request<EventLogReply>(qs ? `${path}?${qs}` : path)
   },
   /** Queue the job again. `newSeed` draws a fresh seed; without it the

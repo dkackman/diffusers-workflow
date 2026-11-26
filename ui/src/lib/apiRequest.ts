@@ -11,6 +11,7 @@ import { getApiToken } from './token'
 import {
   ApiError,
   NetworkError,
+  UnsentError,
   errorCode,
   errorDetail,
   errorPayload,
@@ -48,14 +49,30 @@ export function preconditionHeaders(
   return headers
 }
 
-/** The fetch, with a request that never arrived told to `connection` and
- * rethrown as a NetworkError; an abort is the caller's own doing, not an
- * outage. */
+/** How long the server has to show it is there after a request was lost */
+const PROBE_MS = 3000
+
+/** Whether the server answers at all: any status is an answer */
+async function answers(): Promise<boolean> {
+  try {
+    await fetch('/api/health', { signal: AbortSignal.timeout(PROBE_MS) })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** The fetch, with a request that never arrived sorted by whether the
+ * server answers: if it does, only this request was lost (a content
+ * blocker, a dropped connection) and it is an UnsentError; if not, it is an
+ * outage, told to `connection` and rethrown as a NetworkError. An abort is
+ * the caller's own doing, neither. */
 async function reach(url: string, init: RequestInit): Promise<Response> {
   try {
     return await fetch(url, init)
   } catch (e) {
     if (!(e instanceof TypeError)) throw e
+    if (await answers()) throw new UnsentError(e.message)
     reportUnreachable()
     throw new NetworkError(e.message)
   }
