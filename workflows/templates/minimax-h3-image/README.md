@@ -38,13 +38,31 @@ Read them in this order and each introduces one new idea on top of the last.
   2048x2048's 15.2 s, and 2.5 min in all against 2.0. By default the pipeline also
   generates any canvas under about 4 MP at about 4 MP (its minimum generation area) and
   resizes back. The templates do not expose that minimum.
-- **CUDA only.** The recipe quantizes on the GPU and offloads with CUDA streams.
+- **These templates are CUDA only.** The recipe quantizes on the GPU and offloads with
+  CUDA streams. On Apple Silicon see *On mps* below.
 - **The first download is about 64 GiB** (63.93 GiB measured, the text encoder aside,
   which comes from MiniMax-H3's repository and is shared with it).
 - **No prompt enhancer.** MiniMax's prompt expander is a separate 27B model for
   text-to-image only, and its diffusers blocks run remote code; these templates do not
   use it. Write the full description by hand: task first, then layout, then details and
   style.
+
+## On mps
+
+On a 64 GB Mac these templates are refused at validate: `host_ram_gb: 64` plus the gate's
+margin is about 70 GB, more than the host has, and on unified memory group offload frees
+nothing. The still runs there instead from pre-quantized int8 folders made on a CUDA host,
+through `bench/workflows/h3-image-mps-t2i.json`. That workflow loads one model at a time:
+an `encode` step with only the text encoder, released, then a `generate` step with the
+transformer and the VAE, fed `prompt_embeds` by `previous_result:`. Its folder paths are
+host-specific, so it stays in `bench` and is never a catalog template.
+
+Measured on mini-ai (M5 Pro, 64 GB, job `b99e189e1059`): one 2048x2048 still in 3.2 min
+with the model load, denoise 77.9 s for the 6 passes, peak 34.2 GB of MPS memory and a
+40.4 GB job peak RSS. dw switches off the transformer folder's saved quantized matmul on
+mps (#1744) and says so in a job warning. The edit with references
+(`bench/workflows/h3-image-mps-edit3.json`) has no mps measurement. The
+record is `bench/records/h3-image.md`, *mini-ai (mps)*.
 
 ## dw craft, not vendor guidance
 

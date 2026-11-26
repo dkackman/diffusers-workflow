@@ -311,6 +311,7 @@ Stage A of #1680 (#1729). Host: mini-ai, Apple M5 Pro, 64 GB unified memory, tor
 | t2i 2048x2048, warm | none | skipped: time stop (cold arm past 20 min) |
 | edit, 3 references | none | skipped: time stop |
 | t2i near 16:9 | none | skipped: time stop |
+| t2i 2048x2048, seed 1317, after #1744's fix | `b99e189e1059` | **succeeded**, 3.2 min wall (190.7 s), load not cached (see *After #1744* below) |
 
 ### Cold t2i (`872ea59cbdcb`)
 
@@ -373,3 +374,33 @@ There is no still, so nothing was compared against lem's baseline `3eec967fe939`
 
 mini-ai time used: about 30 minutes, all of it on the cold arm. The probe can be rerun
 as written once #1744 lands.
+
+### After #1744 (`b99e189e1059`)
+
+#1744's tester reran the cold arm's own workflow (realized from `872ea59cbdcb`, inline,
+workspace `bench`) on mini-ai at develop `11bff16d`, after the fix and a server
+restart. It is the same t2i arm: 2048x2048, seed 1317, the same two int8 folders. Run
+`BenchH3ImageMpsT2I/20261126-161622-d2927bc4`. Recorded here for #1730 (stage B) from
+`get_job` and `get_job_events`.
+
+| Step | Load | Run | Notes |
+|---|---|---|---|
+| `encode` | 12.0 s (not cached) | 2.5 s | text encoder saved with quantized matmul off: no warning |
+| `generate` | 92.2 s (not cached) | denoise 77.9 s (6 passes: first 14.6 s, then 12.7 s each), decode 4.0 s | "Turned off 'use_quantized_matmul' on 350 layers of transformer" (`device_adjusted`) |
+| job | | 190.7 s wall (3.2 min) | one 2048x2048 PNG under `final` |
+
+- **Memory.**
+  - MPS allocated: 26,569 MB in `encode`, 0.5 MB after its release, then 34,249 MB in
+    `generate` (34,254 MB in denoise, reserved 38,026 MB).
+  - Job peak RSS 40,402 MB. The worker's lifetime peak RSS rose from 19,527 MB to
+    59,929 MB during the `generate` load, then fell back to about 525 MB resident.
+  - Host available was lowest at 20.5 GB, during `generate` (of 64 GB). The committed
+    peak came back null again. Swap was not read on this run.
+- **Look.** #1744's tester judged the still clean and coherent: the keeper in a wool coat
+  on the lighthouse gallery, a storm over a grey sea, no dequantization artifacts. It was
+  not compared side by side with lem's `3eec967fe939`.
+- **Not measured on mps:** a warm rerun, the edit with references (so no reference count
+  is timed there), and the 16:9 size.
+- **Against lem:** lem's warm 2048x2048 is priced at 2.3 min, cold quantize 38 min at a
+  117 GB peak. mini-ai runs the same still in 3.2 min from the folders, load included, and
+  never quantizes.

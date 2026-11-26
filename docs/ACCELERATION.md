@@ -385,7 +385,7 @@ One row per model family in the scope below, one column per backend: 24 GB CUDA 
 | ------ | ---------- | ------------- | --- |
 | Stable Diffusion 1.5 | **runs**, 0.2 min (`workflows/templates/text-to-image.json`) | **runs**, 0.21 min observed over 71 runs (`templates/text-to-image`, mini-ai) | **no record** |
 | MiniMax H3 video | **runs**, 1.5 min (`workflows/templates/minimax/video-with-audio.json`); recipe and `host_ram_gb` in [RECIPES_24GB.md](RECIPES_24GB.md) | **runs slowly**, about 9 min per clip, from pre-quantized folders only (reported from the mini-ai runs; no job or bench record in the repo). `sage_hub` is CUDA-only and fails at load, and `sparse` falls back to dense ([MPS Notes](#mps-notes)). A 24 GB Mac is refused at the `minimax/chained-segments` defaults ([MPS Notes](#mps-notes)) | **no record** |
-| MiniMax H3-Image | **runs**, 2.3 min (`workflows/templates/minimax-h3-image/text-to-image.json`), `host_ram_gb` 64 ([RECIPES_24GB.md](RECIPES_24GB.md)) | **does not run (by rule, untested)**: "CUDA only" (`plugins/dw/skills/minimax-h3-image/SKILL.md`) | **does not run (by rule, untested)**: same rule |
+| MiniMax H3-Image | **runs**, 2.3 min (`workflows/templates/minimax-h3-image/text-to-image.json`), `host_ram_gb` 64 ([RECIPES_24GB.md](RECIPES_24GB.md)) | **runs slowly**, 3.2 min for one 2048x2048 still, model load included (job `b99e189e1059`, mini-ai), from pre-quantized int8 folders only, through `bench/workflows/h3-image-mps-t2i.json`: two steps, the text encoder released before the transformer loads. Peak 34.2 GB MPS allocated, 40.4 GB job peak RSS (`bench/records/h3-image.md`, *mini-ai (mps)*). The catalog templates are refused at `host_ram_gb` on a 64 GB Mac; the edit with references has no mps record | **no record**; the skill sends cpu to `flux3-klein` |
 | MiniMax Music 3 | **runs**, 3.6 min, scales with `audio_duration` (`workflows/templates/minimax/music.json`) | **runs slowly**, 9.2 min, scales with `audio_duration` (`music.json`); `music-video` has never run there (`plugins/dw/skills/minimax-music3/SKILL.md`) | **does not run (by rule, untested)** (`minimax-music3/SKILL.md`: "on cpu stop") |
 | LTX-2.5 | **runs**, 1.8 min (`workflows/templates/ltx2/text-to-video.json`) | **runs slowly**, 6 min, text-to-video only; an MPS-only audio dropout is recorded in `bench/records/ltx.md` | **does not run (by rule, untested)** |
 | Kandinsky 6 | **runs**, 3.5 min (`workflows/templates/kandinsky6/text-to-video.json`) | **does not run**, measured: about 54 s per denoise step, then the VAE decode exhausts memory and the worker is killed (`workflows/templates/kandinsky6/README.md`) | **does not run**, measured: the decode of 3 latent frames had not finished after 10 min (same README) |
@@ -406,6 +406,7 @@ Nothing here was measured to fill these in; each is a gap, not a "no":
 - MiniMax H3 video: CPU. Apple Silicon has only the reported figure above.
 - FLUX 3 Klein: the 24 GB CUDA minutes. Apple Silicon is filled from mini-ai's observed runs.
 - Stable Diffusion 1.5: CPU.
+- MiniMax H3-Image: CPU, and the edit with references on Apple Silicon.
 - FLUX.1 dev: Apple Silicon and CPU.
 - Z-Image Turbo: Apple Silicon and CPU.
 - FLUX.1 Krea dev: Apple Silicon and CPU.
