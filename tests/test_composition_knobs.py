@@ -98,12 +98,6 @@ def test_compose_workflows_hands_its_seed_to_both_children(step_name, tmp_path):
     assert child_seed(child) == 7
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="#1725 re-plan: a variable: reference resolving to null is dropped "
-    "from the handed arguments (dw/variables.py replace_variables), so the "
-    "child's own seed: 42 wins - the plan v1 assumption does not hold",
-)
 def test_a_null_parent_seed_beats_the_image_childs_declared_42(tmp_path):
     # z-image declares seed: 42. Handed the parent's null, its variable
     # resolves to None and the run falls back to the parent's drawn seed
@@ -115,6 +109,58 @@ def test_a_null_parent_seed_beats_the_image_childs_declared_42(tmp_path):
     child = compose(COMPOSE, "image_generation", tmp_path, seed=98765)
     assert child._handed_arguments["seed"] is None
     assert child_seed(child) == 98765
+
+
+def _inline_parent(tmp_path, seed_argument, pass_seed=True):
+    """A parent composing z-image (declared seed: 42) whose own seed variable
+    is null, handing `seed_argument` as the child's seed."""
+    arguments = {"prompt": "a cat"}
+    if pass_seed:
+        arguments["seed"] = seed_argument
+    definition = {
+        "id": "parent",
+        "variables": {"seed": None, "fixed": 5},
+        "steps": [
+            {
+                "name": "image",
+                "workflow": {"path": "../models/z-image.json", "arguments": arguments},
+            }
+        ],
+    }
+    path = os.path.join(TEMPLATES, "__seed_probe__.json")
+    from dw.workflow import Workflow
+
+    return Workflow(definition, str(tmp_path), path)
+
+
+def _child_of(parent, seed):
+    expanded = parent.expanded_definition({})
+    (step,) = expanded["steps"]
+    return parent._sub_workflow_action(copy.deepcopy(step), seed)
+
+
+def test_a_literal_child_seed_still_wins_over_the_parents(tmp_path):
+    child = _child_of(_inline_parent(tmp_path, 11), 98765)
+    assert child._handed_arguments["seed"] == 11
+    assert child_seed(child) == 11
+
+
+def test_a_set_reference_hands_its_value(tmp_path):
+    child = _child_of(_inline_parent(tmp_path, "variable:fixed"), 98765)
+    assert child_seed(child) == 5
+
+
+def test_a_step_passing_no_seed_keeps_the_childs_own(tmp_path):
+    child = _child_of(_inline_parent(tmp_path, None, pass_seed=False), 98765)
+    assert "seed" not in child._handed_arguments
+    assert child_seed(child) == 42
+
+
+def test_a_null_reference_under_validation_hands_null_not_a_drawn_seed(tmp_path):
+    # Validation expands the same way: the child is handed null, and only
+    # the run supplies a seed for it to fall back to
+    expanded = _inline_parent(tmp_path, "variable:seed").expanded_definition({})
+    assert expanded["steps"][0]["workflow"]["arguments"]["seed"] is None
 
 
 # best-of-n-to-video -> ./ltx2/image-to-video.json
