@@ -3,6 +3,7 @@
 import { PROMPT } from '../references'
 import type {
   LedgerAttempt,
+  LedgerCloseProposal,
   LedgerHistoryEntry,
   LedgerItem,
   LedgerRequest,
@@ -77,6 +78,19 @@ export const entry = (
   by,
   why,
   at: `2026-01-01T00:${String(revision).padStart(2, '0')}:00+00:00`,
+  ...over,
+})
+
+/** The agent's pending proposal to mark the request done, made at r3 */
+export const proposal = (
+  over: Partial<LedgerCloseProposal> = {},
+): LedgerCloseProposal => ({
+  state: 'done',
+  reason: 'every poster has a keeper',
+  by: 'agent',
+  at: '2026-01-01T00:03:00+00:00',
+  revision: 3,
+  outcome: 'pending',
   ...over,
 })
 

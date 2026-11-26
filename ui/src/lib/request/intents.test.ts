@@ -1,5 +1,12 @@
 import { expect, it } from 'vitest'
-import { attempt, doneItem, item, request, revisedItem } from './fixtures'
+import {
+  attempt,
+  doneItem,
+  item,
+  proposal,
+  request,
+  revisedItem,
+} from './fixtures'
 import {
   apply,
   fold,
@@ -235,6 +242,46 @@ it('a change of state says why in words the history can show', () => {
   ).toBe('reopened')
 })
 
+it('a decline keeps the request open and answers the proposal it saw', () => {
+  const proposed = { ...plan(), close_proposal: proposal() }
+  const sent = body(
+    { kind: 'decline', revision: 3, note: ' the second  shot\nflickers ' },
+    proposed,
+  )
+  expect(sent).toMatchObject({
+    state: 'open',
+    why: 'kept open',
+    revision: 3,
+    close_proposal: { outcome: 'declined', note: 'the second shot flickers' },
+  })
+  // With no note, the decline carries none
+  expect(
+    body({ kind: 'decline', revision: 3 }, proposed).close_proposal,
+  ).toEqual({ outcome: 'declined' })
+  expect(
+    body({ kind: 'decline', revision: 3, note: '  ' }, proposed).close_proposal,
+  ).toEqual({ outcome: 'declined' })
+  // Every other write leaves the proposal to the server
+  expect(body({ kind: 'drop', key: 'd' }, proposed)).not.toHaveProperty(
+    'close_proposal',
+  )
+})
+
+it('a decline of a proposal that is gone or replaced is refused', () => {
+  expect(refusal({ kind: 'decline', revision: 3 })).toBe('proposal_gone')
+  const replaced = { ...plan(), close_proposal: proposal({ revision: 5 }) }
+  expect(refusal({ kind: 'decline', revision: 3 }, replaced)).toBe(
+    'proposal_gone',
+  )
+  const settled = {
+    ...plan(),
+    close_proposal: proposal({ outcome: 'declined' }),
+  }
+  expect(refusal({ kind: 'decline', revision: 3 }, settled)).toBe(
+    'proposal_gone',
+  )
+})
+
 it('folds the waiting edits over a read, passing over one that no longer applies', () => {
   const view = fold(plan(), [
     { kind: 'drop', key: 'b' },
@@ -243,6 +290,7 @@ it('folds the waiting edits over a read, passing over one that no longer applies
     { kind: 'accept', key: 'a', job: 'j1' },
     // not shown before the server has it
     { kind: 'state', state: 'done' },
+    { kind: 'decline', revision: 3 },
   ])
   expect(keys(view)).toEqual(['d', 'a', 'c'])
   expect(view.items[1].accepted?.job).toBe('j1')

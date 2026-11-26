@@ -1,5 +1,11 @@
 import { expect, it } from 'vitest'
-import { culprit, itemDiff, stateCulprit } from './conflict'
+import {
+  culprit,
+  goneText,
+  itemDiff,
+  stateCulprit,
+  type Conflict,
+} from './conflict'
 import { attempt, entry, item } from './fixtures'
 
 it('says what changed about an item on the fields a decision rests on', () => {
@@ -59,7 +65,7 @@ it("names the agent's latest write since, or failing that the latest of any", ()
 it('moved_on names the write that moved the item', () => {
   const history = [
     entry(3, 'user', 'marked done', { state: 'done' }),
-    entry(4, 'agent', 'abandoned', { state: 'abandoned' }),
+    entry(4, 'user', 'abandoned', { state: 'abandoned' }),
     // The agent's latest write is not the one that moved the state
     entry(5, 'agent', 'added shot 7'),
     entry(6, 'user', 'comment on a'),
@@ -67,4 +73,46 @@ it('moved_on names the write that moved the item', () => {
   expect(stateCulprit(history)?.why).toBe('abandoned')
   // A history that no longer holds the write names none, never a guess
   expect(stateCulprit(history.slice(2))).toBeNull()
+})
+
+const gone = (
+  refusal: Conflict['refusal'],
+  at: Conflict['entry'],
+  intent: Conflict['intent'] = { kind: 'state', state: 'open', from: 'done' },
+): Conflict => ({
+  id: 1,
+  kind: 'gone',
+  intent,
+  refusal,
+  key: null,
+  title: 'this request',
+  entry: at,
+  changes: [],
+})
+
+it('a state that moved on under an Undo: the agent only reopens', () => {
+  // Only a user write closes a request, so the agent's is a reopen
+  expect(
+    goneText(
+      gone('moved_on', entry(4, 'agent', 'reopened', { state: 'open' })),
+    ),
+  ).toBe(
+    "Undo not applied: the agent reopened this request since (r4: 'reopened').",
+  )
+  expect(
+    goneText(
+      gone('moved_on', entry(4, 'user', 'abandoned', { state: 'abandoned' })),
+    ),
+  ).toBe(
+    "Undo not applied: another edit changed the state of this request since (r4: 'abandoned').",
+  )
+})
+
+it('a decline over a proposal that is no longer the one answered', () => {
+  const decline = { kind: 'decline' as const, revision: 3 }
+  expect(
+    goneText(gone('proposal_gone', entry(4, 'agent', 'withdrew'), decline)),
+  ).toBe(
+    "Not kept open: the proposal to close this request is no longer the one you answered (r4: 'withdrew').",
+  )
 })

@@ -752,3 +752,17 @@ it('the first-run card waits for the workflow listing', async () => {
     await screen.findByRole('link', { name: 'Open Workflows' }),
   ).toBeTruthy()
 })
+
+it('a request row says close proposed only while the agent proposes a close', async () => {
+  data.requests = [
+    summary({ id: 'asked', title: 'Asked', close_proposed: true }),
+    summary({ id: 'plain', title: 'Plain' }),
+  ]
+  render(OverviewPage)
+  const tagOf = async (name: string) =>
+    (await screen.findByRole('link', { name }))
+      .closest('li')!
+      .querySelector('[data-testid="close-proposed-tag"]')
+  expect((await tagOf('Asked'))?.textContent).toBe('close proposed')
+  expect(await tagOf('Plain')).toBeNull()
+})

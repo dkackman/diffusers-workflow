@@ -6,6 +6,7 @@
   import ErrorLine from '../ui/ErrorLine.svelte'
   import Skeleton from '../ui/Skeleton.svelte'
   import ClampedText from '../ui/ClampedText.svelte'
+  import CloseProposal from '../request/CloseProposal.svelte'
   import PlanChanges from '../request/PlanChanges.svelte'
   import PlanItems from '../request/PlanItems.svelte'
   import RequestHeader from '../request/RequestHeader.svelte'
@@ -317,6 +318,12 @@
             />
           {/snippet}
         </RequestHeader>
+        <CloseProposal
+          {request}
+          {store}
+          onclose={(state) => requestMenu?.setState(state)}
+          closing={requestMenu?.busy() ?? false}
+        />
         <PlanItems
           {store}
           {request}

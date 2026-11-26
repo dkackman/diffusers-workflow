@@ -73,8 +73,9 @@ export function culprit(
 
 /** The write to name for a state that moved on (`moved_on`): the newest
  * whose diff names the request's state - the one that set it as it is -
- * whoever wrote later. Null when the history no longer holds it, rather
- * than a write that did not move it */
+ * whoever wrote later. Only a user write closes a request, so an agent
+ * write here is a reopen. Null when the history no longer holds it,
+ * rather than a write that did not move it */
 export function stateCulprit(
   history: LedgerHistoryEntry[],
 ): LedgerHistoryEntry | null {
@@ -123,7 +124,11 @@ export function goneText(conflict: Conflict): string {
     case 'attempt_gone':
       return `Not applied: that take is no longer one of ${title}'s takes${aside(entry)}.`
     case 'moved_on':
-      return `Undo not applied: ${who(entry)} changed the state of ${title} since${aside(entry)}.`
+      return entry?.by === 'agent'
+        ? `Undo not applied: the agent reopened ${title} since${aside(entry)}.`
+        : `Undo not applied: another edit changed the state of ${title} since${aside(entry)}.`
+    case 'proposal_gone':
+      return `Not kept open: the proposal to close ${title} is no longer the one you answered${aside(entry)}.`
     case 'anchor_gone':
       return `Not applied: the item ${title} was moved beside is no longer in the plan${aside(entry)}.`
     default:

@@ -2,6 +2,7 @@
 // ApiError, the file-download variants, and the bodies a call sends that
 // the generated response types do not name.
 import type {
+  CloseDecline,
   LedgerItem,
   LedgerRequest,
   Plan,
@@ -257,6 +258,9 @@ export type RequestWriteBody = {
   revision: number
   why: string
   state?: LedgerRequest['state']
+  /** Only a decline: the user keeping open what the agent proposed to
+   * close. Left out, the server keeps the proposal as it stands. */
+  close_proposal?: CloseDecline
 }
 
 /** A cost acknowledgement bound to a plan: the `{fingerprint, minutes,

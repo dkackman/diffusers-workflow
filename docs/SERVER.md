@@ -395,6 +395,17 @@ them instead.
   the page can restore it only until you leave), or its job is queued or
   running (the drop does not cancel it).
 
+  **Closing is yours.** An agent cannot close a request; it proposes the
+  close, and the page shows a banner under the header: "The agent proposes
+  to mark this done: <reason>" ("abandon this" for an abandon), with
+  **Close** and **Keep open**. Close writes the proposed state as the
+  request's menu does (with the same Undo), which settles the proposal as
+  accepted. Keep open opens one optional line (up to 200 characters, Esc
+  cancels) for the agent, then declines the proposal with it; the page
+  then says "You kept this open: <note>" until the agent proposes again.
+  A request with a proposal waiting carries a **close proposed** tag on its
+  row in the Requests list and on the Overview.
+
   **Notes for the agent** go on the request or on an item (each up to 4000
   characters; Ctrl+Enter saves, Esc sets the draft aside, and an unsaved
   draft survives a reload of the tab). An item holds a list of them, so a
@@ -1347,6 +1358,8 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
   `failed` - can run again - `revised`, `choose`, `accepted_missing`) and
   `notes_waiting`, the request page's rule (`ledger_views.needs_counts`).
   Without it no row does, and `GET /api/requests` never carries it.
+  Every list row carries `close_proposed: true` while an agent's close
+  proposal waits on the user (absent otherwise).
 
   **Writing.** `PUT` takes one request's whole plan:
 

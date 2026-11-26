@@ -32,6 +32,10 @@ export type Intent =
       state: LedgerRequest['state']
       from?: LedgerRequest['state']
     }
+  /** Keep open what the agent proposed to close: `revision` is the
+   * request's revision when the proposal was made, so a decline never
+   * lands on a proposal the page has not seen */
+  | { kind: 'decline'; revision: number; note?: string }
 
 export type Refusal =
   /** The item is no longer in the plan at all */
@@ -46,6 +50,8 @@ export type Refusal =
   | 'no_change'
   /** The request's state is no longer the one the intent was made over */
   | 'moved_on'
+  /** The close proposal a decline answered is no longer the pending one */
+  | 'proposal_gone'
 
 export type Refused = { refusal: Refusal }
 /** The request as the intent leaves it, the `why` its write carries, and
@@ -283,6 +289,35 @@ function setState(
   }
 }
 
+/** A note keeps one line, like a why */
+const NOTE_MAX = 200
+
+function decline(
+  request: LedgerRequest,
+  { revision, note }: Extract<Intent, { kind: 'decline' }>,
+): Change | Refused {
+  const proposal = request.close_proposal
+  if (
+    !proposal ||
+    proposal.outcome !== 'pending' ||
+    proposal.revision !== revision
+  )
+    return no('proposal_gone')
+  const line = note?.replace(/\s+/g, ' ').trim().slice(0, NOTE_MAX)
+  return {
+    request: {
+      ...request,
+      close_proposal: {
+        ...proposal,
+        outcome: 'declined',
+        ...(line ? { note: line } : {}),
+      },
+    },
+    why: 'kept open',
+    stripped: [],
+  }
+}
+
 /** `request` as `intent` would leave it, or why it cannot be applied */
 export function project(
   intent: Intent,
@@ -299,6 +334,8 @@ export function project(
       return move(request, intent)
     case 'state':
       return setState(request, intent)
+    case 'decline':
+      return decline(request, intent)
   }
 }
 
@@ -329,6 +366,16 @@ export function apply(
       revision: request.revision,
       why: change.why,
       items: next.items.map(written),
+      ...(intent.kind === 'decline'
+        ? {
+            close_proposal: {
+              outcome: 'declined' as const,
+              ...(next.close_proposal?.note
+                ? { note: next.close_proposal.note }
+                : {}),
+            },
+          }
+        : {}),
     },
     stripped: change.stripped,
   }
@@ -336,12 +383,12 @@ export function apply(
 
 /** What the page shows while writes are still out: the intents in order
  * over the last read. One that no longer applies is passed over - its own
- * write will say so. A change of state is not shown before the server has
- * it. */
+ * write will say so. A change of state, or a decline, is not shown before
+ * the server has it. */
 export function fold(request: LedgerRequest, intents: Intent[]): LedgerRequest {
   let view = request
   for (const intent of intents) {
-    if (intent.kind === 'state') continue
+    if (intent.kind === 'state' || intent.kind === 'decline') continue
     const change = project(intent, view)
     if (!isRefused(change)) view = change.request
   }
