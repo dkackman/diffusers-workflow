@@ -826,7 +826,9 @@ class TestEstimate:
 
     def test_a_shifted_field_withholds_an_observed_figure(self, plan):
         """#796: observed history matched on list length must not price a
-        list with a shot longer than any the default entries had."""
+        list with a shot longer than any the default entries had. A block
+        that does not say what frames its runs rendered keeps the discard
+        (#1696)."""
         spec = definition()
         spec["cost_drivers"] = ["shots"]
         spec["variables"]["shots"] = [
@@ -837,6 +839,87 @@ class TestEstimate:
         answer = plan(spec, arguments={"shots": long}, observed=observed())["estimate"]
         # The observed 8.04 is withheld; the curated 10 is scaled instead
         assert (answer["minutes"], answer["basis"]) == (14.5, "derived")
+
+    def _shifted(self, fixed=None):
+        spec = definition()
+        spec["cost_drivers"] = ["shots"]
+        spec["variables"]["shots"] = [
+            {"name": f"s{n}", "prompt": "p", "num_frames": 124} for n in range(4)
+        ]
+        if fixed is not None:
+            spec["cost"][0]["fixed_minutes"] = fixed
+        long = [dict(e) for e in spec["variables"]["shots"]]
+        long[3]["num_frames"] = 345
+        return spec, long
+
+    def test_a_shifted_field_rescales_history_that_names_its_frames(self, plan):
+        """#1696: a bucket that says what frames its runs rendered is
+        rescaled to this run's frames instead of discarded (#796)."""
+        spec, long = self._shifted()
+        history = dict(observed(minutes=8.0, runs=11), entry_frames=496)
+        answer = plan(spec, arguments={"shots": long}, observed=history)["estimate"]
+        # 8 min x 717/496 frames
+        assert (answer["minutes"], answer["basis"]) == (11.6, "derived")
+        assert answer["scaled"] == (
+            "scaled from the observed 8 min at 496 frames: num_frames 717 vs 496"
+        )
+        assert not answer.get("low_confidence")
+
+    def test_a_frames_rescale_holds_the_fixed_share(self, plan):
+        """#1696: the cost row's fixed_minutes share of the observed figure
+        does not scale with the frames."""
+        spec, long = self._shifted(fixed=4)
+        history = dict(observed(minutes=8.0, runs=11), entry_frames=496)
+        answer = plan(spec, arguments={"shots": long}, observed=history)["estimate"]
+        # 8 x 0.4 = 3.2 fixed, + 4.8 x 717/496
+        assert (answer["minutes"], answer["basis"]) == (10.1, "derived")
+        assert answer["scaled"] == (
+            "scaled from the observed 8 min at 496 frames (3.2 min of it fixed): "
+            "num_frames 717 vs 496"
+        )
+
+    def test_a_frames_rescale_scales_the_warm_figure_too(self):
+        """The block's warm figure scales as its cold one does, fixed share
+        held; the estimate quotes cold, but the block stays consistent."""
+        from dw.plan import _frames_rescaled
+
+        spec, long = self._shifted(fixed=4)
+        history = dict(observed(minutes=8.0, runs=11), entry_frames=496)
+        history.update(warm_minutes=4.0, warm_runs=11)
+        block = _frames_rescaled(history, spec, {"variables": {"shots": long}}, "cuda")
+        assert block["warm_minutes"] == pytest.approx(1.6 + 2.4 * 717 / 496)
+        assert block["cold_minutes"] == pytest.approx(3.2 + 4.8 * 717 / 496)
+
+    @pytest.mark.parametrize("was", [300, 1500])
+    def test_a_frames_ratio_outside_half_to_double_is_low_confidence(self, plan, was):
+        spec, long = self._shifted()
+        history = dict(observed(minutes=8.0, runs=11), entry_frames=was)
+        answer = plan(spec, arguments={"shots": long}, observed=history)["estimate"]
+        assert answer["basis"] == "derived"
+        assert answer["low_confidence"] is True
+
+    def test_a_thin_bucket_tempers_toward_the_curated_figure_at_the_same_frames(
+        self, plan
+    ):
+        """#1696: under SMALL_N_THRESHOLD runs the rescaled figure blends
+        toward the curated one scaled to the same frames (14.5 min), not
+        toward the unscaled 10."""
+        spec, long = self._shifted()
+        thick = dict(observed(minutes=8.0, runs=11), entry_frames=496)
+        thin = dict(observed(minutes=8.0, runs=1), entry_frames=496)
+        rescaled = plan(spec, arguments={"shots": long}, observed=thick)["estimate"]
+        tempered = plan(spec, arguments={"shots": long}, observed=thin)["estimate"]
+        assert tempered["basis"] == "derived"
+        assert rescaled["minutes"] < tempered["minutes"] < 14.5
+
+    def test_history_at_this_run_s_frames_stays_observed(self, plan):
+        """#1696: a bucket whose runs rendered the frames this run asks for
+        needs no rescale, so its measurement stands as observed."""
+        spec, long = self._shifted()
+        history = dict(observed(minutes=8.0, runs=11), entry_frames=717)
+        answer = plan(spec, arguments={"shots": long}, observed=history)["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (8.0, "observed")
+        assert "scaled" not in answer
 
     def test_a_per_entry_list_driver_prices_past_its_measured_count(self, plan):
         """#772: a windows list whose entries carry an `index` label priced

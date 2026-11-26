@@ -25,17 +25,20 @@ import copy
 import hashlib
 import json
 import logging
+import math
 import os
 
 from .cost_scaling import (
     CATALOG,
     DERIVED,
+    ENTRY_FRAMES_KEY,
     INHERITED,
     OBSERVED,
     OTHER_DEVICE,
     UNKNOWN,
     _driver_scaling,
     fixed_share,
+    list_entry_frames,
     _entry_cost_field_shifted,
     words_check_term,
     observed_render_scaling,
@@ -761,19 +764,25 @@ def estimate(
     own = _own_price(
         definition, expanded, list_entries, device, measured_entries, base_dir
     )
+    baseline = observed.get("baseline") if isinstance(observed, dict) else None
     if measured is not None and _entry_cost_field_shifted(definition, expanded):
         # The history's drivers match on the list's length, not on what each
         # entry renders, so a shot lengthened past anything it covered would
-        # be quoted at the shorter run's minutes (#796)
-        measured = None
+        # be quoted at the shorter run's minutes (#796): rescaled by the
+        # frames its runs rendered when the bucket says, else discarded
+        # (#1696)
+        measured = _with_worst_case(
+            _observed(_frames_rescaled(observed, definition, expanded, device), device),
+            definition,
+            expanded,
+            device,
+        )
+        baseline = _frames_rescaled(baseline, definition, expanded, device)
     if measured is not None:
         # A thin bucket blends toward this box's default-tier history scaled
         # to its drivers when there is one, not the curated row (#1236)
         partner = _with_worst_case(
-            _observed(
-                observed.get("baseline") if isinstance(observed, dict) else None,
-                device,
-            ),
+            _observed(baseline, device),
             definition,
             expanded,
             device,
@@ -907,6 +916,55 @@ def _with_worst_case(measured, definition, expanded, device=None):
     return worst
 
 
+# How far a frames rescale reaches outside the runs it is read from before
+# its figure is flagged `low_confidence`: the rescale is linear, and
+# attention cost grows faster than linear in tokens (#1696)
+FRAMES_CONFIDENT_RATIO = (0.5, 2.0)
+FRAMES_SCALED_KEY = "frames_scaled"
+
+
+def _frames_rescaled(observed, definition, expanded, device):
+    """A bucket's `observed` block rescaled to the frames this run's list
+    entries render, from the frames its cold runs rendered
+    (`observed_cost.ENTRY_FRAMES_KEY`), or None when it carries none to
+    rescale from - an older block, entries with no `num_frames`, or another
+    template's history - which keeps #796's discard (#1696).
+
+    Cold and warm minutes both scale by run frames / bucket frames, the
+    workflow's fixed share of each held as `_scaled_observed` holds it
+    (#1224). The block says how under `FRAMES_SCALED_KEY`, which `_observed`
+    reads into `scaled` and the basis."""
+    if not isinstance(observed, dict) or observed.get("inherited_from"):
+        return None
+    was = observed.get(ENTRY_FRAMES_KEY)
+    if isinstance(was, bool) or not isinstance(was, (int, float)) or was <= 0:
+        return None
+    now = list_entry_frames(definition, (expanded or {}).get("variables") or {})
+    cold = observed.get("cold_minutes")
+    if now is None or not isinstance(cold, (int, float)):
+        return None
+    ratio = now / was
+    if math.isclose(ratio, 1.0):
+        # The bucket's runs rendered these frames: the measurement stands
+        return observed
+    share = fixed_share(definition, device)
+    block = dict(observed)
+    for key in ("cold_minutes", "warm_minutes"):
+        minutes = observed.get(key)
+        if isinstance(minutes, (int, float)) and not isinstance(minutes, bool):
+            fixed = minutes * share
+            block[key] = fixed + (minutes - fixed) * ratio
+    fixed = cold * share
+    block[FRAMES_SCALED_KEY] = {
+        "ratio": ratio,
+        "note": f"scaled from the observed {_shown_minutes(round(cold, 1))} min "
+        f"at {_shown_minutes(was)} frames"
+        + (f" ({_shown_minutes(round(fixed, 1))} min of it fixed)" if fixed else "")
+        + f": num_frames {_shown_minutes(now)} vs {_shown_minutes(was)}",
+    }
+    return block
+
+
 def _shown_minutes(minutes):
     return int(minutes) if float(minutes).is_integer() else round(minutes, 1)
 
@@ -950,6 +1008,17 @@ def _observed(observed, device):
         if observed.get("differs"):
             # Moved a driver no rule scales: measured at another setting
             estimate["differs"] = list(observed["differs"])
+    frames = observed.get(FRAMES_SCALED_KEY)
+    if frames and not inherited_from:
+        # The bucket's history rescaled to this run's frames (#1696): derived,
+        # and flagged only when it reaches far outside the runs it is from
+        estimate["basis"] = DERIVED
+        estimate["scaled"] = "; ".join(
+            part for part in (estimate.get("scaled"), frames["note"]) if part
+        )
+        low, high = FRAMES_CONFIDENT_RATIO
+        if not low <= frames["ratio"] <= high:
+            estimate["low_confidence"] = True
     if inherited_from:
         # History of the catalog template with this workflow's pipeline,
         # not of this workflow - an approximation (#797)
