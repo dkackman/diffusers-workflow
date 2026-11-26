@@ -1045,6 +1045,14 @@ remaining deferred fix is recorded in
   `slice_audio` gains `past_end: "excerpt"`. A run failure now names its
   step. A within-shot gap check and an outside bed asset were cut, each with
   its trigger: `complete/shot-bed-drop-looped-bed-complete.md`.
+- **Finishing a cut in one job, and placing a score on a beat** (#1622,
+  stage #1700), shipped 2026-11-26. Plugin docs only: `run-and-repair.md`'s
+  *Finish the cut in one job* composes `templates/assemble-and-score`, then
+  `apply_lut` and `film_grain`, with export as a second job (#1613), and
+  `audio.md` gives `score_start_frame = round(t_peak × fps) − B`. A finishing
+  template and grade/export arguments on `assemble-and-score` were cut; a
+  second field report of a hand-copied chain brings the template back:
+  `complete/finish-cut-score-placement-complete.md`.
 
 ## Declined
 
