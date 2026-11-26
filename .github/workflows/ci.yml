@@ -256,8 +256,11 @@ jobs:
 
   mcp-registry:
     # The bundle is listed in the MCP Registry under io.github.dkackman/dw,
-    # logged in through GitHub OIDC. A registry outage must not fail a release
+    # logged in through GitHub OIDC. A registry outage must not fail a release.
+    # Off until the repo variable MCP_REGISTRY_PUBLISH is 'true': it is set
+    # once Claude Desktop is confirmed to run the bundle (docs/RELEASING.md)
     needs: release
+    if: vars.MCP_REGISTRY_PUBLISH == 'true'
     runs-on: ubuntu-latest
     continue-on-error: true
     permissions:
