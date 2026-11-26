@@ -324,15 +324,36 @@ Read it with `get_request(request=None)` (MCP) or `GET
   `stale_revision`, carrying `current_revision`: read again, merge, write.
   Each write adds a history entry with `by` (`agent` over MCP, `user` from
   the UI), its `why` (one line, at most 200 characters) and the time, plus
-  the `goal` and the `state` when that write set or changed them. A plan
+  the `goal` and the `state` when that write set or changed them, and a
+  `close` when it touched a close proposal (`close_proposed`,
+  `close_withdrawn`, `close_declined` or `close_accepted`). A plan
   write after the first also carries `changed`: by item key, which of
   `added`, `dropped`, `restored`, `renamed`, `workflow`, `arguments` and
   `depends_on` it changed. Only the newest 10 entries that changed an item
   keep it.
-- **State.** Any write may set `state`, the user's as well as the agent's:
-  `open` to `done` or `abandoned`, one closed state to the other, and back
-  to `open`. Closing changes nothing else. A closed request takes no new
-  job (422 `request_closed`) until it is reopened, and stays writable.
+- **State.** Only a user write closes a request. An agent write (`by:
+  "agent"`, every MCP `set_request`) that moves `state` to `done` or
+  `abandoned`, from `open` or from the other closed state, is refused with
+  422 `close_needs_user`; the agent may reopen (`state: "open"`). A write
+  that leaves `state` out or keeps the stored one passes, so an agent can
+  still write a plan on a closed request. Closing changes nothing else. A
+  closed request takes no new job (422 `request_closed`) until it is
+  reopened, and stays writable.
+- **Close proposal.** An agent proposes a close with `close_proposal:
+  {state, reason}`: `state` is `done` or `abandoned`, `reason` one line of
+  at most 200 characters. It is stored with `by: "agent"`, `at`, the
+  `revision` and `outcome: "pending"`. A new proposal replaces the earlier
+  one, a declined one too; the server does not gate a re-proposal. The
+  agent's `close_proposal: null` withdraws a pending proposal. A proposal
+  on a request that is not open after the write is refused with 422
+  `request_closed`. The user declines with `close_proposal: {outcome:
+  "declined", note}` (`note` optional, one line of at most 200
+  characters), or 422 `no_close_proposal` when none is pending; it is kept
+  with `outcome: "declined"`, `decided_at` and `note`. A user write that
+  closes the request while a proposal is pending settles it as
+  `outcome: "accepted"` with `decided_at`. A write that leaves
+  `close_proposal` out keeps the stored one. `GET` of one request returns
+  it when there is one.
 - **Items** are `{key, title, depends_on, estimate_minutes, workflow,
   arguments, accepted, notes, review_until}`, matched across writes by `key`;
   the order written is the order kept. An item left out of a write is deleted,
@@ -413,7 +434,8 @@ Read it with `get_request(request=None)` (MCP) or `GET
   Closed requests have their own cap of 1000 and a request's dropped items
   theirs of 200 (409 `too_many_dropped_items`), and the whole file about
   2 MB (413 `ledger_too_large`). Each refusal says what frees room: close
-  or delete a request (409 `ledger_full`), `purge` dropped items. A request
+  or delete a request (409 `ledger_full`; an agent's says propose a close
+  or delete one), `purge` dropped items. A request
   already open, or already closed, stays writable at its cap.
 - **Deleting** removes only the ledger entry, at the `revision` read (409
   `stale_revision` otherwise; 404 `unknown_request`). Every linked job keeps

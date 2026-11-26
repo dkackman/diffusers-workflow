@@ -186,6 +186,9 @@ it alone.
 
 A shot added, split or cut changes the shot document first, then the
 request: `set_request` with the new item list and a `why`. An item with jobs
-that is left out is kept as `dropped`; one with none is removed. Close the
-request with `state="done"` once the cut is delivered, or `"abandoned"` when
-the user drops the ask.
+that is left out is kept as `dropped`; one with none is removed. Only the
+user closes a request: once the cut is delivered, propose it with
+`set_request(propose_close={"state": "done", "reason": ...})`, or
+`"abandoned"` when the user drops the ask. The user accepts it by closing
+the request, or declines it; after a decline, don't propose again unless the
+plan or its takes changed.

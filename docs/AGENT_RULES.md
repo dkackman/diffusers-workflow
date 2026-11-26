@@ -12,6 +12,11 @@ workflows guide's mechanics don't state. Each rule's number is the skill's,
 and a test holds the two copies equal. They don't replace `validate_workflow`:
 validate still refuses what the engine can check.
 
+One rule holds for every family: only the user closes a request. Propose a
+close (`set_request(propose_close={state, reason})`); never re-propose after
+a decline unless the plan or its takes changed. A request's item fields are
+in `get_guide("workspaces", section="Requests")`.
+
 ## FLUX 3 Klein
 
 The Claude Code skill `flux3-klein` carries the same rules, with their
