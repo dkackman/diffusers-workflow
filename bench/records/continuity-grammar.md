@@ -12,6 +12,7 @@ Lead: claude-opus-5-5 (anthropic), 2026-11-26. lem was at develop @ ca1ef1e6.
   - **R2:** matched eyelines. Each single looks toward where the partner sits.
   - **R3:** screen direction. A walker keeps one direction of travel across a cut.
   - **R5:** light side. The key light stays on one side of the face across a wide, a medium and a close-up.
+- **Families probed:** FLUX 3 Klein (R1, R2, R5) and MiniMax-H3 (R3) only. **LTX-2.5 and Kandinsky 6 were not probed**, so every rule here is *untested* for those families (plan v1).
 - **Workflows.** All are in `bench/workflows/` and saved in workspace `probe-1685`. Each step's prompt is a variable, and the job's one seed is `variable:seed`.
   - `continuity-side.json` (P-A, R1 and R2) runs FLUX 3 Klein T2I. Its steps are `two` (a two-shot of June and Marcus), `a` (a single of June) and `b` (a single of Marcus).
   - `continuity-light.json` (P-B, R5) runs Klein T2I. Its steps are `wide`, `medium` and `close`, all of June reading in one living room.
