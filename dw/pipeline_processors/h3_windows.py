@@ -66,7 +66,7 @@ whose every forward does too. The upstream change that would replace it is a
 `components.config.max_duration` like `canvas_max_pixels`.
 
 Windowed generation (#1188, EXPERIMENTAL). `experimental_hybrid_windows`
-- `{frames, overlap, blend, positions, switch_step, handoff}`, the first four
+- `{frames, overlap, blend, positions, switch_step, handoff, anchor}`, the first four
 as `refine_windows`'s - generates a t2va take from noise as the same fused
 windows, on every step, with a held `hold_audio` track as its only audio. It
 is refused unless the process sets `DW_EXPERIMENTAL_HYBRID_WINDOWS=1`, naming
@@ -94,6 +94,22 @@ of the fusion and restored after each update - so a window wholly inside it
 is not run. Steps 1..k of the outer loop only advance the schedulers. k = 0
 is no ordered phase, every step blended; k = S is plain sequential windows,
 each finished in order with its overlap pinned to its predecessor's frames.
+
+The keystone anchor (`anchor`, S4): `"none"` (the default) touches none of
+the above; `"keystone"` makes window 1's finished first latent frame a
+keystone every later forward reads. With an ordered phase it is window 1's
+own first frame; with k = 0, `_keystone_prepass` runs window 1 alone to the
+last step first, writing nothing back. Every forward but window 1's own then
+carries the keystone's rows ahead of the window's video (`keystone_inputs`):
+the take's frame-0 positions, token tag 0, held at the clean timestep (H3's
+t = 1), and dropped from the prediction before the fuse, so the take never
+holds them. On the ordered phase's later windows the keystone attention
+(`KEYSTONE_ATTENTION`, h3_keystone_attention's K/C re-split, K the keystone
+rows and C the window's pinned overlap) runs on the blocks the transformer
+has (`_OrderedKeystoneProcessor`); window 1 and the blended steps keep the
+plain attention. On sparse attention, or a transformer with another re-split
+installed, the attention is skipped with a warning and the rows ship alone.
+Any other `anchor` is refused at validate, before the flag.
 
 The decode of a long take. The stock video decode keeps every decoded clip
 on the device and converts the whole take to float32, about 36 GB at 120 s
@@ -124,6 +140,9 @@ from diffusers.modular_pipelines.minimax_h3.denoise import (
 from diffusers.modular_pipelines.modular_pipeline_utils import InputParam
 
 from .. import get_device_type, references
+from ..events import emit_warning
+from ..sparse_attention import is_sparse_installed
+from . import h3_keystone_attention as keystone_attention
 from .h3_hold_steps import (  # noqa: F401 - re-exported: the decode's and the window's names live here too
     DECODE_PIECE_CLIPS,
     DwH3LongRefineLayoutStep,
@@ -194,10 +213,17 @@ CONFLICTS = (
     LATENT_ANCHOR_INPUT,
 )
 # The windowed generation's own keys (#1188), past the window's four: the step
-# the ordered windows hand over to blended ones at, and what they hand over
-_HYBRID_KEYS = _KEYS + ("switch_step", "handoff")
-HYBRID_DEFAULTS = {**WINDOW_DEFAULTS, "switch_step": 3, "handoff": "finished"}
+# the ordered windows hand over to blended ones at, what they hand over, and
+# the anchor every window's forward reads (#1188 S4)
+_HYBRID_KEYS = _KEYS + ("switch_step", "handoff", "anchor")
+HYBRID_DEFAULTS = {
+    **WINDOW_DEFAULTS,
+    "switch_step": 3,
+    "handoff": "finished",
+    "anchor": "none",
+}
 HANDOFFS = ("finished", "x0")
+ANCHORS = ("none", "keystone")
 # What the generation refuses beyond CONFLICTS: a refine's inputs (the take is
 # noise), and the refine windows, which are the other branch of the denoiser
 HYBRID_REFINE_INPUTS = (
@@ -215,6 +241,14 @@ HYBRID_DEVICE = "dw_hybrid_device"
 # blended finish holds where they are
 HYBRID_SWITCH = "dw_hybrid_switch"
 HYBRID_HELD = "dw_hybrid_held"
+# The keystone (#1188 S4, `anchor: "keystone"`): window 1's finished first
+# latent frame, a host tensor of its rows, set at step 0 while the take is on
+# the host
+HYBRID_KEYSTONE = "dw_hybrid_keystone"
+# The keystone attention on the ordered phase's later windows (geiru 1.1): the
+# re-split's balance and blocks, the long-form spike's defaults. Blocks the
+# transformer does not have are left out
+KEYSTONE_ATTENTION = keystone_attention.KeystoneAttentionSettings()
 # H3's clip grid: a 17-frame clip encodes to 5 latents, the first of them one
 # frame. A rebased window's first latent sits at the take's origin, the slot
 # of a one-frame latent, so it must be one - a start on this grid
@@ -484,7 +518,7 @@ def hybrid_settings(settings):
 
 
 def _hybrid_key_problems(settings, arguments=None):
-    """`switch_step` and `handoff`'s rules. `switch_step` is at most the
+    """`switch_step`, `handoff` and `anchor`'s rules. `switch_step` is at most the
     run's denoise steps - H3 runs `num_inference_steps - 1` - when the call
     names a whole `num_inference_steps`; the run checks it again against the
     steps it has."""
@@ -513,6 +547,9 @@ def _hybrid_key_problems(settings, arguments=None):
     handoff = resolved["handoff"]
     if not _unresolved(handoff) and handoff not in HANDOFFS:
         problems.append(f"{name} handoff is one of {', '.join(HANDOFFS)}")
+    anchor = resolved["anchor"]
+    if not _unresolved(anchor) and anchor not in ANCHORS:
+        problems.append(f"{name} anchor is one of {', '.join(ANCHORS)}, got {anchor!r}")
     return problems
 
 
@@ -805,8 +842,15 @@ class DwH3WindowedLoopDenoiser(MiniMaxH3LoopDenoiser):
             self._to_host(block_state)
             setattr(block_state, HYBRID_SWITCH, switch)
             setattr(block_state, HYBRID_HELD, None)
+            setattr(block_state, HYBRID_KEYSTONE, None)
             if switch:
                 self._ordered(components, block_state, settings, switch)
+            elif settings["anchor"] == "keystone":
+                setattr(
+                    block_state,
+                    HYBRID_KEYSTONE,
+                    self._keystone_prepass(components, block_state, settings),
+                )
         if i < switch:
             # the ordered phase has run this step for every window
             block_state.noise_pred = None
@@ -820,7 +864,110 @@ class DwH3WindowedLoopDenoiser(MiniMaxH3LoopDenoiser):
             HYBRID_WINDOWS_INPUT,
             host=True,
             held=getattr(block_state, HYBRID_HELD, None),
+            keystone=getattr(block_state, HYBRID_KEYSTONE, None),
         )
+
+    @staticmethod
+    def _hybrid_rebase_from(fields, plan, positions):
+        """The take's first generated video time when the windows are
+        rebased, else None; a rebased plan off the clip grid raises."""
+        if positions != "rebased":
+            return None
+        problem = rebase_problem(plan, HYBRID_WINDOWS_INPUT)
+        if problem:
+            raise ValueError(problem)
+        return fields["position_ids"][fields["video_indices"][0], 0]
+
+    def _keystone_prepass(self, components, block_state, settings):
+        """The keystone with no ordered phase (`switch_step` 0, design 7):
+        window 1 run alone to the last step on the ordered phase's
+        single-window path, writing nothing back. Returns its finished first
+        latent frame, a host tensor of that frame's rows."""
+        self._check_rows(block_state, HYBRID_WINDOWS_INPUT)
+        fields = block_state.denoiser_input_fields
+        num_latent_frames = block_state.num_latent_frames
+        window = window_settings(settings)
+        plan = window_plan(num_latent_frames, window["frames"], window["overlap"])
+        rebase_from = self._hybrid_rebase_from(fields, plan, window["positions"])
+        latents, audio_latents = block_state.latents, block_state.audio_latents
+        timesteps = block_state.timesteps
+        scheduler = components.scheduler
+        num_rows = latents.shape[0]
+        rows = window_rows(fields, num_rows, 0, num_latent_frames, plan[0])
+        video = rows[0].cpu()
+        x = latents[video].clone()
+        none = torch.zeros(video.numel(), dtype=torch.bool)
+        free = ~none
+        logger.info(
+            f"Running window {plan[0]} alone for the keystone, {len(timesteps)} steps"
+        )
+        restore = scheduler._step_index
+        try:
+            for j in range(len(timesteps)):
+                velocity = self._window_velocity(
+                    components,
+                    block_state,
+                    j,
+                    rows,
+                    rebase_from,
+                    x,
+                    audio_latents[rows[1].cpu()],
+                    none,
+                )
+                scheduler._step_index = j
+                x[free] = scheduler.step(
+                    velocity[free], timesteps[j], x[free], return_dict=False
+                )[0]
+        finally:
+            scheduler._step_index = restore
+        return x[: num_rows // num_latent_frames].clone()
+
+    def _ordered_attention(self, components, settings, plan):
+        """The keystone attention for the ordered phase's later windows
+        (design 9): the re-split processor on `KEYSTONE_ATTENTION`'s blocks
+        that the transformer has, falling through to the original on every
+        forward that publishes no rows. Returns `(state, restore)`, or None
+        when it does not run - no keystone, one window, no such block, or a
+        transformer on sparse attention, which the re-split cannot run on (the
+        keystone rows still do)."""
+        if settings["anchor"] != "keystone" or len(plan) < 2:
+            return None
+        transformer = getattr(components, self.transformer_name)
+        blocks = list(getattr(transformer, "transformer_blocks", ()))
+        selected = tuple(
+            index
+            for index in keystone_attention.parse_blocks(KEYSTONE_ATTENTION.blocks)
+            if index < len(blocks)
+        )
+        if not selected:
+            return None
+        if is_sparse_installed(transformer) or keystone_attention.installed(
+            transformer
+        ):
+            emit_warning(
+                f"{HYBRID_WINDOWS_INPUT} anchor keystone: the keystone "
+                f"attention runs on dense attention with no other re-split, and "
+                f"this transformer has "
+                f"{'sparse attention' if is_sparse_installed(transformer) else 'one'}"
+                f" - the windows read the keystone rows without it"
+            )
+            return None
+        state = keystone_attention._KeystoneAttentionState(
+            settings=KEYSTONE_ATTENTION, blocks=selected
+        )
+        originals = []
+        for index in selected:
+            original = blocks[index].attn.processor
+            originals.append((index, original))
+            blocks[index].attn.set_processor(
+                _OrderedKeystoneProcessor(original, state, index)
+            )
+
+        def restore():
+            for index, original in originals:
+                blocks[index].attn.set_processor(original)
+
+        return state, restore
 
     def _ordered(self, components, block_state, settings, switch):
         """The ordered phase, in host RAM. Window 1 runs every step and is
@@ -839,25 +986,47 @@ class DwH3WindowedLoopDenoiser(MiniMaxH3LoopDenoiser):
         num_latent_frames = block_state.num_latent_frames
         window = window_settings(settings)
         plan = window_plan(num_latent_frames, window["frames"], window["overlap"])
-        latents, audio_latents = block_state.latents, block_state.audio_latents
-        timesteps = block_state.timesteps
-        steps = len(timesteps)
+        steps = len(block_state.timesteps)
         scheduler = components.scheduler
-        rebase_from = None
-        if window["positions"] == "rebased":
-            problem = rebase_problem(plan, name)
-            if problem:
-                raise ValueError(problem)
-            rebase_from = fields["position_ids"][fields["video_indices"][0], 0]
+        rebase_from = self._hybrid_rebase_from(fields, plan, window["positions"])
         logger.info(
             f"Generating in {len(plan)} ordered time windows to step {switch} of "
             f"{steps} ({settings['handoff']} handoff), blended after: {plan}"
         )
+        restore = scheduler._step_index
+        attention = self._ordered_attention(components, settings, plan)
+        try:
+            self._ordered_windows(
+                components,
+                block_state,
+                settings,
+                switch,
+                plan,
+                rebase_from,
+                attention,
+            )
+        finally:
+            scheduler._step_index = restore
+            if attention is not None:
+                attention[1]()
+
+    def _ordered_windows(
+        self, components, block_state, settings, switch, plan, rebase_from, attention
+    ):
+        """`_ordered`'s loop over the windows, with the keystone - window 1's
+        finished first frame, under `anchor: "keystone"` - on every later
+        window's forward, and the keystone attention on them when it runs."""
+        fields = block_state.denoiser_input_fields
+        num_latent_frames = block_state.num_latent_frames
+        latents, audio_latents = block_state.latents, block_state.audio_latents
+        timesteps = block_state.timesteps
+        steps = len(timesteps)
+        scheduler = components.scheduler
         handoff = settings["handoff"]
         num_rows = latents.shape[0]
         covered = torch.zeros(num_rows, dtype=torch.bool)
         pins = torch.empty_like(latents)
-        restore = scheduler._step_index
+        keystone = None
         for w, span in enumerate(plan):
             rows = window_rows(fields, num_rows, 0, num_latent_frames, span)
             video = rows[0].cpu()
@@ -878,6 +1047,8 @@ class DwH3WindowedLoopDenoiser(MiniMaxH3LoopDenoiser):
                     x,
                     audio_latents[rows[1].cpu()],
                     pinned,
+                    keystone,
+                    attention[0] if attention is not None else None,
                 )
                 if j == switch - 1 and handoff == "x0":
                     sigma = float(scheduler.sigmas[j])
@@ -900,7 +1071,9 @@ class DwH3WindowedLoopDenoiser(MiniMaxH3LoopDenoiser):
             covered[video] = True
             if w == 0:
                 setattr(block_state, HYBRID_HELD, video)
-        scheduler._step_index = restore
+                if settings["anchor"] == "keystone":
+                    keystone = x[: num_rows // num_latent_frames].clone()
+                    setattr(block_state, HYBRID_KEYSTONE, keystone)
 
     def _window_velocity(
         self,
@@ -912,10 +1085,15 @@ class DwH3WindowedLoopDenoiser(MiniMaxH3LoopDenoiser):
         hidden,
         audio_hidden,
         clean,
+        keystone=None,
+        attention=None,
     ):
         """One window's forward at step `i` from host `hidden` rows - the
         rows `clean` (a mask over them) at the clean timestep - its video
-        velocity as float32 on the host."""
+        velocity as float32 on the host. A `keystone` goes in ahead of the
+        window's rows (`keystone_inputs`) and its velocity is dropped; an
+        `attention` state gets the keystone and the clean rows as its K and
+        C for this forward when `clean` is a leading run of the window."""
         transformer = getattr(components, self.transformer_name)
         accepted = inspect.signature(transformer.forward).parameters
         fields = block_state.denoiser_input_fields
@@ -926,17 +1104,31 @@ class DwH3WindowedLoopDenoiser(MiniMaxH3LoopDenoiser):
         if clean.any():
             local = layout["video_indices"][clean.to(layout["video_indices"].device)]
             entry = clean_timesteps(entry, local)
-        noise_pred, _ = transformer(
-            hidden_states=hidden.to(device)[None],
-            audio_hidden_states=audio_hidden.to(device)[None],
-            encoder_hidden_states=block_state.prompt_embeds,
-            timestep=entry[0],
-            timestep_indices=entry[1],
-            attention_kwargs=block_state.attention_kwargs,
-            return_dict=False,
-            **{k: v for k, v in layout.items() if k in accepted},
-        )
-        return noise_pred[0].float().cpu()
+        hidden = hidden.to(device)
+        count = 0
+        if keystone is not None:
+            layout, entry = keystone_inputs(fields, layout, entry, keystone.shape[0])
+            count = keystone.shape[0]
+            hidden = torch.cat([keystone.to(device), hidden])
+        pinned = int(clean.sum())
+        if attention is not None and count and pinned and bool(clean[:pinned].all()):
+            first = int(layout["video_indices"][count])
+            attention.rows = ((int(layout["video_indices"][0]), count), (first, pinned))
+        try:
+            noise_pred, _ = transformer(
+                hidden_states=hidden[None],
+                audio_hidden_states=audio_hidden.to(device)[None],
+                encoder_hidden_states=block_state.prompt_embeds,
+                timestep=entry[0],
+                timestep_indices=entry[1],
+                attention_kwargs=block_state.attention_kwargs,
+                return_dict=False,
+                **{k: v for k, v in layout.items() if k in accepted},
+            )
+        finally:
+            if attention is not None:
+                attention.rows = None
+        return noise_pred[0, count:].float().cpu()
 
     @staticmethod
     def _to_host(block_state):
@@ -958,13 +1150,16 @@ class DwH3WindowedLoopDenoiser(MiniMaxH3LoopDenoiser):
         name=REFINE_WINDOWS_INPUT,
         host=False,
         held=None,
+        keystone=None,
     ):
         """The fused windowed forward. With `host`, `latents` and
         `audio_latents` are host tensors: each window's rows go to the
         device for its forward, and the fused velocity stays on the host.
         `held`, the host rows the ordered phase left finished, are read at the
         clean timestep, get zero velocity, and a window of only held rows is
-        not run."""
+        not run. A host `keystone` goes in ahead of every window's rows that
+        runs (`keystone_inputs`), and its velocity is dropped before the
+        fuse."""
         self._check_rows(block_state, name)
         transformer = getattr(components, self.transformer_name)
         accepted = inspect.signature(transformer.forward).parameters
@@ -1020,6 +1215,13 @@ class DwH3WindowedLoopDenoiser(MiniMaxH3LoopDenoiser):
                 audio_hidden = audio_latents[audio].to(device)
             else:
                 hidden, audio_hidden = latents[video], audio_latents[audio]
+            count = 0
+            if keystone is not None:
+                layout, (timestep, timestep_indices) = keystone_inputs(
+                    fields, layout, (timestep, timestep_indices), keystone.shape[0]
+                )
+                count = keystone.shape[0]
+                hidden = torch.cat([keystone.to(hidden.device), hidden])
             noise_pred, _ = transformer(
                 hidden_states=hidden[None],
                 audio_hidden_states=audio_hidden[None],
@@ -1030,6 +1232,8 @@ class DwH3WindowedLoopDenoiser(MiniMaxH3LoopDenoiser):
                 return_dict=False,
                 **{k: v for k, v in layout.items() if k in accepted},
             )
+            if count:
+                noise_pred = noise_pred[:, count:]
             if host:
                 noise_pred = noise_pred.float().cpu()
             if fused is None:
@@ -1090,4 +1294,70 @@ class DwH3HostLoopSchedulerStep(MiniMaxH3LoopSchedulerStep):
             block_state.audio_latents = block_state.audio_latents.to(device)
             setattr(block_state, HYBRID_DEVICE, None)
             setattr(block_state, HYBRID_HELD, None)
+            setattr(block_state, HYBRID_KEYSTONE, None)
         return components, block_state
+
+
+def keystone_inputs(fields, layout, plan_entry, count):
+    """A window's layout and `(unique_timesteps, timestep_indices)` with the
+    keystone's `count` rows (#1188 S4, design 8) spliced in ahead of its media,
+    where a keyframe's condition rows sit: the take's first latent frame's
+    positions and video tag, unshifted - under rebased positions they land on
+    the window's own first frame, as a frame-0 keyframe would - and the clean
+    timestep. They are the first `count` of the new `video_indices`, so the
+    forward's video prediction leads with theirs."""
+    first = fields["video_indices"][:count]
+    media = torch.cat([layout["audio_indices"], layout["video_indices"]])
+    at = int(media.min())
+    position_ids = layout["position_ids"]
+    token_tags = layout["token_tags"]
+    video_indices = layout["video_indices"]
+    keystone_rows = torch.arange(at, at + count, device=video_indices.device)
+    unique, timestep_indices = plan_entry
+    timestep_indices = torch.cat(
+        [
+            timestep_indices[:at],
+            timestep_indices.new_zeros(count),
+            timestep_indices[at:],
+        ]
+    )
+    spliced = {
+        **layout,
+        "position_ids": torch.cat(
+            [
+                position_ids[:at],
+                fields["position_ids"][first].to(position_ids),
+                position_ids[at:],
+            ]
+        ),
+        "token_tags": torch.cat(
+            [
+                token_tags[:at],
+                fields["token_tags"][first].to(token_tags),
+                token_tags[at:],
+            ]
+        ),
+        "video_indices": torch.cat([keystone_rows, video_indices + count]),
+        "audio_indices": layout["audio_indices"] + count,
+    }
+    return spliced, clean_timesteps(
+        (unique, timestep_indices), keystone_rows.to(timestep_indices.device)
+    )
+
+
+class _OrderedKeystoneProcessor(keystone_attention.KeystoneAttentionH3Processor):
+    """The keystone attention's re-split on a forward that publishes its
+    rows, the original processor on every other: the ordered phase's later
+    windows re-split, window 1 and the blended steps do not (design 9). The
+    explicit signature is the one diffusers filters a processor's kwargs by."""
+
+    def __call__(self, attn, hidden_states, rotary_emb=None, attention_mask=None):
+        if self._state.rows is None:
+            return self._original(
+                attn,
+                hidden_states,
+                rotary_emb=rotary_emb,
+                attention_mask=attention_mask,
+            )
+        self._state.forwards += 1
+        return super().__call__(attn, hidden_states, rotary_emb, attention_mask)

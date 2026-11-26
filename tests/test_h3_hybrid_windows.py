@@ -540,6 +540,7 @@ def test_switch_step_range_is_left_to_the_run_without_a_literal_step_count(
         ({"switch_step": 31}, "switch_step"),
         ({"switch_step": -1}, "switch_step"),
         ({"handoff": "sideways"}, "handoff"),
+        ({"anchor": "bogus"}, "anchor"),
     ],
 )
 def test_a_bad_switch_step_or_handoff_is_refused_before_the_flag(
@@ -551,6 +552,19 @@ def test_a_bad_switch_step_or_handoff_is_refused_before_the_flag(
     assert len(problems) == 2, problems
     assert match in problems[0]
     assert HYBRID_WINDOWS_ENV_VAR in problems[1]
+
+
+def test_the_keystone_anchor_is_refused_with_the_flag_off_naming_the_flag(flag_off):
+    settings = {"frames": 42, "overlap": 7, "anchor": "keystone"}
+    problems = hybrid_problems(generate(**{HYBRID_WINDOWS_INPUT: settings}))
+    assert len(problems) == 1, problems
+    assert HYBRID_WINDOWS_ENV_VAR in problems[0]
+
+
+@pytest.mark.parametrize("anchor", ["none", "keystone"])
+def test_both_anchors_are_accepted(flag_on, anchor):
+    settings = {"frames": 42, "overlap": 7, "anchor": anchor}
+    assert hybrid_problems(generate(**{HYBRID_WINDOWS_INPUT: settings})) == []
 
 
 @pytest.mark.parametrize("handoff", ["finished", "x0"])
@@ -654,3 +668,113 @@ def test_the_time_estimate_is_left_unpriced_with_a_reason():
     assert unpriced["minutes"] is None and unpriced["cached_minutes"] is None
     assert unpriced["basis"] == UNKNOWN
     assert HYBRID_WINDOWS_INPUT in unpriced["unpriced_reason"]
+
+
+# 1c. The keystone anchor (#1188 S4)
+
+KEYSTONE = {**ORDERED, "anchor": "keystone"}
+
+
+def run_keystone(settings, transformer, steps=STEPS):
+    """The loop on `transformer`; returns the state and the keystone the
+    first step published (it is cleared after the last)."""
+    state, scheduler = hybrid_state(settings, steps)
+    components = SimpleNamespace(
+        transformer=transformer,
+        scheduler=scheduler,
+        audio_scheduler=MiniMaxH3Scheduler(shift=3.0),
+    )
+    components.audio_scheduler.set_timesteps(steps)
+    denoiser, update = DwH3WindowedLoopDenoiser(), DwH3HostLoopSchedulerStep()
+    keystone = None
+    for i, t in enumerate(scheduler.timesteps):
+        denoiser(components, state, i, t)
+        if i == 0:
+            keystone = getattr(state, h3_windows.HYBRID_KEYSTONE)
+        update(components, state, i, t)
+    assert getattr(state, h3_windows.HYBRID_KEYSTONE) is None
+    return state, keystone
+
+
+@pytest.mark.parametrize("switch", [0, 3])
+def test_anchor_none_is_the_s2_path_bit_for_bit(flag_on, switch):
+    loop = DwH3WindowedLoopDenoiser, DwH3HostLoopSchedulerStep
+    before = run_loop(*(c() for c in loop), {**ORDERED, "switch_step": switch}, STEPS)
+    none = run_loop(
+        *(c() for c in loop),
+        {**ORDERED, "switch_step": switch, "anchor": "none"},
+        STEPS,
+    )
+    assert torch.equal(before[0], none[0])
+    assert torch.equal(before[1], none[1])
+
+
+def test_the_prepass_keystone_is_a_single_window_runs_first_frame(flag_on):
+    settings = {**KEYSTONE, "switch_step": 0}
+    state, keystone = run_keystone(settings, tiny_transformer())
+    per_frame = state.latents.shape[0] // LATENT_FRAMES
+    assert keystone is not None and keystone.shape[0] == per_frame
+    alone = sequential_windows({**ORDERED, "switch_step": STEPS - 1})
+    torch.testing.assert_close(keystone, alone[:per_frame])
+
+
+@pytest.mark.parametrize("switch", [0, 2])
+def test_every_window_sees_the_keystone_rows_and_the_take_has_none(flag_on, switch):
+    stub = CopyingStub()
+    state, keystone = run_keystone({**KEYSTONE, "switch_step": switch}, stub)
+    fields = state.denoiser_input_fields
+    rows = state.latents.shape[0]
+    per_frame = rows // LATENT_FRAMES
+    assert keystone.shape[0] == per_frame
+    window1 = window_video(state, (0, 7)).numel()
+    # window 1 runs every step on its own rows: the pre-pass, or the
+    # ordered phase's first window
+    first, rest = stub.calls[: STEPS - 1], stub.calls[STEPS - 1 :]
+    assert all(c["hidden_states"].shape[1] == window1 for c in first)
+    assert rest
+    frame0 = fields["position_ids"][fields["video_indices"][:per_frame]]
+    for call in rest:
+        hidden = call["hidden_states"]
+        assert torch.equal(
+            hidden[:, :per_frame], keystone[None].expand(hidden.shape[0], -1, -1)
+        )
+        lead = call["video_indices"][:per_frame]
+        assert torch.equal(call["position_ids"][lead], frame0)
+        times = call["timestep"][call["timestep_indices"][lead]]
+        assert (times == 1.0).all()
+        assert (call["token_tags"].reshape(-1)[lead] == 0).all()
+    # the fused take has the take's rows, no keystone rows
+    assert state.latents.shape[0] == rows
+    assert torch.isfinite(state.latents).all()
+
+
+def test_keystone_attention_is_on_for_ordered_steps_and_off_for_blended(
+    flag_on, monkeypatch
+):
+    from dw.pipeline_processors import h3_keystone_attention
+
+    monkeypatch.setattr(
+        h3_windows,
+        "KEYSTONE_ATTENTION",
+        h3_keystone_attention.KeystoneAttentionSettings(blocks="0-1"),
+    )
+    transformer = tiny_transformer()
+    forwards, resplits = [], []
+    transformer.register_forward_pre_hook(lambda *_: forwards.append(1))
+    real = h3_keystone_attention.resplit_attention
+
+    def counting(*args, **kwargs):
+        resplits.append(len(forwards) - 1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(h3_keystone_attention, "resplit_attention", counting)
+    originals = [b.attn.processor for b in transformer.transformer_blocks]
+    k = 2
+    run_keystone({**KEYSTONE, "switch_step": k}, transformer)
+    # window 1's STEPS - 1 forwards, window 2's k ordered ones, then blended
+    ordered = range(STEPS - 1, STEPS - 1 + k)
+    assert len(forwards) > STEPS - 1 + k
+    assert sorted(set(resplits)) == list(ordered)
+    assert len(resplits) == k * 2  # two blocks per forward
+    # the original processors are back
+    assert [b.attn.processor for b in transformer.transformer_blocks] == originals
