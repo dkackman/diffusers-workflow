@@ -8,7 +8,8 @@ shipped, what was cut, and why. The measured numbers live in
 **Result:** H3-Image runs on mini-ai (Apple M5 Pro, 64 GB, torch 2.14.1), but
 only from pre-quantized int8 folders and in two steps. A 2048x2048 still takes
 3.2 min including the load (job `b99e189e1059`). The peak is 34.2 GB of MPS
-memory and 40.4 GB of job RSS, leaving 20.5 GB of host memory free. The
+memory and about 60 GB of host RSS during the `generate` load, leaving about
+20 GB of host memory free. The
 `minimax-h3-image` skill, `docs/ACCELERATION.md` and the template README now
 state this measured route in place of the unmeasured "CUDA only, ~70 GB" rule.
 The catalog templates are unchanged and still CUDA only: validate refuses them
@@ -108,6 +109,19 @@ probe, then a correction to the record.
   `test_mps_runs_from_the_prequantized_bench_workflow_as_measured`. The
   `host_ram_gb == 64` pins are unchanged.
 - **Bounces: 0.** Verified at develop `6c1fb691`.
+
+### Stage C: restate the host peak (#1753, fix-forward)
+
+Stage B published `b99e189e1059`'s 40.4 GB `host_memory_job_peak_rss_mb` as
+*the* peak. That field is the growth of the worker's `ru_maxrss` since the
+job's first phase. On `b99e` the worker already held a 19.5 GB mark from an
+earlier job, so 59.9 GB − 19.5 GB = 40.4 GB. The tester's rerun
+`608885eca475` started in a fresh worker and read 59.7 GB. Both runs took
+the process to about 60 GB RSS during the `generate` load, with about 20 GB of
+the 64 GB left. Stage C restates the peak that way in the skill, the README,
+`ACCELERATION.md` and `todo.md`, and its test pin moves with it. The
+under-report is the metric's, filed as #1754, not fixed here. Lowering the
+load peak is out of scope.
 
 Cost: the stage comments give no `usage:` figures, so none is recorded here.
 Stage A used about 30 min of mini-ai time on the failed cold arm. The

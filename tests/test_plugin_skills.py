@@ -1199,7 +1199,15 @@ class TestMiniMaxH3ImageSkill:
         quote = text[text.index("## Quote, then wait") : text.index("## Run and judge")]
         for section in (before, cost, quote):
             assert "3.2 min" in section
-        assert "40.4 GB" in " ".join(quote.split())
+        # #1753: the host peak is ~60 GB RSS during the generate load, not
+        # b99e189e1059's 40.4 GB job-peak field (growth above an earlier
+        # job's ru_maxrss, #1754).
+        for section in (before, quote):
+            flat_section = " ".join(section.split())
+            assert "60 GB RSS" in flat_section
+            assert "20 GB of" in flat_section
+            assert "40.4 GB" not in flat_section
+        assert "40.4 GB" not in flat
         readme = open(
             os.path.join(
                 REPO_ROOT, "workflows", "templates", "minimax-h3-image", "README.md"
@@ -1215,6 +1223,7 @@ class TestMiniMaxH3ImageSkill:
         for doc in (" ".join(readme.split()), row):
             assert "3.2 min" in doc and "b99e189e1059" in doc
             assert "untested" not in doc and "by rule" not in doc
+            assert "60 GB RSS" in doc and "40.4 GB" not in doc
         record = open(
             os.path.join(REPO_ROOT, "bench", "records", "h3-image.md"), encoding="utf-8"
         ).read()

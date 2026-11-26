@@ -1002,8 +1002,9 @@ remaining deferred fix is recorded in
 - **MiniMax-H3-Image on a 64 GB Mac** (#1680, stages #1729-#1730), shipped
   2026-11-26. A bench probe on mini-ai runs H3-Image in two steps (encode,
   release, generate) from pre-quantized int8 folders in the `bench` asset
-  library: a 2048x2048 still in 3.2 min, 40.4 GB job peak RSS (`b99e189e1059`,
-  after #1744's matmul fix). The skill, ACCELERATION.md and the template README
+  library: a 2048x2048 still in 3.2 min, a host peak of about 60 GB RSS during
+  the load (`b99e189e1059`, after #1744's matmul fix; restated from 40.4 GB by
+  #1753). The skill, ACCELERATION.md and the template README
   now state the measured mps route. The catalog templates stay CUDA only. An mps
   template, the CUDA two-step split and the edit/warm/16:9 arms are deferred:
   `complete/h3-image-mps-complete.md`.
