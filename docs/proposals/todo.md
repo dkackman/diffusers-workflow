@@ -1053,6 +1053,14 @@ remaining deferred fix is recorded in
   template and grade/export arguments on `assemble-and-score` were cut; a
   second field report of a hand-copied chain brings the template back:
   `complete/finish-cut-score-placement-complete.md`.
+- **Choosing a model: preference-first routing** (#1627, stage #1724),
+  shipped 2026-11-26. A new `choosing-a-model` skill and AGENT_RULES section
+  route a request that names no family, workflow or model to
+  `templates/preferred/text-to-image` (composing `preference:text_to_image`)
+  at the asked tier; SD 1.5 is the smoke test only. The UI stages (rung
+  display, Settings → Preferences editor, "Make a better one") are deferred to
+  a next plan once #1626 stage 2 and its Q1 settle, and the H3 Ramp re-point is
+  cut until video keys exist: `complete/choosing-a-model-complete.md`.
 
 ## Declined
 
