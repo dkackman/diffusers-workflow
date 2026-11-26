@@ -113,7 +113,9 @@ blended steps keep the plain attention. A block in it the transformer lacks
 raises, as the owner's parse does. On a transformer the owner refuses
 (`transformer_refusal`: sparse attention, or another re-split installed) the
 attention is skipped with a warning and the rows ship alone.
-Any other `anchor` is refused at validate, before the flag.
+Any other `anchor` is refused at validate, before the flag. Until promotion
+no refusal's key list names `anchor` (`_HYBRID_LISTED_KEYS`): only its own
+value refusal does, once a caller has written the field.
 
 The decode of a long take. The stock video decode keeps every decoded clip
 on the device and converts the whole take to float32, about 36 GB at 120 s
@@ -220,6 +222,10 @@ CONFLICTS = (
 # the ordered windows hand over to blended ones at, what they hand over, and
 # the anchor every window's forward reads (#1188 S4)
 _HYBRID_KEYS = _KEYS + ("switch_step", "handoff", "anchor")
+# The keys a refusal lists. `anchor` is accepted but unpromoted (#1188 plan
+# v3: no MCP text documents it), so a key list never names it; only its own
+# value refusal does, once a caller has written it (#1572 bounce, M-F495)
+_HYBRID_LISTED_KEYS = tuple(key for key in _HYBRID_KEYS if key != "anchor")
 HYBRID_DEFAULTS = {
     **WINDOW_DEFAULTS,
     "switch_step": 3,
@@ -433,13 +439,17 @@ def window_problems(arguments, has_cache=False):
     )
 
 
-def _settings_problems(settings, arguments, name=REFINE_WINDOWS_INPUT, keys=_KEYS):
+def _settings_problems(
+    settings, arguments, name=REFINE_WINDOWS_INPUT, keys=_KEYS, listed=None
+):
     """The window settings' own problems: their keys, the plan they make, the
-    blend and the positions."""
+    blend and the positions. `listed` is the keys an unknown key's refusal
+    names - `keys` unless some are accepted but left unlisted."""
     problems = []
     extra = sorted(set(settings) - set(keys))
     if extra:
-        problems.append(f"{name} takes {', '.join(keys)}, not {', '.join(extra)}")
+        named = ", ".join(listed if listed is not None else keys)
+        problems.append(f"{name} takes {named}, not {', '.join(extra)}")
     resolved = window_settings(settings)
     frames, overlap = resolved["frames"], resolved["overlap"]
     planned = False
@@ -570,11 +580,11 @@ def hybrid_problems(arguments, has_cache=False):
         return []
     if not isinstance(settings, dict):
         return [
-            f"{name} is {{{', '.join(_HYBRID_KEYS)}}}, every key optional, "
+            f"{name} is {{{', '.join(_HYBRID_LISTED_KEYS)}}}, every key optional, "
             f"got {settings!r}"
         ]
     problems = _settings_problems(
-        settings, arguments, name, _HYBRID_KEYS
+        settings, arguments, name, _HYBRID_KEYS, _HYBRID_LISTED_KEYS
     ) + _hybrid_key_problems(settings, arguments)
     if not hybrid_windows_enabled():
         problems.append(

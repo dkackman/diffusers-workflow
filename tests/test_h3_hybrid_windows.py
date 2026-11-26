@@ -508,6 +508,30 @@ def test_a_call_the_windows_cannot_run_is_refused(flag_on, overrides, match):
     assert any(match in p for p in problems), problems
 
 
+@pytest.mark.parametrize(
+    "value",
+    [{"frames": 42, "windw": 8}, "yes", [42, 12]],
+)
+@pytest.mark.parametrize("flag", ["flag_on", "flag_off"])
+def test_a_key_list_refusal_does_not_name_the_unpromoted_anchor(request, flag, value):
+    """#1572 bounce (M-F495): `anchor` is accepted, but until promotion no
+    refusal of a caller who did not write it lists it as a field of the key."""
+    request.getfixturevalue(flag)
+    problems = hybrid_problems(generate(**{HYBRID_WINDOWS_INPUT: value}))
+    assert problems
+    assert any("handoff" in p for p in problems), problems
+    assert not any("anchor" in p for p in problems), problems
+
+
+def test_the_anchor_is_still_accepted_and_its_bad_value_named(flag_on):
+    assert (
+        hybrid_problems(generate(**{HYBRID_WINDOWS_INPUT: {"anchor": "keystone"}}))
+        == []
+    )
+    problems = hybrid_problems(generate(**{HYBRID_WINDOWS_INPUT: {"anchor": "bogus"}}))
+    assert len(problems) == 1 and "anchor is one of none, keystone" in problems[0]
+
+
 def ordered(switch, steps=31, **settings):
     return generate(
         num_inference_steps=steps,
