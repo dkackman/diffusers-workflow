@@ -61,6 +61,9 @@ def get_example_files():
             if name.endswith(".json")
         )
         if is_workflow_file(path)
+        # The shipped model preferences (dw/preferences.py) - data, not a
+        # workflow, and kept out of the catalog listing the same way
+        and os.path.relpath(path, WORKFLOWS_DIR) != "preferences.json"
     )
 
 

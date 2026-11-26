@@ -484,6 +484,7 @@ class Dispatcher:
                         arguments=job.spec["arguments"],
                         log_level=self.log_level,
                         asset_dir=job.spec.get("asset_dir") or None,
+                        preferences=job.spec.get("preferences") or None,
                     )
                     manager.send_command(command.to_wire())
                     if job.cancel_requested:

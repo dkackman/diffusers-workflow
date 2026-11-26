@@ -278,6 +278,10 @@ class JobManager(Dispatcher, Reruns):
         """(GB, label) of the largest card here (pool.largest_ceiling)."""
         return pool.largest_ceiling(self.slots)
 
+    def smallest_card_gb(self):
+        """The smallest card here, in GB, or None (pool.smallest_card_gb)."""
+        return pool.smallest_card_gb(self.slots)
+
     def largest_ceiling_gb(self):
         """The most VRAM any card here can be held to, or None
         (pool.largest_ceiling_gb)."""
@@ -323,6 +327,7 @@ class JobManager(Dispatcher, Reruns):
         vram_need=None,
         host_ram_need=None,
         repos_named=None,
+        preferences=None,
         preferred_device=None,
         note=None,
         rerun_of=None,
@@ -373,6 +378,10 @@ class JobManager(Dispatcher, Reruns):
         `repos_named` is the admission's (`Admission.repos_named`): the Hub
         repos the run names, stamped in dw/model_use.py when its run starts
         (`_run_on`, #1445). A job cancelled while queued stamps none.
+
+        `preferences` is the admission's (`Admission.preferences`): what each
+        'preference:' step resolved to, by pin key. The worker replays it
+        rather than resolving again, and a rerun carries it (dw/preferences.py).
 
         `preferred_device` is the card ('cuda:1') the job goes to when that
         card is free and fits it - a rerun's original card (`rerun`).
@@ -430,6 +439,7 @@ class JobManager(Dispatcher, Reruns):
         # Each recorded only when given
         optional = dict(asset_dir=asset_dir, note=note, rerun_of=rerun_of)
         optional["overrides"] = overrides
+        optional["preferences"] = preferences
         if request and item:  # admission checked it; a rerun's, `rerun` warns on
             optional.update(request=request, item=item)
         spec.update({key: value for key, value in optional.items() if value})

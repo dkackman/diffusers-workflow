@@ -14,6 +14,7 @@ from .events import (
 )
 from .variable_constraints import resolve_constraint_references, snap_constraints
 from .subfolders import step_subfolder
+from . import references
 from . import validation
 from . import workflow_run
 from .step_cache import borrowed_pipeline_keys
@@ -215,6 +216,13 @@ class Workflow:
     # must not evict a model a parent step loaded and a later parent step
     # still addresses (pipeline_reference, a reused key). Empty at top level
     _claimed_by_ancestors = frozenset()
+    # The preference tier of the workflow that composed this one, which a
+    # 'preference:' step here resolves at when neither it nor this
+    # workflow's folded `tier` variable names one (dw/preferences.py)
+    _inherited_tier = None
+    # The tier this workflow's own 'preference:' steps default to - its
+    # folded `tier` variable, else the inherited one; handed to a child
+    _effective_tier = None
 
     def __init__(self, workflow_definition, output_dir, file_spec, workflow_dir=None):
         self.workflow_definition = workflow_definition
@@ -226,6 +234,13 @@ class Workflow:
         self.workflow_dir = workflow_dir
         # expanded_definition's memo, keyed by the caller's arguments
         self._expansions = {}
+        # What each 'preference:' step resolved to (dw/preferences.py), by
+        # pin key, and the refusal for each path that could not resolve -
+        # resolve_sub_workflow_path raises it, so validate and the run report
+        # the same message at the step's workflow.path
+        self._preferences = {}
+        self._preference_errors = {}
+        self._preference_targets = {}
         # Which pipeline each step owns. run() replaces it per run; this one
         # serves a step action created outside run()
         self.pipeline_ownership = PipelineOwnership()
@@ -460,6 +475,7 @@ class Workflow:
             )
             source_indices = []
             expanded = self._expand(definition, variables, source_indices)
+            expanded = self.resolve_preferences(expanded, variables)
             cache[key] = (expanded, source_indices, variables)
         return cache[key]
 
@@ -492,6 +508,110 @@ class Workflow:
         realized workflow records - or None when none are declared."""
         return copy.deepcopy(self._folded_and_expanded(arguments)[2])
 
+    def resolve_preferences(self, definition, variables):
+        """Rewrite every step whose `workflow.path` is a 'preference:' to
+        the target it resolves to (dw/preferences.py), after substitution
+        and for_each expansion, so every reader of the path - pricing,
+        downloads, ownership, warnings, realization, validation and the run -
+        follows the resolved child. Returns `definition`, edited in place.
+
+        The step's arguments go over the target's own; a `tier` argument
+        picks the rung and is dropped unless the target declares a `tier`
+        variable itself. A refusal leaves the path as written and is kept
+        for resolve_sub_workflow_path to raise. Only `workflow.path` is
+        read: a 'preference:' string anywhere else stays text."""
+        from . import preferences
+
+        folded = (variables or {}).get(preferences.TIER_ARGUMENT)
+        self._effective_tier = (
+            folded if isinstance(folded, str) and folded else self._inherited_tier
+        )
+        steps = definition.get("steps") if isinstance(definition, dict) else None
+        if not isinstance(steps, list):
+            return definition
+        session = None
+        for step in steps:
+            reference = step.get("workflow") if isinstance(step, dict) else None
+            if not isinstance(reference, dict):
+                continue
+            path = reference.get("path")
+            if not references.is_ref(references.PREFERENCE, path):
+                continue
+            if session is None:
+                session = preferences.current_session()
+            arguments = reference.get("arguments")
+            arguments = dict(arguments) if isinstance(arguments, dict) else {}
+            try:
+                tier = arguments.get(preferences.TIER_ARGUMENT)
+                if tier is None:
+                    tier = self._effective_tier
+                if tier is None:
+                    tier = session.preferences()["default_tier"]
+                if not isinstance(tier, str):
+                    raise preferences.PreferenceError(
+                        f"Preference tier must be a name, not {tier!r}"
+                    )
+                pin = preferences.pin_key(path, tier)
+                pinned = session.pinned.get(pin)
+                resolution = preferences.resolve(
+                    path,
+                    tier,
+                    session.facts(),
+                    self._open_preference_target,
+                    None if pinned else session.preferences(),
+                    pinned=pinned,
+                )
+            except preferences.PreferenceError as e:
+                self._preference_errors[path] = e
+                continue
+            self._preference_errors.pop(path, None)
+            target_definition, _ = self._open_preference_target(resolution.target)
+            merged = {**resolution.arguments, **arguments}
+            declared = target_definition.get("variables") or {}
+            if preferences.TIER_ARGUMENT not in declared:
+                merged.pop(preferences.TIER_ARGUMENT, None)
+            reference["path"] = resolution.target
+            reference["arguments"] = merged
+            self._preferences[pin] = resolution
+            session.resolved[pin] = resolution.pin()
+        return definition
+
+    def _open_preference_target(self, name):
+        """(definition, Workflow) of one preference target, opened the way
+        this workflow opens a sub-workflow step - SubWorkflowNotFound when
+        the catalog no longer holds it."""
+        from . import preferences
+
+        if not isinstance(name, str) or references.is_ref(references.PREFERENCE, name):
+            raise preferences.PreferenceError(
+                f"A preference target is a workflow name, not {name!r}"
+            )
+        opened = self._preference_targets.get(name)
+        if opened is None:
+            # workflow_from_file validates the resolved path against its root
+            resolved, root = resolve_sub_workflow_reference(
+                name, os.path.dirname(self.file_spec), self.workflow_dir
+            )
+            child = workflow_from_file(resolved, self.output_dir, root)
+            opened = self._preference_targets[name] = (
+                child.workflow_definition,
+                child,
+            )
+        return opened
+
+    def preference_lines(self):
+        """The plan's line for each resolution this workflow made."""
+        return [resolution.line() for resolution in self._preferences.values()]
+
+    def preference_pins(self):
+        """Each resolution as the manifest pins it, by pin key."""
+        return {key: resolution.pin() for key, resolution in self._preferences.items()}
+
+    def preference_targets(self):
+        """The catalog workflows this workflow's 'preference:' steps
+        resolved to, each once."""
+        return list(dict.fromkeys(r.target for r in self._preferences.values()))
+
     def resolve_sub_workflow_path(self, path):
         """Where one sub-workflow step's `path` resolves to, as
         (path, root) - the same resolution create_step_action does, asked
@@ -499,8 +619,13 @@ class Workflow:
         a queued job to find out (#89).
 
         Raises SubWorkflowNotFound, SecurityError or InvalidInputError,
-        each carrying the message the run would have failed with.
+        each carrying the message the run would have failed with - for a
+        'preference:' path, why it did not resolve (resolve_preferences).
         """
+        if references.is_ref(references.PREFERENCE, path):
+            error = self._preference_errors.get(path)
+            if error is not None:
+                raise error
         return resolve_sub_workflow_reference(
             path, os.path.dirname(self.file_spec), self.workflow_dir
         )
@@ -514,7 +639,9 @@ class Workflow:
         (path, root); given, it is opened without resolving again. Raises
         what resolution or the load raises."""
         resolved, root = resolved or self.resolve_sub_workflow_path(path)
-        return workflow_from_file(resolved, self.output_dir, root), resolved
+        child = workflow_from_file(resolved, self.output_dir, root)
+        child._inherited_tier = self._effective_tier
+        return child, resolved
 
     def validation_errors(self, arguments=None, composing=None, *, context=None):
         """Every schema violation in the definition, as [{path, message}];
@@ -901,6 +1028,7 @@ class Workflow:
         # (prepare_definition, #1641)
         workflow.workflow_definition.setdefault("seed", default_seed)
         workflow._inherited_seed = default_seed
+        workflow._inherited_tier = self._effective_tier
         # A seedless parent injects a seed that is fresh every run, so no
         # step of the child can ever hit - the child must not pay the
         # cache's deepcopy and Result pinning for it

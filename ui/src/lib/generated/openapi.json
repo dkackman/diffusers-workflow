@@ -2096,6 +2096,12 @@
             "title": "Overrides",
             "type": "object"
           },
+          "preferences": {
+            "additionalProperties": true,
+            "description": "What each 'preference:<key>' sub-workflow step resolved to, keyed '<path>@<tier>': {target, arguments, skipped: [{workflow, reason}], source}. A rerun replays it; only on a job that resolved one.",
+            "title": "Preferences",
+            "type": "object"
+          },
           "progress": {
             "anyOf": [
               {

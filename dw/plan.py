@@ -145,6 +145,11 @@ def build_plan(
         if candidate.file_spec
         else None
     )
+    # The expansion validation took, which folds and expands exactly as
+    # the run does (Workflow._fold, Workflow._expand) - and resolves each
+    # 'preference:' step, so it comes before the realization that digests
+    # what they resolved to
+    expanded = candidate.expanded_definition(arguments)
     realized, annotations = realize_workflow(
         definition,
         candidate.folded_variables(arguments),
@@ -154,10 +159,8 @@ def build_plan(
         output_root=candidate.output_dir,
         workflow_dir=candidate.workflow_dir,
         pin_outputs=False,
+        preference_targets=candidate.preference_targets(),
     )
-    # The expansion validation took, which folds and expands exactly as
-    # the run does (Workflow._fold, Workflow._expand)
-    expanded = candidate.expanded_definition(arguments)
     # The plan is what the run does, and a run does not execute a step
     # nothing reads (dw/elision.py, #122) - so the step count, the downloads
     # and the fingerprint are all taken after elision, and the acknowledged
@@ -198,6 +201,9 @@ def build_plan(
         ),
         "steps": step_count,
         "elided_steps": elided,
+        # One line per 'preference:' step: what it resolved to and what it
+        # skipped (dw/preferences.py)
+        **({"preferences": lines} if (lines := candidate.preference_lines()) else {}),
         "list_entries": entries,
         "cached_steps": cache_hits,
         "downloads_required": downloads_required(

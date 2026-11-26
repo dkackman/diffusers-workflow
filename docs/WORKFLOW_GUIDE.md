@@ -348,6 +348,11 @@ for existence.
   `v<N>` (`list_gallery`'s `version`), and only that run. A run id is not stable
   against pruning: to depend on a generated file, promote it with `keep_output`
   and reference the `asset:` name instead.
+- `preference:` - `preference:<key>` (`preference:text_to_image`) is a `workflow`
+  step's `path` only, never an argument value: it names the catalog workflow the
+  server prefers for that job on this host. A `variable:` may hold one. It is
+  resolved right after expansion and is never left for realization. See
+  *Model preferences*.
 - `prompt:` - `prompt:name` or `prompt:folder/name` is a stored prompt's
   `text`, rooted at the prompt library. That text may not itself begin with any
   of these prefixes. A template's default prompt is usually a `prompt:`
@@ -1080,6 +1085,47 @@ directory, prefixed with the composing step's name.
 error at `steps[N].workflow.path` before anything is queued; it also validates
 the workflow named, refuses a composition cycle, and warns about an argument
 the composed workflow declares no variable for.
+
+### Model preferences
+
+A `workflow` step's `path` may be `preference:<key>` instead of a catalog name,
+so the step asks for a job and the server picks the model:
+
+```json
+{ "name": "base", "workflow": { "path": "preference:text_to_image",
+  "arguments": { "prompt": "variable:prompt", "tier": "best" } } }
+```
+
+`workflows/preferences.json` (shipped) maps a key to the tiers `draft`,
+`standard` and `best`; each tier is an ordered list of catalog workflows, each a
+name or `{workflow, devices, arguments}`. A server overlays it key by key with
+`~/.diffusers_helper/preferences.json`; an overlay key replaces the whole
+shipped key.
+
+- **Tier**: the step's `tier` argument, else the workflow's folded `tier`
+  variable (inherited from a parent that composes it), else `default_tier`
+  (shipped `standard`). The step's `tier` argument is dropped unless the
+  resolved target declares a `tier` variable.
+- **Fit**: the first target that fits the host runs. A target is skipped when
+  its `devices` exclude the host, it declares more host RAM than the host has,
+  its `cost` VRAM on this device exceeds the smallest card, or it is a gated
+  repo the server has no access to. A model not yet downloaded is only a note,
+  and a target with no `cost` entry is not skipped.
+- **Arguments**: the step's arguments over the target entry's `arguments` over
+  the child's defaults.
+- **Where it resolves**: right after expansion, so validation, the plan,
+  pricing, downloads, pipeline ownership, argument warnings and the run all see
+  the resolved child. `validate_workflow`'s plan carries a `preferences` line
+  per step: `preference:text_to_image (tier best) -> models/qwen-image-2.1;
+  skipped models/minimax-h3-image: cuda-only; source: shipped`.
+- **Refused**: an unknown key (named), a tier naming a target no longer in the
+  catalog (every stale one named), no target
+  fitting (every skip named), a bad key or tier, a resolved path that fails
+  validation, a bad target argument.
+- **Pin**: admission pins the resolution. The run manifest and `get_job` carry
+  a `preferences` map, `{"preference:text_to_image@best": {target, arguments,
+  skipped, source}}`. The worker and a rerun replay the pin; a different tier
+  resolves fresh.
 
 ### Being found next time
 
@@ -3282,7 +3328,8 @@ run used, each `prompt:` reference replaced by the stored text, and each
 each already names something pinned by the asset library or by the manifest's
 `dw_version` — and a sub-workflow named by local path is kept with its file's
 SHA-256 recorded in the manifest. The manifest also lists which stored prompts
-were inlined, since inlining loses the name.
+were inlined, since inlining loses the name. A `preference:` path is kept too;
+the manifest's `preferences` map records the target that ran.
 
 The file is a valid workflow: `python -m dw.run workflow.json`, or its contents as
 `run_workflow`'s `inline_workflow`, runs it again. Its `asset:` and `output:` names
@@ -3378,6 +3425,8 @@ identity on a card empties that card's step cache (the worker's `_cleanup_all`),
   single card it happens every time.
 - a renamed copy, a new inline `id`, or switching between a stored workflow and its
   inline copy also starts cold.
+
+A rerun replays the pinned `preference:` target, so it runs the same model.
 
 To reuse cached upstream steps, rerun the same workflow (same name, or the same inline
 `id`), for example with `rerun_job` or changed arguments. Only arguments that reach
