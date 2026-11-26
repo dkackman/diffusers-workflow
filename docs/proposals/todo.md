@@ -1022,6 +1022,13 @@ remaining deferred fix is recorded in
   Close and Keep open, and the list tags it. The re-proposal gate and a decline
   event are left out, each with its trigger:
   `complete/request-close-handshake-complete.md`.
+- **Check and export request items** (#1617, stage #1699), shipped 2026-11-26
+  as guidance only. The request guidance (`request.md`, `series-episodes`,
+  `long-form`) links a check to its own `check-NN` item and an export to
+  `export`, so neither becomes a take of the shot or the cut. The stored
+  non-take link mark was not built; a second field report where check items
+  clutter a request would bring it back:
+  `complete/request-check-export-items-complete.md`.
 
 ## Declined
 
