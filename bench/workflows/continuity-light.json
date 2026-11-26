@@ -1,0 +1,170 @@
+{
+  "id": "ContinuityLight",
+  "summary": "#1704 probe P-B (R5): three Klein cards of one room, light side",
+  "description": "Feature #1685 stage 1 (#1704), probe P-B for light direction held within a scene. Three FLUX 3 Klein text-to-image cards of June in one living room at 1344x768: a wide (`wide`), a medium (`medium`) and a close-up (`close`), all on the job's one seed. The defaults are the control arm ('Warm practical light.'); the treatment arm passes the three prompts with 'Key light from frame left, warm practical.' in its place. Record: bench/records/continuity-grammar.md.",
+  "cost_drivers": [
+    "width",
+    "height"
+  ],
+  "variables": {
+    "prompt_wide": "A cinematic wide shot of a small living room at night, a low coffee table and a bookshelf around her. June, a woman in her thirties with short black hair and a dark green sweater sits in an armchair reading a paperback book, her face toward the camera. Warm practical light. Photographic, 35mm film still, natural skin tones, shallow depth of field.",
+    "prompt_medium": "A cinematic medium shot of June, a woman in her thirties with short black hair and a dark green sweater, sitting in an armchair in a small living room at night, a low coffee table and a bookshelf around her, reading a paperback book, her face toward the camera. Warm practical light. Photographic, 35mm film still, natural skin tones, shallow depth of field.",
+    "prompt_close": "A cinematic close-up of the face of June, a woman in her thirties with short black hair and a dark green sweater, in an armchair in a small living room at night, a low coffee table and a bookshelf around her, looking down at a paperback book, her face toward the camera. Warm practical light. Photographic, 35mm film still, natural skin tones, shallow depth of field.",
+    "width": 1344,
+    "height": 768,
+    "seed": 1685
+  },
+  "variable_constraints": {
+    "width": {
+      "modulus": 16,
+      "remainder": 0,
+      "reason": "FLUX 3 Image Klein's pipeline refuses a width not divisible by 16 (the VAE's 8x compression times the 2x2 latent packing), and only after the weights have loaded, so it is checked here first"
+    },
+    "height": {
+      "modulus": 16,
+      "remainder": 0,
+      "reason": "FLUX 3 Image Klein's pipeline refuses a height not divisible by 16 (the VAE's 8x compression times the 2x2 latent packing), and only after the weights have loaded, so it is checked here first"
+    }
+  },
+  "seed": "variable:seed",
+  "steps": [
+    {
+      "name": "wide",
+      "pipeline": {
+        "configuration": {
+          "component_type": "ModularPipeline",
+          "remove_blocks": [
+            "prompt_upsampler"
+          ],
+          "load_components": {
+            "names": [
+              "text_encoder",
+              "tokenizer",
+              "transformer",
+              "vae"
+            ],
+            "dtype": "torch.bfloat16"
+          },
+          "components": {
+            "transformer": {
+              "device": "cuda"
+            },
+            "text_encoder": {
+              "device": "cuda"
+            },
+            "vae": {
+              "device": "cuda"
+            }
+          }
+        },
+        "from_pretrained_arguments": {
+          "model_name": "black-forest-labs/flux-3-image-klein"
+        },
+        "arguments": {
+          "prompt": "variable:prompt_wide",
+          "width": "variable:width",
+          "height": "variable:height",
+          "num_inference_steps": 16,
+          "output": "images"
+        }
+      },
+      "result": {
+        "content_type": "image/jpeg",
+        "embed_metadata": true,
+        "subfolder": "final"
+      }
+    },
+    {
+      "name": "medium",
+      "pipeline": {
+        "configuration": {
+          "component_type": "ModularPipeline",
+          "remove_blocks": [
+            "prompt_upsampler"
+          ],
+          "load_components": {
+            "names": [
+              "text_encoder",
+              "tokenizer",
+              "transformer",
+              "vae"
+            ],
+            "dtype": "torch.bfloat16"
+          },
+          "components": {
+            "transformer": {
+              "device": "cuda"
+            },
+            "text_encoder": {
+              "device": "cuda"
+            },
+            "vae": {
+              "device": "cuda"
+            }
+          }
+        },
+        "from_pretrained_arguments": {
+          "model_name": "black-forest-labs/flux-3-image-klein"
+        },
+        "arguments": {
+          "prompt": "variable:prompt_medium",
+          "width": "variable:width",
+          "height": "variable:height",
+          "num_inference_steps": 16,
+          "output": "images"
+        }
+      },
+      "result": {
+        "content_type": "image/jpeg",
+        "embed_metadata": true,
+        "subfolder": "final"
+      }
+    },
+    {
+      "name": "close",
+      "pipeline": {
+        "configuration": {
+          "component_type": "ModularPipeline",
+          "remove_blocks": [
+            "prompt_upsampler"
+          ],
+          "load_components": {
+            "names": [
+              "text_encoder",
+              "tokenizer",
+              "transformer",
+              "vae"
+            ],
+            "dtype": "torch.bfloat16"
+          },
+          "components": {
+            "transformer": {
+              "device": "cuda"
+            },
+            "text_encoder": {
+              "device": "cuda"
+            },
+            "vae": {
+              "device": "cuda"
+            }
+          }
+        },
+        "from_pretrained_arguments": {
+          "model_name": "black-forest-labs/flux-3-image-klein"
+        },
+        "arguments": {
+          "prompt": "variable:prompt_close",
+          "width": "variable:width",
+          "height": "variable:height",
+          "num_inference_steps": 16,
+          "output": "images"
+        }
+      },
+      "result": {
+        "content_type": "image/jpeg",
+        "embed_metadata": true,
+        "subfolder": "final"
+      }
+    }
+  ]
+}
