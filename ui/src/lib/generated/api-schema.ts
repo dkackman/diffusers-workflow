@@ -2179,7 +2179,7 @@ export interface components {
             absolute_url?: string;
             /**
              * Duration Seconds
-             * @description A/V length with `media=true`.
+             * @description An audio or video asset's length, with `media=true`.
              */
             duration_seconds?: number | null;
             /** Folder */
@@ -2645,7 +2645,7 @@ export interface components {
             absolute_url?: string;
             /**
              * Duration Seconds
-             * @description A/V length with `media=true`.
+             * @description An audio or video file's length, with `media=true`.
              */
             duration_seconds?: number | null;
             /** Folder */
@@ -2739,7 +2739,7 @@ export interface components {
             offset: number;
             /**
              * Prompts
-             * @description Run id -> prompt, with `prompts=true`.
+             * @description Run id -> the `prompt` argument its job was submitted with, with `prompts=true`.
              */
             prompts?: {
                 [key: string]: string;
@@ -3058,7 +3058,7 @@ export interface components {
             jobs: components["schemas"]["JobSummary"][];
             /**
              * Prompts
-             * @description Job id -> its prompt, with `prompts=true`.
+             * @description Job id -> the `prompt` argument it was submitted with, with `prompts=true`.
              */
             prompts?: {
                 [key: string]: string;

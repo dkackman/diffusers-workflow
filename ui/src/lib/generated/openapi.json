@@ -119,7 +119,7 @@
                 "type": "null"
               }
             ],
-            "description": "A/V length with `media=true`.",
+            "description": "An audio or video asset's length, with `media=true`.",
             "title": "Duration Seconds"
           },
           "folder": {
@@ -1298,7 +1298,7 @@
                 "type": "null"
               }
             ],
-            "description": "A/V length with `media=true`.",
+            "description": "An audio or video file's length, with `media=true`.",
             "title": "Duration Seconds"
           },
           "folder": {
@@ -1504,7 +1504,7 @@
             "additionalProperties": {
               "type": "string"
             },
-            "description": "Run id -> prompt, with `prompts=true`.",
+            "description": "Run id -> the `prompt` argument its job was submitted with, with `prompts=true`.",
             "title": "Prompts",
             "type": "object"
           },
@@ -2224,7 +2224,7 @@
             "additionalProperties": {
               "type": "string"
             },
-            "description": "Job id -> its prompt, with `prompts=true`.",
+            "description": "Job id -> the `prompt` argument it was submitted with, with `prompts=true`.",
             "title": "Prompts",
             "type": "object"
           },
