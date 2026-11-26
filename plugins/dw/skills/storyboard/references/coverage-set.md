@@ -36,6 +36,11 @@ An over-the-shoulder needs both characters in the references. Two people in
 one still is the pipeline's weakest case: faces can swap or merge, so check
 both.
 
+To keep each person on their side of the line and looking toward the other
+across the cuts, write each one's frame side and facing into every cut:
+`cinematography/references/continuity.md` (measured on Klein text-to-image, not
+on the redraw).
+
 The coverage boards stay on Klein. Only a cast still or keyframe that an H3
 shot will open on moves to the `minimax-h3-image` skill (`SKILL.md`, *A board
 as a start frame*).

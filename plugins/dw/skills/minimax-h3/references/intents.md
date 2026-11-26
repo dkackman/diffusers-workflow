@@ -67,3 +67,4 @@ pattern heading that exists.
 | A final hit written as played through keeps the players going to the note's end | | `references/staging.md` § Reported from outside, not probed here | outside band-video run, unprobed on dw: #1528 | untested |
 | Opening wide and moving in at once beats a long static wide | | `references/staging.md` § Reported from outside, not probed here | outside band-video run, unprobed on dw: #1528 | untested |
 | Hand-checking a music video's last lyric lines and held notes catches squeezed final words | `templates/minimax/music-video-cuts` | `references/cuts.md` § Planning a music video's cuts | outside band-video run, unprobed on dw: #1528 | untested |
+| Hold a walker's screen direction across a cut by writing the travel as frame sides in every shot | `templates/minimax/video-with-audio-768p` | `cinematography/references/continuity.md` § Screen direction (MiniMax-H3) | `bench/records/continuity-grammar.md` (PRELIMINARY) | confirmed |
