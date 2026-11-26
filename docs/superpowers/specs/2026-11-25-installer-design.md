@@ -306,3 +306,54 @@ change as the code it describes.
   one.
 - Test strategy: config merging, manifest round-trip and command building are
   unit-testable with fakes; one manual clean-machine run per OS before release.
+
+## Verification record
+
+Checked 2026-11-25 with Claude Code 2.1.331 and mcpb (`npx -y @anthropic-ai/mcpb`,
+manifest schema v0.4), against a local `dw-serve --port 8799`. Each check ran
+in an isolated `CLAUDE_CONFIG_DIR`, so the real Claude configuration was not
+touched. That config dir has no login, so `claude -p` could not make a model
+call. Instead I read the `--debug-file` log, which records the plugin MCP
+loader and the server connection before the auth failure.
+
+- **uv-type `.mcpb` (Step 1 and 2): Claude Code rejects it.** The bundle
+  packs and `mcpb validate` passes (`server.type: "uv"`, `pyproject.toml` with
+  `mcp>=2.3.0`, `httpx>=0.28.1`, `anyio>=4.0`, `packaging>=26.3`). Loaded from
+  a plugin (`plugin.json` `"mcpServers": "./dw-mcp.mcpb"`), Claude Code logs
+  `Invalid manifest: server: Invalid enum value. Expected 'python' | 'node' |
+  'binary', received 'uv'` and no server starts. Its MCPB loader does not
+  know the `uv` type.
+- **python-type `.mcpb` from a plugin works (Step 2, fallback).** The same
+  plugin entry pointing at a python-type bundle (`manifest_version` 0.3) is
+  extracted, `plugin:dwx:dw-mcp` connects over stdio in 758 ms, and the server
+  reports `hasTools: true`. It printed `connected to ... (dw 0.23.0-alpha.1,
+  mps) at http://127.0.0.1:8799`. This test pointed `command` at the repo
+  venv's python, so it proves the plugin-to-`.mcpb` path, not that a python
+  bundle is self-contained. A vendored `lib/` has to carry compiled
+  dependencies (pydantic), which mcpb itself calls non-portable.
+  `get_server_info` was not called (no model session).
+- **`${HOME}` expands (Step 3).** A plugin `.mcp.json` with
+  `"command": "${HOME}/src/dkackman/diffusers-workflow/venv/bin/dw-mcp"`
+  starts: `plugin:dwx:dwx` connects over stdio in 577 ms with `hasTools: true`.
+- **Marketplace refs (Step 4).** `claude plugin marketplace add --help` lists
+  no ref flag: it takes `<source>` (URL, path or GitHub repo) plus `--scope`,
+  `--sparse` and `--claudeai`. Both `dkackman/diffusers-workflow@v0.22.0` and
+  `dkackman/diffusers-workflow#v0.22.0` clone and add successfully, and
+  `marketplace list` shows `Source: GitHub (dkackman/diffusers-workflow@v0.22.0)`
+  for each (the `#` form is normalized to `@`). Tag `v0.22.0` exists on origin.
+  I did not inspect the checked-out commit.
+- **Claude Desktop and Cowork (Step 5): pending Don's check.** Not run: whether
+  Cowork starts a bundle from a plugin, and whether double-clicking the bare
+  `.mcpb` installs in Desktop chat. Desktop's own `uv` support is not implied
+  by the Claude Code result.
+
+**Decision: Plugin server = stable path.** Claude Code cannot start a uv-type
+`.mcpb`, so Steps 2 and 5 do not both work. The plugin's `.mcp.json` launches
+the installed `dw-mcp` through a path setup writes, using `${HOME}`
+expansion (verified). The `.mcpb` stays a release artifact and registry entry
+only. If Don's Cowork check shows Desktop runs uv bundles, that stays a
+Desktop-only path; the Claude Code plugin stays on the stable path. A python-type
+bundle with a vendored `lib/` is the only bundle form Claude Code started.
+
+**Marketplace ref syntax: `owner/repo@v0.22.0`** (the `#` form is also
+accepted; use `@`).
