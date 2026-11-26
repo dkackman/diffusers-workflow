@@ -512,7 +512,7 @@ it('a feed read of a closed request at an older revision does not replace it', a
   await waitFor(() => expect(feed.watched('studio')).toEqual(['requests']))
   data.request = { ...make(), state: 'open', revision: 5 }
   feed.move('studio', 'requests')
-  await new Promise((resolve) => setTimeout(resolve, 0))
+  await quiet()
   expect(revision()).toBe('now at r6')
 })
 

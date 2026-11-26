@@ -199,16 +199,20 @@ test('Back to a narrowed, scrolled gallery that loads late keeps its filters and
   await expect.poll(() => scrollY(page), { timeout: 8_000 }).toBe(left)
   // a write on the server makes the page read the list again, quietly, and
   // it stays where it was put
-  const reload = page.waitForResponse(
-    (r) => new URL(r.url()).pathname === '/api/gallery',
-  )
-  await star(request, STILLS[0], true)
-  await leaveAndReturn(page)
-  await reload
-  await page.waitForTimeout(300)
-  expect(await scrollY(page)).toBe(left)
-  // and it never went back to the top on the way
-  expect(await lowest()).toBeGreaterThan(0)
+  // the note's mark shows once the list read after the write is on screen
+  const mark = 'e2e quiet reload'
+  const note = (text: string | null) =>
+    request.put('/api/notes', { data: { target: STILLS[0], note: text } })
+  try {
+    expect((await note(mark)).status()).toBe(200)
+    await leaveAndReturn(page)
+    await expect(page.getByTitle(mark, { exact: true })).toBeVisible()
+    expect(await scrollY(page)).toBe(left)
+    // and it never went back to the top on the way
+    expect(await lowest()).toBeGreaterThan(0)
+  } finally {
+    await note(null)
+  }
 })
 
 test('content shown above a list while it loads late does not end its restore', async ({

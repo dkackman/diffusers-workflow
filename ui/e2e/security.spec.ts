@@ -154,6 +154,19 @@ test.afterAll(async ({ request }) => {
   await request.delete(`/api/workspaces/${WS}?acknowledged=true`)
 })
 
+/** Wait for a broken image made now to report its error. Error events queue in
+ * order, so any a planted image was owed have run by then. */
+async function brokenImageReported(page: Page) {
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        const probe = new Image()
+        probe.onload = probe.onerror = () => resolve()
+        probe.src = '/e2e-no-such-image'
+      }),
+  )
+}
+
 /** Open a page and fail if anything planted ran. `visible` is text the
  * page must show first, so an empty page is a failure, not a pass. */
 async function assertInert(page: Page, hash: string, visible: RegExp) {
@@ -168,7 +181,7 @@ async function assertInert(page: Page, hash: string, visible: RegExp) {
   })
   // give onerror/onload handlers of broken images a chance to fire
   await page.waitForLoadState('networkidle')
-  await page.waitForTimeout(300)
+  await brokenImageReported(page)
   const fired = await page.evaluate(
     () => document.documentElement.dataset.xss ?? null,
   )
@@ -220,7 +233,9 @@ test('a gallery file with a hostile name opens inert', async ({ page }) => {
     .getByText(/onerror=/)
     .first()
     .click()
-  await page.waitForTimeout(500)
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await page.waitForLoadState('networkidle')
+  await brokenImageReported(page)
   expect(
     await page.evaluate(() => document.documentElement.dataset.xss ?? null),
   ).toBeNull()

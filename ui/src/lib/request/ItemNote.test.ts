@@ -9,6 +9,9 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import ItemNote from './ItemNote.svelte'
 import { NEEDS_WORDS } from './noteState'
 import { ApiError } from '../apiErrors'
+import { quiet, useQuietClock } from '../test/quiet'
+
+useQuietClock()
 
 const confirmDialog = vi.hoisted(() => vi.fn())
 vi.mock('../confirm.svelte', () => ({ confirmDialog }))
@@ -453,7 +456,7 @@ it('words typed while the save is out stay in the box and in storage, without th
   await fireEvent.input(box(), { target: { value: 'warmer and slower' } })
   land()
   await waitFor(() => expect(box().disabled).toBe(false))
-  await new Promise((r) => setTimeout(r, 0))
+  await quiet()
   expect(box().value).toBe('and slower')
   expect(sessionStorage.getItem('note-draft:test')).toBe('and slower')
 })

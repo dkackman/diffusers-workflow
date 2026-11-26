@@ -179,9 +179,10 @@ test('a card that changes twice flashes again: its fade restarts', async ({
     expect((await put('first')).status()).toBe(200)
     await pollFeed(page)
     await expect(card).toHaveClass(/row-changed/, { timeout: 10_000 })
-    await page.waitForTimeout(1200)
-    const first = await fade(card)
-    expect(first?.time).toBeGreaterThan(1000)
+    // let the fade run on, so a restart reads as a time that went back
+    await expect
+      .poll(async () => (await fade(card))?.time, { timeout: 10_000 })
+      .toBeGreaterThan(1000)
 
     expect((await put('second')).status()).toBe(200)
     await pollFeed(page)
