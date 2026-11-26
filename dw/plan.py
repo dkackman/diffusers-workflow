@@ -42,14 +42,12 @@ from .cost_scaling import (
     observed_render_scaling,
     _chain_blocks,
     _chain_retries,
-    _choose_entry,
 )
 from .elision import elide_definition
 from . import references
 from .plan_downloads import _sub_workflow_paths, downloads_required
 from .plan_pricing import (
-    first_at_shape,
-    first_at_shape_term,
+    with_first_at_shape,
     ENTRY_FRAMES_KEY,
     list_entry_frames,
     _child_catalog_price,
@@ -144,7 +142,7 @@ def build_plan(
             name to look history up by.
         seen_shapes: A callable taking a `first_at_shape.keys` list and
             answering the shapes this card has already run this workflow at
-            (#1615), as the set of tuples `dw/cost_scaling.py`'s
+            (#1615), as the set of tuples `dw/plan_pricing.py`'s
             `run_shapes` builds for those keys; the estimate adds the term for
             each of the run's shapes not in it. None (no history to judge
             by) adds no term.
@@ -227,21 +225,27 @@ def build_plan(
         ),
         "estimate": _hybrid_unpriced(
             expanded,
-            _checked_estimate(
-                candidate,
-                arguments,
+            # The first pass at each unseen shape lands after the floor (#1615)
+            with_first_at_shape(
+                _checked_estimate(
+                    candidate,
+                    arguments,
+                    definition,
+                    expanded,
+                    entries,
+                    device,
+                    base_dir,
+                    measured_entries=measured_entries,
+                    observed=observed,
+                    cached_steps=cache_hits,
+                    total_steps=step_count,
+                    observed_for_child=observed_for_child,
+                    price_child=nested.price,
+                ),
                 definition,
-                expanded,
-                entries,
+                arguments,
                 device,
-                base_dir,
-                measured_entries=measured_entries,
-                observed=observed,
-                cached_steps=cache_hits,
-                total_steps=step_count,
-                observed_for_child=observed_for_child,
-                price_child=nested.price,
-                seen_shapes=seen_shapes,
+                seen_shapes,
             ),
         ),
     }
@@ -372,68 +376,6 @@ def _hybrid_unpriced(expanded, estimate):
 
 
 def _checked_estimate(
-    candidate,
-    arguments,
-    definition,
-    expanded,
-    entries,
-    device,
-    base_dir,
-    *,
-    measured_entries,
-    observed,
-    cached_steps,
-    total_steps,
-    observed_for_child,
-    price_child=None,
-    seen_shapes=None,
-):
-    """`_floored_estimate`, plus the first pass at each shape this card has
-    not run (`first_at_shape`, #1615): added once, here, after the floor, so
-    the floor cannot swallow it and neither of `estimate`'s exits (observed
-    or curated) adds it twice. It moves `minutes` and names itself in
-    `scaled`; `warm_minutes` and `cached_minutes` keep their figures - a run
-    kept warm or served by the cache has, by construction, run its shape -
-    and `basis` and `low_confidence` are unchanged."""
-    result = _floored_estimate(
-        candidate,
-        arguments,
-        definition,
-        expanded,
-        entries,
-        device,
-        base_dir,
-        measured_entries=measured_entries,
-        observed=observed,
-        cached_steps=cached_steps,
-        total_steps=total_steps,
-        observed_for_child=observed_for_child,
-        price_child=price_child,
-    )
-    if seen_shapes is None or result.get("minutes") is None:
-        return result
-    entry = _choose_entry(definition.get("cost"), device)[0]
-    declared = first_at_shape(entry)
-    if declared is None:
-        return result
-    try:
-        seen = seen_shapes(declared[1])
-        term, clause = first_at_shape_term(
-            entry, definition, effective_variables(definition, arguments), seen
-        )
-    except Exception:
-        logger.warning("No first-pass-at-shape term", exc_info=True)
-        return result
-    if not term:
-        return result
-    return {
-        **result,
-        "minutes": round(result["minutes"] + term, 1),
-        "scaled": "; ".join(part for part in (result.get("scaled"), clause) if part),
-    }
-
-
-def _floored_estimate(
     candidate,
     arguments,
     definition,
