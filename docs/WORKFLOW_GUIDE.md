@@ -1347,6 +1347,8 @@ already made: each entry in `videos` is `output:` + the run's
 
 Supported content types: `image/jpeg`, `image/png`, `image/webp`, `image/gif`, `video/mp4`, `audio/wav`, `audio/flac`, `audio/mpeg` (mp3), `audio/ogg`, `audio/opus`, `audio/aiff`, `application/json`, `text/plain` (plus the aliases `audio/x-wav`, `audio/x-flac`, `audio/mp3`, `audio/vorbis`). Any other `audio/` or `video/` type is a validation error, and so is a type a browser runs as a page (`text/html`, `image/svg+xml`, `application/xml` and the like) (`dw/content_types.py`).
 
+A step that answers a list of images (`gather_images`) saves one file per image, whatever the content type. Under `video/mp4` or `image/gif` each of those files holds a single frame (an mp4 says so with a `still_written_as_video` warning); `stills_to_video` is the task that makes one video from stills. A run of frames (`loop_frames`, a video) is one artifact and saves as one `video/mp4` or `image/gif`.
+
 A task command's implementation declares what it hands back - most answer an
 `artifact` (a file `result` saves in one of the media content types above),
 some (`judge`) answer a bare `scalar` that cannot be saved at all, and some

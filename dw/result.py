@@ -98,6 +98,28 @@ def _refuse_scalar_artifact(artifact, file_base_name):
         )
 
 
+def _still_as_video(artifact, output_path):
+    """One still saved under a video type, as the one-frame video it is.
+
+    `export_to_video` indexes its argument, so a bare PIL image crashed it
+    (#1751). A step answering a list (`gather_images`) saves one file per
+    entry, so the caller is told each file holds a single frame.
+    """
+    from PIL import Image
+
+    if not isinstance(artifact, Image.Image):
+        return artifact
+    emit_warning(
+        f"{os.path.basename(output_path)} is a one-frame video: the step "
+        f"handed the writer a still image. Each image of a list is saved as "
+        f"its own file - to make one video from stills, use the "
+        f"'stills_to_video' task.",
+        kind="still_written_as_video",
+        file=os.path.basename(output_path),
+    )
+    return [artifact]
+
+
 def _frames_for_export_to_video(frames):
     """Frames `export_to_video` reads correctly.
 
@@ -565,7 +587,15 @@ class Result:
             self._write_video_file(artifact, output_path, content_type)
         elif content_type == "image/gif":
             self.warn_if_fps_defaulted(artifact)
-            export_to_gif(artifact, output_path, fps=self.video_fps(artifact))
+            # export_to_gif calls .save on each frame, so arrays, tensors
+            # and a lone still all go through PIL first (#1751)
+            from .tasks.video_utils import frames_as_pil_list
+
+            export_to_gif(
+                frames_as_pil_list(artifact),
+                output_path,
+                fps=self.video_fps(artifact),
+            )
         elif content_type.startswith("audio"):
             return self._write_audio_file(
                 output_dir,
@@ -593,7 +623,7 @@ class Result:
         else:
             self.warn_if_fps_defaulted(artifact)
             export_to_video(
-                _frames_for_export_to_video(artifact),
+                _frames_for_export_to_video(_still_as_video(artifact, output_path)),
                 output_path,
                 fps=self.video_fps(artifact),
                 macro_block_size=VIDEO_MACRO_BLOCK,
