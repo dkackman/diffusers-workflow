@@ -8,6 +8,7 @@
   // beside it.
   import { FolderOpen } from '@lucide/svelte'
   import { api } from '../api'
+  import { matchWords } from '../matchWords'
   import {
     assetMedia,
     viewLabels,
@@ -163,8 +164,7 @@
   }
 
   const filterActive = $derived(filter.value !== '')
-  const matches = (name: string) =>
-    name.toLowerCase().includes(filter.value.toLowerCase())
+  const matches = (name: string) => matchWords(filter.value, name)
   const matched = $derived(assets.filter((a) => matches(a.name)))
   const byName = $derived(new Map(matched.map((a) => [a.name, a])))
   // Newest first is one list across a library's folders

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api } from '../api'
+  import { matchWords } from '../matchWords'
   import { resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
   import PageHeader from '../ui/PageHeader.svelte'
@@ -36,9 +37,7 @@
     Object.entries(schema?.$defs ?? {}) as [string, SchemaValue][],
   )
   const shownDefinitions = $derived(
-    definitions.filter(([name]) =>
-      name.toLowerCase().includes(filter.trim().toLowerCase()),
-    ),
+    definitions.filter(([name]) => matchWords(filter, name)),
   )
 </script>
 
