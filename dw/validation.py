@@ -107,6 +107,7 @@ from .type_references import (
 from .presets import preset_errors
 from .variable_constraints import (
     ConstraintReferenceError,
+    composed_constraint_errors,
     constraint_errors,
     constraint_reference_errors,
     constraint_warnings,
@@ -672,7 +673,7 @@ ERROR_CHECKS = [
     Check(
         "sub_workflows",
         lambda c: sub_workflow_errors(
-            c.workflow, c.expanded, c.source_indices, list(c.composing)
+            c.workflow, c.expanded, c.source_indices, list(c.composing), c.supplied
         ),
     ),
 ]
@@ -1037,10 +1038,12 @@ def undeclared_variable_errors(workflow, arguments=None):
     ]
 
 
-def sub_workflow_errors(workflow, expanded, source_indices=None, composing=None):
+def sub_workflow_errors(
+    workflow, expanded, source_indices=None, composing=None, supplied=()
+):
     """Every sub-workflow step whose `path` names nothing this server can
-    reach, composes a workflow already on the chain, or resolves to a
-    workflow that does not itself validate.
+    reach, composes a workflow already on the chain, resolves to a workflow
+    that does not itself validate, or passes it a value its rules refuse.
 
     `composing` is the resolved path of every workflow above this one,
     which is what makes a cycle an error here rather than a recursion
@@ -1088,4 +1091,5 @@ def sub_workflow_errors(workflow, expanded, source_indices=None, composing=None)
                     "message": f"Sub-workflow '{path}': {error['message']}",
                 }
             )
+        composed_constraint_errors(errors, workflow, source, child, reference, supplied)
     return errors

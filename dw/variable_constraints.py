@@ -36,6 +36,9 @@ where some step hands that field to a pipeline (#145). `dialogue-short` has
 no top-level `num_frames` at all - it has a `shots` list whose entries carry
 one - and the rule is the model's either way.
 
+A composing step's arguments are held to the child's rules as well, at the
+parent's variable (`composed_constraint_errors`, #1756).
+
 Checked in three places for the reasons the task-argument domains are
 (dw/task_domains.py): statically in `validation_errors`, so a stored default
 or a caller's argument outside the rule is a free refusal at the JSON path it
@@ -489,6 +492,53 @@ def constraint_errors(definition, arguments=None, supplied=()):
                     }
                 )
     return errors
+
+
+def composed_constraint_errors(errors, parent, index, child, step, supplied=()):
+    """Append to `errors` what the child's own rules refuse in the arguments a
+    composing step passes it. A composed child is validated on its own
+    defaults, so without this a value the parent threads down was refused only
+    when the child ran, after every earlier step had spent its GPU time
+    (#1756).
+
+    `parent` and `child` are Workflows, `index` the composing step's place in
+    the parent as written, `step` its expanded `workflow` block and
+    `supplied` the parent variables the caller passed. An error lands on the
+    parent variable the value came from, or on the step's argument when it
+    came from none. A value the parent's own rule already refuses is left to
+    `constraint_errors`, so it is reported once, and a variable nobody has
+    given a value yet is not judged.
+    """
+    definition = parent.workflow_definition
+    passed = step.get("arguments")
+    if not isinstance(passed, dict) or not passed:
+        return
+    # the step as written still names the variable each value came from
+    written = definition["steps"][index]["workflow"].get("arguments") or {}
+    parents = declared_constraints(definition)
+    for error in constraint_errors(
+        child.workflow_definition, passed, supplied=set(passed)
+    ):
+        head, _, target = error["path"].partition(".")
+        name = target.split(".", 1)[0].split("[", 1)[0]
+        # the child's own defaults and bundles are its own validation's
+        if head != "arguments" or name not in passed:
+            continue
+        variable = references.ref_name(references.VARIABLE, written.get(name))
+        if variable is None:
+            path = f"steps[{index}].workflow.arguments.{target}"
+        elif passed[name] is None and variable not in supplied:
+            continue  # no stored default to judge (#1253)
+        elif variable in parents and refusal(variable, passed[name], parents[variable]):
+            continue
+        else:
+            source = "arguments" if variable in supplied else "variables"
+            path = f"{source}.{variable}{target[len(name) :]}"
+        message = f"Sub-workflow '{step['path']}': {error['message']}"
+        finding = {"path": path, "message": message}
+        # for_each members passing one value make one finding
+        if finding not in errors:
+            errors.append(finding)
 
 
 def constraint_warnings(definition, arguments=None):
