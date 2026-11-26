@@ -255,7 +255,7 @@ it('a quiet reload that fails keeps the list under a refresh line', async () => 
   await screen.findByRole('link', { name: /Launch posters/ })
   data.error = new Error('503')
   feed.move('studio', 'requests')
-  await new Promise((resolve) => setTimeout(resolve, 0))
+  await quiet()
   expect(rows()).toHaveLength(1)
   expect((await screen.findByRole('alert')).textContent).toContain(
     "Couldn't refresh requests",

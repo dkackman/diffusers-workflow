@@ -768,7 +768,7 @@ describe('EditorPage saving', () => {
     await ctrl('s')
     await ctrl('Enter')
     await fireEvent.click(saveButton())
-    await new Promise((r) => setTimeout(r, 0))
+    await quiet()
     expect(api.saveWorkflow).not.toHaveBeenCalled()
     expect(api.validate).not.toHaveBeenCalled()
   })
@@ -970,7 +970,7 @@ describe('EditorPage saving', () => {
       writable: true,
       etag: '"e9"',
     })
-    await new Promise((r) => setTimeout(r, 0))
+    await quiet()
     expect(
       (screen.getByLabelText('workflow id') as HTMLInputElement).value,
     ).toBe('ZImage')

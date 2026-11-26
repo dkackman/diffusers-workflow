@@ -1,5 +1,8 @@
 import { expect, it, vi } from 'vitest'
 import { Picks, actOnEach } from './picks.svelte'
+import { quiet, useQuietClock } from './test/quiet'
+
+useQuietClock()
 
 const picksOver = (...names: string[]) => new Picks(() => names)
 
@@ -209,7 +212,7 @@ it("a star Undo leaves another writer's star", async () => {
   held.b = false
   ;(undo.mock.calls[0][1] as () => void)()
   await vi.waitFor(() => expect(held.a).toBe(false))
-  await new Promise((r) => setTimeout(r, 0))
+  await quiet()
   expect(set.mock.calls.slice(2)).toEqual([['a', false]])
   expect(error).not.toHaveBeenCalled()
   // Both changed since: nothing is written, and the toast says why

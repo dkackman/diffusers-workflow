@@ -4,6 +4,9 @@ import type { LedgerRequest } from '../types'
 import { fakeLedger } from './fakeLedger'
 import { attempt, doneItem, item, request } from './fixtures'
 import { MAX_RETRIES, PlanStore } from './planStore.svelte'
+import { quiet, useQuietClock } from '../test/quiet'
+
+useQuietClock()
 
 // a done with two takes; b ready after a; c waits on b; d has never run
 const plan = (): LedgerRequest =>
@@ -228,7 +231,7 @@ it('"keep it" writes nothing', async () => {
   )
   await store.drop('b')
   store.dismiss(store.conflicts[0].id)
-  await settled()
+  await quiet()
   expect(store.conflicts).toHaveLength(0)
   expect(ledger.puts).toHaveLength(1)
   expect(ledger.current.revision).toBe(4)
@@ -434,7 +437,7 @@ it('a reply for a request the page has left changes nothing', async () => {
   const other = request([item('z')], { id: 'r2', revision: 1 })
   store.take(other)
   release()
-  await settled()
+  await quiet()
   expect(store.read).toBe(other)
   expect(store.queue).toHaveLength(0)
 })

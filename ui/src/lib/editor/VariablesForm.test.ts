@@ -3,6 +3,9 @@ import { render, screen, fireEvent, cleanup } from '@testing-library/svelte'
 import { tick } from 'svelte'
 import VariablesForm from './VariablesForm.svelte'
 import { attentionBackends } from '../attentionBackends.svelte'
+import { quiet, useQuietClock } from '../test/quiet'
+
+useQuietClock()
 
 const notify = vi.hoisted(() => ({
   undo: vi.fn(),
@@ -346,7 +349,7 @@ describe('VariablesForm removing a variable', () => {
     press()
     press()
     await tick()
-    await new Promise((r) => setTimeout(r, 0))
+    await quiet()
     expect(listed()).toEqual(['a', 'b'])
     // The second click is not taken for the key being back already
     expect(notify.success).not.toHaveBeenCalled()

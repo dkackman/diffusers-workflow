@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { api } from './test/apiMock'
+import { quiet, useQuietClock } from './test/quiet'
+
+useQuietClock()
 
 // Workspaces the server gained after the page loaded - a test pushes to it
 const created = vi.hoisted((): string[] => [])
@@ -323,7 +326,7 @@ it('an overtaken listing is not written, and settles when the newer one lands', 
   let settled = false
   void first.then(() => (settled = true))
   older.answer(['default', 'studio'])
-  await new Promise((resolve) => setTimeout(resolve))
+  await quiet()
   expect(workspace.names).toBeUndefined()
   expect(settled).toBe(false)
   expect(replace).not.toHaveBeenCalled()
@@ -344,7 +347,7 @@ it('an overtaken listing that fails writes no fallback', async () => {
   const newer = holdListing()
   void relistWorkspaces()
   older.fail()
-  await new Promise((resolve) => setTimeout(resolve))
+  await quiet()
   expect(workspace.names).toBeUndefined()
   newer.answer(['default', 'studio'])
   await first

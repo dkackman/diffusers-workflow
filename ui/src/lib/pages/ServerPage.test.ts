@@ -7,6 +7,9 @@ import { connection } from '../connection.svelte'
 import { ApiError, NetworkError } from '../apiErrors'
 import { api } from '../test/apiMock'
 import type { HealthInfo, MemoryInfo, ServerInfo } from '../types'
+import { quiet, useQuietClock } from '../test/quiet'
+
+useQuietClock()
 
 const SECRET = 'super-secret-token-value'
 
@@ -127,7 +130,7 @@ async function show(
   state.fail = fail
   state.status = status
   const { container } = render(ServerPage)
-  for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0))
+  await quiet()
   return (container.textContent ?? '').replace(/\s+/g, ' ')
 }
 
@@ -287,7 +290,7 @@ it('no token required, no token note', async () => {
 
 it('one heading says Status', async () => {
   const { container } = render(ServerPage)
-  for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0))
+  await quiet()
   const headings = [...container.querySelectorAll('h1, h2')].filter(
     (h) => h.textContent?.trim() === 'Status',
   )
@@ -358,7 +361,7 @@ it('lists each worker with its card, VRAM and a link to its job', async () => {
   state.info = base
   state.fail = ''
   const { container } = render(ServerPage)
-  for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0))
+  await quiet()
   const text = (container.textContent ?? '').replace(/\s+/g, ' ')
   expect(text).toContain('cuda:0 NVIDIA GeForce RTX 3090')
   expect(text).toContain('cuda:1 NVIDIA GeForce RTX 3090')
@@ -452,11 +455,8 @@ async function showCaches(list = cacheList()) {
   state.info = base
   state.fail = ''
   const { container } = render(ServerPage)
-  for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0))
+  await quiet()
   return container
-}
-const settle = async () => {
-  for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0))
 }
 const flat = (el: Element) => (el.textContent ?? '').replace(/\s+/g, ' ')
 const clearButton = (container: Element, name: string) =>
@@ -485,7 +485,7 @@ it('lists each cache with its root, size, files and the disk it is on', async ()
 it('asks before clearing, quoting the cost and the shared-cache warning', async () => {
   const container = await showCaches()
   clearButton(container, 'triton').click()
-  await settle()
+  await quiet()
   expect(confirmDialog).toHaveBeenCalledOnce()
   const [message, spec] = confirmDialog.mock.calls[0] as [
     string,
@@ -507,7 +507,7 @@ it('names an empty cache as 0 bytes in the confirm, not 1 KB', async () => {
   list.caches[0] = { ...list.caches[0], bytes: 0, files: 0 }
   const container = await showCaches(list)
   clearButton(container, 'inductor').click()
-  await settle()
+  await quiet()
   const message = confirmDialog.mock.calls[0][0]
   expect(message).toMatch(/^0 bytes, 0 files\. /)
   expect(message).not.toContain('1 KB')
@@ -517,7 +517,7 @@ it('does not clear when the confirm is declined', async () => {
   confirmDialog.mockResolvedValueOnce(false)
   const container = await showCaches()
   clearButton(container, 'inductor').click()
-  await settle()
+  await quiet()
   expect(confirmDialog).toHaveBeenCalledOnce()
   expect(api.clearCache).not.toHaveBeenCalled()
 })
@@ -548,7 +548,7 @@ it("shows the server's text when a clear is refused as busy", async () => {
   )
   const container = await showCaches()
   clearButton(container, 'inductor').click()
-  await settle()
+  await quiet()
   expect(flat(container)).toContain(busy)
   // and the sizes are re-read, unchanged
   expect(flat(container)).toContain('273.0 MB')
@@ -610,7 +610,7 @@ it('shows an entry count that expands to the entry table', async () => {
   expect(flat(toggleButton(container))).toContain('2 entries')
   expect(container.querySelector('.entrytable')).toBeNull()
   toggleButton(container).click()
-  await settle()
+  await quiet()
   const text = flat(container.querySelector('.entrytable')!)
   expect(text).toContain('org/flux')
   expect(text).toContain('transformer')
@@ -625,9 +625,9 @@ it('shows an entry count that expands to the entry table', async () => {
 it('deletes an entry after the confirm, then re-reads the caches', async () => {
   const container = await showCaches(quantizedList())
   toggleButton(container).click()
-  await settle()
+  await quiet()
   entryDelete(container, 0).click()
-  await settle()
+  await quiet()
   const [message, spec] = confirmDialog.mock.calls[0] as [
     string,
     { title: string },
@@ -649,9 +649,9 @@ it("shows the server's text when an entry delete is refused", async () => {
   )
   const container = await showCaches(quantizedList())
   toggleButton(container).click()
-  await settle()
+  await quiet()
   entryDelete(container, 1).click()
-  await settle()
+  await quiet()
   expect(flat(container)).toContain(busy)
 })
 
@@ -660,7 +660,7 @@ it('disables entry Delete when the cache is not clearable', async () => {
     quantizedList({ clearable: false, not_clearable_reason: 'no marker' }),
   )
   toggleButton(container).click()
-  await settle()
+  await quiet()
   expect(entryDelete(container, 0).disabled).toBe(true)
   expect(entryDelete(container, 1).disabled).toBe(true)
 })

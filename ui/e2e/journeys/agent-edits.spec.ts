@@ -170,10 +170,11 @@ test('editor: a reload replaces the JSON text under an idle caret', async ({
     // where the text from before the reload would undo their change
     await page.keyboard.press('End')
     await page.keyboard.type(' ')
-    await page.waitForTimeout(600)
-    await expect(page.locator('.chip.unsaved')).toHaveCount(0)
+    // leaving the JSON view applies what was typed: once the form is up, an
+    // edit that was going to count has counted
     await page.getByRole('button', { name: 'form', exact: true }).click()
     await expect(page.locator('#wfvar-line')).toHaveValue('FromTheAgent')
+    await expect(page.locator('.chip.unsaved')).toHaveCount(0)
   } finally {
     await request.delete(`/api/workflows/${name}`)
   }

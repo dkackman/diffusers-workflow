@@ -4,6 +4,9 @@ import { reportResponse, reportUnreachable } from './connection.svelte'
 import { Enhancer } from './enhancer.svelte'
 import { api } from './test/apiMock'
 import type { EnhancerPreset } from './types'
+import { quiet, useQuietClock } from './test/quiet'
+
+useQuietClock()
 
 vi.mock('./api', async () =>
   (await import('./test/apiMock')).apiModule({ fetchOutputText: vi.fn() }),
@@ -58,13 +61,12 @@ async function generating() {
   await enhancer.generate()
   return enhancer
 }
-const settle = () => new Promise((resolve) => setTimeout(resolve))
 
 it('ends when a dropped stream finds the job gone', async () => {
   const enhancer = await generating()
   api.getJob.mockRejectedValue(new ApiError('Unknown job', 404))
   FakeSource.all[0].onerror?.()
-  await settle()
+  await quiet()
   expect(enhancer.busy).toBe(false)
   expect(enhancer.status).toBe('')
   expect(enhancer.jobId).toBe('')
@@ -78,7 +80,7 @@ it('ends when a dropped stream finds the job finished', async () => {
   const enhancer = await generating()
   api.getJob.mockResolvedValue({ ...queued, status: 'failed', error: 'oom' })
   FakeSource.all[0].onerror?.()
-  await settle()
+  await quiet()
   expect(enhancer.busy).toBe(false)
   expect(enhancer.error).toBe('The enhancement failed')
   expect(enhancer.errorDetail).toBe('oom')
@@ -89,10 +91,10 @@ it('keeps following through a drop of a job still running', async () => {
   const enhancer = await generating()
   api.getJob.mockResolvedValue({ ...queued, status: 'running' })
   FakeSource.all[0].onerror?.()
-  await settle()
+  await quiet()
   api.getJob.mockRejectedValue(new TypeError('Failed to fetch'))
   FakeSource.all[0].onerror?.()
-  await settle()
+  await quiet()
   expect(enhancer.busy).toBe(true)
   expect(enhancer.error).toBe('')
   expect(FakeSource.all[0].closed).toBe(false)

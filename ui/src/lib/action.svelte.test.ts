@@ -11,6 +11,9 @@ vi.mock('./toast', () => ({ notify: { failure, undo, success, error } }))
 vi.mock('./confirm.svelte', () => ({ confirmDialog }))
 
 import { action } from './action.svelte'
+import { quiet, useQuietClock } from './test/quiet'
+
+useQuietClock()
 
 beforeEach(() => vi.clearAllMocks())
 
@@ -152,7 +155,7 @@ it('an undo pressed while the action is busy waits for it', async () => {
   await act.run()
   const second = act.run()
   undo.mock.calls[0][1]()
-  await new Promise((r) => setTimeout(r, 0))
+  await quiet()
   expect(revert).not.toHaveBeenCalled()
   finish()
   await second
@@ -179,7 +182,7 @@ it('an undo that waited re-checks its target', async () => {
   const second = act.run()
   // Pressed while the second run is out, on the request it was made on
   undo.mock.calls[0][1]()
-  await new Promise((r) => setTimeout(r, 0))
+  await quiet()
   // Then another request opens before the run finishes
   open = 'shot-2'
   finish()

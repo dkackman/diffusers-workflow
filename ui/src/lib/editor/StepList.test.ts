@@ -3,6 +3,9 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
 import { tick } from 'svelte'
 import StepList from './StepList.svelte'
 import { StepModes } from '../stepModes.svelte'
+import { quiet, useQuietClock } from '../test/quiet'
+
+useQuietClock()
 
 const notify = vi.hoisted(() => ({
   undo: vi.fn(),
@@ -99,7 +102,7 @@ it('a double click on Undo restores the step once', async () => {
   press()
   press()
   await tick()
-  await new Promise((r) => setTimeout(r, 0))
+  await quiet()
   expect(names()).toEqual(['a', 'b'])
 })
 
