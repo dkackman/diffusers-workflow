@@ -48,6 +48,11 @@ A PyPI install gets released `diffusers`, which may lag the newest pipelines; in
 
 ## Unreleased
 
+- `host_memory_job_peak_rss_mb` no longer under-reports a job run in a worker
+  that peaked earlier: when a job raises the process's peak, it is the new peak
+  minus the worker's resident size when the job started, not the growth above
+  the earlier mark (#1754).
+
 GitHub generates notes from commits at tag time. The sections below are the hand-written notes: the newest is drafted at release prep and pasted into the GitHub release body once the tag has published (`gh release edit v<version> --notes-file ...`). Items a branch's author wants the next note to name go in a new section at the top.
 
 ### 0.23.0

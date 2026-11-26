@@ -60,32 +60,31 @@ def _mb(value):
     return f"{value:.0f} MB" if value is not None else "unknown"
 
 
-def _job_scoped_peak_rss_mb(info, baseline_peak_mb, running_max_mb):
-    """This job's own contribution to the process-lifetime peak (#272),
-    held as a running max across the job's readings (#457).
+def _job_scoped_peak_rss_mb(info, baseline_peak_mb, baseline_rss_mb, running_max_mb):
+    """The peak this job added on top of what the worker already held (#272),
+    as a running max across the job's readings (#457).
 
-    `host_memory_peak_rss_mb` is `ru_maxrss` - process-lifetime, never reset -
-    so in the persistent worker a small job run right after a heavy one
-    inherits the heavy job's high-water mark as its own. `baseline_peak_mb`
-    is that same process-lifetime figure read at this job's first phase
-    boundary; because ru_maxrss is monotonic non-decreasing, growth since
-    then is unambiguously this job's doing. A job that caused no growth at
-    all (it rode an earlier, larger peak) has no job peak to report: it
-    returns `running_max_mb` unchanged (None when nothing grew). It used to
-    floor at the worker's current rss, but in a warm worker that is what
-    other cached models hold, not this job's cost, and the host-RAM
-    projection's all-time max over a key then inherited it (#1288). A null
-    peak is left out of the projection. `running_max_mb` is the highest
-    value this function has returned for this job so far; a peak must not
-    fall between readings.
+    `host_memory_peak_rss_mb` is `ru_maxrss` - process-lifetime, never reset.
+    `baseline_peak_mb` is that figure and `baseline_rss_mb` the worker's
+    resident size, both read at this job's first phase boundary. Only when
+    the job raises the mark did the process provably reach it during this
+    job, and the job's figure is then the new mark minus that starting
+    resident size - not minus the old mark, which an earlier job left and
+    which made the same job report less in a used worker (#1754). The
+    resident size itself is left out: in a warm worker it is the cached
+    models, which the host-RAM gate already sees as used RAM (#1288). A job
+    that never raises the mark has no peak to report: it returns
+    `running_max_mb` unchanged (None when nothing grew), and a null peak is
+    left out of the projection. `running_max_mb` is the highest value this
+    function has returned for this job so far; a peak must not fall between
+    readings.
     """
     peak = info.get("host_memory_peak_rss_mb")
-    if peak is None or baseline_peak_mb is None:
+    if peak is None or baseline_peak_mb is None or baseline_rss_mb is None:
         return running_max_mb
-    growth = peak - baseline_peak_mb
-    candidate = growth if growth > 0 else None
-    if candidate is None:
+    if peak <= baseline_peak_mb:
         return running_max_mb
+    candidate = peak - baseline_rss_mb
     if running_max_mb is None or candidate > running_max_mb:
         return candidate
     return running_max_mb
@@ -113,6 +112,7 @@ class _Job:
     asset_token: Any = None
     preference_token: Any = None
     baseline_peak_rss_mb: Optional[float] = None
+    baseline_rss_mb: Optional[float] = None
     job_peak_rss_mb: Optional[float] = None
 
 
@@ -455,8 +455,12 @@ class WorkflowWorker:
                     job.baseline_peak_rss_mb = memory_info.get(
                         "host_memory_peak_rss_mb"
                     )
+                    job.baseline_rss_mb = memory_info.get("host_memory_rss_mb")
                 job.job_peak_rss_mb = _job_scoped_peak_rss_mb(
-                    memory_info, job.baseline_peak_rss_mb, job.job_peak_rss_mb
+                    memory_info,
+                    job.baseline_peak_rss_mb,
+                    job.baseline_rss_mb,
+                    job.job_peak_rss_mb,
                 )
                 memory_info["host_memory_job_peak_rss_mb"] = job.job_peak_rss_mb
                 self._reply(MemoryInfo(info=memory_info))
@@ -501,13 +505,16 @@ class WorkflowWorker:
     def _report_success(self, job: "_Job"):
         """Phase 4: the job's final memory reading, then the success reply.
 
-        The reading carries the same job-scoped delta the phase-boundary
+        The reading carries the same job-scoped figure the phase-boundary
         readings do (#272). A run with no phase events at all (no baseline
         ever set) reports host_memory_job_peak_rss_mb as null rather than
         guessing a baseline after the fact."""
         memory_info = self._get_memory_info()
         memory_info["host_memory_job_peak_rss_mb"] = _job_scoped_peak_rss_mb(
-            memory_info, job.baseline_peak_rss_mb, job.job_peak_rss_mb
+            memory_info,
+            job.baseline_peak_rss_mb,
+            job.baseline_rss_mb,
+            job.job_peak_rss_mb,
         )
         self._reply(MemoryInfo(info=memory_info))
 

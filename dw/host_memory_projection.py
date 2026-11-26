@@ -34,7 +34,7 @@ _RELEASE_FLAGS = ("release_pipeline", "release_models")
 
 # A row's peak, on the two bases a run may have recorded: the committed peak
 # (RssAnon + RssShmem + the driver's pinned pages, #869) and the job-scoped
-# RSS growth, which counts the checkpoint pages a worker maps
+# RSS peak, which counts the checkpoint pages a worker maps
 COMMITTED_PEAK = "host_memory_job_peak_committed_mb"
 RSS_PEAK = "host_memory_job_peak_rss_mb"
 

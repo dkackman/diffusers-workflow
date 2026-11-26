@@ -84,15 +84,16 @@ _ADDED_COLUMNS = (
     # predating the column and for any run that never reported one
     # (cancelled/errored before the worker's final memory_info)
     ("host_memory_peak_rss_mb", "REAL"),
-    # This job's own contribution to that process-lifetime figure - growth
-    # since the job's first phase-boundary reading, or its current rss when
-    # it caused no growth (#272). NULL for a row predating the column and
-    # for any run that never got a memory_info message at all
+    # This job's own peak: where it raised that process-lifetime figure, the
+    # new mark minus the worker's rss at the job's first phase boundary
+    # (#272, #1754). NULL where the job raised nothing (#1288), for a row
+    # predating the column and for any run that never got a memory_info
+    # message at all. Older rows keep the figure their version recorded
     ("host_memory_job_peak_rss_mb", "REAL"),
     # The largest committed reading of the run (RssAnon + RssShmem + the
     # driver's pinned pages, host_memory.committed_mb) - its RSS without the
     # mapped checkpoint pages, which are page cache (#869). An absolute process
-    # reading, where host_memory_job_peak_rss_mb is job-scoped growth. NULL
+    # reading, where host_memory_job_peak_rss_mb is job-scoped. NULL
     # for a row predating the column and where the platform has no split
     ("host_memory_job_peak_committed_mb", "REAL"),
     # The card the job ran on - "cuda:1 NVIDIA GeForce RTX 3090" (#462).
@@ -448,8 +449,9 @@ class JobHistory:
         pages: a slowdown, not an OOM, so it is not charged. Once any run of
         the key measured it, only those runs answer; a key with RSS-only
         history answers with RSS, the larger figure, until one does - the
-        bases are never mixed in one answer (the RSS peak is job-scoped
-        growth, the committed one an absolute process reading)."""
+        bases are never mixed in one answer (the RSS peak is job-scoped,
+        above the worker's starting rss; the committed one an absolute
+        process reading)."""
         with self._lock, self._connect() as connection:
             rows = connection.execute(
                 "SELECT host_memory_job_peak_rss_mb AS peak,"
