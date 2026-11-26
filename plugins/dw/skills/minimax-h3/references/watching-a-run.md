@@ -12,7 +12,9 @@ running, and the dead-air fix after it finishes.
   box.
 - `phase_stall` in `get_job_events` describes the wait; it does not mean a
   fault. Judge progress by `denoise_step`.
-- A cancelled H3 job runs on to its next step boundary before it stops.
+- A cancelled H3 job runs on to its next step boundary before it stops. If
+  none comes within 300 s (30 s in a load or task), its worker is killed and
+  the next job reloads the models.
 
 ## Dialogue gaps need room tone
 

@@ -2,7 +2,9 @@
 isolation, cancel routing, VRAM-aware dispatch with backfill, the fit check at
 submit, the OOM ranking, and what /api/health reports."""
 
+import multiprocessing
 import os
+import signal
 import subprocess
 import sys
 import threading
@@ -1226,9 +1228,7 @@ class TestCancelDuringLoading:
         wait_for(job, {"cancelled"})
         assert terminated
 
-    def test_a_cancel_in_an_interruptible_phase_is_not_escalated(
-        self, pool, monkeypatch
-    ):
+    def test_an_interruptible_phase_outlasts_the_load_grace(self, pool, monkeypatch):
         from dw.server import jobs as jobs_module
 
         monkeypatch.setattr(jobs_module, "CANCEL_GRACE_SECONDS", 0.1)
@@ -1245,6 +1245,54 @@ class TestCancelDuringLoading:
         assert not terminated
         gate.release.set()
         wait_for(job, {"cancelled"})
+
+    def test_a_step_that_never_ends_terminates_the_worker(self, pool, monkeypatch):
+        """#1746: no checkpoint comes, so the longer grace frees the card."""
+        from dw.server import jobs as jobs_module
+
+        monkeypatch.setattr(jobs_module, "CANCEL_GRACE_SECONDS", 0.1)
+        monkeypatch.setattr(jobs_module, "CANCEL_STEP_GRACE_SECONDS", 0.3)
+        gate = Gate()
+        worker = card(gate, "cuda:0", 24)
+        terminated = []
+        worker.terminate_worker = lambda: (terminated.append(1), gate.release.set())
+        manager = pool(worker)
+        job = submit(manager, "stuck")
+        gate.wait_started()
+        job.add_event({"event": "phase", "phase": "generating"})
+        manager.cancel(job.id)
+        wait_for(job, {"cancelled"})
+        assert terminated == [1]
+        assert any(
+            "phase 'generating' after 0.3s" in e.get("message", "") for e in job.events
+        )
+
+
+def _ignore_sigterm_and_hang(ready):
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    ready.set()
+    while True:
+        time.sleep(1)
+
+
+def test_terminate_worker_kills_a_real_process_that_ignores_sigterm(monkeypatch):
+    from dw import worker_manager
+
+    monkeypatch.setattr(worker_manager, "WORKER_TERMINATE_TIMEOUT_SECONDS", 0.5)
+    context = multiprocessing.get_context("spawn")
+    ready = context.Event()
+    process = context.Process(target=_ignore_sigterm_and_hang, args=(ready,))
+    process.start()
+    try:
+        assert ready.wait(60)
+        manager = worker_manager.WorkerManager()
+        manager.worker_process = process
+        manager.terminate_worker()
+        process.join(timeout=10)
+        assert not process.is_alive()
+    finally:
+        if process.is_alive():
+            process.kill()
 
 
 def test_a_worker_that_dies_under_a_requested_cancel_reads_as_cancelled(tmp_path):

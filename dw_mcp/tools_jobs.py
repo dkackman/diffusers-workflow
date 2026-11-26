@@ -175,9 +175,9 @@ class JobTools:
         )
 
     def cancel_job(self, job_id: str) -> dict:
-        """Stop a queued or running job at its next step or denoise-step
-        boundary; a load is killed after 30 s (`cancel_requested` till then).
-        Not gated - it ends a cost rather than starting one."""
+        """Stop a queued or running job at its next step or denoise
+        boundary, else kill its worker: 30 s in a load/task, 300 s
+        otherwise (`cancel_requested` till then). Not gated: it ends a cost."""
         return diagnose.cancel_job(self.client, job_id)
 
     def rerun_job(
