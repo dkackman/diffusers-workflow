@@ -136,7 +136,10 @@ With nothing accepted, an item's result is its latest succeeded job.
 `get_request("<request>")` first, and read each item's `notes` and
 their `at`: they are what the user typed on the request page, job page or
 gallery, and they are the brief for that item's next attempt, beside the beat
-review. A note's `refs` say which take (`attempt`, `job`) and file (`output`,
+review. Your own past rejections are on the takes, not in these notes:
+`get_job` each of the item's `attempts[].job` and read the `rejected:` lines
+in its `note` (`beat-review.md`; `attempts[].note` is only the note the take
+was submitted with). A note's `refs` say which take (`attempt`, `job`) and file (`output`,
 `kind`) it is about; one with only an item is about a shot not yet rendered,
 and the request's own notes may name several items. A note newer than the
 agent's last `set_request` is not yet answered.
