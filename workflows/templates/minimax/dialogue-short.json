@@ -21,7 +21,8 @@
         "weights_dtype",
         "lora_model_name",
         "attention_backend",
-        "cache"
+        "cache",
+        "portrait_workflow"
     ],
     "vram_estimate": {
         "base_gb": 15.7,
