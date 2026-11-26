@@ -97,13 +97,23 @@ Or open
 Claude Desktop, which lists dw as connected. Start a new session either way: a
 session that was already open does not see the registration.
 
-**4. Make the first image.** Ask the agent: *"Run `templates/text-to-image` with the
-prompt 'a lighthouse at dusk'."* The example catalog ships with dw, so an
+**4. Check it works.** Ask the agent: *"Run `templates/text-to-image` with the
+prompt 'a lighthouse at dusk'."* That is the smoke test: SD 1.5, the smallest and
+fastest model in the catalog, there to prove the install generates, not to show what
+dw can draw. The example catalog ships with dw, so an
 installed copy and a checkout both have it. The agent quotes the cost, and a direct ask like this one counts as the go-ahead, so it
 may run straight away. The first run downloads SD 1.5 (about 4 GB), so it takes
 about a minute on a fast connection and longer on a slow one; later runs reuse it.
 The agent shows you the image, and it is in the web UI's gallery and under the
 workspace's `outputs/` folder ([Workspaces](docs/WORKSPACES.md#which-directory-is-used)).
+
+**5. Make a real picture.** Ask for one without naming a model (*"a lighthouse at
+dusk, the best you can do"*). The plugin's `choosing-a-model` skill runs
+`templates/preferred/text-to-image`, which asks the server for its preferred
+text-to-image model at a `tier` of `draft`, `standard` or `best`; the server picks the
+first one in that tier that fits this machine, and the agent tells you which before it
+spends. Those models are larger downloads than SD 1.5. Name a model or workflow and
+that one runs instead.
 
 The [dw plugin](plugins/dw/README.md) gives Claude Code its skills and its `dw`
 tools; setup installs it. To update it by hand later (`get_server_info` tells the
@@ -119,7 +129,7 @@ marketplace and reinstall, then `/reload-plugins` or start a new session:
 Most of the shipped models (Flux, LTX, MiniMax, ...) are **gated**. Request access on
 the model's Hugging Face page and run `hf auth login` once (setup offers to). Without it a run fails
 partway through with a 401/403 from the Hub. `templates/text-to-image` uses a small,
-ungated model, so it makes a good first run.
+ungated model, so it makes a good smoke test.
 
 ### From a checkout (development)
 

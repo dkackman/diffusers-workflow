@@ -682,7 +682,10 @@ def test_no_stale_entry_in_the_allowlist():
 # Then to 15_875 (measured 15_850) for `qwen/transparent` (#1681, stage #1709):
 # one new entry, the catalog's only transparent (RGBA) image, on the
 # Qwen-Image-2.1 base, with no cost block until a run is measured.
-COMPACT_BUDGET = 15_875
+# Then to 15_975 (measured 15_951) for `templates/preferred/text-to-image`
+# (#1627 stage A, #1724): the one catalog entry that composes
+# `preference:text_to_image`, so a request naming no model has a name to run.
+COMPACT_BUDGET = 15_975
 # The shape=sequence listing to 1_650 (measured 1_642) for
 # `minimax/replace-performer` (#1374), the catalog's only sequence that recasts
 # a take.
