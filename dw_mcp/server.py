@@ -91,14 +91,14 @@ INSTRUCTIONS = (
     "`list_tasks` a shape's parts; write JSON "
     "only when neither covers it.\n"
     "\n"
-    "`get_server_info` reports the accelerator and the "
+    "`get_server_info` reports the accelerator and "
     "session workspace (`use_workspace` picks it); CUDA-only "
     "choices fail on mps or cpu. One job runs per GPU; "
     "`get_health` lists each card's.\n"
     "\n"
     '`get_guide("workflows", section="Authoring a '
     'workflow from an agent")` before writing or fixing JSON -> '
-    "`validate_workflow` (free; repeat until clean) -> quote its "
+    "`validate_workflow` (free; until clean) -> quote its "
     "`plan.estimate`, get the user's go-ahead -> `run_workflow` "
     "-> `wait_for_job` -> `get_job` -> `get_output_image`, "
     "`get_output_frames`, `get_output_audio` to judge it "
@@ -119,7 +119,8 @@ INSTRUCTIONS = (
     "Arguments carry references: `variable:`, "
     "`previous_result:`, `prompt:` (saved prompts), "
     "`asset:` (server input media: `upload_asset`, "
-    "`keep_output`) and `output:` (a prior run's file). The "
+    "`keep_output`), `output:` (a prior run's file), "
+    "`preference:`. The "
     "guide's References section defines each; a local path isn't "
     "on the server."
 )
