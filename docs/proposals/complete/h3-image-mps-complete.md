@@ -122,6 +122,12 @@ the 64 GB left. Stage C restates the peak that way in the skill, the README,
 `ACCELERATION.md` and `todo.md`, and its test pin moves with it. The
 under-report is the metric's, filed as #1754, not fixed here. Lowering the
 load peak is out of scope.
+- Why a fix-forward and not a re-plan: the plan asked for the measured peak;
+  stage B quoted the wrong field. That was a build miss, not a plan gap.
+- **Bounces: 0.** Verified at develop `0116d3b2` by rerun `83702bb3553c`
+  (188.6 s, host RSS peak 60.3 GB, 18.6 GB of 64 GB left).
+- #1754's metric fix landed separately at `2ca309f2` (verified on its own issue,
+  not this feature's).
 
 Cost: the stage comments give no `usage:` figures, so none is recorded here.
 Stage A used about 30 min of mini-ai time on the failed cold arm. The
