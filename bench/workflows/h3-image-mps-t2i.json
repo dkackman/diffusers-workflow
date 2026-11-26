@@ -93,6 +93,7 @@
             "names": [
               "transformer",
               "vae",
+              "scheduler",
               "image_processor"
             ],
             "dtype": "torch.bfloat16",
