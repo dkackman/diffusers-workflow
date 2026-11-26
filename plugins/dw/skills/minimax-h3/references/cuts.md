@@ -13,7 +13,10 @@ block says what an entry carries; its `cost` carries `per_entry` when one
 shot was measured - scale from that, else quote the default list's total.
 A cut erases drift and each shot makes its audio: score with
 `templates/minimax/music` and `templates/assemble-and-score`'s `pair_audio`
-mix under the world sound. Keep one voice across shots with a repeated
+mix under the world sound. Every shot laid under a separate score writes
+`non_diegetic_music: N/A`, or its own music restarts at each cut and fights the
+score; when the shot's prompt comes from `enhance_prompt`, say "No music." in its
+brief and the enhancer writes N/A. Keep one voice across shots with a repeated
 audio reference, not a repeated description. Duck a score burying
 voice-over rather than raising the world track - a `gain_audio` step per
 shot, negative `gain_db`.

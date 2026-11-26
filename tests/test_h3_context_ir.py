@@ -134,8 +134,10 @@ def test_bundled_prompts_write_silent_audio_fields_as_the_literal(path):
     drifted to "None." (found by the 2026-09-08 drill)."""
     text = open(path, encoding="utf-8").read()
     for field in ("overall_soundscape", "non_diegetic_music"):
-        for m in re.finditer(field + r":\\n([^\\]{0,12})", text):
-            head = m.group(1).strip().rstrip(".").lower()
+        # The value starts on the next line (a literal "\n" in the JSON) or
+        # inline after a space; it ends at a newline, quote or sentence stop
+        for m in re.finditer(field + r':(?:\\n| )([^\\".]{0,12})', text):
+            head = m.group(1).strip().lower()
             assert head not in ("none", "no music", "silence", "silent", ""), (
                 path,
                 field,

@@ -20,7 +20,7 @@
     ],
     "variables": {
         "source": null,
-        "prompt": "integrated_multimodal_description: [Shot 1] Cinematic, live-action, one continuous static shot. A young woman in a plain dark grey sweater stands centered in front of a flat painted wall of bold diagonal rainbow stripes with a black circle at upper left and a teal square at lower right. She breathes calmly, blinks, shifts her weight slightly and turns her head a little left and right, staying in place at the center of the frame. The painted wall stays exactly as it is, evenly lit by soft studio light. The camera is locked off on a tripod and never moves.\n\noverall_soundscape: Quiet studio room tone, the soft rustle of a wool sweater, calm breathing.\n\nnon_diegetic_music: None.",
+        "prompt": "integrated_multimodal_description: [Shot 1] Cinematic, live-action, one continuous static shot. A young woman in a plain dark grey sweater stands centered in front of a flat painted wall of bold diagonal rainbow stripes with a black circle at upper left and a teal square at lower right. She breathes calmly, blinks, shifts her weight slightly and turns her head a little left and right, staying in place at the center of the frame. The painted wall stays exactly as it is, evenly lit by soft studio light. The camera is locked off on a tripod and never moves.\n\noverall_soundscape: Quiet studio room tone, the soft rustle of a wool sweater, calm breathing.\n\nnon_diegetic_music: N/A",
         "refine_strength": 0.3,
         "num_inference_steps": 5,
         "seed": null,

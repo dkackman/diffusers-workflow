@@ -192,8 +192,9 @@ as clean as the first and the piece can run as long as the script does - which i
 how television gets away with it too. This is the pattern for digital shorts:
 write shots, not takes. What a cut gives up is audio: H3 carries nothing between
 generations except what is passed as a reference, so each shot generates its own
-sound and a score would restart at every cut. Write `non_diegetic_music: N/A` in
-every shot and lay one track under the finished edit, as `music-video.json` does
+sound and a score would restart at every cut. When a track is laid under the cut,
+write `non_diegetic_music: N/A` in every shot it runs under, and lay that one track
+under the finished edit, as `music-video.json` does
 with `pair_audio` and [assemble-and-score.json](../assemble-and-score.json) shows
 on its own; a character who speaks in several shots keeps one voice by passing the
 same clip as an audio reference in each shot, as
