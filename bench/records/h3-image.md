@@ -285,3 +285,79 @@ re-measure both.
 
 GPU time for the whole probe was about 57 minutes, 35 of which were the one-time
 download and quantize, plus about 8 minutes for the chain rerun.
+
+## mini-ai (mps)
+
+Stage A of #1680 (#1729). Host: mini-ai, Apple M5 Pro, 64 GB unified memory, torch
+2.14.1, diffusers 0.44.0.dev0, `trust_workflows: false`, workspace `bench`.
+
+**Workflows.**
+- `bench/workflows/h3-image-mps-t2i.json` runs in two steps from the pre-quantized
+  int8 folders under `bench/assets/h3-prequantized-int8/`:
+  - `encode` loads only the text encoder, then is released;
+  - `generate` loads the transformer, vae, scheduler and image_processor.
+- `bench/workflows/h3-image-mps-edit3.json` has the same split, with three `asset:`
+  references (`cast/estela.jpg`, `cast/aurelio.jpg`, `bench/runner.png`), all of which
+  resolve on mini-ai.
+- Both validate clean on mini-ai.
+- The shipped `templates/minimax-h3-image/text-to-image` is still refused there at
+  `host_ram_gb`: it declares 64 GB, 70 GB with the gate's margin, on a 64 GB host.
+
+### Arms
+
+| Arm | Job | Result |
+|---|---|---|
+| t2i 2048x2048, cold, seed 1317 | `872ea59cbdcb` | cancelled: 0 of 6 denoise steps after ~29 min (#1744) |
+| t2i 2048x2048, warm | none | skipped: time stop (cold arm past 20 min) |
+| edit, 3 references | none | skipped: time stop |
+| t2i near 16:9 | none | skipped: time stop |
+
+### Cold t2i (`872ea59cbdcb`)
+
+Run `BenchH3ImageMpsT2I/20261126-132219-cf75af0a`. Estimate `unknown` (no mps history),
+no downloads.
+
+| Phase | Job time | MPS allocated | Host available |
+|---|---|---|---|
+| before the job (cache released) | - | - | 58.4 GB (RSS 862 MB) |
+| `encode` load (text encoder, int8 folder) | +0.3 to +13.8 s | 26,569 MB | 25.5 GB |
+| `encode` run (before_encode, text_encoder) | +13.8 to +16.9 s | - | - |
+| `encode` released | +16.9 s | 0.5 MB | 38.97 GB |
+| `generate` load (transformer int8, vae, scheduler) | +16.9 to +32.8 s | 34,249 MB (reserved 34,946) | 25.0 GB |
+| `generate` denoise | +32.9 s to the cancel | - | - |
+
+- **Memory.**
+  - Worker RSS was 1,593 MB after the generate load. Peak RSS was 3,167 MB on the
+    worker and 606 MB on the job.
+  - The job's committed peak came back null.
+  - In denoise: swap 84 MB of 1 GB, 181 pageouts, memory pressure normal (86% free).
+  - **The memory plan holds.** The released encode step frees its 26.6 GB before the
+    transformer loads, and the two never sit resident together.
+- **Speed: it fails.** Denoise never finished its first of 6 steps.
+  - The worker sat at ~500% CPU.
+  - A `sample` of it had `at::native::_int_mm_out_cpu` as the hot frame.
+  - **Cause (#1744):** the transformer folder was saved on lem with
+    `use_quantized_matmul: true`. A folder's own config never passes through dw's mps
+    adaptation, so every int8 linear runs `torch._int_mm` on the CPU.
+  - The text-encoder folder, saved with `use_quantized_matmul: false`, ran its step in
+    ~3 s.
+- **The cancel.**
+  - Requested at about +21 min. The job was still `running` at the stage hand-off (job
+    time ~29 min), because cancel waits for a denoise-step boundary (noted in #1744).
+  - The record ends there. It holds no finish time.
+
+### Look
+
+There is no still, so nothing was compared against lem's baseline `3eec967fe939`.
+
+### Deviations (mini-ai)
+
+- **Runs used `inline_workflow`** from this branch, not a saved `bench/h3-image-mps-t2i`:
+  `save_workflow` refuses the bench asset-folder path that validate and run accept
+  (#1739).
+- **The edit arm's third reference** is `bench/runner.png`. lem's
+  `parhelion/kf-open.png` isn't on mini-ai.
+- **The edit file is untested**: its arm was skipped. It will hit #1744 the same way.
+
+mini-ai time used: about 30 minutes, all of it on the cold arm. The probe can be rerun
+as written once #1744 lands.
