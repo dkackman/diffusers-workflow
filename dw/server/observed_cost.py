@@ -41,7 +41,8 @@ import json
 import logging
 import time
 
-from ..cost_scaling import ENTRY_FRAMES_KEY, list_entry_frames, matched_chain
+from ..cost_scaling import matched_chain
+from ..plan_pricing import ENTRY_FRAMES_KEY, list_entry_frames
 from ..presets import effective_variables
 
 logger = logging.getLogger("dw")
