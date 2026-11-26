@@ -204,9 +204,37 @@ def test_a_failed_sha_fetch_falls_back_to_released_diffusers(sha, run_bootstrap)
 
 
 @needs_bash
-def test_dry_run_installs_nothing(run_bootstrap):
-    run_bootstrap(driver_cuda=None)
-    assert not (run_bootstrap.root / "install.json").exists()
+def test_dry_run_installs_nothing(run_bootstrap, tmp_path):
+    root = tmp_path / "fresh" / "root"
+    run_bootstrap(driver_cuda=None, root_dir=root)
+    assert not root.exists() and not root.parent.exists()
+
+
+@needs_bash
+def test_the_sha_override_replaces_the_github_lookup(run_bootstrap):
+    other = "f" * 40
+    out = run_bootstrap(sha=None, env={"DW_BOOTSTRAP_DIFFUSERS_SHA": other})
+    assert f"archive/{other}.zip" in out.text
+    assert f'"diffusers_commit": "{other}"' in out.text
+    bad = run_bootstrap(sha=SHA, env={"DW_BOOTSTRAP_DIFFUSERS_SHA": "nope"})
+    assert "archive" not in bad.text and '"diffusers_commit": null' in bad.text
+
+
+@needs_bash
+def test_the_body_runs_from_main_called_on_the_last_line():
+    lines = [
+        line
+        for line in (SCRIPTS / "bootstrap.sh").read_text().splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    assert lines[-1] == 'main "$@"'
+
+
+@needs_bash
+def test_yes_keeps_the_terminal_redirect_off_the_handoff(run_bootstrap):
+    out = run_bootstrap(args=("--yes",))
+    assert out.last_line.endswith("dw setup --yes")
+    assert "/dev/tty" not in out.text
 
 
 def test_the_bootstrap_ships_in_the_wheel():
@@ -231,6 +259,7 @@ def test_the_powershell_twin_follows_the_driver(driver_cuda, expected, tmp_path)
         "HOME": str(tmp_path / "home"),
         "DW_INSTALL_ROOT": str(tmp_path / "root"),
         "DW_BOOTSTRAP_DRY_RUN": "1",
+        "DW_BOOTSTRAP_DIFFUSERS_SHA": SHA,
     }
     result = subprocess.run(
         [
@@ -250,3 +279,4 @@ def test_the_powershell_twin_follows_the_driver(driver_cuda, expected, tmp_path)
     assert result.returncode == 0, result.stderr
     assert f"torch index: {expected}" in result.stdout
     assert "diffusers-workflow[server,mcp]" in result.stdout
+    assert f"archive/{SHA}.zip" in result.stdout

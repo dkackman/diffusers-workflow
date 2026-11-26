@@ -106,7 +106,8 @@ Invoke-Step uv ($installArgs + @("-c", $constraints, $req))
 # --- diffusers main, from a GitHub archive (no git needed)
 $sha = $null
 try {
-    $candidate = [string](Invoke-RestMethod https://api.github.com/repos/huggingface/diffusers/commits/main).sha
+    if ($env:DW_BOOTSTRAP_DIFFUSERS_SHA) { $candidate = $env:DW_BOOTSTRAP_DIFFUSERS_SHA }
+    else { $candidate = [string](Invoke-RestMethod https://api.github.com/repos/huggingface/diffusers/commits/main).sha }
     if ($candidate -cmatch '^[0-9a-f]{40}$') { $sha = $candidate }
 }
 catch { $sha = $null }
