@@ -5,7 +5,7 @@
 import { api } from '../api'
 import { UPLOAD_EXTENSIONS } from '../assetlib.svelte'
 import { chooseDialog } from '../confirm.svelte'
-import { freeName } from '../documentSave'
+import { isExists, keepBoth } from '../documentSave'
 import { describeError } from '../apiErrors'
 import { notify } from '../toast'
 import type { Uploaded } from '../types'
@@ -20,22 +20,10 @@ export type UploadResult = {
   failed: { name: string; error: unknown }[]
 }
 
-// How many names Keep both tries for one file before giving up on it
-const KEEP_BOTH_TRIES = 20
-
 export function isUploadable(file: File): boolean {
   const dot = file.name.lastIndexOf('.')
   return (
     dot >= 0 && UPLOAD_EXTENSIONS.includes(file.name.slice(dot).toLowerCase())
-  )
-}
-
-function isExists(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    (error as { status?: unknown }).status === 409 &&
-    (error as { code?: unknown }).code === 'exists'
   )
 }
 
@@ -99,7 +87,7 @@ async function resolveExisting(
   for (const entry of existing) {
     if (choice === 'replace') await attempt(result, entry, entry.name, shared)
     else if (choice === 'keep-both')
-      await keepBoth(result, entry, shared, taken)
+      await uploadBeside(result, entry, shared, taken)
     else result.skipped.push(entry.file.name)
   }
 }
@@ -117,33 +105,21 @@ async function attempt(
   }
 }
 
-async function keepBoth(
+/** Keep both: the file beside the existing one, under a free name */
+async function uploadBeside(
   result: UploadResult,
-  entry: Entry,
+  { file, name }: Entry,
   shared: boolean,
   taken: Set<string>,
 ): Promise<void> {
-  taken.add(entry.name)
-  for (let tries = 0; tries < KEEP_BOTH_TRIES; tries++) {
-    const name = freeName(entry.name, taken)
-    try {
-      result.uploaded.push(
-        await api.uploadMedia(entry.file, name, shared, { createOnly: true }),
-      )
-      taken.add(name)
-      return
-    } catch (error) {
-      if (!isExists(error)) {
-        result.failed.push({ name: entry.file.name, error })
-        return
-      }
-      taken.add(name)
-    }
+  try {
+    const send = (free: string) =>
+      api.uploadMedia(file, free, shared, { createOnly: true })
+    result.uploaded.push(await keepBoth(send, name, taken))
+  } catch (error) {
+    const reason = isExists(error) ? new Error('no free name found') : error
+    result.failed.push({ name: file.name, error: reason })
   }
-  result.failed.push({
-    name: entry.file.name,
-    error: new Error('no free name found'),
-  })
 }
 
 /** The toasts for a finished batch: what went up (a lone file by its

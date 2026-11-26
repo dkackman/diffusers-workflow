@@ -16,18 +16,11 @@
   import { missingFile } from '../missingFile.svelte'
   import RecipePanel from '../ui/RecipePanel.svelte'
   import { untrack } from 'svelte'
-  import { SvelteMap } from 'svelte/reactivity'
   import { resource, type Resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
   import FolderGroups from '../FolderGroups.svelte'
   import BulkBar from '../BulkBar.svelte'
-  import {
-    Picks,
-    STAR_CHANGED,
-    actOnEach,
-    reportFailures,
-  } from '../picks.svelte'
-  import { notify } from '../toast'
+  import { Picks, actOnEach, reportFailures, starAction } from '../picks.svelte'
   import { overlayOpen } from '../ui/layers.svelte'
   import { action } from '../action.svelte'
   import { askDeletion, fileConfirm } from '../gallery/deletion'
@@ -78,9 +71,8 @@
   // The file open in the viewer, as `open=` in the hash: the viewer writes
   // it the way Back expects (mediaViewer.ts), and Back closes it
   let open = $state<string | null>(openInHash())
-  // The file Use as input… was chosen on, and its dialog
-  let useInput = $state<MediaFile | null>(null)
-  let useInputOpen = $state(false)
+  // Use as input…'s dialog, which holds the file it was chosen on
+  let useInput = $state<UseAsInput>()
   // Names ticked in the grid, for the bulk actions. The grid order it is
   // given is what a shift-range spans and the order the actions act in
   const picks: Picks = new Picks(() => shown.map((f) => f.name))
@@ -218,40 +210,17 @@
   const shown = $derived(
     inGroupOrder(visible, groups, (g) => !filterActive && collapsed.has(g)),
   )
-  // A star is undone, not asked about: held here at once (`patch`), as is
-  // the Undo that takes it back - unless the listing says another writer
-  // changed the star since, which the Undo leaves
-  async function setStar(name: string, next: boolean) {
-    await api.setStarred(name, next)
-    patch(name, { starred: next })
-    return { name, next }
-  }
   // A star is written in the open workspace, so its Undo is held to it
   const STAR_TARGET = {
     now: () => workspace.current,
     away: 'Nothing undone: another workspace is open now.',
   }
-  // One action per file: a second press on a file in flight is dropped,
-  // while the next file's goes through (S down a run, faster than writes)
-  const starActions = new SvelteMap<string, ReturnType<typeof newStarring>>()
-  const newStarring = () =>
-    action(setStar, {
-      doing: 'star that file',
-      undo: ({ name, next }) => ({
-        message: `${next ? 'Starred' : 'Unstarred'} ${name.split('/').pop()}`,
-        revert: async () => {
-          if (!!byName.get(name)?.starred !== next)
-            return notify.error(STAR_CHANGED)
-          return setStar(name, !next)
-        },
-        target: STAR_TARGET,
-      }),
-    })
-  function star(name: string, next: boolean) {
-    const starring = starActions.get(name) ?? newStarring()
-    starActions.set(name, starring)
-    return starring.run(name, next)
-  }
+  // A star and the Undo that takes it back are held here at once (`patch`)
+  const starring = starAction(api.setStarred, {
+    read: (name) => !!byName.get(name)?.starred,
+    applied: (name, next) => patch(name, { starred: next }),
+    target: STAR_TARGET,
+  })
   // Every file's star as the grid holds it, a filter's hidden ones
   // included: Undo restores each as it was, and leaves one changed since
   const byName = $derived(new Map(files.map((f) => [f.name, f])))
@@ -353,7 +322,7 @@
   function viewerKey(e: KeyboardEvent, file: MediaFile): boolean {
     const listedFile = byName.get(file.name)
     if (!listedFile) return false
-    if (isStarKey(e)) void star(file.name, !listedFile.starred)
+    if (isStarKey(e)) starring.toggle(file.name)
     else if (isDeleteKey(e)) void removing.run(listedFile)
     else return false
     return true
@@ -437,12 +406,9 @@
       {file}
       starred={!!listedFile.starred}
       saving={saving.busy}
-      onstar={() => star(file.name, !listedFile.starred)}
+      onstar={() => starring.toggle(file.name)}
       onsave={() => saving.run(listedFile)}
-      onuse={() => {
-        useInput = file
-        useInputOpen = true
-      }}
+      onuse={() => useInput?.show(file)}
     />
     <button
       type="button"
@@ -490,7 +456,7 @@
   {/key}
 {/snippet}
 
-<UseAsInput file={useInput} bind:open={useInputOpen} />
+<UseAsInput bind:this={useInput} />
 
 <MediaViewer
   {items}

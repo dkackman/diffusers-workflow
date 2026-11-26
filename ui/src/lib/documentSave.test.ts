@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest'
-import { saveDocument, freeName } from './documentSave'
+import { saveDocument, freeName, keepBoth } from './documentSave'
 import type { DocumentEditor } from './editorShell.svelte'
 import { ApiError } from './apiErrors'
 import { chooseDialog } from './confirm.svelte'
@@ -158,4 +158,24 @@ it('refuses to save while the JSON does not parse', async () => {
   )
   expect(write).not.toHaveBeenCalled()
   expect(ed.markSaved).not.toHaveBeenCalled()
+})
+
+it('keepBoth tries the next name while the server says it is there', async () => {
+  const taken = new Set<string>()
+  const tryName = vi
+    .fn()
+    .mockRejectedValueOnce(new ApiError('exists', 409, 'exists'))
+    .mockImplementation((name: string) => Promise.resolve(name))
+
+  await expect(keepBoth(tryName, 'p.jpg', taken)).resolves.toBe('p-3.jpg')
+  expect(tryName.mock.calls).toEqual([['p-2.jpg'], ['p-3.jpg']])
+  expect([...taken]).toEqual(['p.jpg', 'p-2.jpg', 'p-3.jpg'])
+})
+
+it('keepBoth throws any other refusal at once', async () => {
+  const refused = new ApiError('no asset library', 409)
+  const tryName = vi.fn().mockRejectedValue(refused)
+
+  await expect(keepBoth(tryName, 'p.jpg', new Set())).rejects.toBe(refused)
+  expect(tryName).toHaveBeenCalledTimes(1)
 })

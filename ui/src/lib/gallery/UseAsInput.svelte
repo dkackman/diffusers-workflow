@@ -13,10 +13,15 @@
   import Modal from '../ui/Modal.svelte'
   import { inputTargets, useAsInput } from './useAsInput'
 
-  let {
-    file,
-    open = $bindable(false),
-  }: { file: MediaFile | null; open?: boolean } = $props()
+  // The file it was last chosen on, and whether the dialog is up
+  let file = $state.raw<MediaFile | null>(null)
+  let open = $state(false)
+
+  /** Use as input… was chosen on `chosen` */
+  export function show(chosen: MediaFile): void {
+    file = chosen
+    open = true
+  }
 
   const kind = $derived<MediaKind | null>(
     file?.kind === 'image' || file?.kind === 'video' ? file.kind : null,

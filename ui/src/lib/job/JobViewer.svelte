@@ -17,8 +17,7 @@
   import type { MediaFile } from '../media'
   import { isStarKey } from '../mediaViewer'
   import { leafName } from '../names'
-  import { STAR_CHANGED } from '../picks.svelte'
-  import { notify } from '../toast'
+  import { starAction } from '../picks.svelte'
   import MediaViewer from '../ui/MediaViewer.svelte'
   import RecipePanel from '../ui/RecipePanel.svelte'
   import { workspace } from '../workspace.svelte'
@@ -49,42 +48,28 @@
   // has failed; it was read once, so it never outranks the viewer's own
   const starredNow = (name: string): boolean | null =>
     starSet[name] ?? starRead[name] ?? listed[name] ?? null
-  function toggleStar(name: string) {
-    const now = starredNow(name)
-    if (now !== null) starring.run(name, !now)
-  }
   // S stars or unstars the open file, as the star's title says
   function starKey(e: KeyboardEvent, file: MediaFile): boolean {
     if (!isStarKey(e)) return false
-    toggleStar(file.name)
+    starring.toggle(file.name)
     return true
-  }
-  async function writeStar(name: string, next: boolean) {
-    await api.setStarred(name, next)
-    starSet[name] = next
-    wrote[name] = ++writes
-    return { name, next }
   }
   // A star is written in the open workspace, so its Undo is held to it
   const jobWorkspace = workspace.current
-  const starring = action(writeStar, {
-    doing: 'star that file',
-    undo: (done) => ({
-      message: `${done.next ? 'Starred' : 'Unstarred'} ${leafName(done.name)}`,
-      revert: async () => {
-        if (starredNow(done.name) !== done.next)
-          return notify.error(STAR_CHANGED)
-        return writeStar(done.name, !done.next)
-      },
-      target: {
-        now: () => workspace.current,
-        away: `Nothing undone: ${jobWorkspace} is not the open workspace now.`,
-      },
-    }),
+  const starring = starAction(api.setStarred, {
+    read: starredNow,
+    applied: (name, next) => {
+      starSet[name] = next
+      wrote[name] = ++writes
+    },
+    target: {
+      now: () => workspace.current,
+      away: `Nothing undone: ${jobWorkspace} is not the open workspace now.`,
+    },
   })
   const saving = action(saveAsAsset, SAVING_ASSET)
-  let useInput = $state<MediaFile | null>(null)
-  let useInputOpen = $state(false)
+  // Use as input…'s dialog, which holds the file it was chosen on
+  let useInput = $state<UseAsInput>()
 
   // The note box is on the page, under the sheet: close first
   async function noteThis(name: string) {
@@ -99,12 +84,9 @@
     {file}
     starred={starredNow(file.name)}
     saving={saving.busy}
-    onstar={() => toggleStar(file.name)}
+    onstar={() => starring.toggle(file.name)}
     onsave={() => saving.run(file)}
-    onuse={() => {
-      useInput = file
-      useInputOpen = true
-    }}
+    onuse={() => useInput?.show(file)}
   />
   <DownloadLink href={api.outputDownloadUrl(file.name, file.workspace)} />
   {#if onnote}
@@ -138,6 +120,6 @@
   {/key}
 {/snippet}
 
-<UseAsInput file={useInput} bind:open={useInputOpen} />
+<UseAsInput bind:this={useInput} />
 
 <MediaViewer {items} bind:open {actions} {aside} onkey={starKey} />

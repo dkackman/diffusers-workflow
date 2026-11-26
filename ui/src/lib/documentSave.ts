@@ -95,3 +95,39 @@ export function freeName(name: string, taken: ReadonlySet<string>): string {
   while (taken.has(`${stem}-${n}${ext}`)) n++
   return `${stem}-${n}${ext}`
 }
+
+/** The 409 for a name already there, which carries `code: 'exists'`
+ * (dw/server/routes/assets.py); other 409s are not that */
+export function isExists(error: unknown): boolean {
+  return (
+    error instanceof ApiError && error.status === 409 && error.code === 'exists'
+  )
+}
+
+// How many names Keep both tries before giving up
+const KEEP_BOTH_TRIES = 20
+
+/** Keep both: `tryName` under the first name `taken` lacks, and the next
+ * one while the server says that is there too (the listing was behind).
+ * `name` itself is never tried. Each name tried joins `taken`, so a batch
+ * does not hand the same one out twice. Throws the last refusal after
+ * KEEP_BOTH_TRIES, and any other failure at once */
+export async function keepBoth<T>(
+  tryName: (name: string) => Promise<T>,
+  name: string,
+  taken: Set<string>,
+): Promise<T> {
+  taken.add(name)
+  for (let tries = 1; ; tries++) {
+    const free = freeName(name, taken)
+    try {
+      const done = await tryName(free)
+      taken.add(free)
+      return done
+    } catch (error) {
+      if (!isExists(error)) throw error
+      taken.add(free)
+      if (tries >= KEEP_BOTH_TRIES) throw error
+    }
+  }
+}

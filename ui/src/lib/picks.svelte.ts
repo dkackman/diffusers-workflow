@@ -1,11 +1,57 @@
-import { SvelteSet } from 'svelte/reactivity'
+import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { action } from './action.svelte'
 import { describeError } from './apiErrors'
 import type { UndoTarget } from './destructive'
+import { leafName } from './names'
 import { notify } from './toast'
 
 /** A star Undo over files whose star someone else changed meanwhile */
 export const STAR_CHANGED = 'Nothing undone: the star was changed since.'
+
+/** One file's star: the button and the S key, in the Gallery and the job
+ * viewer. A star is undone, not asked about, and the Undo leaves a star
+ * `read` no longer shows as this set it (another writer's). One action per
+ * file: a second press on a file in flight is dropped, while the next
+ * file's goes through (S down a run, faster than writes) */
+export function starAction(
+  set: (name: string, next: boolean) => Promise<unknown>,
+  opts: {
+    /** The page's word on a file's star; null while it is not known, when
+     * a toggle would be a guess and does nothing */
+    read: (name: string) => boolean | null
+    /** Told after each write lands, so a page can hold it as its own */
+    applied: (name: string, next: boolean) => void
+    target?: UndoTarget
+  },
+) {
+  const put = async (name: string, next: boolean) => {
+    await set(name, next)
+    opts.applied(name, next)
+    return { name, next }
+  }
+  const newStarring = () =>
+    action(put, {
+      doing: 'star that file',
+      undo: ({ name, next }) => ({
+        message: `${next ? 'Starred' : 'Unstarred'} ${leafName(name)}`,
+        revert: async () => {
+          if (opts.read(name) !== next) return notify.error(STAR_CHANGED)
+          return put(name, !next)
+        },
+        target: opts.target,
+      }),
+    })
+  const each = new SvelteMap<string, ReturnType<typeof newStarring>>()
+  return {
+    toggle(name: string): void {
+      const now = opts.read(name)
+      if (now === null) return
+      const starring = each.get(name) ?? newStarring()
+      each.set(name, starring)
+      void starring.run(name, !now)
+    },
+  }
+}
 
 /** A tick-the-grid selection, for a contact sheet with bulk actions.
  *
