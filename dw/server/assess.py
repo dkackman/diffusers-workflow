@@ -215,3 +215,21 @@ def level_findings(media, shots=None):
         }
         found.append(finding(rule, mean, None))
     return sort_findings(found)
+
+
+def alpha_findings(media):
+    """An image that carries transparency data but is opaque everywhere, as a
+    finding - `info`, since an opaque RGBA is only wrong for a file meant to
+    be transparent (#1735)."""
+    alpha = (media or {}).get("alpha")
+    if not alpha or alpha["min"] < 255:
+        return []
+    rule = {
+        "name": "alpha_opaque",
+        "severity": "info",
+        "threshold": 255,
+        "says": "has an alpha channel but every pixel is fully opaque, so "
+        "nothing in it is transparent - expected unless it was meant to have "
+        "a transparent background",
+    }
+    return [finding(rule, alpha["min"], None)]

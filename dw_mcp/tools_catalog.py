@@ -337,6 +337,7 @@ class CatalogTools:
         sample rate, channels, fps, size and level - how an agent that
         cannot listen checks a deliverable, or an image's measured
         `width`/`height`; `media.shots` places a joined video's shots.
+        `media.alpha`: image transparency.
         For an `.otioz` (export_timeline) `media` is the timeline: `tracks`
         (clips in order with name, frames, seconds, media member),
         `has_audio_track` and `members`.
@@ -348,8 +349,7 @@ class CatalogTools:
         `interval_seconds` (default 1.0, 0.05-3600) is the bin width; 0.1
         places an onset. Over 2400 bins is refused.
 
-        `findings` lists each level problem measured (full scale, near
-        silence) with its fix.
+        `findings`: full scale, near silence, opaque alpha.
 
         `media.pcm_sha256` hashes the decoded audio samples; two hashes
         compare only when `sample_format`, `frames`, `sample_rate` and
