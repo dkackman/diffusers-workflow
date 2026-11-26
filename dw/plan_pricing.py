@@ -20,13 +20,35 @@ from .cost_scaling import (
     PER_ENTRY,
     UNKNOWN,
     _choose_entry,
+    _declared_drivers,
     _driver_scaling,
+    _entry_frames,
     _scaled,
     fixed_minutes,
     with_words_check,
 )
 from .presets import effective_variables
 from .realize import read_sub_workflow
+
+
+# An observed block's median of its cold runs' summed per-entry `num_frames`:
+# the frames its cold figure was measured at (`dw/server/observed_cost.py`)
+ENTRY_FRAMES_KEY = "entry_frames"
+
+
+def list_entry_frames(definition, variables):
+    """The frames a run's declared list drivers render: each entry's
+    `num_frames` summed over every list driver whose entries all carry one,
+    or None when none does. What an observed bucket's runs are rescaled by
+    when a shot's frames moved off the defaults (#1696): the bucket matches
+    on the list's length, not on what each entry renders."""
+    total, found = 0.0, False
+    for name in _declared_drivers(definition):
+        frames = _entry_frames((variables or {}).get(name))
+        if frames is not None:
+            total += sum(frames)
+            found = True
+    return total if found else None
 
 
 FOR_EACH_KEY = "for_each"

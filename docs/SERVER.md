@@ -992,7 +992,20 @@ it has one, otherwise from the workflow's `cost` block. Quote `minutes`;
   figure when it was another backend's, when every comparable run was warm
   (the weights already resident, which would under-quote the load), or when
   a list entry's own cost field moved past what the history covered (a shot
-  lengthened), since history buckets on the list's length.
+  lengthened) and the bucket does not say what frames its runs rendered,
+  since history buckets on the list's length.
+- *A shot lengthened.* When it does - the observed block's `entry_frames`,
+  the median of its newest cold runs' `num_frames` summed over the list
+  entries - the history is rescaled to this run's frames instead: cold and
+  warm minutes are each `fixed + (minutes - fixed) x run frames / bucket
+  frames`, the `fixed` share being the `cost` entry's `fixed_minutes` over
+  its `minutes`. The basis is `derived`, `scaled` reads "scaled from the
+  observed X min at N frames: num_frames M vs N", and `low_confidence` is
+  set only when the ratio falls outside 0.5-2.0. A thin bucket still
+  tempers, toward the curated figure scaled to the same frames. A block
+  with no `entry_frames` (older history, entries without `num_frames`, a
+  matched chain's per-segment figure, or an `inherited` one) keeps the
+  discard above.
 - *A tier this box never ran.* A run whose drivers have no history of their
   own (a preset tier, say) is priced from the same run's history at the
   default preset, scaled by how far the drivers moved: `derived`,

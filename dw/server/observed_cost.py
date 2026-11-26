@@ -42,6 +42,7 @@ import logging
 import time
 
 from ..cost_scaling import matched_chain
+from ..plan_pricing import ENTRY_FRAMES_KEY, list_entry_frames
 from ..presets import effective_variables
 
 logger = logging.getLogger("dw")
@@ -230,6 +231,18 @@ def _row_duration(definition, row, wanted, per_segment):
     return duration / segments if segments else None
 
 
+def _row_frames(definition, row):
+    """The frames one run's list drivers rendered (`list_entry_frames` at its
+    stored arguments), or None when its entries carry no `num_frames`."""
+    try:
+        row_arguments = json.loads(row["arguments"] or "{}")
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(row_arguments, dict):
+        return None
+    return list_entry_frames(definition, effective_variables(definition, row_arguments))
+
+
 def _median(values):
     ordered = sorted(values)
     middle = len(ordered) // 2
@@ -295,6 +308,7 @@ def observed_for(
     )
     task_only = _is_task_only(definition)
     cold, warm, unclassified, earliest = [], [], 0, None
+    cold_frames = []
     # Rows arrive unordered; the recent-runs median reads newest first
     for row in sorted(rows, key=lambda r: r["finished_at"] or 0, reverse=True):
         duration = _row_duration(definition, row, wanted, per_segment)
@@ -302,6 +316,7 @@ def observed_for(
             continue
         if task_only or row["had_load"]:
             cold.append(duration)
+            cold_frames.append(_row_frames(definition, row))
         elif row["events_at_cap"]:
             unclassified += 1
         else:
@@ -336,6 +351,14 @@ def observed_for(
             name: len(value) if isinstance(value, list) else value
             for name, value in effective.items()
         }
+    frames = cold_frames[:RECENT_RUNS]
+    if frames and not per_segment and all(value is not None for value in frames):
+        # The frames the cold median was measured at: a bucket matches a list
+        # on its length, so a plan for the same list with its shots at other
+        # frame counts rescales by this (#1696) rather than discarding the
+        # history (#796). Over the same newest runs as `cold_minutes`, and
+        # left out when any of them cannot say
+        observed[ENTRY_FRAMES_KEY] = _median(frames)
     if unclassified:
         # Says the numbers do not add up, and why, rather than letting a
         # reader assume a trimmed run was a warm one

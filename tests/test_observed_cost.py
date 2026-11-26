@@ -1142,3 +1142,68 @@ class TestRecentRuns:
         assert observed["cold_range_minutes"] == [4.0, 8.0]
         shuffled = observed_for(definition, old + new, arguments={})
         assert shuffled["cold_minutes"] == 4.0
+
+
+def shots(*frames):
+    return [{"prompt": "p", "num_frames": value} for value in frames]
+
+
+class TestEntryFrames:
+    """A bucket reports the frames its cold figure was measured at (#1696).
+
+    A list driver buckets on its length, so a run whose entries ran longer
+    lands in the same bucket; the plan rescales by these frames rather than
+    discarding the history (#796).
+    """
+
+    def test_the_block_carries_the_median_of_its_cold_runs_summed_frames(self):
+        definition = workflow(["shots"], shots=shots(124, 124))
+        rows = [
+            run(
+                8 * MINUTE,
+                arguments={"shots": shots(124, 124)},
+                finished_at=1_700_000_001.0,
+            ),
+            run(
+                9 * MINUTE,
+                arguments={"shots": shots(124, 345)},
+                finished_at=1_700_000_002.0,
+            ),
+            run(
+                10 * MINUTE,
+                arguments={"shots": shots(345, 345)},
+                finished_at=1_700_000_003.0,
+            ),
+        ]
+        observed = observed_for(definition, rows, arguments={})
+        assert observed["cold_runs"] == 3
+        assert observed["entry_frames"] == 469.0
+
+    def test_a_run_s_defaults_count_toward_its_frames(self):
+        definition = workflow(["shots"], shots=shots(124, 124))
+        observed = observed_for(definition, [run(8 * MINUTE)], arguments={})
+        assert observed["entry_frames"] == 248.0
+
+    def test_warm_runs_do_not_move_the_cold_frames(self):
+        definition = workflow(["shots"], shots=shots(124, 124))
+        rows = [
+            run(8 * MINUTE, finished_at=1_700_000_001.0),
+            run(
+                2 * MINUTE,
+                arguments={"shots": shots(345, 345)},
+                had_load=False,
+                finished_at=1_700_000_002.0,
+            ),
+        ]
+        observed = observed_for(definition, rows, arguments={})
+        assert observed["entry_frames"] == 248.0
+
+    def test_entries_without_frames_report_none(self):
+        definition = workflow(["shots"], shots=[{"prompt": "a"}, {"prompt": "b"}])
+        observed = observed_for(definition, [run(8 * MINUTE)], arguments={})
+        assert "entry_frames" not in observed
+
+    def test_a_scalar_driver_reports_none(self):
+        definition = workflow(["num_frames"], num_frames=124)
+        observed = observed_for(definition, [run(8 * MINUTE)], arguments={})
+        assert "entry_frames" not in observed
