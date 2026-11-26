@@ -516,7 +516,9 @@ ERROR_CHECKS = [
     # (dw/task_domains.py, #139, #140, #494)
     Check(
         "task_argument_domains",
-        lambda c: task_argument_errors(c.expanded, c.source_indices),
+        lambda c: task_argument_errors(
+            c.expanded, c.source_indices, written=c.definition
+        ),
     ),
     # A dissolve_videos overlap wider than a statically-resolvable input's
     # real frame count (dw/dissolve_frame_errors.py, #400)

@@ -28,6 +28,7 @@ from .adapter_compatibility import warn_adapters
 from .arguments import realize_args
 from .pipeline_processors.chain_rules import resume_variables
 from .elision import elide_definition, surviving_variables, warn_elided
+from .events import WorkflowCancelled
 from .media import probe_metadata
 from .pipeline_ownership import (
     allocated_mb,
@@ -926,12 +927,54 @@ def run_step(workflow, loop, index, step_data, record):
     """Phase E: one step, start to `step_end`. Returns the names later
     steps still reference; the result is the loop's (`last_result`,
     `results`), so the caller holds no reference of its own to it.
+
+    A step that fails has its name recorded on the error (note_failed_step),
+    so the job's failure message says which step it was.
     """
-    step, step_seed = _start_step(workflow, loop, index, step_data)
-    with step_timer(step_data) as timer:
-        return _run_started_step(
-            workflow, loop, index, step_data, step, step_seed, record, timer
-        )
+    try:
+        step, step_seed = _start_step(workflow, loop, index, step_data)
+        with step_timer(step_data) as timer:
+            return _run_started_step(
+                workflow, loop, index, step_data, step, step_seed, record, timer
+            )
+    except WorkflowCancelled:
+        raise
+    except Exception as error:
+        note_failed_step(error, step_data.get("name"))
+        raise
+
+
+# The steps a failure passed through, outermost first: a composed child's
+# step, then the parent step that ran it. Kept on the exception itself so the
+# error keeps its type and text for every caller that catches it
+FAILED_STEPS_ATTRIBUTE = "dw_failed_steps"
+
+
+def note_failed_step(error, name):
+    """Record that `error` escaped the step `name`. The innermost step
+    records first; each enclosing step goes in front of it."""
+    if not isinstance(name, str) or not name:
+        return
+    steps = getattr(error, FAILED_STEPS_ATTRIBUTE, None)
+    if isinstance(steps, list):
+        steps.insert(0, name)
+        return
+    try:
+        setattr(error, FAILED_STEPS_ATTRIBUTE, [name])
+    except (AttributeError, TypeError):
+        # An exception type that refuses attributes keeps its own message
+        pass
+
+
+def failed_step_label(error):
+    """`"Step 'bed_slice': "` for an error a step raised - `'outer' >
+    'inner'` through a composed child - or "" when no step was running.
+    A template's caller reads the failure, not the job's progress, so the
+    message is what has to say where it happened (#1719)."""
+    steps = getattr(error, FAILED_STEPS_ATTRIBUTE, None)
+    if not isinstance(steps, list) or not steps:
+        return ""
+    return "Step " + " > ".join(f"'{name}'" for name in steps) + ": "
 
 
 def _run_started_step(workflow, loop, index, step_data, step, step_seed, record, timer):
