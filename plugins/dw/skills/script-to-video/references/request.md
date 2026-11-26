@@ -37,6 +37,8 @@ One `set_request` call, `revision=0`:
 | a cast sheet (portrait, voice) | `cast-<name>` | `prompt:<project>/<name>` |
 | the score or bed | `score` | the score's saved caption |
 | the cut | `cut` | none; `depends_on` every shot |
+| a shot's check | `check-NN` | `templates/check-script` (or `check-narration`, `face-drift-check`) on shot `NN`; `depends_on: ["shot-NN"]`, `estimate_minutes` from its plan |
+| the export | `export` | the packaging workflow; `depends_on: ["cut"]` |
 
 Each item carries `key`, `title`, `workflow` (the template it runs, such as
 `templates/minimax/dialogue-short`), `arguments` (what the run passes, each
@@ -57,6 +59,15 @@ with its `note` as before. A rerun (`rerun_job`) keeps the link by itself.
 `attempts` (job, status, note, minutes), its `result` and the request's
 `spent_minutes` and `remaining_minutes`. Quote what is left from
 `remaining_minutes` when the user asks.
+
+Link a check to its own `check-NN` item, never to the shot it checks, and an
+export to `export`, never to `cut`. Every succeeded job linked to an item is
+a take of it, and with nothing accepted the latest one is the item's
+`result`: a check linked to `shot-NN` becomes the shot's result and raises a
+false `choose`. After a new take of `shot-NN`, rerun `check-NN`: its result
+is still the check of the old take. If the plan has no check or export item
+yet, add it with `set_request` first (see "Changing the plan"): the server
+refuses a link to an item that does not exist (`has no item 'export'`).
 
 An item reading `revised` had its plan (workflow or arguments, see
 `revised_because`) change after its take. Its `result` is still the old take.
@@ -129,7 +140,8 @@ a user's `notes` are kept whether you send them back or leave them out. A
 `stale_revision` refusal means someone wrote since your read: read again,
 merge, write.
 
-With nothing accepted, an item's result is its latest succeeded job.
+With nothing accepted, an item's result is its latest succeeded job, so link
+only takes of that item to it.
 
 ## Before a revision pass
 
