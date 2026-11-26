@@ -3,6 +3,7 @@ deleting it through huggingface_hub's own strategy."""
 
 import json
 import os
+import shutil
 
 import pytest
 
@@ -64,9 +65,9 @@ def make_pipeline_repo(
     """
     repo = cache_dir / f"models--acme--{name}"
     snapshot = repo / "snapshots" / commit
-    snapshot.mkdir(parents=True)
-    (repo / "blobs").mkdir()
-    (repo / "refs").mkdir()
+    snapshot.mkdir(parents=True, exist_ok=True)
+    (repo / "blobs").mkdir(exist_ok=True)
+    (repo / "refs").mkdir(exist_ok=True)
     (repo / "refs" / "main").write_text(commit)
     index = {"_class_name": "SomePipeline"}
     for component in components or {}:
@@ -94,7 +95,7 @@ class TestRepoDownloadIncomplete:
 
     def test_an_incomplete_blob_marks_the_repo_incomplete(self, tmp_path):
         repo = make_repo(tmp_path)
-        (repo / "blobs").mkdir()
+        (repo / "blobs").mkdir(exist_ok=True)
         (repo / "blobs" / "deadbeef.incomplete").write_bytes(b"x")
         assert repo_download_incomplete("acme/tiny", cache_dir=tmp_path) is True
 
@@ -654,3 +655,46 @@ class TestSkippedComponentsInDownloadsRequired:
         components = {k: v for k, v in self.SD15.items() if k != "unet"}
         required = self._required(tmp_path, components, skipped=True)
         assert [e["repo"] for e in required] == ["acme/pipe"]
+
+
+def moved_main(tmp_path, left_out="transformer"):
+    """A pipeline repo whose `main` moved to a snapshot without one component."""
+    components = {
+        "transformer": ["config.json", "diffusion_pytorch_model.safetensors"],
+        "vae": ["config.json", "diffusion_pytorch_model.safetensors"],
+    }
+    make_pipeline_repo(tmp_path, components=components, commit="aaaa1111")
+    repo = make_pipeline_repo(tmp_path, components=components, commit="bbbb2222")
+    shutil.rmtree(repo / "snapshots" / "bbbb2222" / left_out)
+    return repo
+
+
+class TestComponentHeldByAnOlderSnapshot:
+    """#1759"""
+
+    def test_it_is_not_missing(self, tmp_path):
+        moved_main(tmp_path)
+        assert not repo_download_incomplete("acme/pipe", str(tmp_path))
+
+    def test_it_is_missing_when_the_hub_has_replaced_it(self, tmp_path):
+        moved_main(tmp_path)
+        asked = []
+
+        def unchanged(names):
+            asked.extend(names)
+            return False
+
+        assert repo_download_incomplete("acme/pipe", str(tmp_path), unchanged=unchanged)
+        assert sorted(asked) == [
+            "transformer/config.json",
+            "transformer/diffusion_pytorch_model.safetensors",
+        ]
+
+    def test_a_folder_part_way_down_in_main_is_still_incomplete(self, tmp_path):
+        moved_main(tmp_path)
+        folder = (
+            tmp_path / "models--acme--pipe" / "snapshots" / "bbbb2222" / "transformer"
+        )
+        folder.mkdir()
+        (folder / "config.json").write_text("{}")
+        assert repo_download_incomplete("acme/pipe", str(tmp_path))
