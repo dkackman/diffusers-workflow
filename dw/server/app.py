@@ -210,6 +210,7 @@ def create_app(
     mcp=False,
     port=8765,
     devices=None,
+    managed=False,
 ):
     """Build the application. A caller (tests) can inject a JobManager.
 
@@ -259,6 +260,8 @@ def create_app(
         examples_dirs,
         workspace,
     )
+    # started by dw setup's service, which restarts it
+    app.state.managed = managed
     app.state.mcp_mounted = mcp_asgi is not None
     app.state.listening = Listening()
     # One registry the routes and job manager both bump (changes.py)

@@ -38,6 +38,8 @@ class ServeConfig:
     token: str | None
     # --devices as resolved: one worker per entry, None for the one default
     devices: list | None = None
+    # started by dw setup's service, which restarts it
+    managed: bool = False
 
 
 def build_parser():
@@ -147,6 +149,12 @@ def build_parser():
         "needs no local install (`claude mcp add --transport http dw "
         "http://<host>:<port>/mcp --header 'Authorization: Bearer <token>'`). "
         "Refused on a non-loopback --host without a token.",
+    )
+    parser.add_argument(
+        "--managed",
+        action="store_true",
+        default=False,
+        help="Started by dw setup's service; the service manager restarts it.",
     )
     return parser
 
@@ -303,6 +311,7 @@ def configure_environment(args):
         asset_dir=asset_dir,
         token=token,
         devices=devices,
+        managed=args.managed,
     )
 
 
@@ -366,6 +375,7 @@ def run(config):
         mcp=config.mcp,
         port=config.port,
         devices=config.devices,
+        managed=config.managed,
     )
     ui = " - UI at /" if default_ui_dir() else ""
     mcp = " - MCP at /mcp" if config.mcp else ""

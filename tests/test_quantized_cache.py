@@ -1230,6 +1230,7 @@ class TestCallSites:
             workspace_root=None,
             mcp=False,
             devices=None,
+            managed=False,
         )
         with (
             patch("dw.startup"),

@@ -285,3 +285,31 @@ class TestConfigureDevices:
         monkeypatch.delenv("DW_DEVICE")
         configure_devices(types.SimpleNamespace(devices=None))
         assert "DW_DEVICE" not in os.environ
+
+
+def test_managed_is_passed_to_the_app_and_off_by_default(serve):
+    assert serve()["create_app"]["managed"] is False
+    assert serve("--managed")["create_app"]["managed"] is True
+
+
+@pytest.mark.parametrize("flag", [True, False])
+def test_the_app_records_managed_on_its_state(tmp_path, flag):
+    from dw.server.app import create_app
+    from dw.server.jobs import JobManager
+
+    from .test_server import ScriptedWorkerManager, success_script
+
+    (tmp_path / "workflows").mkdir()
+    manager = JobManager(
+        str(tmp_path / "out"),
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+    )
+    app = create_app(
+        workflow_dir=str(tmp_path / "workflows"),
+        output_dir=str(tmp_path / "out"),
+        job_manager=manager,
+        prompt_dir=str(tmp_path / "prompts"),
+        managed=flag,
+    )
+    assert app.state.managed is flag
