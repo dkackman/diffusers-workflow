@@ -128,11 +128,11 @@ that wants to make the choice itself (a Pinokio script, say) passes
 1. reports the dw version and the install record;
 2. asks `GET /api/health` on `127.0.0.1:8765` whether a server is running. A
    server setup's own service started (the manifest records the service and
-   the service manager reports it) is treated like no server: step 3 rewrites
-   the service and restarts it, which is how a re-run of the one-liner starts
-   the new version. Any other server is left alone and gets no service;
-   Claude is registered as usual, and the clients reach whatever answers on
-   8765;
+   the service manager reports it installed and running) is treated like no
+   server: step 3 rewrites the service and restarts it, which is how a re-run
+   of the one-liner starts the new version. Any other server is left alone and
+   gets no service; Claude is registered as usual, and the clients reach
+   whatever answers on 8765;
 3. installs the per-user service and starts it (or restarts it). When the
    running server has a job running or queued, setup warns that a restart
    stops it and asks first; without a terminal it does not restart, and under
