@@ -991,6 +991,14 @@ remaining deferred fix is recorded in
   needs no new download. On lem it gave a 1024² RGBA cut-out. The Turbo
   catalog entry (~32.5 GB, fixed 8 sigmas) is deferred with triggers, and the
   PE enhancer is cut: `complete/qwen-image-transparent-complete.md`.
+- **Default preferences: the text-to-image ladder** (#1625, stages
+  #1710-#1712), shipped 2026-11-26. `dw/preference_defaults.json` ranks
+  `text_to_image` as draft (SD 1.5), standard (z-image, z-image-sdnq) and best
+  (H3-Image, Qwen-Image 2.1), under a variable contract its pins enforce. SD 1.5
+  gains `width`/`height`. The cuda and mps benches give every target a
+  measured `cost` on each device it runs on. The edit, image-to-image and video
+  keys are cut, each with what would bring it back:
+  `complete/preference-defaults-complete.md`.
 
 ## Declined
 
