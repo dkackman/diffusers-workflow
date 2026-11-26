@@ -60,35 +60,42 @@ _latest_cache = {"at": None, "value": None}
 _latest_lock = threading.Lock()
 
 
+def _fetch_pypi(url, timeout):
+    """GET `url` and return its parsed JSON (the default `fetch`)."""
+    import httpx
+
+    response = httpx.get(url, timeout=timeout, follow_redirects=True)
+    response.raise_for_status()
+    return response.json()
+
+
 def latest_version(fetch=None, clock=time.monotonic):
     """The newest dw release on PyPI, or None when it can't be read. Cached
     for ten minutes, failures included, so an offline server isn't asked on
     every poll. `fetch(url, timeout)` returns the parsed JSON; tests inject
-    it and nothing here reaches the network otherwise."""
+    it, or patch `_fetch_pypi`, and nothing here reaches the network
+    otherwise.
+
+    The lock guards the cache read and write only, never the fetch: a read
+    that finds the cache warm answers at once even while another read waits
+    on a slow PyPI (#1743). Two cold reads may both fetch; the later write
+    wins, which is harmless."""
     with _latest_lock:
         at = _latest_cache["at"]
         if at is not None and clock() - at < LATEST_CACHE_SECONDS:
             return _latest_cache["value"]
-        value = None
-        try:
-            url = validate_url(PYPI_JSON_URL)
-            if fetch is None:
-                import httpx
-
-                response = httpx.get(
-                    url, timeout=LATEST_TIMEOUT_SECONDS, follow_redirects=True
-                )
-                response.raise_for_status()
-                data = response.json()
-            else:
-                data = fetch(url, LATEST_TIMEOUT_SECONDS)
-            version = data["info"]["version"]
-            if isinstance(version, str) and version:
-                value = version
-        except Exception as e:
-            logger.debug(f"Could not read the latest dw release: {e}")
+    value = None
+    try:
+        url = validate_url(PYPI_JSON_URL)
+        data = (fetch or _fetch_pypi)(url, LATEST_TIMEOUT_SECONDS)
+        version = data["info"]["version"]
+        if isinstance(version, str) and version:
+            value = version
+    except Exception as e:
+        logger.debug(f"Could not read the latest dw release: {e}")
+    with _latest_lock:
         _latest_cache.update(at=clock(), value=value)
-        return value
+    return value
 
 
 def forget_latest():
@@ -148,10 +155,15 @@ def _run_commands():
     new packages in place the server has to restart to run them, so a
     failed `dw setup` is logged (its output joins the log) and the run
     still succeeds."""
-    *installs, refresh = build_upgrade_commands(
-        sys.executable, installed_torch_version(), torch_index_from_record()
-    )
-    result = run_commands(installs)
+    # The constraints file only has to outlive the pip steps
+    with tempfile.TemporaryDirectory(prefix="dw-update-") as constraints_dir:
+        *installs, refresh = build_upgrade_commands(
+            sys.executable,
+            installed_torch_version(),
+            torch_index_from_record(),
+            constraints_dir,
+        )
+        result = run_commands(installs)
     if result.returncode != 0:
         return result
     try:

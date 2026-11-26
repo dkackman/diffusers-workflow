@@ -17,6 +17,23 @@ PYPROJECT_VERSION = tomllib.loads((REPO / "pyproject.toml").read_text())["projec
 ]
 
 
+def _mcp_floor():
+    """The mcp requirement as the root pyproject's mcp extra declares it."""
+    extras = tomllib.loads((REPO / "pyproject.toml").read_text())["project"][
+        "optional-dependencies"
+    ]
+    (floor,) = [r for r in extras["mcp"] if r.startswith("mcp")]
+    return floor
+
+
+def test_name_is_the_package_of_a_full_requirement():
+    script = _script()
+    full = "Foo_Bar[extra1,extra2]>=1.0,<2; python_version >= '3.10'"
+    assert script._name(full) == "Foo_Bar"
+    assert script._name("uvicorn[standard]>=0.54.0") == "uvicorn"
+    assert script._name("mcp ~= 2.3") == "mcp"
+
+
 def _script():
     spec = importlib.util.spec_from_file_location(
         "build_mcpb", REPO / "scripts" / "build_mcpb.py"
@@ -66,7 +83,7 @@ def test_the_stage_carries_the_engine_version_and_the_floors(tmp_path):
     deps = tomllib.loads((stage / "pyproject.toml").read_text())["project"][
         "dependencies"
     ]
-    assert "mcp>=2.3.0" in deps
+    assert _mcp_floor() in deps
     assert {d.split(">")[0] for d in deps} == {"mcp", "httpx", "anyio", "packaging"}
     assert (stage / "dw_mcp" / "__main__.py").is_file()
     assert "--frozen" in manifest["server"]["mcp_config"]["args"]
@@ -102,6 +119,16 @@ def test_ci_pins_the_publisher_and_verifies_it():
     assert re.search(r"sha=[0-9a-f]{64}", ci)
     assert "sha256sum -c" in ci
     assert "npx -y @anthropic-ai/mcpb" not in ci
+
+
+def test_ci_pins_the_uv_version():
+    ci = (REPO / ".github" / "workflows" / "ci.yml").read_text()
+    blocks = re.findall(
+        r"uses: astral-sh/setup-uv@\S+\n(?:\s+with:\n((?:\s+\S.*\n)*))?", ci
+    )
+    assert blocks
+    for with_block in blocks:
+        assert re.search(r'version: "?\d+\.\d+\.\d+"?', with_block or "")
 
 
 def test_the_identifier_contains_mcp_and_points_at_the_release():

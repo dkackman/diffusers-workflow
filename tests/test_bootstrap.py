@@ -251,6 +251,39 @@ def test_yes_suppresses_the_redirect_even_with_a_tty(run_bootstrap):
     assert "/dev/tty" not in out.text
 
 
+@needs_bash
+def test_the_tty_hook_is_ignored_without_a_dry_run(tmp_path):
+    """A real run (every command a fake, in tmp_path) must probe /dev/tty
+    itself. With no controlling terminal the probe fails, so dw setup is run
+    without the redirect; were DW_BOOTSTRAP_TTY=1 honoured, the redirect from
+    the missing /dev/tty would fail and dw would never start."""
+    root = tmp_path / "root"
+    bin_dir = _fakes(tmp_path, None, "Linux", SHA)
+    py = root / "venv" / "bin" / "python"
+    py.parent.mkdir(parents=True)
+    py.write_text("#!/bin/sh\necho 1.0\n")
+    py.chmod(0o755)
+    ran = tmp_path / "dw-ran"
+    _fake(py.parent, "dw", f'echo "$@" > "{ran}"')
+    home = tmp_path / "home"
+    home.mkdir()
+    result = subprocess.run(
+        [BASH, str(SCRIPTS / "bootstrap.sh")],
+        env={
+            "PATH": f"{bin_dir}{os.pathsep}/usr/bin{os.pathsep}/bin",
+            "HOME": str(home),
+            "DW_INSTALL_ROOT": str(root),
+            "DW_BOOTSTRAP_TTY": "1",
+        },
+        capture_output=True,
+        text=True,
+        timeout=60,
+        start_new_session=True,  # no controlling terminal: /dev/tty cannot open
+    )
+    assert result.returncode == 0, result.stderr
+    assert ran.is_file()
+
+
 def test_the_bootstrap_ships_in_the_wheel():
     package_data = tomllib.loads(PYPROJECT.read_text())["tool"]["setuptools"][
         "package-data"

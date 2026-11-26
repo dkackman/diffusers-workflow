@@ -299,3 +299,27 @@ def test_the_default_runner_runs_claude_by_its_full_path(monkeypatch):
     )
     setup_service.default_runner(["claude", "mcp", "list"])
     assert seen["args"] == ["/home/u/.local/bin/claude", "mcp", "list"]
+
+
+def test_a_localized_schtasks_still_reads_running():
+    runner = FakeRunner()
+    runner.by_command[("schtasks", "/Query")] = (0, "Status: Wird ausgeführt\n")
+    runner.by_command[("powershell", "-NoProfile")] = (0, "Running\r\n")
+    status = setup_service.service_status(runner, "win32")
+    assert status["installed"] and status["running"]
+
+
+def test_running_is_the_task_state_not_the_query_text():
+    runner = FakeRunner()
+    runner.by_command[("schtasks", "/Query")] = (0, "Status: Running\n")
+    runner.by_command[("powershell", "-NoProfile")] = (0, "Ready\n")
+    status = setup_service.service_status(runner, "win32")
+    assert status["installed"] and not status["running"]
+
+
+def test_an_absent_task_is_not_asked_for_its_state():
+    runner = FakeRunner()
+    runner.by_command[("schtasks", "/Query")] = (1, "")
+    status = setup_service.service_status(runner, "win32")
+    assert not status["installed"] and not status["running"]
+    assert not any(c[0] == "powershell" for c in runner.calls)

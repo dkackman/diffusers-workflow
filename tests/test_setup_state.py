@@ -194,3 +194,9 @@ def test_merge_creates_a_missing_file(tmp_path):
     assert setup_state.merge_json_file(f, lambda d: {**d, "a": 1})
     assert json.loads(f.read_text()) == {"a": 1}
     assert not (tmp_path / "sub" / "c.json.dw-backup").exists()
+
+
+def test_an_install_root_with_traversal_is_refused(monkeypatch):
+    monkeypatch.setenv("DW_INSTALL_ROOT", "/tmp/../etc")
+    with pytest.raises(setup_state.SetupError, match="DW_INSTALL_ROOT"):
+        setup_state.install_root()

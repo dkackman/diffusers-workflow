@@ -19,6 +19,8 @@ import sys
 import tomllib
 from pathlib import Path
 
+from packaging.requirements import Requirement
+
 REPO = Path(__file__).resolve().parents[1]
 TEMPLATES = REPO / "packaging" / "mcpb"
 # dw_mcp imports anyio directly; the root pyproject only gets it through mcp
@@ -33,7 +35,7 @@ def _pyproject():
 
 
 def _name(requirement):
-    return requirement.split(";")[0].strip().split(">")[0].split("<")[0].split("=")[0]
+    return Requirement(requirement).name
 
 
 def bundle_dependencies(project=None):

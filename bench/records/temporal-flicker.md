@@ -10,7 +10,12 @@ The plan's gate counts a gain when flicker goes down and the gradient energy on 
 input. The script fixes those thresholds at a flicker ratio of 0.9 or less and a gradient ratio of 0.95 or more. On
 this clip the filter **lowers flicker by 21%, but it costs 26% of the moving gradient energy**, and 14% of it on strong
 edges even after the grain is blurred out. That is smear, not just grain removed. **The gate fails on the numbers.**
-Don's look at the pair (Q2, `taste`) is still owed. Stage B is built only if both say yes.
+**Don's look at the pair (Q2, `taste`, 2026-11-26):** at best marginally better. He leaned toward the after clip
+(less shimmer) but called it close and hard to judge, so it is not a clear visual win. **Ruling: record it, no build.**
+Stage B (#1750, the `temporal_denoise` task) closed `not planned`. A revisit starts from both facts, the marginal look
+and the failed numeric gate (fine detail on the moving subject lost). The obvious next probes are a lower strength, or a
+locked-off H3 shot instead of this tracking shot. The design record is
+`docs/proposals/complete/temporal-flicker-probe-complete.md`.
 
 ## The clip
 

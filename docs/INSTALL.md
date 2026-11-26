@@ -128,11 +128,11 @@ that wants to make the choice itself (a Pinokio script, say) passes
 1. reports the dw version and the install record;
 2. asks `GET /api/health` on `127.0.0.1:8765` whether a server is running. A
    server setup's own service started (the manifest records the service and
-   the service manager reports it) is treated like no server: step 3 rewrites
-   the service and restarts it, which is how a re-run of the one-liner starts
-   the new version. Any other server is left alone and gets no service;
-   Claude is registered as usual, and the clients reach whatever answers on
-   8765;
+   the service manager reports it installed and running) is treated like no
+   server: step 3 rewrites the service and restarts it, which is how a re-run
+   of the one-liner starts the new version. Any other server is left alone and
+   gets no service; Claude is registered as usual, and the clients reach
+   whatever answers on 8765;
 3. installs the per-user service and starts it (or restarts it). When the
    running server has a job running or queued, setup warns that a restart
    stops it and asks first; without a terminal it does not restart, and under
@@ -162,6 +162,10 @@ prints why, the rest still run, and setup exits 1.
 | `--json` | With `--status`, print the report as JSON |
 | `--uninstall` | Remove what setup added |
 | `--port N` | The port setup checks for a running server, reports and opens (default 8765). It changes nothing else: the service always listens on 8765 and the registrations are not port-specific |
+
+`--status` and `--uninstall` exclude each other, and `--json` needs
+`--status`: either mistake exits with code 2 and a usage message, changing
+nothing.
 
 `--port` exists for a server you run yourself on another port: `dw setup
 --no-service --port 8800` finds it there and opens its web UI. The Claude
@@ -421,8 +425,9 @@ pre-release checks, not for an install:
 - `DW_BOOTSTRAP_WHEEL` - install this wheel instead of the PyPI release.
 - `DW_BOOTSTRAP_DIFFUSERS_SHA` - use this diffusers commit instead of asking
   GitHub for `main`'s (40 lowercase hex characters, or it is ignored).
-- `DW_BOOTSTRAP_TTY` (`bootstrap.sh` only) - `1` or `0` says whether
-  `/dev/tty` is available instead of probing it.
+- `DW_BOOTSTRAP_TTY` (`bootstrap.sh` only, test-only) - with
+  `DW_BOOTSTRAP_DRY_RUN`, `1` or `0` says whether `/dev/tty` is available instead
+  of probing it. Without a dry run it is ignored.
 
 The scripts ship inside the package (`dw/install_scripts/`) and are attached to
 each GitHub release with `SHA256SUMS`. `docs/RELEASING.md` covers the release

@@ -107,6 +107,42 @@ class TestRunCommands:
         result = self_update._run_commands()
         assert result.returncode == 0 and "no dw" in result.stderr
 
+    @staticmethod
+    def wire_constraints(monkeypatch, codes, error=None):
+        """Run the real command builder with torch held, and record the
+        constraints file the first command was handed."""
+        seen = {}
+
+        def run_commands(commands):
+            command = commands[0]
+            seen["file"] = Path(command[command.index("-c") + 1])
+            seen["existed"] = seen["file"].is_file()
+            if error is not None:
+                raise error
+            return SimpleNamespace(returncode=codes.pop(0), stdout="", stderr="")
+
+        monkeypatch.setattr(self_update, "installed_torch_version", lambda: "2.1")
+        monkeypatch.setattr(self_update, "torch_index_from_record", lambda: None)
+        monkeypatch.setattr(self_update, "run_commands", run_commands)
+        return seen
+
+    def test_the_constraints_dir_is_removed_after_a_success(self, monkeypatch):
+        seen = self.wire_constraints(monkeypatch, [0, 0])
+        assert self_update._run_commands().returncode == 0
+        assert seen["file"].name == "constraints.txt" and seen["existed"]
+        assert not seen["file"].parent.exists()
+
+    def test_the_constraints_dir_is_removed_after_a_failure(self, monkeypatch):
+        seen = self.wire_constraints(monkeypatch, [3])
+        assert self_update._run_commands().returncode == 3
+        assert seen["existed"] and not seen["file"].parent.exists()
+
+    def test_the_constraints_dir_is_removed_after_an_exception(self, monkeypatch):
+        seen = self.wire_constraints(monkeypatch, [], error=OSError("pip vanished"))
+        with pytest.raises(OSError):
+            self_update._run_commands()
+        assert seen["existed"] and not seen["file"].parent.exists()
+
     def test_the_refresh_is_the_dw_beside_the_interpreter(self, tmp_path):
         cmds = build_upgrade_commands("/v/py", None, None, tmp_path, git=True)
         assert Path(cmds[-1][0]).parent == Path(sys.executable).parent
@@ -146,6 +182,35 @@ class TestLatestVersion:
         assert (
             self_update.latest_version(lambda u, t: {"info": {"version": "9"}}) is None
         )
+
+    def test_a_slow_fetch_does_not_hold_the_lock(self):
+        """#1743: a second cold read fetches for itself rather than waiting
+        behind the first read's upstream GET."""
+        import threading
+
+        entered, release = threading.Event(), threading.Event()
+        results = {}
+
+        def slow(url, timeout):
+            entered.set()
+            release.wait(10)
+            return {"info": {"version": "1.0.0"}}
+
+        first = threading.Thread(
+            target=lambda: results.update(first=self_update.latest_version(slow))
+        )
+        first.start()
+        try:
+            assert entered.wait(5)
+            started = time.monotonic()
+            second = self_update.latest_version(lambda u, t: {"info": {"version": "2"}})
+            assert second == "2" and time.monotonic() - started < 1
+        finally:
+            release.set()
+            first.join(5)
+        # The later write wins; either value is a real release
+        assert results["first"] == "1.0.0"
+        assert self_update.latest_version(lambda u, t: {"info": {}}) == "1.0.0"
 
 
 class TestDwUpdater:
