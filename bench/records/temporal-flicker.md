@@ -33,7 +33,7 @@ Don's look at the pair (Q2, `taste`) is still owed. Stage B is built only if bot
 
 - **Strengths:** the plan's defaults, luma 0.5, chroma 0.5, `occlusion_tolerance` 1.5 px.
 - **Flow:** DIS `PRESET_FAST` at half scale, computed twice per pair (forward and backward check) in each of two passes.
-- **CPU time:** **2.5 s wall, 3.8 s CPU** for the filter on 124 frames, or 0.02 s a frame. The plan listed CPU time as a
+- **CPU time:** **2.5 s wall, 3.8 s CPU** for the filter on 124 frames at **960x544** (RGB, 24 fps), or 0.02 s a frame. The plan listed CPU time as a
   risk; on this hardware it isn't one. The full-resolution flow that the measures use comes on top and isn't counted.
 
 ## Before and after
@@ -44,6 +44,22 @@ Don's look at the pair (Q2, `taste`) is still owed. Stage B is built only if bot
 | moving gradient energy (Sobel gx²+gy², flow > 1 px) | 8718.33 | 6458.62 | **0.741** |
 | diagnostic: strong moving edges, grain blurred out (σ 1.5, top 10% of input gradient) | 23970.04 | 20673.83 | 0.863 |
 
+### The two regions
+
+Both regions are chosen per pixel and per neighbour pair (t-1, t), from the **input** clip only, and the same masks are
+used for before and after. Neither is a hand-drawn box. For each pair, `motion_masks()` runs DIS flow (`PRESET_FAST`) at
+**full resolution** on the input's grey frames t and t-1 and takes the flow magnitude per pixel:
+
+- **Static mask:** magnitude **under 0.25 px** (`STATIC_PX`). It covers 0.08% of the pixels, about 420 a frame,
+  scattered where the tracking shot's background flow happens to be near zero.
+- **Moving mask (the "moving subject"):** magnitude **over 1 px** (`MOVING_PX`). It covers 98.9% of the pixels, so on
+  this tracking shot it is the fox *and* the passing forest, not the fox alone. Pixels between 0.25 and 1 px are in
+  neither.
+- **Strong moving edges** (diagnostic only): moving-mask pixels in the top 10% of the input frame's σ 1.5-blurred
+  gradient.
+
+The masks are not written out; `motion_masks()` in `bench/temporal_flicker.py` regenerates them from the clip.
+
 - **Flicker** compares frame-to-frame luma on the pixels that the *input's* full-resolution flow calls static. The same
   mask is used for before and after.
 - **Moving gradient energy** is the plan's motion-blur measure. It counts grain as detail, so removing grain from a
@@ -53,7 +69,7 @@ Don's look at the pair (Q2, `taste`) is still owed. Stage B is built only if bot
   doesn't hold back enough of the warped blend on a tracking shot.
 
 The measures are taken on the frames in memory, not on the re-encoded files. A rerun gave the same numbers to every
-digit.
+digit (see "Rerun result" below).
 
 ## The pair for Don
 
@@ -82,3 +98,19 @@ On mini-ai, from a checkout with this script:
 
 The first command prints the same table and writes its own `temporal-flicker.json`; wall and CPU time vary from run to
 run, and nothing else should.
+
+### Rerun result
+
+Rerun 2026-11-26 on mini-ai, checkout at `develop` `6c1fb691`, the first command above with `--out-dir
+/tmp/temporal-flicker-rerun-1749`:
+
+| measure | first run before / after / ratio | rerun before / after / ratio |
+|---|---|---|
+| flicker (static mean abs dY) | 2.7478 / 2.1713 / 0.7902 | 2.7478 / 2.1713 / 0.7902 |
+| moving gradient energy | 8718.3328 / 6458.6159 / 0.7408 | 8718.3328 / 6458.6159 / 0.7408 |
+| strong moving edges (diagnostic) | 23970.0427 / 20673.8321 / 0.8625 | 23970.0427 / 20673.8321 / 0.8625 |
+| static / moving share | 0.0008 / 0.9892 | 0.0008 / 0.9892 |
+| filter time | 2.5 s wall, 3.8 s CPU | 2.4 s wall, 3.8 s CPU |
+| gain | no | no |
+
+Every measure matches to all printed digits; only wall time moved, by 0.1 s.
