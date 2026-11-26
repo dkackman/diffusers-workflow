@@ -23,7 +23,7 @@ import secrets
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from . import __version__, device_capacity_gb, get_device, get_device_type
+from . import __version__, device_capacity_gb, get_device, get_device_type, preferences
 from .adapter_compatibility import warn_adapters
 from .arguments import realize_args
 from .pipeline_processors.chain_rules import resume_variables
@@ -243,6 +243,13 @@ def write_run_manifest(workflow, record, status=None):
             "elided_steps": workflow._elided_steps,
             "inputs": record.inputs,
             "steps": steps,
+            # What each 'preference:' step resolved to, by pin key - absent
+            # when the run named none (dw/preferences.py)
+            **(
+                {"preferences": pins}
+                if (pins := preferences.recorded(workflow))
+                else {}
+            ),
         },
     )
 
@@ -297,6 +304,9 @@ def prepare_definition(workflow, workflow_def, arguments, base_dir):
     # with the actual values, and expand
     authored_steps = workflow_def.get("steps")
     workflow_def = workflow._expand(workflow_def, variables)
+    # Each 'preference:' step rewritten to its target - the admission pin's
+    # when the job carries one (dw/preferences.py)
+    workflow_def = workflow.resolve_preferences(workflow_def, variables)
 
     # A step a declared vram_estimate projects past the card 'cost' was
     # measured on - the run-time backstop for a caller that skips
@@ -687,6 +697,7 @@ def open_run(workflow, prepared, record, run_context):
             base_dir=prepared.base_dir,
             output_root=workflow.output_dir,
             workflow_dir=workflow.workflow_dir,
+            preference_targets=workflow.preference_targets(),
         )
         if write_realized_workflow(workflow._run_dir, realized):
             record.realized_name = REALIZED_FILE_NAME

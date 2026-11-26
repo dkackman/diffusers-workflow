@@ -29,6 +29,7 @@ import logging
 import os
 
 from . import references
+from .preferences import SHIPPED_PATH as _SHIPPED_PREFERENCES
 from .security import (
     InvalidInputError,
     PathTraversalError,
@@ -330,7 +331,9 @@ def workflow_names(root):
     """Workflow names under a root, as relative paths without .json.
 
     A file symlink resolving outside the root is not a name here: a listing
-    opens every file it names, and reads by name already refuse the link."""
+    opens every file it names, and reads by name already refuse the link.
+    Nor is the shipped preferences file (dw/preferences.py): data that sits
+    at the top of the examples tree, not a workflow."""
     names = []
     if not os.path.isdir(root):
         return names
@@ -339,6 +342,8 @@ def workflow_names(root):
             if file_name.endswith(".json"):
                 path = os.path.join(directory, file_name)
                 if not contained(path, root):
+                    continue
+                if os.path.realpath(path) == str(_SHIPPED_PREFERENCES):
                     continue
                 relative = os.path.relpath(path, root)
                 names.append(relative[: -len(".json")].replace(os.sep, "/"))
@@ -747,6 +752,15 @@ def resolve_sub_workflow_reference(path, base_dir, confine_to):
     Raises SubWorkflowNotFound, SecurityError or InvalidInputError, each
     carrying the message the run itself would fail with.
     """
+    if references.is_ref(references.PREFERENCE, path):
+        # A preference names a ladder, not a file: Workflow._expand rewrites
+        # it to its resolved target, and Workflow.resolve_sub_workflow_path
+        # answers why when it could not (dw/preferences.py)
+        raise InvalidInputError(
+            f"Sub-workflow path '{path}' is a preference that was not "
+            "resolved: a 'preference:' path resolves only inside a composing "
+            "workflow's expansion"
+        )
     builtin_name = references.ref_name(references.BUILTIN, path)
     if builtin_name is not None:
         if (

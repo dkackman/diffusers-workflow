@@ -2980,6 +2980,13 @@ export interface components {
             overrides?: {
                 [key: string]: unknown;
             };
+            /**
+             * Preferences
+             * @description What each 'preference:<key>' sub-workflow step resolved to, keyed '<path>@<tier>': {target, arguments, skipped: [{workflow, reason}], source}. A rerun replays it; only on a job that resolved one.
+             */
+            preferences?: {
+                [key: string]: unknown;
+            };
             /** @description Where a running (or failed) job had got to; live jobs only. */
             progress?: components["schemas"]["JobProgress"] | null;
             /**

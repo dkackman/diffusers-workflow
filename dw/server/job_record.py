@@ -86,6 +86,9 @@ RERUN_SPEC_KEYS = (
     # the requests-ledger link (#1458): a rerun serves the same item
     "request",
     "item",
+    # what each 'preference:' step resolved to: a rerun replays it, so it
+    # runs the same target unless it asks for another tier (#1626)
+    "preferences",
 )
 
 RERUN_SEED_UNKNOWN = "rerun_seed_unknown"
@@ -460,6 +463,13 @@ class Job:
             **(
                 {"overrides": self.spec["overrides"]}
                 if self.spec.get("overrides")
+                else {}
+            ),
+            # What each 'preference:' step resolved to, as admission pinned
+            # it (dw/preferences.py) - absent for a job with none
+            **(
+                {"preferences": self.spec["preferences"]}
+                if self.spec.get("preferences")
                 else {}
             ),
             "warnings": self.warnings,

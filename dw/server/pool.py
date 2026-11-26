@@ -158,6 +158,14 @@ def largest_card(slots):
     return max(readings, key=lambda reading: reading[1])
 
 
+def smallest_card_gb(slots):
+    """The catalog size (GB) of the smallest card here, or None when no
+    size could be read - what a preference target's `cost` VRAM is held
+    to: it must fit whichever card the job lands on (dw/preferences.py)."""
+    readings = capacities(slots)
+    return min(capacity for _, capacity in readings) if readings else None
+
+
 def card_name(slot):
     """How a refusal names a card, whichever sentence it is in."""
     return slot.label() or slot.device or "this server's card"

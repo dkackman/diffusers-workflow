@@ -30,6 +30,10 @@ ITEM = "item:"
 GATHER = "gather:"
 BUILTIN = "builtin:"
 CONSTRAINT = "constraint:"
+# A sub-workflow path naming a model preference (dw/preferences.py): rewritten
+# to its resolved target in Workflow._expand, before any reader of the path
+# sees it, so it is never left for realization (not DEFERRED)
+PREFERENCE = "preference:"
 # Not a workflow reference: names a workspace as a note target (PUT /api/notes)
 WORKSPACE = "workspace:"
 
