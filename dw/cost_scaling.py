@@ -223,15 +223,10 @@ def _field_values(entries, field):
 def _list_frames_scaling(
     name, default_entries, effective_entries, list_entries, field=FRAMES_DRIVER
 ):
-    """A list driver's per-entry frames as (factor, axis) - (1.0, None) when
-    they did not move - or None when they moved in a way that cannot be
-    scaled (#593, #866).
-
-    The frames a list renders are the sum over its entries. When the list's
-    length is already priced (`_repriced`, a `per_entry` rate), only the
-    mean per entry is left to scale, so the two multiply to the summed ratio
-    rather than counting the length twice.
-    """
+    """A list driver's per-entry frames as (factor, axis) - (1.0, None)
+    unmoved - or None when they moved past scaling (#593, #866). The sum
+    over entries, or with the length priced already (`_repriced`, a
+    `per_entry` rate) the mean per entry, and the axis names that (#1773)."""
     measured = _entry_frames(default_entries, field)
     running = _entry_frames(effective_entries, field)
     if measured is None or running is None:
@@ -251,13 +246,16 @@ def _list_frames_scaling(
     was, now = sum(measured), sum(running)
     if was == now:
         return 1.0, None
-    factor = now / was
+    factor, per = now / was, ""
     if name in list_entries:
         factor = (now / len(running)) / (was / len(measured))
         if math.isclose(factor, 1.0):
             return 1.0, None
+        if len(running) != len(measured):
+            # The length is named as its own ratio, so the means are (#1773)
+            now, was, per = now / len(running), was / len(measured), " per entry"
     label = "frames" if field == FRAMES_DRIVER else field
-    return factor, f"{label} {_shown(now)} vs {_shown(was)} over {name}"
+    return factor, f"{label} {_shown(now)} vs {_shown(was)}{per} over {name}"
 
 
 # The declared drivers that set how many segments a chain runs; the count
@@ -1056,14 +1054,14 @@ def fixed_share(definition, device):
     return min(1.0, fixed / total)
 
 
-def _scaled(price, scaling, fixed=0.0):
+def _scaled(price, scaling, fixed=0.0, repriced=None):
     """`price` scaled by a `_driver_scaling` answer (`fixed` minutes of it,
     the entry's `fixed_minutes`, stay as they are): `derived` once any axis
     moved (another device's figure stays `other_device`, as `_price` keeps it
     for a resized list - #589), with `scaled` saying from what. A driver with
     no rule to scale by that moved leaves the basis alone, and is named in
     `differs` with `low_confidence` set: the figure was measured at another
-    setting of it (#866)."""
+    setting of it (#866); a resized list's is `repriced`'s (#1773)."""
     if scaling is None:
         return {"minutes": None, "basis": UNKNOWN, "measured_on": None}
     factor, axes, unscaled = scaling
@@ -1077,12 +1075,13 @@ def _scaled(price, scaling, fixed=0.0):
     # The fixed share is paid once however far the drivers moved (#1224)
     fixed = min(fixed, price["minutes"])
     note = f" ({_shown(fixed)} min of it fixed)" if fixed else ""
+    base, lead_note, lead = repriced or (price["minutes"], "", [])
     return {
         **price,
         "minutes": fixed + (price["minutes"] - fixed) * factor,
         "basis": basis,
-        "scaled": f"scaled from the curated {_shown(price['minutes'])} min{note}: "
-        + ", ".join(axes),
+        "scaled": f"scaled from the curated {_shown(base)} min{lead_note}{note}: "
+        + ", ".join(lead + list(axes)),
     }
 
 

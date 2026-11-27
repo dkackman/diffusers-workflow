@@ -111,6 +111,9 @@ def _own_price(
             own,
             _driver_scaling(definition, expanded, list_entries, base_dir=base_dir),
             fixed_minutes(_choose_entry(definition.get("cost"), device)[0]),
+            _repricing(
+                definition.get("cost"), device, list_entries, measured_entries or {}
+            ),
         )
         # A words-checked chain's Whisper passes, on top (#1262)
         own = with_words_check(own, definition, expanded)
@@ -189,6 +192,7 @@ def _child_catalog_price(child_definition, child_cost, step_arguments, device):
             child,
             _driver_scaling(child_definition, child_expanded, child_list_entries),
             fixed_minutes(_choose_entry(child_cost, device)[0]),
+            _repricing(child_cost, device, child_list_entries, child_measured_entries),
         )
         child = with_words_check(child, child_definition, child_expanded)
     return child
@@ -394,6 +398,40 @@ def _price(cost, device, list_entries, measured_entries):
         if basis == CATALOG:
             basis = repriced_basis
     return {"minutes": minutes, "basis": basis, "measured_on": chosen.get("name")}
+
+
+def _repricing(cost, device, list_entries, measured_entries):
+    """How `_price` re-priced the chosen row for a resized list, as the
+    (base minutes, note, leading axes) `_scaled` names (#1773), or None when
+    it did not: base x the ratios named is then the figure. Linear in the
+    length, the row's own minutes and a length ratio; a `per_entry` rate
+    is no ratio, so the re-priced base and how it was reached."""
+    chosen = _choose_entry(cost, device)[0]
+    if chosen is None:
+        return None
+    minutes = float(chosen.get("minutes", 0))
+    per = chosen.get("per_entry")
+    if isinstance(per, dict) and per.get("variable") in list_entries:
+        name = per["variable"]
+        count, measured_with = list_entries[name], int(per.get("entries", 0))
+        if count == measured_with:
+            return None
+        each = float(per.get("minutes", 0))
+        base = max(0.0, (minutes - each * measured_with) + each * count)
+        note = (
+            f" ({_shown(minutes)} min at {measured_with} {name}, "
+            f"{_shown(each)} min per entry to {count})"
+        )
+        return base, note, []
+    changed = [
+        (name, count, measured_entries[name])
+        for name, count in list_entries.items()
+        if name in measured_entries and count != measured_entries[name]
+    ]
+    if len(changed) != 1 or changed[0][2] <= 0:
+        return None
+    name, count, measured_with = changed[0]
+    return minutes, "", [f"{name} {count} vs {measured_with}"]
 
 
 def _repriced(minutes, list_entries, measured_entries):
