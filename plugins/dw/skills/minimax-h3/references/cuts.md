@@ -90,8 +90,7 @@ Mouths and the pasted-over song (#795): `pair_audio` lays the original song over
 
 A player who doesn't sing, alone in a shot holding a sung slice of the song,
 didn't mouth the vocal, so a shot like that needs no closed-lips sentence
-and no vocal-free slice. Refuted on our server (#1561, the record is
-`docs/proposals/audits/2026-11-vrgdg-band-probes.md` P4): a drummer-only
+and no vocal-free slice. Refuted on our server (#1561, probe P4): a drummer-only
 shot, Ref2VA turbo 960x544 on `music-video`'s path (the song sliced, then
 held with `hold_audio`), two seeds. With no lips wording his mouth was
 closed at all six frames read inside the sung phrase, on both seeds.

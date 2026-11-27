@@ -86,8 +86,7 @@ Rules from the same source (#1685) that were not probed, and why:
 - **R11, one style line, verbatim:** already held in substance by a shared
   style phrase.
 - **R12, an expression sheet as an edit of the turnaround:** a generated
-  reference sheet gave no gain
-  (`docs/proposals/audits/2026-11-face-once-sheet.md`), and Klein's edit fails
+  reference sheet gave no gain (#1400), and Klein's edit fails
   at a reverse card (#1581).
 - **R13, "no text" in sheet prompts:** measured against. "No lettering" got
   pseudo-lettering on both seeds on H3 (`minimax-h3/references/dialogue.md`),

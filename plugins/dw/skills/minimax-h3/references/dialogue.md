@@ -3,14 +3,12 @@
 Part of the `minimax-h3` skill; its *Prompts* section says when to read this.
 
 Everything here was measured on our server, not taken from a prompt guide:
-T2VA turbo at 960x544, two seeds per arm, October 2026. The record, with job
-ids, is `docs/proposals/audits/2026-10-h3-dialogue-probes.md` in the
-diffusers-workflow repo; "row N" below is its verdict table. A rule is listed
-only where both seeds showed the effect when the rule was broken and neither
-did when it was kept.
+T2VA turbo at 960x544, two seeds per arm, October 2026. "Row N" below is a
+row of that run's verdict table, kept with its job ids in the
+diffusers-workflow repo. A rule is listed only where both seeds showed the
+effect when the rule was broken and neither did when it was kept.
 
-Lines that cite "pacing row N" come from a second record,
-`docs/proposals/audits/2026-11-h3-dialogue-pacing-probes.md` (#1184, November
+Lines that cite "pacing row N" come from a second record (#1184, November
 2026). It ran the skill's non-turbo dialogue settings (no LoRA, 12 steps,
 shifts 12/3, int4) at 960x544, 124 frames, one speaker, seeds 1001 and 2002.
 

@@ -61,8 +61,7 @@ generates cleanly, and the drift only shows up when two episodes are
 watched back to back. There is no engine check for "the same character
 looks the same" across separate runs; the fixed-asset reference is the only
 guard, so it has to be a deliberate, first step rather than an implicit one.
-As guidance, not a measured rule (`script-to-video` step 3;
-`docs/proposals/audits/2026-11-story-forge-lessons.md`): frame a recurring
+As guidance, not a measured rule (`script-to-video` step 3): frame a recurring
 character large. Cast each recurring set the same way: one place card (a
 Klein still of the set without the cast; an audience that belongs there
 stays) per location and look, kept as

@@ -11,7 +11,7 @@ Unless a row says otherwise, these are H3 chains at the template defaults:
 
 | What | Wall time | Source |
 | --- | --- | --- |
-| `templates/minimax/chained-segments` cost row, guide, 3 x 124 frames | 13.5 min | the template's `cost` (guide seam A/B, C-F311, `docs/proposals/complete/h3-guides-complete.md`); last_frame measured 9.6 |
+| `templates/minimax/chained-segments` cost row, guide, 3 x 124 frames | 13.5 min | the template's `cost` (guide seam A/B); last_frame measured 9.6 |
 | 10-segment take (about 43 s), check on, `retries: 0` | 20.6 min (S1), 18.2 min (S2) | `bench/records/check.md` |
 | 6-segment take, one segment re-rolled | 14.4 min | `bench/records/check.md` |
 | 2-minute take, guide, no counter | 52 min | `bench/records/counters.md`, *Round 3* |

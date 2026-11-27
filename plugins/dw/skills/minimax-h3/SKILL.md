@@ -194,5 +194,4 @@ A wanted look (clay, paper): `references/style.md`. Film-term camera or look: th
 
 ## Sources
 
-Sources read 2026-09-07: the audit
-`docs/proposals/audits/2026-09-07-minimax-h3-audit.md`.
+MiniMax's published sources, read 2026-09-07.

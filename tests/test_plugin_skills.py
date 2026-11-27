@@ -20,6 +20,19 @@ import pytest
 from tests.test_examples import REPO_ROOT
 
 PLUGIN_DIR = os.path.join(REPO_ROOT, "plugins", "dw")
+
+
+def intents_evidence(family, row):
+    """The evidence entry for one `intents.md` table line: the record behind a
+    row is held in tests/intents_evidence.json, never in the shipped index
+    (#1779)."""
+    with open(
+        os.path.join(REPO_ROOT, "tests", "intents_evidence.json"), encoding="utf-8"
+    ) as handle:
+        evidence = json.load(handle)
+    return evidence[family][row.strip().strip("|").split("|")[0].strip()]
+
+
 SKILLS = sorted(glob.glob(os.path.join(PLUGIN_DIR, "skills", "*", "SKILL.md")))
 SKILL_SIZE_LIMIT = 12 * 1024
 
@@ -793,7 +806,8 @@ class TestMiniMaxH3Skill:
     def test_the_band_probes_land_where_their_record_ruled(self):
         """#1528 stage B: the VRGDG band-video probes (#1561) were refuted
         (P1, P3, P4) or not settled (P2), so none is written as a rule. Each
-        sits under the file's *Probed* heading and cites the record."""
+        sits under the file's *Probed* heading and names the probe's issue; the
+        record's path stays out of the shipped text (#1779)."""
         record = "docs/proposals/audits/2026-11-vrgdg-band-probes.md"
         assert os.path.isfile(os.path.join(REPO_ROOT, record))
 
@@ -803,7 +817,7 @@ class TestMiniMaxH3Skill:
                 "## Reported from outside"
             )
         ]
-        assert record in probed
+        assert "#1561" in probed and "docs/proposals" not in staging
         assert "Refuted (P1)" in probed and "exactly three people" in probed
         assert "Refuted, with a timing note (P3)" in probed
         assert "put the exit in its first half" in probed
@@ -812,7 +826,7 @@ class TestMiniMaxH3Skill:
         cuts = self._h3_reference("cuts.md")
         heading = "## Probed, not a rule: a silent player under a held sung slice"
         p4 = cuts[cuts.index(heading) : cuts.index("## Probed, not a rule: odd shots")]
-        assert record in p4 and "P4" in p4
+        assert "#1561" in p4 and "P4" in p4 and "docs/proposals" not in cuts
         assert "needs no closed-lips sentence and no vocal-free slice" in p4
         # P4 didn't hold, so dialogue.md's silent-listener row stands without a
         # cross-reference and no vocal-free slice reaches the template
@@ -1697,7 +1711,14 @@ class TestMiniMaxMusic3Skill:
         assert "https://huggingface.co/MiniMaxAI/MiniMax-Music3" in text
         for tag in ("[Intro]", "[Pre-Chorus]", "[Bridge]", "[Instrumental]", "[Outro]"):
             assert tag in text, tag
-        assert "2026-09-08-minimax-music3-audit.md" in text
+        # the audit is the repo's own record; the shipped skill names the
+        # vendor's sources, never a repo path (#1779)
+        assert "docs/proposals" not in text
+        assert os.path.isfile(
+            os.path.join(
+                REPO_ROOT, "docs/proposals/audits/2026-09-08-minimax-music3-audit.md"
+            )
+        )
 
     def test_the_music_video_ceiling_clears_its_slices(self):
         """The sliced total is 496 frames at 24 fps; the ceiling must clear it
@@ -1817,7 +1838,8 @@ class TestStoryForgeLessons:
     """Story-forge's production lessons (#1123): only what held on dw's
     pipeline lands as a rule. The probes ruled lessons 1-4 and 6 not
     reproduced, so no skill states them; lesson 5 lands unmeasured, worded
-    as guidance and citing the findings doc."""
+    as guidance. The findings doc stays in the repo and out of the shipped
+    text (#1779)."""
 
     def test_the_findings_doc_rules_what_landed(self):
         text = open(
@@ -1829,13 +1851,13 @@ class TestStoryForgeLessons:
     @pytest.mark.parametrize(
         "path", [SCRIPT_SKILL, SERIES_SKILL], ids=["script-to-video", "series-episodes"]
     )
-    def test_lesson_5_is_framing_guidance_citing_the_findings(self, path):
+    def test_lesson_5_is_framing_guidance(self, path):
         body = " ".join(skill_body(path).split())
         assert "not a measured rule" in body
         assert "frame a recurring character large" in body
         # the wide master gave way to the place card (#1582)
         assert "keep a wide master too" not in body
-        assert STORY_FORGE_FINDINGS in body
+        assert "docs/proposals" not in body
 
     def test_lesson_5_sits_in_the_casting_steps(self):
         script = skill_body(SCRIPT_SKILL)
@@ -3177,7 +3199,8 @@ class TestCostumeChange:
             if "§ A costume change" in line
         ]
         assert len(rows) == 1
-        assert rows[0].rstrip().endswith("| untested |") and "#1591" in rows[0]
+        assert rows[0].rstrip().endswith("| untested |")
+        assert "#1591" in intents_evidence("minimax-h3", rows[0])
 
 
 CONTINUITY_NOTE = os.path.join(CINE_REFS, "continuity.md")
@@ -3310,5 +3333,8 @@ class TestContinuityNote:
                 if "`cinematography/references/continuity.md`" in line
             ]
             assert len(rows) == count, family
-            assert all(f"`{CONTINUITY_RECORD}`" in row for row in rows), family
+            assert all(
+                f"`{CONTINUITY_RECORD}`" in intents_evidence(family, row)
+                for row in rows
+            ), family
             assert not any("key light" in row for row in rows), family

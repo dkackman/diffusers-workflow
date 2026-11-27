@@ -170,5 +170,4 @@ caption spec, verbatim from the pipeline, which the caption must follow.
 
 Lightricks/LTX-2.5-Diffusers model card, the `ltx-pipelines` docs and CHANGELOG
 (github.com/Lightricks/LTX-2), docs.ltx.io prompting guide, the diffusers LTX-2
-pipelines and `utils.py`. Read 2026-10-02; audit
-`docs/proposals/audits/2026-10-02-ltx-2.5-audit.md`.
+pipelines and `utils.py`. Read 2026-10-02.

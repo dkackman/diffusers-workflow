@@ -15,8 +15,7 @@ that. Give each character their own reference instead.
 ## Probed and not a rule
 
 Tested on our server (Ref2VA turbo, 960x544, two seeds per arm,
-October 2026; the record is `docs/proposals/audits/2026-10-h3-aiskills-probes.md` in the
-diffusers-workflow repo, #1059), and not a rule:
+October 2026, #1059), and not a rule:
 
 - Refuted, but weakly: a style-only image reference didn't pull its person
   or composition into the shot. A watercolour of an old man at a window,
@@ -26,8 +25,7 @@ diffusers-workflow repo, #1059), and not a rule:
   reference H3 does follow.
 
 Tested on our server (Ref2VA turbo, 960x544, two seeds per arm, November
-2026; the record is `docs/proposals/audits/2026-11-longvideos-claims.md`,
-#1193), and not a rule:
+2026, #1193), and not a rule:
 
 - Refuted: a reference picture the prompt never names isn't drawn as
   another person. With a bearded man's portrait as an unnamed `<Picture 2>`,
@@ -44,8 +42,7 @@ Tested on our server (Ref2VA turbo, 960x544, two seeds per arm, November
   those words, or a picture with a bold print, wasn't run.
 
 Tested on our server (Ref2VA turbo, 960x544, two seeds per arm, November
-2026; the record is `docs/proposals/audits/2026-11-face-once-sheet.md`,
-#1400), and not a rule:
+2026, #1400), and not a rule:
 
 - No gain: a generated reference sheet (head panel plus body views) held
   the face no better than a single portrait. It scored 0.05-0.12 lower in

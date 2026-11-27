@@ -30,9 +30,8 @@ signature, and neither alone is. Judge it by ear with `get_output_audio`.
 
 ## Probed and not a rule
 
-Tested on our server (Ref2VA turbo, 960x544, two seeds, November 2026; the
-record is `docs/proposals/audits/2026-11-longvideos-claims.md`, #1193,
-claim 4), and not a rule:
+Tested on our server (Ref2VA turbo, 960x544, two seeds, November 2026,
+#1193 claim 4), and not a rule:
 
 - Refuted: leaving the portrait out of a continued segment, once the
   carried tail shows the person, doesn't stop her being drawn twice. With
