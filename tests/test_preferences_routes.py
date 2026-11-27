@@ -240,3 +240,15 @@ def test_writes_keep_the_overlay_whole_json(client):
         "default_tier": "draft",
         "preferences": {"qa_one": {"best": ["qa/a"]}, "qa_two": {"draft": ["qa/b"]}},
     }
+
+
+@pytest.mark.parametrize("target", ["../../etc/passwd", "/etc/passwd", "qa/nope"])
+def test_a_refused_target_names_no_server_path(client, tmp_path, target):
+    """SE-F085: a target that climbs out, sits outside every source, or is
+    absent is refused naming the target as written and the sources by
+    label - never the server's folders."""
+    answer = client.put("/api/preferences/qa_sec", json={"best": [target]})
+    assert answer.status_code == 422, answer.text
+    for folder in {str(tmp_path), os.path.realpath(str(tmp_path))}:
+        assert folder not in answer.text
+    assert _overlay() is None

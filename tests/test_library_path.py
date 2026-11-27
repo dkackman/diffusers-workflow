@@ -166,6 +166,12 @@ class TestSuggestions:
         ]
 
 
+def tmp_path_of(root):
+    """The folder the test's catalog sits in: the part of every server path
+    a refusal must not show."""
+    return root.parent
+
+
 class TestSubWorkflowResolution:
     """A composed step's relative path is confined to the root it is handed
     back with, so a name that climbs out of the catalog is never resolved -
@@ -211,18 +217,23 @@ class TestSubWorkflowResolution:
             )
         message = str(exc_info.value)
         assert "Looked in" in message
-        assert str(root) in message
-        assert str(outside) in message  # the underlying PathTraversalError
-        # already names the resolved (rejected) path
+        # the name as written and where it was judged, by label - never a
+        # server path (#1723, SE-F085): a remote caller learns nothing of
+        # the host's layout from a refusal
+        assert "'../../Outside.json'" in message
+        assert "the workspace's workflows" in message
+        assert str(tmp_path_of(root)) not in message
 
     def test_an_absolute_path_outside_every_source_says_where_it_looked(self, catalog):
         root, outside = catalog
         with pytest.raises(SecurityError) as exc_info:
             resolve_sub_workflow(str(outside), str(root / "templates"), str(root))
         message = str(exc_info.value)
-        assert str(outside) in message
         assert "Looked in" in message
-        assert str(root) in message
+        assert "the workspace's workflows" in message
+        # the caller's own path is echoed, the server's roots are not
+        assert str(outside) in message
+        assert str(root) not in message
 
     def test_an_unconfined_caller_still_confines_to_the_catalog(self, catalog):
         """No confine_to (a bare CLI run) confines to the catalog root the

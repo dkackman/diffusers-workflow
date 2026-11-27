@@ -30,6 +30,7 @@
   } from '../editor/workflowFile'
   import { resource } from '../resource.svelte'
   import LoadFailed from '../ui/LoadFailed.svelte'
+  import Skeleton from '../ui/Skeleton.svelte'
   import ErrorLine from '../ui/ErrorLine.svelte'
   import PageHeader from '../ui/PageHeader.svelte'
   import { notify } from '../toast'
@@ -320,16 +321,18 @@
 <div class="editing" bind:this={ed.root}>
   <div class="head">
     <PageHeader title={place.current || 'New workflow'} {back}>
-      <label class="wfidwrap">
-        <span class="wfidlabel">id</span>
-        <input
-          class="wfid"
-          bind:value={ed.doc.id}
-          placeholder="workflow id"
-          aria-label="workflow id"
-          title="the workflow's id - how it names itself, independent of the file name"
-        />
-      </label>
+      <!-- While a file is read the document is still the blank starter:
+           nothing of it is shown, so no edit lands there and is lost -->
+      {#if ed.loadState !== 'loading'}<label class="wfidwrap">
+          <span class="wfidlabel">id</span>
+          <input
+            class="wfid"
+            bind:value={ed.doc.id}
+            placeholder="workflow id"
+            aria-label="workflow id"
+            title="the workflow's id - how it names itself, independent of the file name"
+          />
+        </label>{/if}
       {#if ed.dirty}
         <span
           class="chip unsaved"
@@ -384,6 +387,8 @@
         ? startMissing
         : undefined}
     />
+  {:else if ed.loadState === 'loading'}
+    <Skeleton label="loading {name}" lines={6} />
   {:else}
     <DocumentFileBar
       {ed}

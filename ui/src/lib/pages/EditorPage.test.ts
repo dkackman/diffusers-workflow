@@ -262,7 +262,8 @@ describe('EditorPage primary action in every state', () => {
     cleanup()
 
     render(EditorPage, { name: 'e2e-card' })
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Run' })))
+    // the id field shows once the file is read: the edit lands on it
+    await waitFor(() => expect(screen.getByLabelText('workflow id')))
     await fireEvent.input(screen.getByLabelText('workflow id'), {
       target: { value: 'Changed' },
     })
@@ -347,6 +348,36 @@ describe('EditorPage validation plan', () => {
     await waitFor(() => expect(api.validate).toHaveBeenCalledTimes(1), {
       timeout: 5000,
     })
+  })
+
+  it('a document still being read shows no editable starter in its place', async () => {
+    // an edit made there went to the blank starter, and was lost when the
+    // read landed - a step opened full came back compact
+    let arrive!: (read: unknown) => void
+    vi.mocked(api.getWorkflow).mockReturnValueOnce(
+      new Promise((resolve) => (arrive = resolve)) as never,
+    )
+    render(EditorPage, { name: 'models/z-image' })
+    await quiet()
+    expect(screen.getByRole('status', { name: /loading/ })).toBeTruthy()
+    expect(screen.queryByLabelText('workflow id')).toBeNull()
+    expect(
+      screen.queryByRole('group', { name: 'step detail level' }),
+    ).toBeNull()
+    arrive({
+      definition: { id: 'Late', steps: [{ name: 'gen', pipeline: {} }] },
+      origin: 'workspace',
+      writable: true,
+      etag: '"e1"',
+    })
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText('workflow id') as HTMLInputElement).value,
+      ).toBe('Late'),
+    )
+    expect(
+      screen.getByRole('group', { name: 'step detail level' }),
+    ).toBeTruthy()
   })
 
   it('a new draft is checked without pressing Validate', async () => {

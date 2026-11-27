@@ -600,7 +600,11 @@ def _candidate_names(name):
 
 
 class SubWorkflowNotFound(Exception):
-    """A sub-workflow step's path names nothing on the search path."""
+    """A sub-workflow step's path names nothing on the search path.
+
+    `tried` is each candidate as `_describe_candidate` words it - a root's
+    label and the name inside it - so the refusal a remote caller reads
+    names no server folder (#1723, SE-F085)."""
 
     def __init__(self, path, tried):
         self.path = path
@@ -616,10 +620,55 @@ class SubWorkflowNotFound(Exception):
         )
 
 
+# What a refusal calls each root, by its origin tag: a server's folders are
+# its own business, and a remote caller reads these messages (#1723, SE-F085)
+_ROOT_LABELS = {
+    WORKSPACE_ORIGIN: "the workspace's workflows",
+    EXAMPLES_ORIGIN: "the examples",
+    BUILTIN_ORIGIN: "the builtin workflows",
+    COMMON_ORIGIN: "the common library",
+}
+# A root that is no library root: the catalog folder a composing workflow
+# sits in, on a run that named no workflow_dir
+_CATALOG_LABEL = "the composing workflow's catalog"
+
+
+def _root_label(root):
+    """What a refusal calls a LibraryRoot, or a bare folder that is none."""
+    if isinstance(root, LibraryRoot):
+        return _ROOT_LABELS.get(root.origin, "a workflow source")
+    return _CATALOG_LABEL
+
+
+def _spellings(folder):
+    """A folder as configured and resolved: validate_path hands back the
+    realpath (/tmp is /private/tmp on macOS)."""
+    return {os.path.abspath(folder), os.path.realpath(folder)}
+
+
+def _describe_candidate(candidate, roots):
+    """A path the resolver looked at, as the label of the root holding it
+    and the name inside that root - '<label>: minimax/x.json' - or, for one
+    in no root, that it is outside them. Never the absolute path."""
+    held = []
+    for root in roots:
+        folder = root.root if isinstance(root, LibraryRoot) else root
+        for spelling in _spellings(folder):
+            if candidate == spelling or candidate.startswith(spelling + os.sep):
+                held.append((len(spelling), root, spelling))
+    if not held:
+        return "a path outside every workflow source"
+    _, root, spelling = max(held, key=lambda h: h[0])
+    inside = os.path.relpath(candidate, spelling).replace(os.sep, "/")
+    return f"{_root_label(root)}: {inside}"
+
+
 def _describe_roots(roots):
-    """Roots this resolution consulted, for a refusal message - never empty
-    text, since a run with none configured still owes an answer."""
-    return ", ".join(roots) if roots else "(no workflow sources configured)"
+    """Roots this resolution consulted, by label, for a refusal message -
+    never empty text, since a run with none configured still owes an
+    answer, and never a server path."""
+    labels = list(dict.fromkeys(_root_label(root) for root in roots))
+    return ", ".join(labels) if labels else "(no workflow sources configured)"
 
 
 def resolve_sub_workflow(path, base_dir, confine_to):
@@ -653,12 +702,12 @@ def resolve_sub_workflow(path, base_dir, confine_to):
     # says whether it is the workspace's own
     library = library_path_from_env(WORKFLOWS_KIND, confine_to or None)
     primary = library.roots()[0] if confine_to else None
-    roots = [root.root for root in library.roots()]
+    roots = list(library.roots())
 
     tried = []
     if os.path.isabs(path):
         candidate = os.path.normpath(path)
-        tried.append(candidate)
+        tried.append(_describe_candidate(candidate, roots))
         holder = library.root_for_path(candidate)
         if holder is not None and os.path.isfile(candidate):
             return candidate, holder
@@ -669,8 +718,9 @@ def resolve_sub_workflow(path, base_dir, confine_to):
             # unqualified path back to validate_workflow_path for a refusal
             # that names only the rejected path and not where it looked
             # (#422)
+            # The caller's own path is echoed back; the roots by label only
             raise PathTraversalError(
-                f"Path outside every workflow source: {candidate}. Looked in: "
+                f"Path outside every workflow source: {path}. Looked in: "
                 + _describe_roots(roots)
             )
         # Unconfined (a bare CLI run naming no workflow_dir) - hand it back
@@ -689,7 +739,9 @@ def resolve_sub_workflow(path, base_dir, confine_to):
         # absent, the distinction the search path below keeps: the
         # PathTraversalError propagates to the caller
         root = confine_to or catalog_root(base_dir)
-        search_roots = [root] + [r for r in roots if r != root]
+        # The confinement by its library root's label where it is one
+        front = next((r for r in roots if r.root == os.path.abspath(root)), root)
+        search_roots = [front] + [r for r in roots if r is not front]
         for name in _candidate_names(path):
             # normpath first: validate_path refuses a '..' outright, so a
             # climb that stays inside the root has to be collapsed before it
@@ -702,12 +754,16 @@ def resolve_sub_workflow(path, base_dir, confine_to):
                     allow_create=True,
                 )
             except PathTraversalError as e:
-                # Same refusal, naming the search path rather than only the
-                # resolved (rejected) path (#422)
+                # The refusal names the path as written and the search path
+                # (#422), by label: validate_path's own message carries the
+                # resolved server path, which a remote caller must not read
+                # (#1723, SE-F085)
                 raise PathTraversalError(
-                    f"{e} Looked in: {_describe_roots(search_roots)}"
+                    f"Path outside allowed directory: '{path}' climbs out of "
+                    f"the workflow folder it is read from. Looked in: "
+                    f"{_describe_roots(search_roots)}"
                 ) from e
-            tried.append(candidate)
+            tried.append(_describe_candidate(candidate, search_roots))
             if os.path.isfile(candidate):
                 return candidate, primary
 
@@ -717,9 +773,9 @@ def resolve_sub_workflow(path, base_dir, confine_to):
         # traverses out of the root, and the file check is the next line
         candidate = library.path_in(root, path, allow_create=True)
         if candidate is None:
-            tried.append(f"{os.path.join(root.root, path)} (outside the root)")
+            tried.append(f"{_root_label(root)}: {path} (outside the root)")
             continue
-        tried.append(candidate)
+        tried.append(_describe_candidate(candidate, roots))
         if os.path.isfile(candidate):
             return candidate, root
 

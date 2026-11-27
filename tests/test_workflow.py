@@ -1129,10 +1129,14 @@ class TestSubWorkflowNameResolution:
         message = str(exc_info.value)
         assert "does-not-exist" in message
         assert "Looked in" in message
-        # every candidate is a real path it looked at, '.json' supplied -
-        # not a name reported as refused when it was simply absent
+        # every candidate it looked at, '.json' supplied - not a name
+        # reported as refused when it was simply absent
         assert "does-not-exist.json" in message
         assert "outside the root" not in message
+        # by the root's label and the name inside it, never a server path
+        # (#1723, SE-F085)
+        assert str(tmp_path) not in message
+        assert os.path.realpath(str(tmp_path)) not in message
 
 
 class TestComposedStepSavesOnce:
