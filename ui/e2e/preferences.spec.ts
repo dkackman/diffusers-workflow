@@ -55,6 +55,19 @@ test('editing a ladder re-checks it live and Discard restores it', async ({
   const chips = chain.locator('li.target')
   const before = await chips.locator('code').allTextContents()
 
+  const tier = (await chain.getAttribute('aria-label'))!.split(',')[0]!
+  const nameOf = (t: unknown) =>
+    typeof t === 'string' ? t : (t as { workflow: string }).workflow
+  // the dry run of the moved draft, not the check sent when the editor opened
+  const checked = page.waitForResponse((response) => {
+    if (!/\/api\/preferences\/[^/]+\/check/.test(response.url())) return false
+    const body = response.request().postDataJSON() as {
+      ladder?: Record<string, unknown[]>
+    }
+    const names = (body.ladder?.[tier] ?? []).map(nameOf)
+    return names[0] === before[1] && names[1] === before[0]
+  })
+
   await chips.first().focus()
   await page.keyboard.press('Alt+ArrowRight')
   await expect(chips.locator('code').first()).not.toHaveText(before[0]!)
@@ -63,10 +76,32 @@ test('editing a ladder re-checks it live and Discard restores it', async ({
     card.getByText(/Jobs already queued keep the model/),
   ).toBeVisible()
 
-  // the dry run answers within 2 s of the edit: no chip is left unjudged
-  await expect(
-    chain.locator('li.target.good, li.target.warn, li.target.bad').first(),
-  ).toBeVisible({ timeout: 2_000 })
+  // the dry run answers the edit, and the moved chip shows what that answer
+  // says of it
+  const response = await checked
+  expect(response.ok()).toBe(true)
+  const answer = (
+    (await response.json()) as {
+      tiers: Record<
+        string,
+        {
+          target?: string
+          skipped?: { workflow: string }[]
+          after?: string[]
+        }
+      >
+    }
+  ).tiers[tier]!
+  const moved = chips.nth(1)
+  await expect(moved.locator('code')).toHaveText(before[0]!)
+  if (answer.skipped?.some((s) => s.workflow === before[0])) {
+    await expect(moved.locator('s code')).toHaveText(before[0]!)
+  } else if (answer.target === before[0]) {
+    await expect(moved.getByText('runs here')).toBeVisible()
+  } else {
+    expect(answer.after ?? []).toContain(before[0])
+    await expect(moved.getByText('fallback, not checked here')).toBeVisible()
+  }
 
   await card.getByRole('button', { name: 'Discard' }).click()
   await expect(
