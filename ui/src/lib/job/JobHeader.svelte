@@ -1,12 +1,14 @@
 <script lang="ts">
-  import { Dices, PackageOpen, RotateCw, X } from '@lucide/svelte'
+  import { Dices, PackageOpen, RotateCw, Sparkles, X } from '@lucide/svelte'
   import StatusChip from '../ui/StatusChip.svelte'
   import { ApiError, api } from '../api'
   import { action } from '../action.svelte'
   import { confirmDialog } from '../confirm.svelte'
   import ActionButton from '../ui/ActionButton.svelte'
   import PageHeader from '../ui/PageHeader.svelte'
-  import { go } from '../router.svelte'
+  import { go, goCarrying } from '../router.svelte'
+  import { WORKFLOW_PREFILL_KEY } from '../workflowPrefill'
+  import { BETTER_WORKFLOW, betterOneArguments } from './betterOne'
   import { SECTION_LABELS, wsHref } from '../routes'
   import { workspace } from '../workspace.svelte'
   import CopyButton from '../CopyButton.svelte'
@@ -99,6 +101,23 @@
     },
     { doing: 'run it again' },
   )
+
+  // A first picture from the SD 1.5 template leads to the same prompt and
+  // seed on the model this server prefers: the page opens filled in, and
+  // Run is still the user's, after its check shows what that costs here
+  const better = $derived(job ? betterOneArguments(job, declared, seed) : null)
+  function makeBetter() {
+    if (!job || !better) return
+    goCarrying(
+      ['ws', job.workspace, 'workflows', ...BETTER_WORKFLOW.split('/')],
+      {
+        [WORKFLOW_PREFILL_KEY]: JSON.stringify({
+          workflow: BETTER_WORKFLOW,
+          arguments: better,
+        }),
+      },
+    )
+  }
 
   // A cancel loses the work so far, which only matters once there is some
   const CANCEL_ASKS_AFTER_S = 60
@@ -331,6 +350,17 @@
             <Dices size={14} />New seed
           </ActionButton>
         {/if}
+        {#if better}
+          <button
+            class="quiet promote"
+            type="button"
+            data-promotion="better-one"
+            onclick={makeBetter}
+            title="open the preferred text-to-image workflow with this prompt and seed - it picks the model this server prefers, larger and slower than this one, and nothing runs until you press Run"
+          >
+            <Sparkles size={14} />Make a better one
+          </button>
+        {/if}
         <RerunWithChanges
           {job}
           {declared}
@@ -350,5 +380,8 @@
 <style>
   .seed {
     font-size: 0.78rem;
+  }
+  .promote {
+    font-size: 0.85rem;
   }
 </style>

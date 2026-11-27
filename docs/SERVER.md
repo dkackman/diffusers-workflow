@@ -207,7 +207,8 @@ them instead.
   the workspace (disabled for `default`). Until **Got it** is pressed in
   this browser, a first-run card at the top says what dw is and links
   `templates/text-to-image` (the Examples page, or the Workflows page, when
-  the listing lacks it); storage that throws keeps the dismissal for the
+  the listing lacks it) and points at **Make a better one** on the finished
+  job's page; storage that throws keeps the dismissal for the
   session (`ui/src/lib/firstRun.ts`).
 - **Workflows** - every workflow on the workspace's own `--workflow-dir`, as
   cards with the last image it made, its summary, the server's observed run
@@ -292,7 +293,12 @@ them instead.
   variable with this run's values as placeholders; only the fields that differ
   are sent as the rerun's `arguments`), one button per other value of each
   `presets` selector the run declares (read from the workflow file as it is now;
-  an inline workflow has none), and **Export** (gathers the run into the workspace's `exports/` with
+  an inline workflow has none), **Make a better one** on a succeeded
+  `templates/text-to-image` job (opens `templates/preferred/text-to-image`
+  filled in with the job's prompt and seed, and no size or tier, so the
+  tier's size and the server's default tier apply; nothing is queued until
+  Run, so the run check shows any download first; `ui/src/lib/job/betterOne.ts`),
+  and **Export** (gathers the run into the workspace's `exports/` with
   `POST /api/jobs/{id}/export` and downloads the zip - the same bundle as
   MCP's `export_job`; replacing an existing export asks first). An `.otioz`
   among the results is drawn as a timeline strip (clips sized by duration, gaps
