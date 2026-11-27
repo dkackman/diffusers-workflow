@@ -69,19 +69,8 @@
   })
   const dw = $derived(dwRead.data)
   const dwUpdating = $derived(dw?.status === 'running')
-  // Release versions, with a pre-release (0.23.0-alpha.1) older than its release
-  function isNewer(latest: string, current: string): boolean {
-    const nums = (v: string) =>
-      (v.match(/^\d+(?:\.\d+)*/)?.[0] ?? '0').split('.').map(Number)
-    const a = nums(latest)
-    const b = nums(current)
-    for (let i = 0; i < Math.max(a.length, b.length); i++) {
-      const d = (a[i] ?? 0) - (b[i] ?? 0)
-      if (d !== 0) return d > 0
-    }
-    return /[a-z]/i.test(current) && !/[a-z]/i.test(latest)
-  }
-  const dwNewer = $derived(!!dw?.latest && isNewer(dw.latest, dw.version))
+  // The server's PEP 440 compare; null (unknown) offers no update
+  const dwNewer = $derived(dw?.newer === true)
 
   const updateDw = action(
     async () => {
@@ -252,7 +241,7 @@
               <RefreshCw size={14} />Update dw
             </button>
             <span class="muted">{dw.latest} is available</span>
-          {:else if dw.latest}
+          {:else if dw.newer === false}
             <span class="muted">up to date</span>
           {/if}
           {#if dw.status === 'failed'}

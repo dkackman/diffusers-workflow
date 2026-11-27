@@ -258,6 +258,7 @@ it('Update diffusers asks first and runs only on yes', async () => {
 const dwState = (over: Record<string, unknown>) => ({
   version: '0.23.0',
   latest: '0.24.0',
+  newer: true,
   managed: true,
   command: 'curl -LsSf https://example.test/bootstrap.sh | sh',
   status: 'idle',
@@ -284,10 +285,40 @@ it('Update dw on a managed server with a newer release asks, then runs', async (
 })
 
 it('a managed server already on the latest offers no update', async () => {
-  cache.dw = dwState({ latest: '0.23.0' })
+  cache.dw = dwState({ latest: '0.23.0', newer: false })
   render(ModelsPage)
   await screen.findByText('up to date')
   expect(screen.queryByRole('button', { name: /Update dw/ })).toBeNull()
+})
+
+it('the server decides newer: 0.10.0 over 0.9.0 offers the update', async () => {
+  cache.dw = dwState({ version: '0.9.0', latest: '0.10.0', newer: true })
+  render(ModelsPage)
+  await screen.findByRole('button', { name: /Update dw/ })
+  expect(screen.getByText('0.10.0 is available')).toBeTruthy()
+})
+
+it('newer false offers no update even when latest reads newer as a string', async () => {
+  cache.dw = dwState({ version: '1.0.0', latest: '1.0.0rc1', newer: false })
+  render(ModelsPage)
+  await screen.findByText('up to date')
+  expect(screen.queryByRole('button', { name: /Update dw/ })).toBeNull()
+})
+
+it('a null newer offers no update and claims nothing', async () => {
+  cache.dw = dwState({ latest: 'not a version', newer: null })
+  render(ModelsPage)
+  await screen.findByText('0.23.0')
+  expect(screen.queryByRole('button', { name: /Update dw/ })).toBeNull()
+  expect(screen.queryByText(/is available/)).toBeNull()
+  expect(screen.queryByText('up to date')).toBeNull()
+})
+
+it('an unmanaged server with a null newer names no available release', async () => {
+  cache.dw = dwState({ managed: false, latest: null, newer: null })
+  render(ModelsPage)
+  await screen.findByText(/bootstrap\.sh/)
+  expect(screen.queryByText(/is available/)).toBeNull()
 })
 
 it('a running dw update shows progress and keeps polling', async () => {

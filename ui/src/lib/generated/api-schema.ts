@@ -2759,6 +2759,11 @@ export interface components {
              */
             managed: boolean;
             /**
+             * Newer
+             * @description True when `latest` is a newer release than `version` (a PEP 440 compare); null when `latest` is null or either version can't be parsed.
+             */
+            newer: boolean | null;
+            /**
              * Status
              * @enum {string}
              */

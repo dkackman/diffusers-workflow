@@ -14,6 +14,7 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
+from packaging.version import InvalidVersion, Version
 from pydantic import BaseModel, Field
 
 from ..api_models import (
@@ -468,11 +469,24 @@ def update_diffusers(
 # ------------------------------------------------------------ dw update
 
 
+def _is_newer(latest, installed):
+    """PEP 440: is `latest` a newer release than `installed`? None when
+    `latest` is unknown or either string isn't a version."""
+    if latest is None:
+        return None
+    try:
+        return Version(latest) > Version(installed)
+    except InvalidVersion:
+        return None
+
+
 def _dw_state(request):
     state = request.app.state
+    latest = latest_version()
     return {
         "version": __version__,
-        "latest": latest_version(),
+        "latest": latest,
+        "newer": _is_newer(latest, __version__),
         "managed": bool(state.managed),
         "command": install_command(),
         **state.dw_updater.status(),

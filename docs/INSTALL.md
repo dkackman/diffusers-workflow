@@ -367,7 +367,8 @@ at the next release that has one, or after you remove your own marketplace
 and run `dw setup` again.
 
 **The Update dw button.** The Models page shows the installed dw version and,
-when PyPI has a newer release, an **Update dw** button. It runs the same
+when PyPI has a newer release (the server compares the versions by PEP 440,
+and offers nothing when it can't tell), an **Update dw** button. It runs the same
 upgrade inside the server (dw with torch held, diffusers to `main`, then
 `dw setup --yes --no-open --no-service`) and exits so the service manager
 restarts the server. The `dw setup` refresh is best effort: once pip has
