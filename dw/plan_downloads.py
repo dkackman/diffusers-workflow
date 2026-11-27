@@ -956,13 +956,23 @@ def _probe_gate_blocked(name, siblings):
 
 
 def _sub_workflow_paths(expanded):
-    """The local (non-builtin) sub-workflow path and composing arguments of
-    every composing step, as (path, arguments) - `expanded` has already
-    substituted and expanded `for_each`, so each occurrence carries the
-    concrete arguments that step actually passes the child (#341)."""
+    """`_composing_steps` without the step names."""
+    for _name, path, arguments in _composing_steps(expanded):
+        yield path, arguments
+
+
+def _composing_steps(expanded):
+    """Every composing step with a local (non-builtin) sub-workflow, as
+    (step name, path, arguments) - `expanded` has already substituted and
+    expanded `for_each`, so each occurrence carries the concrete arguments
+    that step actually passes the child (#341)."""
     for step in expanded.get("steps") or []:
         reference = step.get("workflow") if isinstance(step, dict) else None
         path = reference.get("path") if isinstance(reference, dict) else None
         if isinstance(path, str) and not references.is_ref(references.BUILTIN, path):
             arguments = reference.get("arguments")
-            yield path, arguments if isinstance(arguments, dict) else {}
+            yield (
+                step.get("name"),
+                path,
+                arguments if isinstance(arguments, dict) else {},
+            )

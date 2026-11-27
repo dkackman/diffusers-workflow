@@ -3,6 +3,7 @@ arguments given, fingerprinted so an acknowledgement can be bound to it."""
 
 import copy
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -18,7 +19,7 @@ from dw.plan import (
 from dw.cost_scaling import scale_curated
 from dw.step_cache import unseeded_cache_warnings
 from dw.runs import new_run_id
-from dw.workflow import workflow_from_definition
+from dw.workflow import workflow_from_definition, workflow_from_file
 
 
 def definition():
@@ -3792,3 +3793,72 @@ class TestDownloadsRequiredAfterMainMoved:
             lambda *a, **k: SimpleNamespace(etag=f'"{self.FILES[name]}"'),
         )
         assert dw.plan_downloads._blob_cached(self.REPO, name, str(tmp_path), True)
+
+
+def composing_included(child_path, **row):
+    parent = composing(child_path)
+    parent["cost"] = [{**cost("cuda", 8), "includes": {"measured": ["child"]}, **row}]
+    return parent
+
+
+class TestIncludedChildren:
+    """`cost[].includes`: a composed step the row's minutes already hold is
+    not added again (#1773)."""
+
+    @pytest.fixture(autouse=True)
+    def children(self, tmp_path):
+        for name, minutes in (("measured", 5), ("other", 3)):
+            child = {"id": name, "cost": [cost("cuda", minutes)], "steps": []}
+            (tmp_path / f"{name}.json").write_text(json.dumps(child))
+
+    @pytest.mark.parametrize("spelling", ["measured", "measured.json"])
+    def test_the_measured_child_adds_nothing(self, plan, spelling):
+        answer = plan(composing_included(spelling))["estimate"]
+        assert (answer["minutes"], answer["partial"]) == (8.0, False)
+        assert not answer.get("scaled")
+
+    def test_another_child_is_added_and_said_to_run_high(self, plan):
+        answer = plan(composing_included("other.json"))["estimate"]
+        assert answer["minutes"] == 11.0
+        assert "child: other.json added" in answer["scaled"]
+        assert "comes out high by that covered share" in answer["scaled"]
+
+    def test_a_step_the_row_does_not_name_is_added(self, plan):
+        parent = composing_included("measured.json")
+        parent["cost"][0]["includes"] = {"measured": ["elsewhere"]}
+        assert plan(parent)["estimate"]["minutes"] == 13.0
+
+
+REPO_ROOT = Path(__file__).parent.parent
+
+
+def minimax_estimate(name, arguments):
+    path = REPO_ROOT / f"workflows/templates/minimax/{name}.json"
+    workflow = workflow_from_file(str(path), "/tmp/outputs")
+    return build_plan(workflow, arguments, device="cuda", lookup_sizes=False)[
+        "estimate"
+    ]
+
+
+@pytest.mark.parametrize(
+    "name,minutes",
+    [("dialogue-short", 21.2), ("storyboard", 10.1), ("music-video", 35.0)],
+)
+def test_a_template_that_draws_with_z_image_quotes_its_own_row(name, minutes):
+    """#1773: the composed Z-Image drawing is inside the measured row."""
+    answer = minimax_estimate(name, {})
+    assert answer["minutes"] == minutes
+    assert "differs" not in answer or not answer["differs"]
+
+
+@pytest.mark.parametrize(
+    "steps,frames,minutes", [(12, [175], 7.8), (9, [175, 124], 10.0)]
+)
+def test_the_1773_calls_quote_the_rescaled_row(steps, frames, minutes):
+    path = REPO_ROOT / "workflows/templates/minimax/dialogue-short.json"
+    entries = json.loads(path.read_text())["variables"]["shots"]
+    shots = [{**entry, "num_frames": n} for entry, n in zip(entries, frames)]
+    answer = minimax_estimate(
+        "dialogue-short", {"num_inference_steps": steps, "shots": shots}
+    )
+    assert answer["minutes"] == minutes

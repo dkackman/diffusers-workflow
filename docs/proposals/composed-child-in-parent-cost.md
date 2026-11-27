@@ -1,6 +1,7 @@
 # A composed step already inside the parent's cost row (#1773)
 
-Status: proposed, awaiting approval.
+Status: approved and implemented. The approval added one rule: the quote for a
+named step running another child says in `scaled` that it comes out high.
 
 ## Problem
 
@@ -36,7 +37,7 @@ holds, by the child that was measured:
   `scaled` clause, no `differs`.
 - A named step that resolves to any other child (an override, or a different
   `preference:`) is priced as today. The quote is then high by the covered
-  child's share, which the entry does not state.
+  child's share, which the entry does not state; the estimate's `scaled` says so.
 - A step not named is priced as today.
 - The covered time scales with the parent's drivers, as it did before #1722.
 - A catalog test refuses a name that is not a composing step of the workflow.

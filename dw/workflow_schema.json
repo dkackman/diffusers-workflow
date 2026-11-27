@@ -81,6 +81,16 @@
                         },
                         "additionalProperties": false
                     },
+                    "includes": {
+                        "type": "object",
+                        "description": "Composed steps whose time 'minutes' already holds, keyed by the child workflow that was measured ({\"models/z-image\": [\"draw_a\"]}). A named step resolving to that child adds nothing to the estimate; resolving to any other child it is priced on top, and the estimate's 'scaled' says the quote is high by the covered share. A for_each step is named as written.",
+                        "additionalProperties": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "minItems": 1,
+                            "uniqueItems": true
+                        }
+                    },
                     "per_entry": {
                         "type": "object",
                         "description": "For a list-driven workflow: the measured cost of one entry of 'variable' (every member it produces), and the length of the default list 'minutes' was measured with, so a run over N entries is (minutes - per_entry.minutes * entries) + per_entry.minutes * N.",

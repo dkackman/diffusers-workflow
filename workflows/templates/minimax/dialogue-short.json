@@ -8,6 +8,12 @@
             "name": "RTX 3090",
             "vram_gb": 24,
             "minutes": 21.2,
+            "includes": {
+              "models/z-image": [
+                "draw_character_a",
+                "draw_character_b"
+              ]
+            },
             "video_reference_exponent": 2.0,
             "first_at_shape": {
                 "minutes": 6.0,
