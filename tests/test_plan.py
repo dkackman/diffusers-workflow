@@ -3920,3 +3920,37 @@ def test_the_1773_calls_quote_the_rescaled_row(steps, frames, minutes):
         "dialogue-short", {"num_inference_steps": steps, "shots": shots}
     )
     assert answer["minutes"] == minutes
+
+
+class TestPriceOwnsItsRepricingText:
+    """`_price` returns the re-priced figure and the (base, note, axes) the
+    `scaled` text names from one computation, so the two cannot drift
+    (#1773 architecture review)."""
+
+    def test_a_linear_resize_names_the_rows_minutes_and_the_length(self):
+        from dw.plan_pricing import _price
+
+        cost = [{"device": "cuda", "minutes": 21.2}]
+        price, repricing = _price(cost, "cuda", {"shots": 1}, {"shots": 5})
+        assert repricing == (21.2, "", ["shots 1 vs 5"])
+        assert price["minutes"] == pytest.approx(21.2 * 1 / 5)
+        assert price["basis"] == "derived"
+
+    def test_a_per_entry_rate_names_the_repriced_base(self):
+        from dw.plan_pricing import _price
+
+        per = {"variable": "shots", "minutes": 3, "entries": 2}
+        cost = [{"device": "cuda", "minutes": 10, "per_entry": per}]
+        price, repricing = _price(cost, "cuda", {"shots": 5}, {"shots": 2})
+        base, note, axes = repricing
+        assert base == price["minutes"] == pytest.approx(19.0)
+        assert note == " (10 min at 2 shots, 3 min per entry to 5)"
+        assert axes == []
+
+    def test_an_unmoved_list_has_no_repricing(self):
+        from dw.plan_pricing import _price
+
+        cost = [{"device": "cuda", "minutes": 21.2}]
+        price, repricing = _price(cost, "cuda", {"shots": 5}, {"shots": 5})
+        assert repricing is None
+        assert price["minutes"] == pytest.approx(21.2)

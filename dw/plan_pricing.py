@@ -100,7 +100,9 @@ def _own_price(
     definition, expanded, list_entries, device, measured_entries, base_dir=None
 ):
     """The workflow's own price, scaled along the cost drivers that moved."""
-    own = _price(definition.get("cost"), device, list_entries, measured_entries or {})
+    own, repricing = _price(
+        definition.get("cost"), device, list_entries, measured_entries or {}
+    )
     # `derived` and `per_entry` are re-priced by entry count alone, so a
     # per-entry num_frames is scaled as well (#796)
     if own["basis"] in (CATALOG, OTHER_DEVICE, DERIVED, PER_ENTRY):
@@ -111,9 +113,7 @@ def _own_price(
             own,
             _driver_scaling(definition, expanded, list_entries, base_dir=base_dir),
             fixed_minutes(_choose_entry(definition.get("cost"), device)[0]),
-            _repricing(
-                definition.get("cost"), device, list_entries, measured_entries or {}
-            ),
+            repricing,
         )
         # A words-checked chain's Whisper passes, on top (#1262)
         own = with_words_check(own, definition, expanded)
@@ -179,7 +179,9 @@ def _child_catalog_price(child_definition, child_cost, step_arguments, device):
             "variables": effective_variables(child_definition, step_arguments)
         }
         child_list_entries = list_entries(child_definition, child_expanded)
-    child = _price(child_cost, device, child_list_entries, child_measured_entries)
+    child, repricing = _price(
+        child_cost, device, child_list_entries, child_measured_entries
+    )
     if (
         child["basis"] in (CATALOG, OTHER_DEVICE, DERIVED, PER_ENTRY)
         and child_definition is not None
@@ -192,7 +194,7 @@ def _child_catalog_price(child_definition, child_cost, step_arguments, device):
             child,
             _driver_scaling(child_definition, child_expanded, child_list_entries),
             fixed_minutes(_choose_entry(child_cost, device)[0]),
-            _repricing(child_cost, device, child_list_entries, child_measured_entries),
+            repricing,
         )
         child = with_words_check(child, child_definition, child_expanded)
     return child
@@ -367,7 +369,7 @@ def _unresolved_list_note(path, child_cost, step_arguments, device):
 
 def _price(cost, device, list_entries, measured_entries):
     """One cost list priced for `device` and `list_entries`, as
-    {minutes, basis, measured_on}.
+    ({minutes, basis, measured_on}, repricing).
 
     `measured_entries` is the list length the figure was measured with -
     the workflow's stored defaults. When the caller's list differs and the
@@ -375,68 +377,58 @@ def _price(cost, device, list_entries, measured_entries):
     linearly over it and reported as 'derived'; when more than one list
     changed there is nothing honest to extrapolate along, so the figure is
     withheld rather than quoted for the wrong list.
+
+    `repricing` says how a resized list re-priced the row, as the (base
+    minutes, note, leading axes) `_scaled` names, so base x the ratios named
+    is the figure (#1773); None when the length did not move it. Built here,
+    from the values the figure was computed with, so the `scaled` text and
+    the minutes have one owner. Linear in the length: the row's own minutes
+    and a length ratio. A `per_entry` rate is no ratio: the re-priced base
+    and how it was reached.
     """
     chosen, basis = _choose_entry(cost, device)
     if chosen is None:
-        return {"minutes": None, "basis": UNKNOWN, "measured_on": None}
+        return {"minutes": None, "basis": UNKNOWN, "measured_on": None}, None
     minutes = float(chosen.get("minutes", 0))
     per = chosen.get("per_entry")
+    repricing = None
     # Another device's figure is re-priced for the list length too (#589): it
     # stays `other_device` (still not a measurement here), but a 32-entry
     # for_each must not be quoted at the one-clip figure
     if isinstance(per, dict) and per.get("variable") in list_entries:
-        count = list_entries[per["variable"]]
+        name = per["variable"]
+        count = list_entries[name]
         each = float(per.get("minutes", 0))
         measured_with = int(per.get("entries", 0))
-        minutes = max(0.0, (minutes - each * measured_with) + each * count)
+        repriced = max(0.0, (minutes - each * measured_with) + each * count)
+        if count != measured_with:
+            note = (
+                f" ({_shown(minutes)} min at {measured_with} {name}, "
+                f"{_shown(each)} min per entry to {count})"
+            )
+            repricing = (repriced, note, [])
+        minutes = repriced
         if basis == CATALOG:
             basis = PER_ENTRY
     else:
-        minutes, repriced_basis = _repriced(minutes, list_entries, measured_entries)
+        repriced, repriced_basis, lead = _repriced(
+            minutes, list_entries, measured_entries
+        )
         if repriced_basis == UNKNOWN:
-            return {"minutes": None, "basis": UNKNOWN, "measured_on": None}
+            return {"minutes": None, "basis": UNKNOWN, "measured_on": None}, None
+        if lead:
+            repricing = (minutes, "", [lead])
+        minutes = repriced
         if basis == CATALOG:
             basis = repriced_basis
-    return {"minutes": minutes, "basis": basis, "measured_on": chosen.get("name")}
-
-
-def _repricing(cost, device, list_entries, measured_entries):
-    """How `_price` re-priced the chosen row for a resized list, as the
-    (base minutes, note, leading axes) `_scaled` names (#1773), or None when
-    it did not: base x the ratios named is then the figure. Linear in the
-    length, the row's own minutes and a length ratio; a `per_entry` rate
-    is no ratio, so the re-priced base and how it was reached."""
-    chosen = _choose_entry(cost, device)[0]
-    if chosen is None:
-        return None
-    minutes = float(chosen.get("minutes", 0))
-    per = chosen.get("per_entry")
-    if isinstance(per, dict) and per.get("variable") in list_entries:
-        name = per["variable"]
-        count, measured_with = list_entries[name], int(per.get("entries", 0))
-        if count == measured_with:
-            return None
-        each = float(per.get("minutes", 0))
-        base = max(0.0, (minutes - each * measured_with) + each * count)
-        note = (
-            f" ({_shown(minutes)} min at {measured_with} {name}, "
-            f"{_shown(each)} min per entry to {count})"
-        )
-        return base, note, []
-    changed = [
-        (name, count, measured_entries[name])
-        for name, count in list_entries.items()
-        if name in measured_entries and count != measured_entries[name]
-    ]
-    if len(changed) != 1 or changed[0][2] <= 0:
-        return None
-    name, count, measured_with = changed[0]
-    return minutes, "", [f"{name} {count} vs {measured_with}"]
+    price = {"minutes": minutes, "basis": basis, "measured_on": chosen.get("name")}
+    return price, repricing
 
 
 def _repriced(minutes, list_entries, measured_entries):
     """A catalog total re-priced for a list the caller lengthened or
-    shortened, as (minutes, basis).
+    shortened, as (minutes, basis, the length ratio it was scaled by - e.g.
+    `shots 1 vs 5` - or None when nothing was re-priced).
 
     Linear in the entry count: the figure was measured over
     `measured_entries` entries and the run does `list_entries` of them, so
@@ -447,18 +439,22 @@ def _repriced(minutes, list_entries, measured_entries):
     beats it.
     """
     changed = [
-        (count, measured_entries[name])
+        (name, count, measured_entries[name])
         for name, count in list_entries.items()
         if name in measured_entries and count != measured_entries[name]
     ]
     if not changed:
-        return minutes, CATALOG
+        return minutes, CATALOG, None
     if len(changed) > 1:
-        return None, UNKNOWN
-    count, measured_with = changed[0]
+        return None, UNKNOWN, None
+    name, count, measured_with = changed[0]
     if measured_with <= 0:
-        return None, UNKNOWN
-    return minutes * count / measured_with, DERIVED
+        return None, UNKNOWN, None
+    return (
+        minutes * count / measured_with,
+        DERIVED,
+        f"{name} {count} vs {measured_with}",
+    )
 
 
 # The registrations' declared task rates (`register_command(cost=...)`,
