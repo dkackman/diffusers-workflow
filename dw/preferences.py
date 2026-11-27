@@ -369,16 +369,16 @@ def _over_card(definition, arguments, host, child):
     return None
 
 
-def unchecked_fit_note(definition, arguments, host, child=None):
+def unchecked_fit_notes(definition, arguments, host, child=None):
     """What to say of a target chosen on a card smaller than the one its
-    `cost` was measured on, or None: a soft figure never skips."""
+    `cost` was measured on - one note, or none: a soft figure never skips."""
     over = _over_card(definition, arguments, host, child)
     if over is None or over[1]:
-        return None
-    return (
+        return []
+    return [
         f"measured on a {over[0]:g} GB card; this one has "
         f"{host.smallest_card_gb:.0f} GB, so the fit is not checked"
-    )
+    ]
 
 
 def skip_reason(definition, arguments, devices, host, child=None):
@@ -518,9 +518,7 @@ def resolve(path, tier, host, open_target, store, *, pinned=None):
         if reason is not None:
             skipped.append({"workflow": name, "reason": reason})
             continue
-        unchecked = unchecked_fit_note(definition, arguments, host, child)
-        if unchecked:
-            notes.append(unchecked)
+        notes.extend(unchecked_fit_notes(definition, arguments, host, child))
         return Resolution(
             path=path,
             tier=tier,
