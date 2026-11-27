@@ -71,6 +71,14 @@ def _read_box(content_box):
     return parts
 
 
+def _picked(frames, picks):
+    """`frames` at `picks`, an array staying an array so float frames are
+    not rounded through uint8."""
+    if isinstance(frames, numpy.ndarray):
+        return frames[picks]
+    return [frames[i] for i in picks]
+
+
 def paste_into_box(generated, source, content_box, feather=16):
     """Task command: put a source clip back inside a box of a generated clip.
 
@@ -86,7 +94,9 @@ def paste_into_box(generated, source, content_box, feather=16):
         generated: The generated clip - an earlier step's video, or an
             `asset:`/`output:` reference. Its soundtrack, fps and shots are
             the result's
-        source: The clip to paste back, with one frame per generated frame
+        source: The clip to paste back, with one frame per generated frame;
+            given the fit record, the clip the fit was made from at any
+            length, cut or held to the model's frames as fit_to_model did
         content_box: Where the source goes - a box {x, y, w, h} in
             `generated`'s pixels, or the record fit_to_model returned
             (previous_result:<step>.fit, or its saved .json), whose
@@ -112,7 +122,13 @@ def paste_into_box(generated, source, content_box, feather=16):
     count = len(generated_frames)
     if count == 0:
         raise ValueError(f"{COMMAND} needs 'generated' with at least one frame")
-    if len(source_frames) != count:
+    # fit_to_model cut a long source to the model's frames and held a short
+    # one's last frame; the original clip handed back follows the same rule
+    picks = numpy.arange(count)
+    refit = record is not None and record.get("model_frames") == count
+    if refit:
+        picks = numpy.minimum(picks, len(source_frames) - 1)
+    elif len(source_frames) != count:
         raise ValueError(
             f"{COMMAND} needs 'source' with one frame per frame of "
             f"'generated': 'generated' has {count} frames, 'source' "
@@ -124,6 +140,16 @@ def paste_into_box(generated, source, content_box, feather=16):
         raise ValueError(
             f"{COMMAND} needs 'content_box' inside 'generated': the box "
             f"{box} runs outside its {frame_width}x{frame_height} frame"
+        )
+    if record is not None and (
+        record.get("model_width"),
+        record.get("model_height"),
+    ) != (frame_width, frame_height):
+        raise ValueError(
+            f"{COMMAND} needs 'generated' at the size the fit record was made "
+            f"for: the record's frame is {record.get('model_width')}x"
+            f"{record.get('model_height')}, 'generated' is "
+            f"{frame_width}x{frame_height}"
         )
     source_first = float_frames(source_frames[:1], COMMAND)
     source_height, source_width = source_first.shape[1:3]
@@ -153,7 +179,12 @@ def paste_into_box(generated, source, content_box, feather=16):
                 f"{frame_width}x{frame_height}"
             )
         scaled = resize_frames(
-            cut_box(float_frames(source_frames[start:stop], COMMAND), kept), w, h
+            cut_box(
+                float_frames(_picked(source_frames, picks[start:stop]), COMMAND),
+                kept,
+            ),
+            w,
+            h,
         )
         region = chunk[:, y : y + h, x : x + w]
         # Where the weight is 1 the source is taken as it is, not through the

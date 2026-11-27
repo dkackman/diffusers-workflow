@@ -1431,7 +1431,10 @@ feathered at its top and bottom only. `feather: 0` is a hard edge.
 `content_box` is the `fit` record `fit_to_model` returned (or its saved
 .json): the source is cut to the record's `source_box` before it is scaled,
 so an `align`-snapped letterbox lines up pixel for pixel, and a source of
-another size than the record's is refused. A bare box `{x, y, w, h}` (or
+another size than the record's is refused, as is a `generated` clip that is not
+the record's model size. With the record, `source` is the original clip at any
+length: it is cut or held to the model's frame count the way `fit_to_model`
+did. With a bare box it needs one frame per generated frame. A bare box `{x, y, w, h}` (or
 `[x, y, w, h]`) in `generated`'s pixels works too; the source is then scaled
 to fill it and centre-cropped.
 

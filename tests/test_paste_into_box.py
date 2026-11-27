@@ -220,6 +220,40 @@ class TestPasteIntoBox:
         with pytest.raises(ValueError, match="one frame per frame"):
             paste_into_box(generated(count=2), self.source, self.fit["fit"])
 
+    @pytest.mark.parametrize("frames", [COUNT + 3, COUNT - 2])
+    def test_a_source_of_another_length_is_cut_or_held_as_the_fit_did(self, frames):
+        """fit_to_model cut or held the source to the model's frame count,
+        so the original clip handed back as `source` follows the same rule."""
+        source = clip(*SOURCE, count=frames)
+        fit = fit_to_model(
+            source, width=CANVAS[0], height=CANVAS[1], num_frames=COUNT, align=32
+        )
+        out = paste_into_box(self.generated, source, fit["fit"], feather=0)
+        box = fit["fit"]["content_box"]
+        rows = slice(box["y"], box["y"] + box["h"])
+        cols = slice(box["x"], box["x"] + box["w"])
+        assert len(out.frames) == COUNT
+        assert numpy.array_equal(
+            numpy.asarray(out.frames)[:, rows, cols],
+            numpy.asarray(fit["video"])[:, rows, cols],
+        )
+
+    def test_a_bare_box_still_needs_one_source_frame_per_frame(self):
+        with pytest.raises(ValueError, match="one frame per frame"):
+            paste_into_box(
+                self.generated, clip(*SOURCE, count=COUNT + 3), [0, 320, 544, 320]
+            )
+
+    def test_a_generated_clip_of_another_size_than_the_records_is_refused(self):
+        doubled = AudioVideo(
+            numpy.zeros((COUNT, CANVAS[1] * 2, CANVAS[0] * 2, 3), numpy.float32),
+            None,
+            None,
+            fps=24,
+        )
+        with pytest.raises(ValueError, match=f"{CANVAS[0]}x{CANVAS[1]}"):
+            paste_into_box(doubled, self.source, self.fit["fit"])
+
     def test_a_box_outside_generated_is_refused(self):
         box = {"x": 0, "y": 700, "w": 544, "h": 320}
         with pytest.raises(ValueError, match="content_box"):
