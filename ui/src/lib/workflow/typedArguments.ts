@@ -13,9 +13,28 @@ export function typedArguments(
   return Object.fromEntries(
     Object.entries(overrides)
       .filter(([, raw]) => raw.trim() !== '')
-      .map(([key, raw]) => [
-        key,
-        coerce(widgetFor(undefined, declared[key]), raw),
-      ]),
+      .map(([key, raw]) => [key, typed(raw, declared[key])]),
   )
+}
+
+function typed(raw: string, fallback: unknown): unknown {
+  if (fallback === null) return container(raw) ?? raw
+  const value = coerce(widgetFor(undefined, fallback), raw)
+  // A list default takes a list. A bare `5` parses as a number, which the
+  // engine cannot make a list of; as text it is split into one
+  if (Array.isArray(fallback) && !Array.isArray(value)) return raw
+  return value
+}
+
+/** A typed JSON list or object, for a variable declared null (a script's
+ * `lines`, a cut's `shots`): the declaration says nothing of the type, so
+ * only what is plainly a container is read as one. Undefined otherwise */
+function container(raw: string): unknown {
+  const text = raw.trim()
+  if (!text.startsWith('[') && !text.startsWith('{')) return undefined
+  try {
+    return JSON.parse(text) as unknown
+  } catch {
+    return undefined
+  }
 }

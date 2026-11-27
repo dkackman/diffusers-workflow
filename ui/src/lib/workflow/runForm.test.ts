@@ -6,6 +6,7 @@ import {
   openingValues,
   essentials,
   readDraft,
+  runArguments,
   seedVariable,
   writeDraft,
 } from './runForm'
@@ -115,5 +116,13 @@ describe('a prefill is not a draft', () => {
       a: 'old',
       b: '3',
     })
+  })
+})
+
+it('an override for a variable the workflow no longer declares is not sent', () => {
+  // typed before a quiet reload dropped the variable: its field is gone,
+  // and the server would refuse the run for a name nothing here shows
+  expect(runArguments({ foo: 'x', prompt: 'y' }, { prompt: 'a cat' })).toEqual({
+    prompt: 'y',
   })
 })

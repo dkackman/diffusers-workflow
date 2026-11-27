@@ -36,3 +36,37 @@ it('a boolean field typed yes is sent as text, not false', () => {
     keep: 'asset:on.txt',
   })
 })
+
+it('a null default takes a typed list or object as JSON, and text as text', () => {
+  // a required variable the workflow declares null: a script's `lines`, a
+  // cut's `shots`. Sent as a string, the task refuses it
+  const declared = { lines: null, shots: null, note: null, count: null }
+  expect(
+    typedArguments(
+      {
+        lines: ' ["hello there"] ',
+        shots: '{"a":1}',
+        note: 'hello',
+        count: '5',
+      },
+      declared,
+    ),
+  ).toEqual({
+    lines: ['hello there'],
+    shots: { a: 1 },
+    note: 'hello',
+    count: '5',
+  })
+  // a bracket that is not JSON is still what was typed
+  expect(typedArguments({ lines: '[draft' }, declared)).toEqual({
+    lines: '[draft',
+  })
+})
+
+it('a list default takes a bare scalar as text, as the engine splits it', () => {
+  const declared = { sizes: [1] }
+  expect(typedArguments({ sizes: '5' }, declared)).toEqual({ sizes: '5' })
+  expect(typedArguments({ sizes: 'true' }, declared)).toEqual({ sizes: 'true' })
+  expect(typedArguments({ sizes: '[5]' }, declared)).toEqual({ sizes: [5] })
+  expect(typedArguments({ sizes: 'a, b' }, declared)).toEqual({ sizes: 'a, b' })
+})

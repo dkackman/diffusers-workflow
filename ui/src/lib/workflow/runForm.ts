@@ -17,7 +17,12 @@ export function runArguments(
   overrides: Record<string, string>,
   declared: Record<string, unknown>,
 ): Record<string, unknown> {
-  return typedArguments(overrides, declared)
+  // only what the workflow declares now: a variable a reload dropped has no
+  // field left to show the server's refusal under
+  const current = Object.fromEntries(
+    Object.entries(overrides).filter(([key]) => Object.hasOwn(declared, key)),
+  )
+  return typedArguments(current, declared)
 }
 
 /** What Enhance starts from: what is typed, else the default - unless that

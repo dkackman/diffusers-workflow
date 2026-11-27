@@ -103,3 +103,11 @@ it('a title taken from the message has no detail', () => {
   expect(d.title).toBe('Name is taken')
   expect(d.detail).toBeUndefined()
 })
+
+it('an upload over the limit is a refusal that says so, with the server detail', () => {
+  const d = describeError(
+    new ApiError('Upload too large: 300000000 > 209715200', 413),
+  )
+  expect(d.kind).toBe('refused')
+  expect(d.title).toBe('This file is too large to upload')
+})

@@ -194,6 +194,8 @@ function byStatus(
     )
   }
   if (status === 404) return titled('not_found', `${what} wasn't found`)
+  if (status === 413)
+    return titled('refused', 'This file is too large to upload')
   if (REFUSED.has(status)) {
     return titled('refused', cutAtWord(firstLine(message), REFUSAL_TITLE_MAX))
   }
