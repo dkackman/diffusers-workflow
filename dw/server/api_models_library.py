@@ -1025,3 +1025,43 @@ class DefaultTierWrite(ApiModel):
 class DefaultTierSet(ApiModel):
     default_tier: PreferenceTier
     etag: str
+
+
+class PreferenceCheckRequest(ApiModel):
+    ladder: dict[str, Any] = Field(
+        description="The unsaved ladder: tier -> an ordered list of targets."
+    )
+    full: bool = Field(
+        False,
+        description="Probe gated access and downloads as admission does (Hub "
+        "calls); false reads only what is on this box.",
+    )
+    known_blocked: list[str] = Field(
+        default_factory=list,
+        description="With `full=false`: targets the last full check found "
+        "gated for this box, skipped without asking the Hub.",
+    )
+
+
+class PreferenceTierCheck(ApiModel):
+    """What saving the ladder would give at one tier."""
+
+    target: str = sometimes("The workflow this host would resolve the tier to.")
+    skipped: list[Any] = sometimes("Each earlier target passed over, with the reason.")
+    notes: list[str] = sometimes()
+    after: list[str] = sometimes(
+        "The targets after the pick: fallbacks, not checked here."
+    )
+    error: str = sometimes("The refusal validate would give at this tier.")
+    target_errors: dict[str, str] = sometimes(
+        "Target -> why saving the ladder would refuse it."
+    )
+    warnings: dict[str, list[str]] = sometimes(
+        "Target -> each argument the key's contract requires that it does not take."
+    )
+
+
+class PreferenceCheck(ApiModel):
+    tiers: dict[str, PreferenceTierCheck] = Field(
+        description="Per tier in the ladder, in tier order."
+    )

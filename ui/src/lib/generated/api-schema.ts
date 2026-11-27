@@ -1409,6 +1409,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/preferences/{key}/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check Preference
+         * @description What saving `ladder` under `key` would give, without saving it: this
+         *     host's pick per tier, the targets after it, each target a PUT would
+         *     refuse and each argument of the key's shipped contract a target does not
+         *     take. A key not in the store is allowed; a ladder of the wrong shape is
+         *     a 422. `full=false` makes no Hub calls - a target in `known_blocked` is
+         *     skipped as gated - and `full=true` probes as admission does.
+         */
+        post: operations["check_preference_api_preferences__key__check_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/prompt-schema": {
         parameters: {
             query?: never;
@@ -4814,6 +4839,37 @@ export interface components {
              */
             runs: number;
         };
+        /** PreferenceCheck */
+        PreferenceCheck: {
+            /**
+             * Tiers
+             * @description Per tier in the ladder, in tier order.
+             */
+            tiers: {
+                [key: string]: components["schemas"]["PreferenceTierCheck"];
+            };
+        };
+        /** PreferenceCheckRequest */
+        PreferenceCheckRequest: {
+            /**
+             * Full
+             * @description Probe gated access and downloads as admission does (Hub calls); false reads only what is on this box.
+             * @default false
+             */
+            full: boolean;
+            /**
+             * Known Blocked
+             * @description With `full=false`: targets the last full check found gated for this box, skipped without asking the Hub.
+             */
+            known_blocked?: string[];
+            /**
+             * Ladder
+             * @description The unsaved ladder: tier -> an ordered list of targets.
+             */
+            ladder: {
+                [key: string]: unknown;
+            };
+        };
         /**
          * PreferenceContract
          * @description The arguments every target of a key takes, from the shipped file.
@@ -4954,6 +5010,48 @@ export interface components {
              * @description With `resolve=true&full=true`: the catalog workflows that reach this key, directly or through composed workflows, sorted.
              */
             used_by?: string[];
+        };
+        /**
+         * PreferenceTierCheck
+         * @description What saving the ladder would give at one tier.
+         */
+        PreferenceTierCheck: {
+            /**
+             * After
+             * @description The targets after the pick: fallbacks, not checked here.
+             */
+            after?: string[];
+            /**
+             * Error
+             * @description The refusal validate would give at this tier.
+             */
+            error?: string;
+            /** Notes */
+            notes?: string[];
+            /**
+             * Skipped
+             * @description Each earlier target passed over, with the reason.
+             */
+            skipped?: unknown[];
+            /**
+             * Target
+             * @description The workflow this host would resolve the tier to.
+             */
+            target?: string;
+            /**
+             * Target Errors
+             * @description Target -> why saving the ladder would refuse it.
+             */
+            target_errors?: {
+                [key: string]: string;
+            };
+            /**
+             * Warnings
+             * @description Target -> each argument the key's contract requires that it does not take.
+             */
+            warnings?: {
+                [key: string]: string[];
+            };
         };
         /** PreferencesRead */
         PreferencesRead: {
@@ -7922,6 +8020,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PreferenceReset"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    check_preference_api_preferences__key__check_post: {
+        parameters: {
+            query?: {
+                workspace?: string | null;
+            };
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreferenceCheckRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreferenceCheck"];
                 };
             };
             /** @description Validation Error */

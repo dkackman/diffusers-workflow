@@ -59,6 +59,8 @@ from .. import updater as updater_module
 from ..api_models_library import (
     DefaultTierSet,
     DefaultTierWrite,
+    PreferenceCheck,
+    PreferenceCheckRequest,
     PreferenceReset,
     PreferenceSet,
     PreferencesRead,
@@ -901,6 +903,49 @@ def get_preferences(
         "etag": _tier_etag(store),
         "preferences": {k: _entry(request, ws, store, k, resolve, facts) for k in keys},
     }
+
+
+@router.post(
+    "/api/preferences/{key}/check",
+    response_model=PreferenceCheck,
+    response_model_exclude_unset=True,
+)
+@NO_CHANGE("a dry run of an unsaved ladder; writes nothing")
+def check_preference(
+    request: Request,
+    key: str,
+    body: PreferenceCheckRequest = Body(),
+    ws: Workspace = Depends(selected_workspace),
+):
+    """What saving `ladder` under `key` would give, without saving it: this
+    host's pick per tier, the targets after it, each target a PUT would
+    refuse and each argument of the key's shipped contract a target does not
+    take. A key not in the store is allowed; a ladder of the wrong shape is
+    a 422. `full=false` makes no Hub calls - a target in `known_blocked` is
+    skipped as gated - and `full=true` probes as admission does."""
+    _checked_key(key)
+    if body.full:
+        host = _full_host(request)
+    else:
+        host = _host(request)
+        host.gate_check = preferences.skip_known_blocked(
+            preferences.downloads_gate_check(lookup_sizes=False),
+            body.known_blocked,
+        )
+    store = preferences.load_preferences()
+    contract = (store.get("contracts") or {}).get(key)
+    try:
+        tiers = preferences.check_draft(
+            key,
+            body.ladder,
+            store,
+            host,
+            _opener(ws),
+            contract if isinstance(contract, dict) else None,
+        )
+    except preferences.PreferenceError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {"tiers": tiers}
 
 
 @router.put(
