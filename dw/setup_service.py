@@ -53,6 +53,10 @@ def default_runner(args: list[str]) -> subprocess.CompletedProcess:
             safe,
             capture_output=True,
             text=True,
+            # claude prints UTF-8 (its `❯` list pointer) whatever the console's
+            # code page is; cp1252 cannot decode it
+            encoding="utf-8",
+            errors="replace",
             check=False,
             timeout=_TIMEOUT,
         )

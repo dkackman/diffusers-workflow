@@ -130,7 +130,10 @@ def load_preferences(shipped=None, overlay=None):
             # The whole key, never a per-tier merge
             ladders[key] = ladder
             sources[key] = source
-    default_tier = overlay_doc.get("default_tier") or shipped_doc.get("default_tier")
+    # A hand-edited overlay naming no real tier falls back to the shipped one
+    default_tier = overlay_doc.get("default_tier")
+    if default_tier not in TIERS:
+        default_tier = shipped_doc.get("default_tier")
     contracts = shipped_doc.get("contracts")
     return {
         "default_tier": default_tier or DEFAULT_TIER,
@@ -661,6 +664,14 @@ def _target_problem(key, tier, name, arguments, open_target):
         return False, (
             f"Preference '{key}' tier {tier}: target '{name}' is refused: {e}"
         )
+    except ValueError as e:  # a catalog file that is not JSON
+        return False, (
+            f"Preference '{key}' tier {tier}: target '{name}' does not parse: {e}"
+        )
+    if not isinstance(definition, dict):
+        return False, (
+            f"Preference '{key}' tier {tier}: target '{name}' is not a workflow"
+        )
     bad = target_argument_errors(definition, arguments)
     if bad:
         return False, (
@@ -763,7 +774,9 @@ def check_draft(key, ladder, store, host, open_target, contract=None):
                 continue
             try:
                 definition, _child = open_target(name)
-            except (SubWorkflowNotFound, SecurityError, InvalidInputError):
+            except (SubWorkflowNotFound, SecurityError, InvalidInputError, ValueError):
+                continue
+            if not isinstance(definition, dict):
                 continue
             declared = definition.get("variables") or {}
             missing = [

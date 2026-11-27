@@ -57,7 +57,12 @@ def _hf_token() -> str | None:
 
 
 def _hf_login() -> bool:
-    return subprocess.run(["hf", "auth", "login"], check=False).returncode == 0
+    # `hf` beside this interpreter: an installed copy's venv is not on PATH
+    try:
+        login = [str(beside_python("hf")), "auth", "login"]
+        return subprocess.run(login, check=False).returncode == 0
+    except OSError:
+        return False
 
 
 def _url(port: int) -> str:
