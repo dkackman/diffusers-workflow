@@ -1,4 +1,4 @@
-import { flushSync } from 'svelte'
+import { flushSync, tick } from 'svelte'
 import { afterEach, expect, it, vi } from 'vitest'
 import { clearOnEscape, revealOnce } from './mediaGrid.svelte'
 import { Picks } from './picks.svelte'
@@ -27,6 +27,7 @@ afterEach(() => {
   teardown()
   view.open = null
   view.places = {}
+  document.body.replaceChildren()
 })
 
 it('reveals an open file once its place is known, and only once', () => {
@@ -57,6 +58,50 @@ it('reveals each newly opened file, and nothing with none open', () => {
     ['a.png', 'f1'],
     ['b.png', 'f2'],
   ])
+})
+
+// The open tile as the pages draw it, `top` px down the window; jsdom has
+// neither layout nor scrollIntoView
+function tileAt(top: number) {
+  const cell = document.createElement('div')
+  cell.className = 'cellwrap'
+  cell.innerHTML = '<button class="filetile active"></button>'
+  const tile = cell.firstElementChild as HTMLElement
+  tile.getBoundingClientRect = () => new DOMRect(0, top, 150, 150)
+  const scroll = vi.fn()
+  tile.scrollIntoView = scroll
+  document.body.append(cell)
+  return scroll
+}
+
+it('scrolls to an open tile off screen, once per name and not before it is listed', async () => {
+  const scroll = tileAt(9000)
+  view.open = 'a.png'
+  track(vi.fn())
+  await tick()
+  expect(scroll).not.toHaveBeenCalled()
+  view.places = { 'a.png': 'f1' }
+  flushSync()
+  await tick()
+  expect(scroll).toHaveBeenCalledExactlyOnceWith({ block: 'center' })
+  // a reload of the listing, and the viewer closed and opened again on it
+  view.places = { 'a.png': 'f1', 'b.png': 'f2' }
+  flushSync()
+  view.open = null
+  flushSync()
+  view.open = 'a.png'
+  flushSync()
+  await tick()
+  expect(scroll).toHaveBeenCalledTimes(1)
+})
+
+it('leaves the page where it is when the open tile already shows', async () => {
+  const scroll = tileAt(100)
+  view.places = { 'a.png': 'f1' }
+  view.open = 'a.png'
+  track(vi.fn())
+  await tick()
+  expect(scroll).not.toHaveBeenCalled()
 })
 
 const escape = new KeyboardEvent('keydown', { key: 'Escape' })
