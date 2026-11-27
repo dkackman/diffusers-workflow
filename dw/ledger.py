@@ -622,7 +622,8 @@ def _item(raw, key, previous, linked, by, at, prompts=None, warnings=None):
         and arguments == (previous.get("arguments") or {})
     )
     changed_at = previous.get("changed_at") if unchanged else at
-    basis = previous.get("accepted_basis")
+    # The basis vouches for the accepted take: with none accepted, none stands
+    basis = previous.get("accepted_basis") if accepted is not None else None
     if accepted is not None and unchanged and is_revised(previous, linked, prompts):
         basis = {"at": at}
         held = current_prompts(previous, prompts)

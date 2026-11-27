@@ -315,6 +315,22 @@ def test_accepting_while_revised_makes_it_done_until_the_next_change(done, clock
     assert by_key(again)["a"]["revised_because"] == ["arguments"]
 
 
+def test_un_accepting_drops_the_basis_and_the_item_reads_revised_again(done, clock):
+    """The basis is the record that a take was accepted for this plan. With
+    the acceptance withdrawn nothing vouches for the old take, so the item
+    is revised again, as it was before it was accepted."""
+    revise(done, clock)
+    clock.at(200)
+    done.put(items(a_args=NEW_ARGS, accepted={"job": "j1"}))
+    clock.at(300)
+    view = done.put(items(a_args=NEW_ARGS, accepted=None))
+    a = by_key(view)["a"]
+    assert a["accepted"] is None
+    assert a["accepted_basis"] is None
+    assert a["status"] == "revised"
+    assert by_key(view)["b"]["ready"] is False
+
+
 def test_accepting_with_a_plan_change_in_the_same_write_is_not_a_basis(done, clock):
     clock.at(100)
     view = done.put(items(a_args=NEW_ARGS, accepted={"job": "j1"}))
