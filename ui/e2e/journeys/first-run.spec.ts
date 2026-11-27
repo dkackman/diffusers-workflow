@@ -3,7 +3,7 @@ import { expect, test, type Response } from '../test'
 // The journey of the UI quality program's last phase, end to end against the
 // real server: a newcomer's first load, the card that leads to a workflow
 // that runs, the shortcuts, a workspace made and switched to from the
-// sidebar (open and collapsed), what the Status page says about a
+// sidebar (open and collapsed), what the Connect page says about a
 // loopback-only server, a phone-width Overview, and how the entry bundle is
 // served. The card's dismissal is per browser, so the journey starts from
 // empty storage; the workspace it makes has a name of its own and is deleted
@@ -123,8 +123,8 @@ test('a newcomer finds a workflow that runs, makes a workspace and switches to i
 
     // 8. A loopback-only server says so, and offers no remote URL; MCP not
     // mounted names the flag that mounts it
-    await nav.getByRole('link', { name: 'Status' }).click()
-    await expect(page).toHaveURL(/#\/server\/status$/)
+    await nav.getByRole('link', { name: 'Connect', exact: true }).click()
+    await expect(page).toHaveURL(/#\/server\/connect$/)
     const connect = page.locator('.panel', {
       has: page.getByRole('heading', { name: 'Connect from another machine' }),
     })
