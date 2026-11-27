@@ -112,3 +112,27 @@ comments name no `usage:` figures, so actual cost is not recorded.
   `Picks` keeps a filter-hidden pick on both pages, and `Name` sorts folder
   headings while files stay newest first. No code change; the amendment is
   filed as dkackman/harnest#307.
+
+## Fix-forward after the final check
+
+Added 2026-11-26 by `claude-opus-5-5` via `anthropic` (close-out).
+
+- **The bounce.** The parent's final check failed C-F1322's Workflow half. A
+  live note change never showed on the Workflow page, and the screenshot
+  showed no proofs strip.
+- **#1769, fix-forward stage: no code change (tests d9b8a04d, merged
+  ab2cf442).** The Workflow page has never shown notes. Its strip draws tiles
+  with `caption="none"`, and did before #1701 too. So the note line plan v1
+  wrote for that page was a gap in the plan, not something the build missed.
+  The delegate ruled (`loosen`) that the case's Workflow half checks the
+  strip's tile and its scoped re-read instead. The note check stays on the
+  Compare half, which passed. The case amendment is dkackman/harnest#304. The
+  missing strip was also not a build miss: the strip's read is `quiet`, and
+  the screenshot was taken before that read answered. #1769 added a
+  `WorkflowPage.test.ts` case for a folder with a slash in its name
+  (`templates/image-processors`). The tester verified the strip tile and a
+  feed-driven `folder=…&limit=6` re-read on lem at ab2cf442.
+- **C-F1332** (an opened file is on screen without scrolling) couldn't be
+  judged, because `ui-check` reported no viewport. harnest#325 added
+  `in_viewport` to `ui-check inspect` (harnest `c92d20e`) and amended the
+  case. It is closed.
