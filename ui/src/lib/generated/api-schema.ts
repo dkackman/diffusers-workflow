@@ -5179,6 +5179,11 @@ export interface components {
              */
             queued: components["schemas"]["RestartBatchQueued"][];
             /**
+             * Refusal
+             * @description A preview only: why the server is refusing jobs right now (a dw update is running), in which case `would_queue` is empty and `acknowledged_cost: true` answers 409; null when it would admit them.
+             */
+            refusal?: string | null;
+            /**
              * Server Instance
              * @description The dead server whose batch this is.
              */

@@ -648,3 +648,48 @@ def test_list_rows_of_a_swept_batch_carry_restart_batch_and_reason(tmp_path):
         # The detail keeps the full error the reason summarises
         detail = client.get(f"/api/jobs/{ids[0]}").json()
         assert detail["error"].startswith(detail["reason"].rstrip("…"))
+
+
+UPDATING = "dw is updating and the server will restart - submit this job again"
+
+
+def test_a_refused_batch_rerun_answers_409_and_queues_nothing(tmp_path):
+    """During a dw update the real call is refused outright (#1771, Q4),
+    as a single rerun is, instead of 200 with every member skipped."""
+    ids = a_dead_server_with_three_jobs(tmp_path)
+    with restarted_client(tmp_path) as (client, manager):
+        manager.submission_refusal = lambda: UPDATING
+        before = set(manager.jobs)
+        response = client.post(
+            f"/api/jobs/{ids[0]}/rerun-restart-batch",
+            json={"acknowledged_cost": True},
+        )
+        assert response.status_code == 409, response.text
+        assert response.json()["detail"] == UPDATING
+        assert set(manager.jobs) == before
+        assert reruns(manager) == []
+
+
+def test_a_refused_batch_preview_names_the_refusal_and_would_queue_nothing(
+    tmp_path,
+):
+    ids = a_dead_server_with_three_jobs(tmp_path)
+    with restarted_client(tmp_path) as (client, manager):
+        manager.submission_refusal = lambda: UPDATING
+        response = client.post(f"/api/jobs/{ids[0]}/rerun-restart-batch", json={})
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["refusal"] == UPDATING
+        assert body["would_queue"] == []
+        assert body["queued"] == []
+        assert reruns(manager) == []
+
+
+def test_an_unrefused_batch_preview_carries_a_null_refusal(tmp_path):
+    ids = a_dead_server_with_three_jobs(tmp_path)
+    with restarted_client(tmp_path) as (client, manager):
+        response = client.post(f"/api/jobs/{ids[0]}/rerun-restart-batch", json={})
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert "refusal" in body and body["refusal"] is None
+        assert [entry["id"] for entry in body["would_queue"]] == ids

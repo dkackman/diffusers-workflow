@@ -54,6 +54,7 @@ from ...trust import workflows_are_trusted
 from ...workflow import workflow_from_definition
 from ...workspace import Workspace
 from .. import guides
+from .. import updater as updater_module
 from ..api_models_library import (
     DefaultTierSet,
     DefaultTierWrite,
@@ -438,6 +439,18 @@ def update_diffusers(
             commit = validate_commit_hash(body.commit)
         except InvalidInputError as e:
             raise HTTPException(status_code=400, detail=str(e))
+        if len(commit) == 40:
+            # The archive path matches lowercase only; git takes either
+            commit = commit.lower()
+        elif not updater_module.git_usable():
+            # Without git pip installs a GitHub archive, which names a full
+            # hash: refuse here rather than 202 and fail in the worker thread
+            raise HTTPException(
+                status_code=400,
+                detail="git is not usable on this server, so diffusers "
+                "installs from a GitHub archive, which needs the full "
+                "40-character commit hash, not a short one",
+            )
     if manager.is_busy():
         raise HTTPException(
             status_code=409,

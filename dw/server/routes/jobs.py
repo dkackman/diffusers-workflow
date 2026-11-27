@@ -639,8 +639,16 @@ def rerun_restart_batch(
             "acknowledged_cost: true after reading the preview",
         )
     queue = form == ACK_BOOLEAN
+    # Checked before admitting anything: during a dw update the real call is
+    # refused outright (409, as a single rerun is), and the preview says why
+    # instead of listing members that could not be queued
+    refusal = manager.submission_refusal() if manager.submission_refusal else None
+    if refusal and queue:
+        raise HTTPException(status_code=409, detail=str(SubmissionRefused(refusal)))
 
     def admit(member_id):
+        if refusal:
+            raise ValueError(refusal)
         try:
             prepared = manager.rerun_spec(member_id)
             if prepared is None:
@@ -660,6 +668,7 @@ def rerun_restart_batch(
     if queue:
         answer.pop("would_queue")
     else:
+        answer["refusal"] = refusal or None
         answer["would_queue"] = [
             {
                 **{key: value for key, value in entry.items() if key != "admission"},
