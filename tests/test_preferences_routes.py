@@ -252,3 +252,94 @@ def test_a_refused_target_names_no_server_path(client, tmp_path, target):
     for folder in {str(tmp_path), os.path.realpath(str(tmp_path))}:
         assert folder not in answer.text
     assert _overlay() is None
+
+
+# --- the full read: resolve as admission does, with used_by and contract
+
+
+def _composer(root, name, key):
+    path = os.path.join(root, name + ".json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as handle:
+        json.dump(
+            {
+                "id": os.path.basename(name),
+                "steps": [{"name": "s", "workflow": {"path": f"preference:{key}"}}],
+            },
+            handle,
+        )
+
+
+def _no_probe(*_args, **_kwargs):
+    raise AssertionError("the plain resolve read must make no Hub calls")
+
+
+def test_full_read_adds_used_by_and_contract(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        preferences, "downloads_gate_check", lambda: lambda *a: (None, None)
+    )
+    _composer(str(tmp_path / "workflows"), "qa/uses", SHIPPED_KEY)
+    answer = client.get("/api/preferences", params={"resolve": "true", "full": "true"})
+    assert answer.status_code == 200, answer.text
+    entry = answer.json()["preferences"][SHIPPED_KEY]
+    assert isinstance(entry["used_by"], list)
+    assert "qa/uses" in entry["used_by"]
+    assert entry["used_by"] == sorted(entry["used_by"])
+    assert entry["contract"]["required"] == ["prompt", "seed", "width", "height"]
+    assert "num_inference_steps" in entry["contract"]["optional"]
+
+
+def test_plain_resolve_is_unchanged(client, monkeypatch):
+    monkeypatch.setattr(preferences, "downloads_gate_check", _no_probe)
+    answer = client.get("/api/preferences", params={"resolve": "true"})
+    assert answer.status_code == 200, answer.text
+    for entry in answer.json()["preferences"].values():
+        assert "used_by" not in entry
+        assert "contract" not in entry
+        assert "resolutions" in entry
+    # full without resolve is ignored
+    plain = client.get("/api/preferences", params={"full": "true"}).json()
+    for entry in plain["preferences"].values():
+        assert not {"used_by", "contract", "resolutions"} & set(entry)
+
+
+def test_full_read_runs_the_gate_check(client, monkeypatch):
+    def gate():
+        def check(name, definition, arguments, child):
+            if name == "qa/a":
+                return "gated, no access to org/x", None
+            return None, None
+
+        return check
+
+    monkeypatch.setattr(preferences, "downloads_gate_check", gate)
+    client.put("/api/preferences/qa_gated", json={"best": ["qa/a", "qa/b"]})
+    answer = client.get(
+        "/api/preferences",
+        params={"key": "qa_gated", "resolve": "true", "full": "true"},
+    )
+    best = answer.json()["preferences"]["qa_gated"]["resolutions"]["best"]
+    assert best["target"] == "qa/b"
+    assert best["skipped"] == [
+        {"workflow": "qa/a", "reason": "gated, no access to org/x"}
+    ]
+
+
+def test_full_read_survives_hub_failure(client, monkeypatch):
+    def gate():
+        def check(*_args):
+            raise OSError("the Hub is unreachable")
+
+        return check
+
+    monkeypatch.setattr(preferences, "downloads_gate_check", gate)
+    client.put("/api/preferences/qa_offline", json={"best": ["qa/a"]})
+    answer = client.get(
+        "/api/preferences",
+        params={"key": "qa_offline", "resolve": "true", "full": "true"},
+    )
+    assert answer.status_code == 200, answer.text
+    best = answer.json()["preferences"]["qa_offline"]["resolutions"]["best"]
+    assert best["target"] == "qa/a"
+    assert best["notes"] == []
+    assert best["skipped"] == []

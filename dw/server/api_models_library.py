@@ -963,6 +963,13 @@ class PreferenceResolution(ApiModel):
     error: str = sometimes("The refusal validate would give at this tier.")
 
 
+class PreferenceContract(ApiModel):
+    """The arguments every target of a key takes, from the shipped file."""
+
+    required: list[str] = Field(description="Arguments each target must take.")
+    optional: list[str] = Field(description="Arguments a target may take.")
+
+
 class PreferenceEntry(ApiModel):
     source: PreferenceSource = Field(
         description="`server` when this server's overlay replaces the shipped key."
@@ -975,6 +982,14 @@ class PreferenceEntry(ApiModel):
     )
     resolutions: dict[str, PreferenceResolution] = sometimes(
         "With `resolve=true`: this host's pick per tier."
+    )
+    used_by: list[str] = sometimes(
+        "With `resolve=true&full=true`: the catalog workflows that reach this "
+        "key, directly or through composed workflows, sorted."
+    )
+    contract: PreferenceContract = sometimes(
+        "With `resolve=true&full=true`, when the shipped file has one: the "
+        "arguments the key's targets take."
     )
 
 

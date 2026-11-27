@@ -4814,8 +4814,26 @@ export interface components {
              */
             runs: number;
         };
+        /**
+         * PreferenceContract
+         * @description The arguments every target of a key takes, from the shipped file.
+         */
+        PreferenceContract: {
+            /**
+             * Optional
+             * @description Arguments a target may take.
+             */
+            optional: string[];
+            /**
+             * Required
+             * @description Arguments each target must take.
+             */
+            required: string[];
+        };
         /** PreferenceEntry */
         PreferenceEntry: {
+            /** @description With `resolve=true&full=true`, when the shipped file has one: the arguments the key's targets take. */
+            contract?: components["schemas"]["PreferenceContract"];
             /**
              * Etag
              * @description What `If-Match` on PUT or DELETE /api/preferences/{key} names.
@@ -4841,6 +4859,11 @@ export interface components {
              * @enum {string}
              */
             source: "shipped" | "server";
+            /**
+             * Used By
+             * @description With `resolve=true&full=true`: the catalog workflows that reach this key, directly or through composed workflows, sorted.
+             */
+            used_by?: string[];
         };
         /** PreferenceReset */
         PreferenceReset: {
@@ -4897,6 +4920,8 @@ export interface components {
         };
         /** PreferenceSet */
         PreferenceSet: {
+            /** @description With `resolve=true&full=true`, when the shipped file has one: the arguments the key's targets take. */
+            contract?: components["schemas"]["PreferenceContract"];
             /**
              * Etag
              * @description What `If-Match` on PUT or DELETE /api/preferences/{key} names.
@@ -4924,6 +4949,11 @@ export interface components {
              * @enum {string}
              */
             source: "shipped" | "server";
+            /**
+             * Used By
+             * @description With `resolve=true&full=true`: the catalog workflows that reach this key, directly or through composed workflows, sorted.
+             */
+            used_by?: string[];
         };
         /** PreferencesRead */
         PreferencesRead: {
@@ -7770,6 +7800,8 @@ export interface operations {
                 key?: string | null;
                 /** @description Add this host's pick per tier to each key */
                 resolve?: boolean;
+                /** @description With resolve: resolve as admission does (gated access, download notes) and add used_by and contract */
+                full?: boolean;
                 workspace?: string | null;
             };
             header?: never;

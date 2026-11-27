@@ -104,9 +104,11 @@ def _read(path):
 
 def load_preferences(shipped=None, overlay=None):
     """The merged store as {"default_tier", "preferences": {key: ladder},
-    "sources": {key: "shipped" | "server"}}. `shipped` and `overlay` are
-    paths, defaulting to the shipped file and the settings-directory
-    overlay."""
+    "sources": {key: "shipped" | "server"}, "contracts": {key: {"required",
+    "optional"}}}. `shipped` and `overlay` are paths, defaulting to the
+    shipped file and the settings-directory overlay. The contracts - the
+    arguments a key's targets take - are the shipped file's alone: the
+    overlay never adds or replaces one."""
     shipped_doc = _read(shipped or SHIPPED_PATH) or {}
     overlay_doc = _read(overlay or overlay_path()) or {}
     ladders = {}
@@ -123,10 +125,12 @@ def load_preferences(shipped=None, overlay=None):
             ladders[key] = ladder
             sources[key] = source
     default_tier = overlay_doc.get("default_tier") or shipped_doc.get("default_tier")
+    contracts = shipped_doc.get("contracts")
     return {
         "default_tier": default_tier or DEFAULT_TIER,
         "preferences": ladders,
         "sources": sources,
+        "contracts": dict(contracts) if isinstance(contracts, dict) else {},
     }
 
 

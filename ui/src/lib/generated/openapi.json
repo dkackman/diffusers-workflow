@@ -5915,9 +5915,41 @@
         "title": "PlanHostMemory",
         "type": "object"
       },
+      "PreferenceContract": {
+        "additionalProperties": false,
+        "description": "The arguments every target of a key takes, from the shipped file.",
+        "properties": {
+          "optional": {
+            "description": "Arguments a target may take.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Optional",
+            "type": "array"
+          },
+          "required": {
+            "description": "Arguments each target must take.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Required",
+            "type": "array"
+          }
+        },
+        "required": [
+          "required",
+          "optional"
+        ],
+        "title": "PreferenceContract",
+        "type": "object"
+      },
       "PreferenceEntry": {
         "additionalProperties": false,
         "properties": {
+          "contract": {
+            "$ref": "#/components/schemas/PreferenceContract",
+            "description": "With `resolve=true&full=true`, when the shipped file has one: the arguments the key's targets take."
+          },
           "etag": {
             "description": "What `If-Match` on PUT or DELETE /api/preferences/{key} names.",
             "title": "Etag",
@@ -5945,6 +5977,14 @@
             ],
             "title": "Source",
             "type": "string"
+          },
+          "used_by": {
+            "description": "With `resolve=true&full=true`: the catalog workflows that reach this key, directly or through composed workflows, sorted.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Used By",
+            "type": "array"
           }
         },
         "required": [
@@ -6038,6 +6078,10 @@
       "PreferenceSet": {
         "additionalProperties": false,
         "properties": {
+          "contract": {
+            "$ref": "#/components/schemas/PreferenceContract",
+            "description": "With `resolve=true&full=true`, when the shipped file has one: the arguments the key's targets take."
+          },
           "etag": {
             "description": "What `If-Match` on PUT or DELETE /api/preferences/{key} names.",
             "title": "Etag",
@@ -6069,6 +6113,14 @@
             ],
             "title": "Source",
             "type": "string"
+          },
+          "used_by": {
+            "description": "With `resolve=true&full=true`: the catalog workflows that reach this key, directly or through composed workflows, sorted.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Used By",
+            "type": "array"
           }
         },
         "required": [
@@ -11633,6 +11685,18 @@
               "default": false,
               "description": "Add this host's pick per tier to each key",
               "title": "Resolve",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "With resolve: resolve as admission does (gated access, download notes) and add used_by and contract",
+            "in": "query",
+            "name": "full",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "With resolve: resolve as admission does (gated access, download notes) and add used_by and contract",
+              "title": "Full",
               "type": "boolean"
             }
           },
