@@ -387,12 +387,12 @@ def test_the_ui_upload_extensions_match_the_server():
 
 
 def ts_repo_id_cases():
-    """`[value, accepted]` pairs of REPO_ID_CASES in the Models page's test."""
-    source = (UI_LIB / "pages" / "ModelsPage.test.ts").read_text()
+    """`[value, accepted]` pairs of REPO_ID_CASES in the Models Downloaded tab's test."""
+    source = (UI_LIB / "pages" / "ModelsDownloaded.test.ts").read_text()
     body = re.search(
         r"REPO_ID_CASES: \[string, boolean\]\[\] = \[(.*?)\n\]", source, re.S
     )
-    assert body, "no REPO_ID_CASES in ModelsPage.test.ts"
+    assert body, "no REPO_ID_CASES in ModelsDownloaded.test.ts"
     cases = []
     for value, ok in re.findall(r"\[(.+?), (true|false)\],", body.group(1)):
         repeat = re.fullmatch(r"'(.)'\.repeat\((\d+)\) \+ '([^']*)'", value)
