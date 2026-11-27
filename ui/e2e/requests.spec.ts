@@ -4,7 +4,7 @@ import {
   type APIRequestContext,
   type Locator,
   type Page,
-} from '@playwright/test'
+} from './test'
 
 // The fixture seeds one request in the default workspace's ledger
 // (e2e/serve_fixture.py): `hero` is done, with two succeeded jobs that each

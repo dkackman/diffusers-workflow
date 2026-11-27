@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../test'
 
 // The journey of the media phase, end to end against the real server and
 // the fixture's e2e-find run: find a file in the Gallery, open it and read

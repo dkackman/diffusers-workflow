@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from './test'
 
 // The JSON view loads Monaco's editor core, its contributions and the JSON
 // language only (src/lib/monaco.ts, src/lib/monacoContribs.ts). Each test

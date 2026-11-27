@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from './test'
 
 /** A link to a file below the fold lands on its tile (#1778). Real layout:
  * the unit test can only say scrollIntoView was asked for. */

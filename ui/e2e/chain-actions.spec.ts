@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from './test'
 import type { JobDetail, JobWorkflow, ValidationResult } from '../src/lib/types'
 
 // The chain segment table's actions (#1476), on a mocked finished H3 job

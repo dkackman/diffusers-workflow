@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from './test'
 
 // The viewer in real full screen (#1658): the browser paints nothing outside
 // the full-screen element, so what opens over the viewer has to be inside it

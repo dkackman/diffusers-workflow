@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../test'
 
 // The journey of the run-page phase, end to end against the real server:
 // find the workflow by what it does, read whether it will work, fix a value

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './test'
 
 test('workflow browser lists, describes and filters', async ({ page }) => {
   await page.goto('/#/ws/default/workflows')
@@ -310,10 +310,12 @@ test('task steps get introspection-driven forms', async ({ page }) => {
   await expect(page.locator('label', { hasText: 'image' }).first()).toBeVisible(
     { timeout: 30_000 },
   )
-  // image_to_text takes **kwargs, so the free-form add is offered too
+  // image_to_text takes **kwargs, so the free-form add is offered too. It
+  // waits on the schema the server discovers - its first read imports the
+  // task's module - while the label above can match before it arrives
   await expect(
     page.getByPlaceholder('add custom argument…').first(),
-  ).toBeVisible()
+  ).toBeVisible({ timeout: 30_000 })
 })
 
 test('editor flags a dangling reference without asking the server', async ({

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './test'
 
 // A workflow typed through the JSON view: a long variable default and a
 // prose-shaped task argument, so both surfaces of the expanding-text

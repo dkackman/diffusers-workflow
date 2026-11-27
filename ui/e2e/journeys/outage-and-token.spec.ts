@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from '../test'
 
 // The journeys of the resilience phase, end to end against the real server:
 // an outage and its recovery, a locked server and a token, a job page whose
@@ -26,9 +26,12 @@ async function queueCard(request: Request): Promise<string> {
   })
   expect(queued.ok()).toBe(true)
   const { id } = await queued.json()
+  // The first job on a fixture server starts its worker process, which
+  // imports torch: seconds, more while other workers' servers do the same
   await expect
     .poll(
       async () => (await (await request.get(`/api/jobs/${id}`)).json()).status,
+      { timeout: 20_000 },
     )
     .toBe('succeeded')
   return id

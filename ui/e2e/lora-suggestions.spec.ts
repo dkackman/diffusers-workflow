@@ -1,5 +1,5 @@
 // ui/e2e/lora-suggestions.spec.ts
-import { expect, test, type Page, type Route } from '@playwright/test'
+import { expect, test, type Page, type Route } from './test'
 
 // A pipeline step on a made-up base; the fixture server's LoRA library
 // (ui/e2e/fixtures/loras) holds a trial and a rejected entry for it

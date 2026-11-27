@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '../test'
 
 // The journeys of the consistency phase, end to end against the real server:
 // every page names itself the way the sidebar does, an unknown route is a

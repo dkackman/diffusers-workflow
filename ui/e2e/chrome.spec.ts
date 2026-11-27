@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from './test'
 
 test('worker state and docs sit on the nav row, in one header row', async ({
   page,

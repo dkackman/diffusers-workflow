@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from './test'
 import type { JobDetail, JobWorkflow, ManifestEntry } from '../src/lib/types'
 
 type Shots = NonNullable<ManifestEntry['shots']>

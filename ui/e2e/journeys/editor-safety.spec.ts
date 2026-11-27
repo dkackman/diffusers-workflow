@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from '../test'
 
 // The journeys of the data-safety phase, end to end against the real server:
 // an edit is never lost to a fast save, a view switch, a link, a failed load,

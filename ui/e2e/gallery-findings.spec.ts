@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from './test'
 
 // The Findings and Assess beside the Gallery's open file (#1477), on a
 // mocked gallery: one video whose metadata carries a level finding, and an

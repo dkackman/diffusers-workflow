@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './test'
 
 test('a long prompt card is clamped to two lines', async ({ page }) => {
   // The real listing, with every prompt's description made far too long

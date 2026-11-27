@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './test'
 
 // A workflow's page shows what it last made (the proofs strip) from a read
 // of that workflow's folder alone, capped at six (#1701): against the real

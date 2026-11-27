@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from './test'
 
 // A quiet reload marks what it changed (`.row-changed`). jsdom does not
 // paint, so the check that the mark is visible runs here, on the real

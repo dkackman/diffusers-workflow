@@ -1,5 +1,5 @@
 import { gzipSync } from 'node:zlib'
-import { expect, test, type Page, type Response } from '@playwright/test'
+import { expect, test, type Page, type Response } from './test'
 
 // The UI's weight on the wire, measured in a real browser against the built
 // UI: the bytes the server sent for a response body (as compressed; a KB is 1,000 bytes), summed

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from '../test'
 
 // The journey of the editor phase, end to end against the real server: chain
 // a second step onto an example's result, rename the step it reads and see

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './test'
 
 // The fixture seeds two jobs a dead server's restart cancelled before they
 // started, sharing its instance id (#1473). The page offers them back as one

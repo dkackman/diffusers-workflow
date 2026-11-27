@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '../test'
 
 // Reviewing a request an agent planned, end to end against the real server:
 // the list and the header say what it wants of the person, each part goes to

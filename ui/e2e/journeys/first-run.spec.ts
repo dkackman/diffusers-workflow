@@ -1,4 +1,4 @@
-import { expect, test, type Response } from '@playwright/test'
+import { expect, test, type Response } from '../test'
 
 // The journey of the UI quality program's last phase, end to end against the
 // real server: a newcomer's first load, the card that leads to a workflow

@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from './test'
 
 // Layout claims, which jsdom cannot check: it lays nothing out and applies no
 // component styles. The component tests hold which element gets which class;

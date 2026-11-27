@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, scratchDir, test, type Page } from '../test'
 
 // What an agent writes through the HTTP API shows up on every page that
 // reads it, without a reload: one case per kind the change feed carries
@@ -325,8 +325,7 @@ test('sidebar: a workspace an agent makes appears, and goes when deleted', async
 /** Put the fixture's made-up hub repo back (what serve_fixture.py seeds), so
  * the models case can run again on the same server: --repeat-each, a retry */
 function seedTinyRepo() {
-  const scratch = process.env.DW_E2E_SCRATCH
-  if (!scratch) return false
+  const scratch = scratchDir()
   const revision = '0123456789abcdef0123456789abcdef01234567'
   const repo = join(scratch, 'hub-cache', 'models--e2e--tiny')
   mkdirSync(join(repo, 'snapshots', revision), { recursive: true })

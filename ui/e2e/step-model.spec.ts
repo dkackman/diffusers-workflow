@@ -1,5 +1,5 @@
 // ui/e2e/step-model.spec.ts
-import { expect, test } from '@playwright/test'
+import { expect, test } from './test'
 
 // A two-step task workflow typed through the JSON view - task steps need
 // no server-side pipeline imports, so these tests stay fast

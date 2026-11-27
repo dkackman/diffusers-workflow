@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './test'
 
 /** Nothing should scroll the document sideways: wide content gets its own
  * scroller (the models table) or wraps. Regression guard for the header,

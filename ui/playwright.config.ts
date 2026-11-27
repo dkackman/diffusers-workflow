@@ -1,8 +1,7 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from '@playwright/test'
+import { SERVERS, serverPort, serverScratch } from './e2e/serverPool'
 
 /** The interpreter the fixture server runs on: DW_E2E_PYTHON when set
  * (scripts/preflight.sh passes the one its pytest step used), else the
@@ -17,16 +16,6 @@ function e2ePython(): string {
   return 'python3'
 }
 
-/** The fixture's scratch directory, made here once (workers re-read this
- * file, and inherit the variable) so a spec can reach what the fixture seeds.
- * The process that made it removes it on exit, after the fixture server has
- * stopped; one the caller named is left alone. */
-if (!process.env.DW_E2E_SCRATCH) {
-  const scratch = mkdtempSync(join(tmpdir(), 'dw-e2e-'))
-  process.env.DW_E2E_SCRATCH = scratch
-  process.on('exit', () => rmSync(scratch, { recursive: true, force: true }))
-}
-
 /** E2E smoke: real server, real browser, no GPU jobs. The server runs
  * against a scratch copy of the example workflows and prompts (see
  * e2e/serve_fixture.py) so the save/delete specs never touch the repo. The
@@ -35,21 +24,25 @@ export default defineConfig({
   testDir: './e2e',
   timeout: 30_000,
   retries: 0,
-  // Serialized on purpose: the specs share one fixture server and write to
-  // its scratch workspace. The first-import deadlock that also forced this
-  // (#1603) is fixed in the server (one import lock, dw/type_helpers.py, #1640)
-  workers: 1,
+  // One fixture server per worker (e2e/serverPool.ts): the specs write to
+  // its scratch workspace, so two workers never share one. A file runs whole
+  // on one worker, in order (no fullyParallel). DW_E2E_WORKERS sets how many
+  workers: SERVERS,
   use: {
-    baseURL: 'http://127.0.0.1:8971',
+    baseURL: `http://127.0.0.1:${serverPort(0)}`,
   },
-  webServer: {
-    command: `${e2ePython()} ui/e2e/serve_fixture.py --port 8971`,
+  webServer: Array.from({ length: SERVERS }, (_, index) => ({
+    command: `${e2ePython()} ui/e2e/serve_fixture.py --port ${serverPort(index)}`,
     cwd: '..',
-    url: 'http://127.0.0.1:8971/api/health',
+    url: `http://127.0.0.1:${serverPort(index)}/api/health`,
     reuseExistingServer: false,
     timeout: 90_000,
     // The UI's response contract runs strict here too: a key a route emits
     // that its response model has not declared is a 500 (dw/server/api_models.py)
-    env: { ...process.env, DW_STRICT_RESPONSES: '1' },
-  },
+    env: {
+      ...process.env,
+      DW_STRICT_RESPONSES: '1',
+      DW_E2E_SCRATCH: serverScratch(index),
+    },
+  })),
 })

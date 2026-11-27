@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './test'
 
 test('a legacy hash lands under the last-used workspace', async ({ page }) => {
   await page.goto('/#/gallery')
