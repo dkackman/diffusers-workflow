@@ -4456,6 +4456,65 @@ class TestDiffusersUpdate:
             assert rejected.status_code == 400
         assert calls == []
 
+    @staticmethod
+    def without_git(monkeypatch):
+        """Overrides tests/conftest.py, which says git works everywhere."""
+        import dw.server.updater
+
+        monkeypatch.setattr(
+            dw.server.updater, "git_usable", lambda platform=None: False
+        )
+
+    @staticmethod
+    def recording_pip(calls):
+        from types import SimpleNamespace
+
+        def run_fn(**kwargs):
+            calls.append(kwargs)
+            return SimpleNamespace(returncode=0, stdout="ok", stderr="")
+
+        return run_fn
+
+    def test_a_short_commit_without_git_is_400_and_starts_nothing(
+        self, tmp_path, monkeypatch
+    ):
+        """Without git diffusers installs from an archive, which names a full
+        hash (#1771, Q5): refused up front, not 202 then failed in the thread."""
+        self.without_git(monkeypatch)
+        calls = []
+        with self.make_client(tmp_path, self.recording_pip(calls)) as client:
+            rejected = client.post(
+                "/api/system/diffusers/update", json={"commit": "abc1234"}
+            )
+            assert rejected.status_code == 400
+            assert "40-character" in rejected.json()["detail"]
+            assert client.get("/api/system/diffusers").json()["status"] != "running"
+        assert calls == []
+
+    def test_a_full_commit_without_git_is_202(self, tmp_path, monkeypatch):
+        self.without_git(monkeypatch)
+        calls = []
+        full = "abcdef0123456789abcdef0123456789abcdef01"
+        with self.make_client(tmp_path, self.recording_pip(calls)) as client:
+            started = client.post("/api/system/diffusers/update", json={"commit": full})
+            assert started.status_code == 202, started.text
+            self.wait_for_update(client, ["succeeded", "failed"])
+        assert calls == [{"commit": full, "revert": False}]
+
+    def test_an_uppercase_full_commit_reaches_the_updater_lowercase(
+        self, tmp_path, monkeypatch
+    ):
+        """The archive path matches lowercase only (#1771, Q10)."""
+        self.without_git(monkeypatch)
+        calls = []
+        full = "ABCDEF0123456789ABCDEF0123456789ABCDEF01"
+        with self.make_client(tmp_path, self.recording_pip(calls)) as client:
+            started = client.post("/api/system/diffusers/update", json={"commit": full})
+            assert started.status_code == 202, started.text
+            assert started.json()["requested_commit"] == full.lower()
+            self.wait_for_update(client, ["succeeded", "failed"])
+        assert calls == [{"commit": full.lower(), "revert": False}]
+
     def test_commit_and_revert_together_is_rejected(self, tmp_path):
         from types import SimpleNamespace
 

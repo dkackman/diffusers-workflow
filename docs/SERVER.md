@@ -749,7 +749,11 @@ refused (400) as `not a restart tombstone`. A member that was running redoes
 its finished steps: the step cache does not survive a restart. The REST form
 is `POST /api/jobs/{id}/rerun-restart-batch`, and
 `GET /api/jobs/{id}/restart-batch` counts a batch without queuing or
-estimating anything.
+estimating anything. While a dw update is running the server takes no jobs,
+and the batch says so before admitting any member: the acknowledged call
+answers 409 with the refusal as its `detail`, as a single rerun does, and the
+preview answers 200 with `would_queue: []` and `refusal` naming it. A preview
+carries `refusal: null` when the batch would be admitted.
 
 Each server holds a lock under `servers/` beside `jobs.sqlite` for its
 lifetime, so a second server sharing the database never closes a live
@@ -1636,7 +1640,10 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
   upgrade would keep an older commit, then a plain `pip install diffusers`
   for any dependency the new commit adds; `commit` (7-40 hex characters,
   validated before it reaches the command line) pins the git install to
-  that commit instead of HEAD; `revert: true` pins back to the known-good
+  that commit instead of HEAD. Without usable git (an installed copy, or no
+  `git` on the host) diffusers installs from a GitHub archive, which names a
+  full hash, so a `commit` shorter than 40 characters is refused there with
+  400; a 40-character one is lowercased before it reaches the updater; `revert: true` pins back to the known-good
   published release instead of installing from git - the diffusers floor
   version read from `pyproject.toml` (`pip install diffusers==<floor>`).
   `commit` and `revert` are mutually exclusive. The status response

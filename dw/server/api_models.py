@@ -761,6 +761,12 @@ class RestartBatchRerun(ApiModel):
         "A preview only: what `acknowledged_cost: true` would queue, oldest first."
     )
     skipped: list[RestartBatchSkipped]
+    refusal: str | None = Field(
+        default=None,
+        description="A preview only: why the server is refusing jobs right now "
+        "(a dw update is running), in which case `would_queue` is empty and "
+        "`acknowledged_cost: true` answers 409; null when it would admit them.",
+    )
 
 
 # ------------------------------------------------------------- validation

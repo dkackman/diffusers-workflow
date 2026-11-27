@@ -6651,6 +6651,18 @@
             "title": "Queued",
             "type": "array"
           },
+          "refusal": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A preview only: why the server is refusing jobs right now (a dw update is running), in which case `would_queue` is empty and `acknowledged_cost: true` answers 409; null when it would admit them.",
+            "title": "Refusal"
+          },
           "server_instance": {
             "description": "The dead server whose batch this is.",
             "title": "Server Instance",
