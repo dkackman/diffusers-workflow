@@ -563,6 +563,35 @@ it('a hash with no query resets every box', async () => {
   expect(location.hash).toBe('#/ws/studio/gallery')
 })
 
+it('a hash with no query resets every box, one listener at a time', async () => {
+  // A browser runs microtasks between hashchange listeners, so one box's
+  // write effect can flush before the next box has read the new hash - and
+  // put that box's old value back. jsdom calls every listener in one turn,
+  // which is why the test above cannot see it: the listeners are called here
+  // by hand, with a microtask turn after each
+  const { hashState, codec } = await loadRouter()
+  await go('#/ws/studio/gallery?q=cat&roles=final,intermediate&starred=1')
+  const box = await boxes(() => ({
+    q: hashState('q', ''),
+    roles: hashState<string[]>('roles', ['final'], codec.list),
+    starred: hashState('starred', false, codec.flag),
+  }))
+  history.replaceState(history.state, '', '#/ws/studio/gallery')
+  for (const [type, listener] of [...listeners]) {
+    if (type !== 'hashchange') continue
+    const event = new HashChangeEvent('hashchange')
+    if (typeof listener === 'function') listener(event)
+    else listener.handleEvent(event)
+    await Promise.resolve()
+    await Promise.resolve()
+  }
+  settleBoxes()
+  expect(box.q.value).toBe('')
+  expect(box.roles.value).toEqual(['final'])
+  expect(box.starred.value).toBe(false)
+  expect(location.hash).toBe('#/ws/studio/gallery')
+})
+
 it('a list is written with a plain comma', async () => {
   const { hashState, codec } = await loadRouter()
   await go('#/ws/studio/gallery')

@@ -120,7 +120,18 @@ export const codec = {
 // Every box on screen, by key, as the hash would carry it: a box writing its
 // own key writes the others' too, so no filter ever drops another
 // eslint-disable-next-line svelte/prefer-svelte-reactivity -- not reactive state
-const boxes = new Set<{ key: string; written: () => string }>()
+const boxes = new Set<{
+  key: string
+  written: () => string
+  sync: () => void
+}>()
+
+// One listener for every box: a browser runs microtasks between listeners, so
+// with one each, the first box's write effect flushed before the next box had
+// read the new hash, and wrote that box's old value back into it
+window.addEventListener('hashchange', () => {
+  for (const box of boxes) box.sync()
+})
 
 /** A list's filter kept in the hash's query under `key`, so opening an item
  * and pressing Back - or sharing the link - keeps the narrowed view. Writing
@@ -154,14 +165,14 @@ export function hashState<T>(
       const raw = format(value)
       return raw === bare ? '' : raw
     },
+    sync: () => {
+      value = read()
+    },
   }
   $effect(() => {
     boxes.add(box)
-    const sync = () => (value = read())
-    window.addEventListener('hashchange', sync)
     return () => {
       boxes.delete(box)
-      window.removeEventListener('hashchange', sync)
     }
   })
   $effect(() => {
