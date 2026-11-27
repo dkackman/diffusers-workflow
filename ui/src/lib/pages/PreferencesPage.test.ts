@@ -317,6 +317,29 @@ it('New preference makes an unsaved card in the editor, its first model in the d
   expect(edit.disabled).toBe(false)
 })
 
+it('one preference in edit: the open New preference form locks every Edit, and an open edit locks New', async () => {
+  render(PreferencesPage)
+  const el = await card()
+  await fireEvent.click(screen.getByRole('button', { name: 'New preference' }))
+  const edit = within(el).getByRole<HTMLButtonElement>('button', {
+    name: 'Edit',
+  })
+  expect(edit.disabled).toBe(true)
+  expect(edit.title).toBe('Save or discard the open edit first')
+  // closing the form frees the card; an open edit then locks New
+  await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  const again = within(await card()).getByRole<HTMLButtonElement>('button', {
+    name: 'Edit',
+  })
+  expect(again.disabled).toBe(false)
+  await fireEvent.click(again)
+  expect(
+    screen.getByRole<HTMLButtonElement>('button', { name: 'New preference' })
+      .disabled,
+  ).toBe(true)
+  expect(screen.queryByRole('form', { name: 'New preference' })).toBeNull()
+})
+
 it('New preference refuses a name the server would, before sending', async () => {
   render(PreferencesPage)
   await card()

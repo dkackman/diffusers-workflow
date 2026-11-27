@@ -177,7 +177,7 @@
           else if (editing === key) editing = null
         }
       }
-      locked={editing !== null && editing !== key}
+      locked={creating || (editing !== null && editing !== key)}
       seed={fresh[key]}
       {readOnly}
       onsaved={saved}
