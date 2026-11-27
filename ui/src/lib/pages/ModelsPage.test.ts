@@ -37,7 +37,7 @@ it('Preferences tab is current, links both tabs and shows the preferences', asyn
   render(ModelsPage, { tab: 'preferences' })
   const prefs = screen.getByRole('link', { name: 'Preferences' })
   expect(prefs.getAttribute('aria-current')).toBe('page')
-  expect(prefs.getAttribute('href')).toBe('#/server/models')
+  expect(prefs.getAttribute('href')).toBe('#/server/models/preferences')
   const downloaded = await screen.findByRole('link', {
     name: 'Downloaded · 2',
   })
@@ -61,5 +61,5 @@ it('Downloaded tab is current and shows the download form', async () => {
   expect(downloaded.getAttribute('aria-current')).toBe('page')
   expect(
     screen.getByRole('link', { name: 'Preferences' }).getAttribute('href'),
-  ).toBe('#/server/models')
+  ).toBe('#/server/models/preferences')
 })

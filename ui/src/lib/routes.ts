@@ -36,6 +36,13 @@ export type ServerSection = (typeof SERVER_SECTIONS)[number]
 export const MODELS_TABS = ['preferences', 'downloaded'] as const
 export type ModelsTab = (typeof MODELS_TABS)[number]
 
+/** A hash path as the page it shows: `server/models` opens its first tab, so
+ * it and `server/models/preferences` are one place - moving between them is
+ * no navigation a leave guard asks about. */
+export function placeOf(path: string): string {
+  return path === `server/models/${MODELS_TABS[0]}` ? 'server/models' : path
+}
+
 /** The one set of section names: the sidebar's items and the breadcrumb
  * both read it, so they cannot drift. */
 export const SECTION_LABELS: {

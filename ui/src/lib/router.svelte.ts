@@ -1,6 +1,7 @@
 import { untrack } from 'svelte'
 import {
   legacyRedirect,
+  placeOf,
   queryString,
   resolveView,
   type RouteView,
@@ -501,7 +502,8 @@ window.addEventListener('hashchange', () => {
   if (asking || home()) return
   const path = pathOf(location.hash)
   const exempt = carried?.unguarded && carried.path === path
-  if (!guards.size || exempt || path === pathOf(committed)) settle()
+  if (!guards.size || exempt || placeOf(path) === placeOf(pathOf(committed)))
+    settle()
   else ask()
 })
 

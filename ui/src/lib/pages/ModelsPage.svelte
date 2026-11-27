@@ -37,7 +37,7 @@
 
 <nav class="tabs" aria-label="Models">
   <a
-    href={serverHref('models')}
+    href={serverHref('models', 'preferences')}
     aria-current={tab === 'preferences' ? 'page' : undefined}
   >
     Preferences

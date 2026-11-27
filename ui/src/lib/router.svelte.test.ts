@@ -181,6 +181,21 @@ it('does not guard a query-only change', async () => {
   expect(route.view).toMatchObject({ section: 'jobs' })
 })
 
+it('does not guard a move between Models and its Preferences tab', async () => {
+  const { route, addLeaveGuard } = await loadRouter()
+  await go('#/server/models')
+  const guard = vi.fn(() => false)
+  addLeaveGuard(guard)
+  await go('#/server/models/preferences')
+  expect(location.hash).toBe('#/server/models/preferences')
+  await go('#/server/models')
+  expect(guard).not.toHaveBeenCalled()
+  expect(route.view).toMatchObject({ section: 'models' })
+  // another tab is a navigation
+  await go('#/server/models/downloaded', 2)
+  expect(guard).toHaveBeenCalledTimes(1)
+})
+
 it('a removed guard is not asked', async () => {
   const { route, addLeaveGuard } = await loadRouter()
   const guard = vi.fn(() => false)
