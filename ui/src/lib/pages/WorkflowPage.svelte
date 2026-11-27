@@ -29,6 +29,7 @@
   import { placeFindings } from '../findings'
   import { RunCheck, verdictOf } from '../runCheck.svelte'
   import RunCheckPanel from '../workflow/RunCheckPanel.svelte'
+  import { rungKey, rungsOf, TIER_VARIABLE } from '../preferences'
   import EnhanceDialog from '../workflow/EnhanceDialog.svelte'
   import * as form from '../workflow/runForm'
   import RemoteNotice from '../ui/RemoteNotice.svelte'
@@ -105,6 +106,30 @@
     const basis = costBasisWords(catalog.data?.cost_basis)
     const figure = `${costFigure(measured)}, ${costMeasuredOn(card.cost, card.cost_drivers)}`
     return basis ? `${basis}: ${figure}` : figure
+  })
+
+  /** What each tier of the one preference key the workflow composes runs
+   * on this host (#1762): the server's own resolution, read beside the
+   * form. Its store has no change kind; the catalog and the model cache
+   * are what move a pick. A failed read shows no rungs, and the tier
+   * dropdown works as before */
+  const preferenceKey = $derived(workflow ? rungKey(workflow) : null)
+  const preferenceRead = resource(
+    async () => {
+      const key = preferenceKey
+      if (!key) return null
+      return { key, read: await api.getPreferences({ key, resolve: true }) }
+    },
+    { watch: ['workflows', 'models'] },
+  )
+  const rungs = $derived.by(() => {
+    const held = preferenceRead.data
+    if (!held || held.key !== preferenceKey || preferenceRead.error) return null
+    return {
+      selector: TIER_VARIABLE,
+      list: rungsOf(held.read, held.key),
+      fallback: held.read.default_tier,
+    }
   })
 
   let restored = $state(false)
@@ -383,6 +408,7 @@
           advanced={form.advancedVariables(workflow, card)}
           seed={form.seedVariable(workflow)}
           onenhance={(key) => (enhancing = key)}
+          {rungs}
         />
         {#if enhancing}
           <EnhanceDialog

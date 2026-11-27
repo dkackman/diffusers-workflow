@@ -42,6 +42,7 @@ import type {
   OutputDeleted,
   PipelineDescription,
   PipelineNames,
+  PreferencesRead,
   PromptList,
   RestartBatchRerun,
   RestartBatchSize,
@@ -525,6 +526,18 @@ export const api = {
   workflowDownloadUrl: (name: string) =>
     withToken(`/api/workflows/${encodePath(name)}/download`),
   listPrompts: () => request<PromptList>('/api/prompts?times=true'),
+  /** The model preference ladders (#1626); `key` narrows to one, and
+   * `resolve` adds this host's pick per tier - its target, the targets it
+   * skipped and why, or the error validate would give at that tier */
+  getPreferences: ({
+    key,
+    resolve,
+  }: { key?: string; resolve?: boolean } = {}) => {
+    const query = new URLSearchParams()
+    if (key) query.set('key', key)
+    if (resolve) query.set('resolve', 'true')
+    return request<PreferencesRead>(`/api/preferences?${query}`)
+  },
   /** Catalog LoRA entries for one base: `model` a Hub repo id (or a saved
    * workflow's name), `workflow` an optional partition. Catalog-only - the
    * Hub is searched by /api/loras/recommend, which the UI never calls.

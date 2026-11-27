@@ -149,6 +149,7 @@ UI_READ_ROUTES = [
     ("get", "/api/memory"),
     ("post", "/api/memory/clear"),
     ("get", "/api/models"),
+    ("get", "/api/preferences"),
     ("post", "/api/models/download"),
     ("get", "/api/models/downloads"),
     ("post", "/api/models/downloads/{download_id}/cancel"),

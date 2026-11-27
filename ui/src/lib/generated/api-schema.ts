@@ -4712,6 +4712,11 @@ export interface components {
             list_entries: {
                 [key: string]: number;
             };
+            /**
+             * Preferences
+             * @description One line per 'preference:' step, a composed child's own included: 'preference:<key> (tier <tier>) -> <workflow>; source: <shipped|server>', then each target it skipped and why (dw/preferences.py); absent when the workflow composes no preference.
+             */
+            preferences?: string[];
             /** Steps */
             steps: number;
             /** Workspace */
