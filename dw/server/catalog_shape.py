@@ -497,13 +497,19 @@ def _compact_entry(detail, inputs):
         # defaults; the quote carries the answer, so the compact
         # listing spends no tokens on the rule (#1199); the
         # reference exponent (#1429) and the first-pass-at-shape
-        # term (#1615) are pricing rules alike
+        # term (#1615) and the composed steps already inside
+        # `minutes` (#1773) are pricing rules alike
         slim["cost"] = [
             {
                 k: v
                 for k, v in entry.items()
                 if k
-                not in ("scales_with", "video_reference_exponent", "first_at_shape")
+                not in (
+                    "scales_with",
+                    "video_reference_exponent",
+                    "first_at_shape",
+                    "includes",
+                )
             }
             if isinstance(entry, dict)
             else entry

@@ -7,6 +7,11 @@
             "name": "RTX 3090",
             "vram_gb": 24,
             "minutes": 35,
+            "includes": {
+              "models/z-image": [
+                "draw_singer"
+              ]
+            },
             "video_reference_exponent": 2.0
         }
     ],

@@ -42,6 +42,7 @@ from .cost_scaling import (
     words_check_term,
     with_words_check,
 )
+from .for_each import MEMBER_SEPARATOR
 from .presets import effective_variables
 from .realize import read_sub_workflow
 
@@ -191,6 +192,51 @@ def _child_catalog_price(child_definition, child_cost, step_arguments, device):
         )
         child = with_words_check(child, child_definition, child_expanded)
     return child
+
+
+class _IncludedSteps:
+    """The composed steps whose time the quoted row's `minutes` already
+    holds (`cost[].includes`: {measured child: [step names]}, #1773). Empty
+    when the parent's own price was withheld: a figure that is not quoted
+    holds nothing."""
+
+    def __init__(self, definition, device, own_minutes, base_dir, workflow_dir):
+        entry = None
+        if own_minutes is not None:
+            entry = _choose_entry(definition.get("cost"), device)[0]
+        includes = entry.get("includes") if entry else None
+        if not isinstance(includes, dict):
+            includes = {}
+        self._measured = {
+            step: child
+            for child, steps in includes.items()
+            if isinstance(steps, list)
+            for step in steps
+            if isinstance(step, str)
+        }
+        self._dirs = (base_dir, workflow_dir)
+
+    def measured_child(self, step):
+        """The child the row was measured with at `step` (a `for_each`
+        member answers to the step as written), or None."""
+        if not isinstance(step, str):
+            return None
+        return self._measured.get(step.split(MEMBER_SEPARATOR)[0])
+
+    def holds(self, path, measured):
+        """Whether `path` resolves to the measured child, however either is
+        spelled - the step then adds nothing to the row's own minutes."""
+        found = read_sub_workflow(path, *self._dirs)
+        return found is not None and found == read_sub_workflow(measured, *self._dirs)
+
+
+def _replaced_child_note(step, path, measured):
+    """The `scaled` clause for a covered step running another child: it is
+    priced on top, and the row does not say what share to take off."""
+    return (
+        f"{step}: {path} added, but the minutes already hold {measured} at this "
+        f"step - the quote comes out high by that covered share"
+    )
 
 
 class _ChildTotals:

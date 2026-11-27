@@ -1324,3 +1324,15 @@ def test_the_qr_code_template_pairs_one_family():
     assert pipeline["controlnet"]["from_pretrained_arguments"]["model_name"] == (
         "DionTimmer/controlnet_qrcode-control_v1p_sd15"
     )
+
+
+@pytest.mark.parametrize("path", TEMPLATES + MODEL_CONFIGS)
+def test_a_cost_that_includes_steps_names_composing_steps(path):
+    """#1773: a renamed step would be priced twice again with no other sign."""
+    definition = load(path)
+    composing = {s["name"] for s in definition.get("steps", []) if "workflow" in s}
+    for entry in definition.get("cost") or []:
+        for child, steps in (entry.get("includes") or {}).items():
+            assert set(steps) <= composing, f"{path}: {steps} not composing steps"
+            child_file = os.path.join(REPO_ROOT, "workflows", f"{child}.json")
+            assert os.path.isfile(child_file), (path, child)

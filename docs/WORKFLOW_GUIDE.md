@@ -1206,7 +1206,14 @@ adds `minutes` once per distinct shape this card has not yet run the
 workflow at, where a shape is the effective values of `keys` (each a
 variable the workflow declares) plus each list-driver entry's `num_frames`.
 It is not part of `minutes` or `fixed_minutes` and is never scaled. Absent,
-no first pass is priced.
+no first pass is priced. Its `includes`
+(`{"models/z-image": ["draw_character_a"]}`) names the composed steps whose
+time `minutes` already holds, keyed by the child that was measured: a named
+step resolving to that child adds nothing to the estimate, one resolving to
+any other child (an override, another `preference:`) is priced on top and
+`scaled` says the quote comes out high by the covered share, and a step not
+named is added as any composed child is. Declare it when the row was measured
+as a whole run, composed steps and all.
 
 An entry carrying `cost` has been run to completion on the device it names; one
 without has only been authored, and its first run is the one that finds out

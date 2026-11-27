@@ -43,14 +43,16 @@ from .cost_scaling import (
 )
 from .elision import elide_definition
 from . import references
-from .plan_downloads import _sub_workflow_paths, downloads_required
+from .plan_downloads import _composing_steps, _sub_workflow_paths, downloads_required
 from .plan_pricing import (
     with_first_at_shape,
     _child_catalog_price,
     _child_observed,
     _ChildTotals,
+    _IncludedSteps,
     _own_price,
     _read_child,
+    _replaced_child_note,
     _unresolved_list_note,
     task_rate_price,
     undeclared_task_commands,
@@ -847,7 +849,8 @@ def estimate(
 ):
     """Minutes from this box's own history when it has one, else from the
     workflow's own cost block, re-priced for the caller's list, plus each
-    composed child's.
+    composed child's - except a child the row says its minutes already hold
+    (`cost[].includes`, #1773).
 
     `basis` names where the figure came from - the honesty is in the field,
     not in a fabricated number: 'unknown' is no cost block at all (or a
@@ -943,7 +946,13 @@ def estimate(
     partial = own["minutes"] is None and not _only_composes_children(definition)
     unpriced = [definition.get("id", "workflow")] if partial else []
     totals = _ChildTotals(own["minutes"], partial, unpriced)
-    for path, step_arguments in _sub_workflow_paths(expanded):
+    included = _IncludedSteps(
+        definition, device, own["minutes"], base_dir, workflow_dir
+    )
+    for step, path, step_arguments in _composing_steps(expanded):
+        measured_child = included.measured_child(step)
+        if measured_child and included.holds(path, measured_child):
+            continue
         child_definition, child_cost = _read_child(path, base_dir, workflow_dir)
         child_observed = _child_observed(
             observed_for_child, path, child_definition, step_arguments, own["minutes"]
@@ -973,6 +982,8 @@ def estimate(
         )
         if note and child["minutes"] is not None:
             totals.differs.append(note)
+        if measured_child and child["minutes"] is not None:
+            totals.scaled.append(_replaced_child_note(step, path, measured_child))
     result = _rolled_up_estimate(own, totals, device, cached_steps, total_steps)
     if own.get("task_rates") and result["minutes"] is not None:
         # A declared rate is a bound, never a measurement (#1619)
