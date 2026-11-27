@@ -1,0 +1,70 @@
+[
+  {
+    "name": "hybrid-a-blended-key-s1166",
+    "scene": "s3-dialogue-walk",
+    "workflow": "hybrid-windows.json",
+    "arguments": {
+      "switch_step": 0,
+      "handoff": "finished",
+      "anchor": "keystone"
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-a-blended-key",
+    "moments": [
+      "frame:12",
+      "frame:720",
+      "frame:1440"
+    ]
+  },
+  {
+    "name": "hybrid-a-blended-key-s2",
+    "scene": "s3-dialogue-walk",
+    "workflow": "hybrid-windows.json",
+    "arguments": {
+      "switch_step": 0,
+      "handoff": "finished",
+      "anchor": "keystone"
+    },
+    "seed": 2,
+    "workflow_id_suffix": "-a-blended-key",
+    "moments": [
+      "frame:12",
+      "frame:720",
+      "frame:1440"
+    ]
+  },
+  {
+    "name": "hybrid-b-finished-k3-key-s1166",
+    "scene": "s3-dialogue-walk",
+    "workflow": "hybrid-windows.json",
+    "arguments": {
+      "switch_step": 3,
+      "handoff": "finished",
+      "anchor": "keystone"
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-b-finished-k3-key",
+    "moments": [
+      "frame:12",
+      "frame:720",
+      "frame:1440"
+    ]
+  },
+  {
+    "name": "hybrid-b-finished-k3-key-s2",
+    "scene": "s3-dialogue-walk",
+    "workflow": "hybrid-windows.json",
+    "arguments": {
+      "switch_step": 3,
+      "handoff": "finished",
+      "anchor": "keystone"
+    },
+    "seed": 2,
+    "workflow_id_suffix": "-b-finished-k3-key",
+    "moments": [
+      "frame:12",
+      "frame:720",
+      "frame:1440"
+    ]
+  }
+]
