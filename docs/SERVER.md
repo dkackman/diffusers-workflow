@@ -189,10 +189,11 @@ it (`#/ws/studio/gallery`), so a link and a reload land where they say; a
 pre-workspace bookmark (`#/gallery`) redirects to the last workspace used.
 Below the workspaces, **Shared** holds what every workspace sees - Prompts,
 the `common` Assets library and the read-only Examples - and **Server**
-holds Models, Preferences, Schema and Status. The header carries the breadcrumb, a VRAM
+holds Activity, Models, Connect and System. The header carries the breadcrumb, a VRAM
 meter per card with a status popover (workers, queue), the API-token key
 icon, a finish-alert toggle, the theme toggle, and links to these docs and
-`/docs`. `?` lists the keyboard shortcuts.
+`/docs`; the workflow schema is a top-bar icon beside the OpenAPI link
+(`#/server/schema`), not a sidebar row. `?` lists the keyboard shortcuts.
 
 The text filters on Jobs, Gallery, Assets, Prompts and Schema share one rule:
 every word typed must be somewhere in what the page searches, in any order,
@@ -585,47 +586,69 @@ them instead.
 
   ![The model manager: each cached repo with its size, file count and last use](img/ui-models.png)
 
-- **Preferences** (Server) - the `preference:` ladders this server resolves
-  (`GET /api/preferences?resolve=true`). Each key shows a `shipped` or
-  `server` badge and its three tiers as ordered target lists: a catalog name,
-  or one limited to devices (`cuda only`). Targets can be moved up or down,
-  removed, or added from the catalog with an optional device limit. **Save**
-  sends `PUT /api/preferences/{key}` with the key's etag as `If-Match`, and
-  the card's *On this host* list then shows the picks the answer carries.
-  **Reset to shipped** (`DELETE`) appears only on a server key. **New key**
-  checks the name as the server would (a letter or `_`, then letters,
-  numbers, `_` and `-`) before adding an unsaved card. **Default tier** writes
-  `PUT /api/preferences`. A 422 shows the server's refusal beside the key; a
-  412 (someone else wrote the key, or the default tier, since the page read
-  it) offers **Reload**, which drops the edit for the server's copy, or
-  **Overwrite**, which writes it again over that copy.
+- **Preferences** (Server › Models › Preferences, `#/server/models/preferences`;
+  Models is a two-tab page, Preferences first, then Downloaded, the hub
+  cache above) - the `preference:` ladders, each answering what runs on this
+  machine. One card per key shows its tiers (`draft`, `standard`, `best`):
+  the model each tier picks with **ready**, or "downloads N GB before its
+  first job" (a link to Downloaded; there is no download button here), or
+  "Nothing fits this machine" with the reason. Models passed over are struck
+  through with a plain reason, and the ones after the pick read "fallback,
+  not checked here". It comes from
+  `GET /api/preferences?resolve=true&full=true`, which also carries each
+  key's `used_by` workflows and `contract`. A `shipped` or `changed on this
+  server` badge says where the ladder comes from. **Requests that don't name
+  a tier run at** is a selector that writes `PUT /api/preferences`.
+  **Edit** opens one key (one edit open at a time) as a chain editor: each
+  model a chip, in the order tried; drag a chip, press Alt+Left or
+  Alt+Right on it, use its arrows, or remove it with the x; **+ add** picks
+  from the catalog, optionally **Only on these devices**. After 300 ms the
+  unsaved ladder is dry-run (`POST /api/preferences/{key}/check`, below) and
+  each chip shows its state. The footer reads "Unsaved changes - Jobs already
+  queued keep the model they were given" with **Discard** and **Save**
+  (`PUT /api/preferences/{key}` with the key's etag as `If-Match`; a tier
+  emptied reads "No models: requests at this tier are refused" and cannot
+  be saved). **Reset to shipped** (`DELETE`) appears only on a server key.
+  **New preference** checks the name as the server would (a letter or `_`,
+  then letters, numbers, `_` and `-`) before adding an unsaved card. A 422
+  shows the server's refusal beside the key; a 412 (someone else wrote the
+  key, or the default tier, since the page read it) offers **Reload**, which
+  drops the edit for the server's copy, or **Overwrite**, which writes it
+  again over that copy.
 - **Schema** (Server) - the workflow JSON schema the server validates
   against, as a browsable tree: the root and every definition, with types,
   required markers, defaults, enums and descriptions. `$ref` labels jump to
   their definition; a filter narrows the list.
-- **Status** (Server) - what this server is and how to reach it: workers per
-  card (with its pid), per-card memory (free and reserved where the backend
-  reports them), a **Runtime** panel (Python, torch, CUDA, driver and package
-  versions, with a copy button), bind address and LAN addresses, whether a token is required, whether
-  `/mcp` is mounted, a **Connect from another machine** panel with the
-  browser URL and the `claude mcp add` line (its token header only when a
-  token is required) for a chosen address (on a loopback bind: built from
-  the page's own address when it was reached through a reverse proxy or a
-  tunnel, with no rebind advice, only to keep the bind it has; read on the
-  box itself - which a plain `ssh -L` to `localhost` also looks like - the
-  command that restarts it bound to the network, with a token, in their
-  place, and `ssh -L` named as the safer way), the
-  resolved directories, and the Caches panel (below) - then the queue and
-  history across every workspace, with a workspace filter. A request filter
-  there (`req=`) is read in one workspace - the one picked, else the current
-  one, which the picker then shows - because a request id names a request
-  inside a workspace; picking every workspace drops the filter. On either
-  jobs list a filter the server refuses (a `req` that is not a request id)
-  shows the server's message over no rows.
+- **Activity** (Server, `#/server/activity`) - what the server is doing now:
+  health (workers per card with its pid, per-card memory where the backend
+  reports it), the downloads in progress, a line while an update is in
+  flight, then the queue and history across every workspace, with a workspace
+  filter. A request filter there (`req=`) is read in one workspace - the one
+  picked, else the current one, which the picker then shows - because a
+  request id names a request inside a workspace; picking every workspace
+  drops the filter. On either jobs list a filter the server refuses (a `req`
+  that is not a request id) shows the server's message over no rows.
+- **Connect** (Server, `#/server/connect`) - how to reach this server: bind
+  address and LAN addresses, whether a token is required, whether `/mcp` is
+  mounted, and the **Connect from another machine** panel with the browser
+  URL and the `claude mcp add` line (its token header only when a token is
+  required) for a chosen address (on a loopback bind: built from the page's
+  own address when it was reached through a reverse proxy or a tunnel, with
+  no rebind advice, only to keep the bind it has; read on the box itself -
+  which a plain `ssh -L` to `localhost` also looks like - the command that
+  restarts it bound to the network, with a token, in their place, and
+  `ssh -L` named as the safer way).
+- **System** (Server, `#/server/system`) - the **Runtime** panel (Python,
+  torch, CUDA, driver and package versions, with a copy button), the
+  resolved directories, **Software** (the dw and diffusers updates) and the
+  Caches panel (below).
 
-  ![The Status page: host, version, a worker per RTX 3090 with its memory, the queue, and the bind address](img/ui-status-dark.png)
+  ![The Activity page: host, version, a worker per RTX 3090 with its memory, and the queue](img/ui-status-dark.png)
 
-The Status page's Caches panel lists dw's disk caches (`GET /api/caches`:
+The old `#/server/status`, `#/server/preferences`, `#/jobs`, `#/server` and
+`#/models` links redirect to these pages, keeping their query.
+
+The System page's Caches panel lists dw's disk caches (`GET /api/caches`:
 size, files, last used, the volume's free space; the quantized cache expands
 into a table of its entries, each with a delete button) with a Clear button
 per cache that asks first, quoting what clearing costs, and shows the
@@ -1808,6 +1831,21 @@ and is written only by these routes:
   undownloaded target shows up only in a validate plan. `key=` reads one key
   (an unknown one is a 404) and puts its etag in the `ETag` header. MCP's
   `get_preferences` is this with `resolve=true`.
+  `resolve=true&full=true` (the Preferences page's read) resolves as
+  admission does: a gated or undownloaded target is skipped or noted
+  (`notes`, with the download size), and each key adds `used_by`, the
+  workflows that reference it, and `contract`, the variables every target
+  must take. Plain `resolve=true` is unchanged and Hub-free, and so is the
+  run form's and MCP's answer.
+- `POST /api/preferences/{key}/check` with `{ladder, full, known_blocked}`
+  dry-runs a ladder that is not saved: per tier `{target, skipped, notes,
+after, error, target_errors, warnings}` (the pick, what was passed over and
+  why, the notes such as a pending download, the targets after the pick, the
+  refusal when nothing fits, each target a PUT would refuse, and each
+  contract variable a target does not take). It never writes. `full=false`
+  makes no Hub calls (a name in `known_blocked` is skipped as gated);
+  `full=true` probes as admission does. A ladder of the wrong shape is a
+  422; a key not in the store is allowed.
 - `PUT /api/preferences/{key}` with the ladder as the body
   (`{"best": ["models/z-image"]}`) replaces the key's ladder, or adds a key.
   The answer is the key as GET gives it, with `resolutions`. It is a 422 when
