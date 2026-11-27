@@ -71,6 +71,29 @@ it('queues a second dialog until the first is answered', async () => {
   expect(await second).toBe(false)
 })
 
+it('shows the next dialog after the first is dismissed', async () => {
+  render(ConfirmDialog)
+  const first = confirmDialog('First?')
+  const second = confirmDialog('Second?', { confirmLabel: 'Yes two' })
+  const third = confirmDialog('Third?', { confirmLabel: 'Yes three' })
+  await fireEvent.keyDown(await screen.findByRole('alertdialog'), {
+    key: 'Escape',
+  })
+  expect(await first).toBe(false)
+  await waitFor(() =>
+    expect(screen.getByRole('alertdialog').textContent).toContain('Second?'),
+  )
+  await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  expect(await second).toBe(false)
+  await waitFor(() =>
+    expect(screen.getByRole('alertdialog').textContent).toContain('Third?'),
+  )
+  await fireEvent.click(screen.getByRole('button', { name: 'Yes three' }))
+  expect(await third).toBe(true)
+  await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+  await waitFor(() => expect(overlayOpen()).toBe(false))
+})
+
 it('resolves a choice by value', async () => {
   render(ConfirmDialog)
   const answer = chooseDialog('x', [

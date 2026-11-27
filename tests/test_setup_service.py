@@ -286,6 +286,20 @@ def test_the_default_runner_sanitizes_and_uses_no_shell(monkeypatch):
         setup_service.default_runner(["echo", "a;b"])
 
 
+def test_the_default_runner_decodes_utf8_whatever_the_code_page(monkeypatch):
+    # claude's `❯` pointer is not decodable as cp1252, a Windows default
+    seen = {}
+
+    def fake_run(args, **kwargs):
+        seen.update(kwargs)
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    setup_service.default_runner(["echo", "hi"])
+    assert seen["encoding"] == "utf-8"
+    assert seen["errors"] == "replace"
+
+
 def test_the_default_runner_runs_claude_by_its_full_path(monkeypatch):
     seen = {}
 

@@ -314,6 +314,17 @@ def test_overlay_key_replaces_whole_shipped_key(tmp_path):
     assert loaded["default_tier"] == "best"
 
 
+@pytest.mark.parametrize("tier", ["fast", 1, ["best"], ""])
+def test_an_overlay_default_tier_that_is_no_tier_keeps_the_shipped_one(tmp_path, tier):
+    shipped = write(
+        tmp_path / "s.json",
+        {"default_tier": "draft", "preferences": {"k": {"draft": ["a"]}}},
+    )
+    overlay = write(tmp_path / "o.json", {"default_tier": tier, "preferences": {}})
+    loaded = preferences.load_preferences(shipped=shipped, overlay=overlay)
+    assert loaded["default_tier"] == "draft"
+
+
 def test_overlay_absent_or_broken_keeps_shipped(tmp_path):
     shipped = write(tmp_path / "s.json", {"preferences": {"k": {"draft": ["a"]}}})
     broken = tmp_path / "o.json"

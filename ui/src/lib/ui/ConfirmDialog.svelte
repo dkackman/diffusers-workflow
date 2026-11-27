@@ -36,12 +36,16 @@
 <!-- Escape and an outside click answer null (Bits reports each as
      onOpenChange(false)); the choice whose value is 'cancel' answers
      'cancel'. Any other choice answers its own value; a name dialog's
-     confirm is disabled while its name does not validate. -->
+     confirm is disabled while its name does not validate. `open` is bound
+     so Bits reads it back after a dismissal: with another dialog queued it
+     is still true, and the dialog stays up for the next question. -->
 <AlertDialog.Root
-  open={confirmState.open}
-  onOpenChange={(open) => {
-    if (!open) resolveChoice(null)
-  }}
+  bind:open={
+    () => confirmState.open,
+    (open) => {
+      if (!open) resolveChoice(null)
+    }
+  }
 >
   <AlertDialog.Portal to={portal.to}>
     <AlertDialog.Overlay class="ui-overlay ui-ask" />

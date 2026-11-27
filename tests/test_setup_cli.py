@@ -6,6 +6,7 @@ import subprocess
 import pytest
 
 from dw import setup_cli, setup_clients, setup_service
+from dw.setup_state import beside_python
 
 
 class Fakes:
@@ -468,3 +469,24 @@ def test_agent_without_claude_names_dw_by_its_full_path(monkeypatch, capsys):
     monkeypatch.setattr(setup_clients, "claude_cli", lambda: None)
     assert setup_cli.main(["agent"]) == 1
     assert f"`{beside_python('dw')} agent`" in capsys.readouterr().err
+
+
+def test_hf_login_runs_the_hf_beside_this_interpreter(monkeypatch):
+    # An installed copy's venv is not on PATH, so a bare `hf` is not found
+    seen = {}
+
+    def fake_run(args, **kwargs):
+        seen["args"] = args
+        return subprocess.CompletedProcess(args, 0)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    assert setup_cli._hf_login() is True
+    assert seen["args"] == [str(beside_python("hf")), "auth", "login"]
+
+
+def test_hf_login_that_cannot_start_is_a_failed_login_not_a_traceback(monkeypatch):
+    def missing(args, **kwargs):
+        raise FileNotFoundError(args[0])
+
+    monkeypatch.setattr(subprocess, "run", missing)
+    assert setup_cli._hf_login() is False

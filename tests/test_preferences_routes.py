@@ -348,6 +348,26 @@ def test_full_read_survives_hub_failure(client, monkeypatch):
 # --- the dry-run check: POST /api/preferences/{key}/check
 
 
+@pytest.mark.parametrize(
+    "text, words", [("{not json", "does not parse"), ("[1, 2]", "not a workflow")]
+)
+def test_a_target_file_that_is_no_workflow_is_a_422_not_a_500(
+    client, tmp_path, text, words
+):
+    (tmp_path / "workflows" / "qa" / "broken.json").write_text(text)
+    put = client.put("/api/preferences/qa_ladder", json={"best": ["qa/broken"]})
+    assert put.status_code == 422, put.text
+    assert words in put.text
+    assert str(tmp_path) not in put.text
+    assert _overlay() is None
+    check = client.post(
+        f"/api/preferences/{SHIPPED_KEY}/check",
+        json={"ladder": {"best": ["qa/broken"]}},
+    )
+    assert check.status_code == 200, check.text
+    assert words in check.json()["tiers"]["best"]["target_errors"]["qa/broken"]
+
+
 def test_check_writes_nothing(client):
     answer = client.post(
         f"/api/preferences/{SHIPPED_KEY}/check",
