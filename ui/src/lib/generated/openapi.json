@@ -1267,6 +1267,18 @@
             "title": "Managed",
             "type": "boolean"
           },
+          "newer": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "True when `latest` is a newer release than `version` (a PEP 440 compare); null when `latest` is null or either version can't be parsed.",
+            "title": "Newer"
+          },
           "status": {
             "enum": [
               "idle",
@@ -1286,6 +1298,7 @@
         "required": [
           "version",
           "latest",
+          "newer",
           "managed",
           "command",
           "status",

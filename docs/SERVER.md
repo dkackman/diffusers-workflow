@@ -69,7 +69,9 @@ stops at logout. `sudo loginctl disable-linger $USER` turns it off.
 
 The Models page shows the installed dw version (`GET /api/system/dw`). On a
 server setup's service started (`--managed`), when PyPI has a newer release
-(checked at most every ten minutes), an **Update dw** button asks first, then
+(checked at most every ten minutes; the server's `newer` decides, a PEP 440
+compare, so `0.10.0` is newer than `0.9.0` and `1.0.0rc1` older than `1.0.0`;
+when it is `null` no update is offered), an **Update dw** button asks first, then
 (`POST /api/system/dw/update`) upgrades `diffusers-workflow[server,mcp]` in the
 server's venv with torch pinned to the installed build and the recorded torch
 index, moves diffusers to `main`, runs `dw setup --yes --no-open --no-service`
@@ -1643,7 +1645,9 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
   concrete before/after to compare
 - `GET /api/system/dw`, `POST /api/system/dw/update` — the installed dw
   version, the newest release on PyPI (`latest`, `null` when it cannot be
-  read), whether this server is `managed`, the `command` that updates it by
+  read), `newer` (whether `latest` is a newer release than the installed
+  version, by PEP 440; `null` when `latest` is `null` or either version
+  can't be parsed), whether this server is `managed`, the `command` that updates it by
   hand, and the state of a running update; the POST starts one
   ([Update dw](#update-dw))
 - `GET /api/memory`, `GET /api/health` — worker VRAM/RAM stats and liveness;

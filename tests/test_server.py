@@ -4566,7 +4566,54 @@ class TestDwLatestLookup:
         assert r.status_code == 200
         body = r.json()
         assert body["latest"] is None and body["version"]
+        assert body["newer"] is None
         assert body["status"] == "idle"
+
+    def test_an_unparseable_latest_answers_newer_null(self, tmp_path, monkeypatch):
+        from dw.server import self_update
+
+        monkeypatch.setattr(
+            self_update,
+            "_fetch_pypi",
+            lambda url, timeout: {"info": {"version": "not a version"}},
+        )
+        with self.make_client(tmp_path) as client:
+            body = client.get("/api/system/dw").json()
+        assert body["latest"] == "not a version"
+        assert body["newer"] is None
+
+
+class TestDwNewer:
+    """#1770: `newer` is a PEP 440 compare of latest against the installed
+    version, not a string compare."""
+
+    @pytest.mark.parametrize(
+        "latest, installed, expected",
+        [
+            ("0.10.0", "0.9.0", True),
+            ("0.9.0", "0.10.0", False),
+            ("1.0.0", "1.0.0", False),
+            ("1.0.0rc1", "1.0.0", False),
+            ("1.0.0", "1.0.0rc1", True),
+            (None, "1.0.0", None),
+            ("garbage!", "1.0.0", None),
+            ("1.0.0", "garbage!", None),
+        ],
+    )
+    def test_is_newer(self, latest, installed, expected):
+        from dw.server.routes.system import _is_newer
+
+        assert _is_newer(latest, installed) is expected
+
+    def test_the_route_compares_against_the_installed_version(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr("dw.server.routes.system.__version__", "0.10.0")
+        monkeypatch.setattr("dw.server.routes.system.latest_version", lambda: "0.9.0")
+        with TestDwLatestLookup.make_client(tmp_path) as client:
+            body = client.get("/api/system/dw").json()
+        assert body["version"] == "0.10.0" and body["latest"] == "0.9.0"
+        assert body["newer"] is False
 
 
 class TestDwUpdate:
@@ -4603,6 +4650,7 @@ class TestDwUpdate:
         with self.make_client(tmp_path, managed=True) as client:
             state = client.get("/api/system/dw").json()
         assert state["latest"] == "9.9.9" and state["managed"] is True
+        assert state["newer"] is True
         assert state["status"] == "idle" and "bootstrap" in state["command"]
         assert state["version"]
 
@@ -4623,6 +4671,7 @@ class TestDwUpdate:
         with self.make_client(tmp_path, managed=True) as client:
             r = client.post("/api/system/dw/update")
             assert r.status_code == 202
+            assert r.json()["newer"] is True
             deadline = time.time() + 5
             while not self.exit_codes and time.time() < deadline:
                 time.sleep(0.02)

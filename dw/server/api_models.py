@@ -376,6 +376,11 @@ class DwUpdateState(ApiModel):
     latest: str | None = Field(
         description="The newest release on PyPI; null when it could not be read."
     )
+    newer: bool | None = Field(
+        description="True when `latest` is a newer release than `version` (a "
+        "PEP 440 compare); null when `latest` is null or either version can't "
+        "be parsed.",
+    )
     managed: bool = Field(
         description="True when a service manager restarts this server, which is "
         "what lets it update itself."
