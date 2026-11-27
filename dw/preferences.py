@@ -373,7 +373,6 @@ def resolve(path, tier, host, open_target, store, *, pinned=None):
     """
     from .library import SubWorkflowNotFound
     from .security import SecurityError
-    from .variables import argument_errors
 
     key = check_key(references.ref_name(references.PREFERENCE, path))
     check_tier(tier)
@@ -443,7 +442,7 @@ def resolve(path, tier, host, open_target, store, *, pinned=None):
 
     skipped = []
     for name, arguments, devices, definition, child in candidates:
-        bad = argument_errors(definition, arguments)
+        bad = target_argument_errors(definition, arguments)
         if bad:
             raise PreferenceError(
                 f"Preference '{key}' tier {tier}: target '{name}' arguments "
@@ -563,6 +562,39 @@ def update_overlay(change, overlay=None, shipped=None):
         return load_preferences(shipped=shipped, overlay=path)
 
 
+def target_argument_errors(definition, arguments):
+    """What is wrong with a ladder target's `arguments`: what a caller's
+    would get (`variables.argument_errors`: undeclared, won't coerce), and
+    the reference-name rule a step argument meets
+    (`reference_names.reference_fault`: an `asset:`/`output:`/`prompt:`
+    name that can never resolve, `..` among them). A target's arguments are
+    merged into the step after that pass has read it, so the store holds
+    them to it itself, at PUT and again at resolve (#1723, SE-F085)."""
+    from .reference_names import reference_fault
+    from .variables import argument_errors
+
+    errors = argument_errors(definition, arguments)
+    if isinstance(arguments, dict):
+        for name, value in arguments.items():
+            for text in _strings(value):
+                fault = reference_fault(text)
+                if fault is not None:
+                    errors.append({"path": f"arguments.{name}", "message": fault})
+    return errors
+
+
+def _strings(value):
+    """Every string inside an argument value."""
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, list):
+        for item in value:
+            yield from _strings(item)
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from _strings(item)
+
+
 def check_ladder(key, ladder, open_target):
     """Refuse a ladder a PUT may not store, with PreferenceError: a bad key
     name, a value that is not {tier: [target, ...]}, an unknown tier, an
@@ -572,7 +604,6 @@ def check_ladder(key, ladder, open_target):
     validate, which names every skip."""
     from .library import SubWorkflowNotFound
     from .security import SecurityError
-    from .variables import argument_errors
 
     check_key(key)
     if not isinstance(ladder, dict) or not ladder:
@@ -605,7 +636,7 @@ def check_ladder(key, ladder, open_target):
                 raise PreferenceError(
                     f"Preference '{key}' tier {tier}: target '{name}' is refused: {e}"
                 ) from e
-            bad = argument_errors(definition, arguments)
+            bad = target_argument_errors(definition, arguments)
             if bad:
                 raise PreferenceError(
                     f"Preference '{key}' tier {tier}: target '{name}' arguments "

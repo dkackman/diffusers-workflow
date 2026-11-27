@@ -227,6 +227,18 @@ def test_bad_target_argument_refused():
         resolve(ladder, {"a": definition("a")})
 
 
+@pytest.mark.parametrize(
+    "value", ["asset:../../etc/passwd", "output:../../x.png", "prompt:../x"]
+)
+def test_a_target_argument_reference_name_is_checked_at_resolve(value):
+    """An overlay written before PUT checked reference names, or edited by
+    hand, still meets the rule a step argument does (#1723, SE-F085)."""
+    ladder = {"best": [{"workflow": "a", "arguments": {"prompt": value}}]}
+    catalog = {"a": definition("a")}
+    with pytest.raises(PreferenceError, match="arguments are refused"):
+        resolve(ladder, catalog)
+
+
 def test_tier_without_targets_refused():
     with pytest.raises(PreferenceError, match="no targets for tier draft"):
         resolve({"best": ["a"]}, {"a": definition("a")}, tier="draft")

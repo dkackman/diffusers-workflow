@@ -113,6 +113,24 @@ def test_a_ladder_nothing_here_fits_is_stored_and_shows_the_refusal(client):
         ({}, "ladder"),
         ({"best": [{"workflow": "qa/a", "colour": "red"}]}, "colour"),
         ({"best": [{"workflow": "qa/a", "arguments": {"nope": 1}}]}, "nope"),
+        # a target's arguments meet the reference-name rule a step's do
+        # (#1723, SE-F085): a traversal name is refused, not stored
+        (
+            {"best": [{"workflow": "qa/a", "arguments": {"prompt": "asset:../../x"}}]},
+            "Invalid asset name",
+        ),
+        (
+            {
+                "best": [
+                    {"workflow": "qa/a", "arguments": {"prompt": "output:../../x.png"}}
+                ]
+            },
+            "Invalid output name",
+        ),
+        (
+            {"best": [{"workflow": "qa/a", "arguments": {"prompt": "prompt:../x"}}]},
+            "Invalid prompt name",
+        ),
     ],
 )
 def test_a_put_the_store_cannot_hold_is_a_422_and_writes_nothing(client, ladder, words):
