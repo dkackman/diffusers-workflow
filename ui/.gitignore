@@ -26,3 +26,6 @@ dist-ssr
 # playwright
 test-results/
 playwright-report/
+
+# arch-metrics.test.ts probe folders (mkdtemp under ui/), removed when a test ends
+.metrics-probe-*/
