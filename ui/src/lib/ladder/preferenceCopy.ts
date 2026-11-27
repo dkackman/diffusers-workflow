@@ -1,5 +1,5 @@
 // Plain-language copy for the preference pages: a key as a label, a skip
-// reason in words, a download note as a first-use line. The strings read here
+// reason in words, a download note as a before-first-job line. The strings read here
 // are the server's (dw/preferences.py `downloads_gate_check`); this only
 // rewords them.
 
@@ -28,9 +28,9 @@ const SIZED = /^will download (\d+(?:\.\d+)?) GB$/
 export function downloadNote(notes: string[]): { text: string } | null {
   for (const note of notes) {
     const sized = SIZED.exec(note)
-    if (sized) return { text: `downloads ${sized[1]} GB on first use` }
+    if (sized) return { text: `downloads ${sized[1]} GB before its first job` }
     if (note === 'will download its weights' || note === 'not downloaded')
-      return { text: 'downloads its weights on first use' }
+      return { text: 'downloads its weights before its first job' }
   }
   return null
 }

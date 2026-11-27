@@ -25,13 +25,13 @@ describe('reasonText', () => {
 })
 
 describe('downloadNote', () => {
-  it('turns a sized download into first-use copy', () => {
+  it('turns a sized download into before-first-job copy', () => {
     expect(downloadNote(['will download 41.2 GB'])).toEqual({
-      text: 'downloads 41.2 GB on first use',
+      text: 'downloads 41.2 GB before its first job',
     })
   })
   it('says weights when there is no size', () => {
-    const weights = { text: 'downloads its weights on first use' }
+    const weights = { text: 'downloads its weights before its first job' }
     expect(downloadNote(['will download its weights'])).toEqual(weights)
     expect(downloadNote(['not downloaded'])).toEqual(weights)
   })
