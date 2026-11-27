@@ -194,5 +194,4 @@ https://github.com/MiniMax-AI/MiniMax-Music3 (2026-09-08): the caption
 contract. The diffusers `minimax_music3` modular pipeline and its docs page
 (diffusers 0.41, 2026-09-08): the ceiling semantics, the 9000-frame and
 5,000-token caps, the 200-frame window, the guider, the 44.1 kHz output, the
-drift-instrumental tip. The repo's audit of all of it is
-`docs/proposals/audits/2026-09-08-minimax-music3-audit.md`.
+drift-instrumental tip.

@@ -76,10 +76,7 @@ captions that describe camera work; none was trained on this list. dw has
 measured all 13 named moves on H3 and LTX-2.5 at two seeds (42, 7), and six
 on Kandinsky 6 at one: one wide shot of a fixed subject (a walker for
 `tracking` and `handheld`), the catalog text-to-video template's defaults,
-each clip judged by its frames. Each cell reads "seed 42, seed 7"; job
-ids and what the frames showed are in
-`docs/proposals/audits/2026-11-move-seeds.md` and
-`docs/proposals/audits/2026-11-higgsfield/move-trial.md`:
+each clip judged by its frames. Each cell reads "seed 42, seed 7":
 
 | move | `minimax-h3` | `ltx-2.5` | `kandinsky-6` |
 | --- | --- | --- | --- |
@@ -106,8 +103,7 @@ ignored on both seeds and on a reworded rerun: a hint only, rarely
 honoured. `flux3-klein` and `minimax-h3-image` (stills) are not measured. Two seeds are two
 samples, not a rate: a split cell says the move varies by seed, and a
 longer clip can still drift (one 241-frame LTX image-to-video clip told
-"the camera remains static" pushed or arced from about five seconds; see
-`docs/proposals/audits/2026-11-story-forge-lessons.md`). So:
+"the camera remains static" pushed or arced from about five seconds). So:
 
 1. Describe the move in the caption in the family's own words (the table
    does that) rather than naming the id alone.
@@ -172,6 +168,5 @@ and "a decision, not a slider"; CreatorOS (Apache-2.0) - a preset list and
 pulling a palette from a photo; OpenField (MIT) - director axes and an era
 control. The LTX compile rule is from the LTX-2 camera-control LoRA cards
 on Hugging Face; H3's from MiniMax's base prompt-writing guide; Kandinsky's
-from Kandinsky Lab's beautifier prompts. Audit:
-`docs/proposals/audits/2026-11-higgsfield/README.md`. Move measurements
-(two seeds, H3 and LTX-2.5): `docs/proposals/audits/2026-11-move-seeds.md`.
+from Kandinsky Lab's beautifier prompts. The move
+measurements are two seeds each, on H3 and LTX-2.5.

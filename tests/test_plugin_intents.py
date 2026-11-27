@@ -1,17 +1,22 @@
 """A skill's intents index: one row per result someone wants, pointing at the
-pattern that writes it and the record that settled it.
+pattern that writes it, with the record that settled it held beside this test.
 
-`plugins/dw/skills/<skill>/references/intents.md` holds a five-column table,
-`intent | template | pattern | evidence | status`. The index is only worth
+`plugins/dw/skills/<skill>/references/intents.md` holds a four-column table,
+`intent | template | pattern | status`. The record behind each row is in
+`tests/intents_evidence.json`, keyed by skill and then by the row's intent
+text: an installed plugin carries no `bench/records/` or `docs/proposals/`, so
+a path there is text its reader cannot open (#1779). The index is only worth
 reading while its pointers resolve, so this pins them: the status is one of
-three, a confirmed or refuted row cites a record in the repo, every cited
-record exists, and the pattern's file and heading exist. Every
-`bench/records/*.md` is cited by some index's row, or sits in `EXEMPT` with
-the reason it serves no family's index: a record that lands owes its row in
-the same change (`bench/README.md`, *Records*).
+three, every row has an evidence entry and every entry has a row, a confirmed
+or refuted row's entry cites a record in the repo, every cited record exists,
+and the pattern's file and heading exist. Every `bench/records/*.md` is cited
+by some row's entry, or sits in `EXEMPT` with the reason it serves no family's
+index: a record that lands owes its row and its entry in the same change
+(`bench/README.md`, *Records*).
 """
 
 import glob
+import json
 import os
 import re
 
@@ -22,7 +27,10 @@ from tests.test_examples import REPO_ROOT
 SKILLS_DIR = os.path.join(REPO_ROOT, "plugins", "dw", "skills")
 INDEXES = sorted(glob.glob(os.path.join(SKILLS_DIR, "*", "references", "intents.md")))
 
-COLUMNS = ["intent", "template", "pattern", "evidence", "status"]
+COLUMNS = ["intent", "template", "pattern", "status"]
+EVIDENCE_FILE = os.path.join(REPO_ROOT, "tests", "intents_evidence.json")
+with open(EVIDENCE_FILE, encoding="utf-8") as _handle:
+    EVIDENCE = json.load(_handle)
 STATUSES = {"confirmed", "refuted", "untested"}
 RECORD = re.compile(r"`((?:bench/records|docs/proposals)/[^`]+)`")
 PATTERN = re.compile(r"^`([^`]+\.md)`\s*§\s*(\S.*)$")
@@ -81,8 +89,17 @@ def headings(path):
         return {match.group(1) for match in map(HEADING.match, handle) if match}
 
 
+def skill_of(path):
+    return os.path.basename(os.path.dirname(os.path.dirname(path)))
+
+
+def evidence_of(path, cells):
+    """The evidence entry for a row, or "" when the file holds none."""
+    return EVIDENCE.get(skill_of(path), {}).get(cells[0], "")
+
+
 def row_name(path, number, cells):
-    skill = os.path.basename(os.path.dirname(os.path.dirname(path)))
+    skill = skill_of(path)
     return f"{skill} intents.md:{number} ({cells[0][:60]!r})"
 
 
@@ -92,8 +109,8 @@ ROW_IDS = [row_name(*row) for row in ROWS]
 
 CITED = {
     os.path.basename(record)
-    for _path, _number, cells in ROWS
-    for record in RECORD.findall(cells[3])
+    for path, _number, cells in ROWS
+    for record in RECORD.findall(evidence_of(path, cells))
     if record.startswith("bench/records/")
 }
 
@@ -113,9 +130,9 @@ def test_every_bench_record_is_cited(record):
     if name in EXEMPT:
         return
     assert name in CITED, (
-        f"bench/records/{name} is cited by no intents.md row: add the row its "
-        "verdict settles to a family's references/intents.md, or exempt it in "
-        "EXEMPT with a one-line reason"
+        f"bench/records/{name} is cited by no intents row's evidence: add the row "
+        "its verdict settles to a family's references/intents.md and its entry to "
+        "tests/intents_evidence.json, or exempt it in EXEMPT with a one-line reason"
     )
 
 
@@ -126,7 +143,7 @@ def test_exempt_record_exists_with_a_reason(name, reason):
         f"EXEMPT names bench/records/{name}, which does not exist"
     )
     assert name not in CITED, (
-        f"bench/records/{name} is cited by an intents.md row; drop it from EXEMPT"
+        f"bench/records/{name} is cited by an intents row's evidence; drop it from EXEMPT"
     )
 
 
@@ -137,8 +154,8 @@ def test_row_shape_and_status(path, number, cells):
         f"{name}: {len(cells)} columns, expected {len(COLUMNS)}"
     )
     assert cells[0], f"{name}: no intent"
-    assert cells[4] in STATUSES, (
-        f"{name}: status {cells[4]!r} is not one of {sorted(STATUSES)}"
+    assert cells[3] in STATUSES, (
+        f"{name}: status {cells[3]!r} is not one of {sorted(STATUSES)}"
     )
     template = cells[1]
     if template and template != "any":
@@ -155,11 +172,16 @@ def test_row_shape_and_status(path, number, cells):
 @pytest.mark.parametrize("path,number,cells", ROWS, ids=ROW_IDS)
 def test_row_evidence_resolves(path, number, cells):
     name = row_name(path, number, cells)
-    records = RECORD.findall(cells[3])
-    if cells[4] in ("confirmed", "refuted"):
+    skill_evidence = EVIDENCE.get(skill_of(path), {})
+    assert cells[0] in skill_evidence, (
+        f"{name}: no entry in tests/intents_evidence.json under {skill_of(path)!r}; "
+        "the key is the row's intent text, exactly"
+    )
+    records = RECORD.findall(skill_evidence[cells[0]])
+    if cells[3] in ("confirmed", "refuted"):
         assert records, (
-            f"{name}: a {cells[4]} row cites a `bench/records/` or `docs/proposals/` path; "
-            "an issue-only result is untested"
+            f"{name}: a {cells[3]} row's evidence cites a `bench/records/` or "
+            "`docs/proposals/` path; an issue-only result is untested"
         )
     for record in records:
         assert os.path.isfile(os.path.join(REPO_ROOT, record)), (
@@ -180,3 +202,27 @@ def test_row_pattern_heading_exists(path, number, cells):
         f"{name}: pattern file {relative} is in neither the skill nor plugins/dw/skills/"
     )
     assert heading in headings(found), f"{name}: {relative} has no heading {heading!r}"
+
+
+def test_every_evidence_entry_has_its_row():
+    """An entry whose row was reworded or removed is a record nothing points at."""
+    intents = {(skill_of(path), cells[0]) for path, _number, cells in ROWS}
+    orphans = [
+        f"{skill}: {intent!r}"
+        for skill, entries in EVIDENCE.items()
+        for intent in entries
+        if (skill, intent) not in intents
+    ]
+    assert not orphans, (
+        "tests/intents_evidence.json holds entries no intents.md row matches: "
+        + "; ".join(orphans)
+    )
+
+
+@pytest.mark.parametrize("path", INDEXES, ids=[skill_of(p) for p in INDEXES])
+def test_the_shipped_index_names_no_repo_record(path):
+    """The record path is the maintainer's; the installed reader cannot open it."""
+    text = open(path, encoding="utf-8").read()
+    assert not RECORD.search(text), (
+        f"{path} cites a repo record: move it to tests/intents_evidence.json"
+    )

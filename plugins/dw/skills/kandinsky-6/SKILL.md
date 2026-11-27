@@ -123,5 +123,4 @@ sentence.
 
 The Kandinsky-6.0 model cards (kandinskylab on Hugging Face), the
 kandinsky-6 GitHub repository and its beautifier prompts, diffusers PR
-#14949 and `diffusers.pipelines.kandinsky6`. Read 2026-10-06; audit
-`docs/proposals/audits/2026-10-06-kandinsky-6-audit.md`.
+#14949 and `diffusers.pipelines.kandinsky6`. Read 2026-10-06.

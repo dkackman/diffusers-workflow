@@ -24,9 +24,8 @@ rule came from a render that went wrong on our server (#484).
 
 ## Probed and not a rule
 
-Tested on our server (T2VA turbo, 960x544, two seeds per arm, October 2026;
-the record is `docs/proposals/audits/2026-10-h3-aiskills-probes.md` in the
-diffusers-workflow repo, #1059), and not a rule:
+Tested on our server (T2VA turbo, 960x544, two seeds per arm, October 2026,
+#1059), and not a rule:
 
 - Refuted: adding "on screen right" to an anatomical side isn't needed for
   handedness. A woman facing the camera asked to raise a mug "in her left
@@ -36,8 +35,7 @@ diffusers-workflow repo, #1059), and not a rule:
   people and a moving camera weren't tested.
 
 Tested on our server (Ref2VA turbo, 960x544, 124 frames, two seeds per arm,
-November 2026; the record is `docs/proposals/audits/2026-11-vrgdg-band-probes.md`,
-#1561), claims from the outside band-video run below:
+November 2026, #1561), claims from the outside band-video run below:
 
 - Refuted (P1): a group member with no reference isn't drawn as a stranger
   or a clone. Three band members placed left, centre and right, with the

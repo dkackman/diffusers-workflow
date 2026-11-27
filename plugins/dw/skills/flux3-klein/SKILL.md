@@ -157,5 +157,4 @@ What goes wrong, and where to look:
 
 The flux-3-image-klein and flux-3-image-klein-pup model cards (Hugging Face),
 BFL's flux-3-image-klein GitHub repository (commit bbfe317d), docs.bfl.ml,
-and `diffusers.modular_pipelines.flux3`. Read 2026-10-15; audit
-`docs/proposals/audits/2026-10-15-flux-3-klein-audit.md`.
+and `diffusers.modular_pipelines.flux3`. Read 2026-10-15.

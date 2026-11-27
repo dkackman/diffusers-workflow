@@ -33,8 +33,7 @@ A shot that passes is not thereby good: look at the frames
 ## Probed and not a rule
 
 Tested on our server (T2VA turbo, 960x544, two seeds per arm, November
-2026; the record is `docs/proposals/audits/2026-11-longvideos-claims.md`,
-#1193, claim 5), so neither is a lint item:
+2026, #1193 claim 5), so neither is a lint item:
 
 - Not settled: naming a steady hum the scene doesn't need ("the hum of the
   refrigerator and the buzz of the strip light") raised the steady floor
