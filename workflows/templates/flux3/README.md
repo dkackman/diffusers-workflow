@@ -12,7 +12,7 @@ Settings come from the Hugging Face card, BFL's
 repository, [docs.bfl.ml](https://docs.bfl.ml) and the diffusers pipeline source
 (`diffusers.modular_pipelines.flux3`, merged on 2026-10-15 and not yet in a release).
 These templates need diffusers installed from git. Audited against those sources on
-2026-10-15 ([the audit](../../../docs/proposals/audits/2026-10-15-flux-3-klein-audit.md)).
+2026-10-15.
 
 Klein was trained on long captions written by BFL's prompt upsampler, and BFL says not
 to use it without one: a short prompt turns into a generic picture. The two upsampler

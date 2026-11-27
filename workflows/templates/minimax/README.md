@@ -13,14 +13,12 @@ and MiniMax publishes them as an agent skill, `skills/h3-prompt-writing`, in the
 [MiniMax-H3 GitHub repository](https://github.com/MiniMax-AI/MiniMax-H3). The
 [built-in enhancer](enhance-prompt.json) writes the same format from those guides;
 for hand-written prompts, read them rather than reverse-engineering the examples.
-Audited against those sources on 2026-09-07
-([the audit](../../../docs/proposals/audits/2026-09-07-minimax-h3-audit.md)).
+Audited against those sources on 2026-09-07.
 Music3 has the same kind of authority: the caption format is MiniMax's
 `skills/music-caption-rewriter` in the
 [MiniMax-Music3 GitHub repository](https://github.com/MiniMax-AI/MiniMax-Music3)
 (a genre router, 18 family indexes and 1,000 example captions) and the tag
-vocabulary is on its model card; audited 2026-09-08
-([the audit](../../../docs/proposals/audits/2026-09-08-minimax-music3-audit.md)).
+vocabulary is on its model card; audited 2026-09-08.
 
 An agent driving this family from Claude Code has the `minimax-h3` and
 `minimax-music3` skills of the [dw plugin](../../../plugins/dw/README.md), which

@@ -20,7 +20,7 @@
             "height",
             "num_frames"
         ],
-        "reason": "each segment is one H3 run, so the ceiling is a segment's: the t2va calibration (#324) - peak activation memory scales with width * height * num_frames - plus, under 'guide' continuity, the guide each segment after the first is given, which is encoded on the target canvas and costs about as much per voxel as the clip itself (docs/proposals/complete/h3-guide-vram-complete.md, #694)"
+        "reason": "each segment is one H3 run, so the ceiling is a segment's: the t2va calibration (#324) - peak activation memory scales with width * height * num_frames - plus, under 'guide' continuity, the guide each segment after the first is given, which is encoded on the target canvas and costs about as much per voxel as the clip itself (#694)"
     },
     "host_ram_gb": "variable:host_ram_gb",
     "cost_drivers": [

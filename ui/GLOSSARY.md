@@ -1,6 +1,6 @@
 # UI glossary
 
-The words the web UI uses for each concept, and the ones it does not. The vocabulary is the spec's (`docs/superpowers/specs/2026-11-22-ui-quality-design.md`, _Vocabulary_; the ★ rows are approved by Don). The banned synonyms and their replacements are `BANNED` in `src/lib/terms.ts`. `banned_terms` in `scripts/arch-metrics.mjs` counts their matches in the source, and `scripts/copy-rules.test.ts` pins each pattern and checks that every replacement is named here.
+The words the web UI uses for each concept, and the ones it does not. The ★ rows are approved by Don. The banned synonyms and their replacements are `BANNED` in `src/lib/terms.ts`. `banned_terms` in `scripts/arch-metrics.mjs` counts their matches in the source, and `scripts/copy-rules.test.ts` pins each pattern and checks that every replacement is named here.
 
 ## Words
 

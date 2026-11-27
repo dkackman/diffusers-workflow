@@ -10,8 +10,7 @@ Settings come from the model cards, Kandinsky Lab's
 [kandinsky-6](https://github.com/kandinskylab/kandinsky-6) repository and the
 diffusers pipeline source (`diffusers.pipelines.kandinsky6`, merged to diffusers
 `main` on 2026-10-06 and not yet in a release). These templates need diffusers
-installed from git. Audited against those sources on 2026-10-06
-([the audit](../../../docs/proposals/audits/2026-10-06-kandinsky-6-audit.md)).
+installed from git. Audited against those sources on 2026-10-06.
 
 The prompt format is the vendor's own: the prompt beautifier's system prompts in the
 vendor repository (`comfyui/kandinsky6/beautifier_prompts/t2av_system.txt` and
