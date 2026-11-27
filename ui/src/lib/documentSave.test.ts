@@ -179,3 +179,19 @@ it('keepBoth throws any other refusal at once', async () => {
   await expect(keepBoth(tryName, 'p.jpg', new Set())).rejects.toBe(refused)
   expect(tryName).toHaveBeenCalledTimes(1)
 })
+
+// The preferences store answers a stale If-Match with 412, not 409 (#1762 C)
+it('asks the same stale_write question on a 412', async () => {
+  const ed = fakeEditor()
+  const stale = new ApiError('changed', 412, 'stale_write', {
+    code: 'stale_write',
+    etag: '"theirs"',
+  })
+  const write = vi.fn().mockRejectedValueOnce(stale)
+  vi.mocked(chooseDialog).mockResolvedValueOnce('cancel')
+  await saveDocument(ed, { path: 'hero', label: 'hero', write })
+  expect(chooseDialog).toHaveBeenCalledWith(
+    'hero changed since you opened it, in another tab or by an agent. Replace that version with yours?',
+    REPLACE,
+  )
+})

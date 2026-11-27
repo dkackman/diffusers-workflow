@@ -98,6 +98,8 @@ The Claude Code skill `choosing-a-model` carries the same rules.
 - `tier` is `draft`, `standard` or `best`. Pass the tier the user asked for.
   If they asked for none, pass none, so the store's default applies. An
   unknown tier is refused at `arguments.tier`.
+- Before choosing a tier, `get_preferences(key="text_to_image")` shows the
+  ladder and this host's pick per tier. It is free.
 - Before spending, read the resolution line in `validate_workflow`'s
   `plan.preferences`, `preference:text_to_image (tier standard) -> <workflow>`:
   the workflow after `->` is what will run on this host. Tell the user which

@@ -51,8 +51,8 @@ it('describes a plain 404 as not found, naming what', () => {
   expect(d.title).toBe("That wasn't found")
 })
 
-it('describes 400, 409 and 422 as refused, with the message', () => {
-  for (const status of [400, 409, 422]) {
+it('describes 400, 409, 412 and 422 as refused, with the message', () => {
+  for (const status of [400, 409, 412, 422]) {
     const d = describeError(new ApiError('Name is taken', status))
     expect(d.kind).toBe('refused')
     expect(d.title).toBe('Name is taken')

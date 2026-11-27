@@ -3,7 +3,11 @@
 // `GET /api/preferences?key=<k>&resolve=true` answers it. The server owns
 // resolution (dw/preferences.py); this only reads its answer.
 import { PREFERENCE, VARIABLE, referenceName } from './references'
-import type { PreferencesRead, WorkflowDefinition } from './types'
+import type {
+  PreferenceResolution,
+  PreferencesRead,
+  WorkflowDefinition,
+} from './types'
 
 /** The variable the resolver reads the tier from on the composing
  * workflow (dw/preferences.py: the step's `tier`, else this variable) */
@@ -61,7 +65,13 @@ const isSkip = (s: unknown): s is Skip =>
 /** The key's rungs from a resolved read, in ladder order; empty when the
  * answer has no such key or no resolutions */
 export function rungsOf(read: PreferencesRead, key: string): Rung[] {
-  const resolutions = read.preferences[key]?.resolutions ?? {}
+  return rungsFrom(read.preferences[key]?.resolutions)
+}
+
+/** One key's resolutions as rungs, in ladder order */
+export function rungsFrom(
+  resolutions: Record<string, PreferenceResolution> = {},
+): Rung[] {
   const order = (tier: string) => {
     const i = TIERS.indexOf(tier)
     return i === -1 ? TIERS.length : i

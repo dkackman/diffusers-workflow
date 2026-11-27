@@ -168,6 +168,10 @@ function titled(kind: ErrorKind, title: string, remedy?: string): Base {
   return { kind, title, remedy }
 }
 
+// What a refused write answers: a bad request, a conflict, a stale If-Match
+// on the newer routes (412) and a validation failure
+const REFUSED = new Set([400, 409, 412, 422])
+
 function byStatus(
   status: number,
   code: string | undefined,
@@ -190,7 +194,7 @@ function byStatus(
     )
   }
   if (status === 404) return titled('not_found', `${what} wasn't found`)
-  if (status === 400 || status === 409 || status === 422) {
+  if (REFUSED.has(status)) {
     return titled('refused', cutAtWord(firstLine(message), REFUSAL_TITLE_MAX))
   }
   if (status >= 500) {

@@ -1,6 +1,6 @@
 // The one save path the editors share: flush pending edits, refuse a
 // document whose load failed, write under the editor's preconditions, and
-// turn a 409 write conflict into one question - Replace or Cancel - rather
+// turn a 409 (or 412) write conflict into one question - Replace or Cancel - rather
 // than a toast - titled "was deleted" when the file the editor read is
 // gone. A Replace writes again with no precondition. A saved
 // document is a loaded one - a new document's first save included - so
@@ -26,7 +26,10 @@ type Question = { message: string; title?: string }
 /** The question a write conflict asks, or null for any other failure. A
  * stale_write carrying no current etag is a file deleted since the read */
 function conflictQuestion(error: unknown, label: string): Question | null {
-  if (!(error instanceof ApiError) || error.status !== 409) return null
+  // A stale If-Match is 409 on the document routes, 412 on the newer ones
+  // (the preferences store)
+  if (!(error instanceof ApiError) || ![409, 412].includes(error.status))
+    return null
   if (error.code === 'stale_write' && error.detail?.etag === null)
     return {
       message: `${label} was deleted since you opened it, in another tab or by an agent. Write yours back?`,

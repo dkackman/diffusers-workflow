@@ -11,6 +11,7 @@ import {
   ListTree,
   MessageSquareText,
   Server,
+  SlidersHorizontal,
   SquarePen,
 } from '@lucide/svelte'
 import {
@@ -72,6 +73,11 @@ export const SERVER_ITEMS: {
   icon: typeof Layers
 }[] = [
   { section: 'models', label: SECTION_LABELS.server.models, icon: Database },
+  {
+    section: 'preferences',
+    label: SECTION_LABELS.server.preferences,
+    icon: SlidersHorizontal,
+  },
   { section: 'schema', label: SECTION_LABELS.server.schema, icon: ListTree },
   { section: 'status', label: SECTION_LABELS.server.status, icon: Server },
 ]
