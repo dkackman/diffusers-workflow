@@ -12,7 +12,9 @@ import { join } from 'node:path'
  * every worker process; the scratch root is made once, by the first process
  * to load it, and inherited by the workers through the environment. */
 
-export const BASE_PORT = 8971
+/** The first server's port, the rest counting up from it: DW_E2E_PORT when
+ * set (a second checkout running e2e at the same time), else 8971 */
+export const BASE_PORT = Number(process.env.DW_E2E_PORT) || 8971
 
 /** How many servers, and so workers: DW_E2E_WORKERS when set, else two on
  * CI (a four-core runner) and four locally */

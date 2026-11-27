@@ -30,17 +30,16 @@ test('create a workspace, work in it, delete it', async ({ page }) => {
     (r) =>
       r.url().includes('/api/gallery') && r.url().includes('workspace=e2e-ws'),
   )
-  // the previous workspace's sections slide shut; click once they are gone
-  await expect(nav.getByRole('link', { name: 'Gallery' })).toHaveCount(1)
-  await nav.getByRole('link', { name: 'Gallery' }).click()
+  // the previous workspace's sections slide shut while the new one's open,
+  // so for a moment both are listed: click the new workspace's own
+  await nav.locator('a[href="#/ws/e2e-ws/gallery"]').click()
   await galleryRequest
   // back to default through the sidebar, and the scope follows
   const defaultRequest = page.waitForRequest(
     (r) => r.url().includes('/api/gallery') && !r.url().includes('workspace='),
   )
   await nav.getByRole('link', { name: /^default/ }).click()
-  await expect(nav.getByRole('link', { name: 'Gallery' })).toHaveCount(1)
-  await nav.getByRole('link', { name: 'Gallery' }).click()
+  await nav.locator('a[href="#/ws/default/gallery"]').click()
   await defaultRequest
   // delete from its overview
   await page.goto('/#/ws/e2e-ws/overview')
