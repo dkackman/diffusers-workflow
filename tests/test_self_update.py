@@ -3,6 +3,7 @@ latest-release lookup and the restart exit. Nothing here runs pip, reaches the
 network or stops the test process."""
 
 import sys
+import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -94,6 +95,18 @@ class TestRunCommands:
     def test_a_failed_install_stops_before_the_refresh(self, monkeypatch):
         ran = self.wire(monkeypatch, [3])
         assert self_update._run_commands().returncode == 3 and len(ran) == 1
+
+    def test_a_failure_after_the_first_install_is_partial(self, monkeypatch):
+        self.wire(monkeypatch, [3])
+        assert not getattr(self_update._run_commands(), "partial", False)
+        real = self_update.run_commands
+
+        def second_fails(commands):
+            return SimpleNamespace(returncode=3, stdout="", stderr="", ran=2)
+
+        monkeypatch.setattr(self_update, "run_commands", second_fails)
+        assert self_update._run_commands().partial is True
+        monkeypatch.setattr(self_update, "run_commands", real)
 
     def test_a_failed_refresh_still_succeeds_and_says_so(self, monkeypatch, caplog):
         self.wire(monkeypatch, [0, 1])
@@ -236,6 +249,46 @@ class TestDwUpdater:
         state = updater.status()
         assert state["status"] == "failed" and "code 2" in state["error"]
         assert "boom" in state["log"] and codes == []
+
+    def test_a_failure_after_the_dw_step_still_refuses_jobs(self):
+        """The new dw is on disk under the old server: no job until a restart."""
+        codes, exit_fn = self.exits()
+        failed = SimpleNamespace(returncode=2, stdout="", stderr="boom", partial=True)
+        updater = DwUpdater(run_fn=lambda: failed, exit_fn=exit_fn, delay=0)
+        assert updater.submission_refusal() is None
+        updater.start()
+        updater.join()
+        state = updater.status()
+        assert state["status"] == "failed" and codes == []
+        assert "restart dw-serve" in state["error"]
+        assert "partly updated" in updater.submission_refusal()
+
+    def test_a_failure_before_anything_installed_lifts_the_refusal(self):
+        failed = SimpleNamespace(returncode=2, stdout="", stderr="boom")
+        updater = DwUpdater(run_fn=lambda: failed, exit_fn=lambda code: None, delay=0)
+        updater.start()
+        updater.join()
+        assert updater.submission_refusal() is None
+
+    def test_an_update_finished_under_a_running_job_refuses_new_jobs(self):
+        codes, exit_fn = self.exits()
+        updater = DwUpdater(
+            run_fn=lambda: None, exit_fn=exit_fn, delay=0, is_busy=lambda: True
+        )
+        updater.start()
+        updater.join()
+        assert codes == []
+        assert "restart dw-serve" in updater.submission_refusal()
+
+    def test_a_running_update_refuses_jobs(self):
+        release = threading.Event()
+        updater = DwUpdater(run_fn=release.wait, exit_fn=lambda code: None, delay=0)
+        updater.start()
+        try:
+            assert "dw is updating" in updater.submission_refusal()
+        finally:
+            release.set()
+            updater.join()
 
     def test_an_exception_is_a_failure(self):
         codes, exit_fn = self.exits()

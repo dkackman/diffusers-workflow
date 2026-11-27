@@ -283,12 +283,7 @@ def create_app(
     app.state.dw_updater = dw_updater or DwUpdater()
     app.state.dw_updater.is_busy = manager.is_busy
     # One seam for HTTP and MCP: no job starts while pip replaces dw
-    manager.submission_refusal = lambda: (
-        "dw is updating and the server will restart - submit this job "
-        "again once it is back"
-        if app.state.dw_updater.status()["status"] == "running"
-        else None
-    )
+    manager.submission_refusal = app.state.dw_updater.submission_refusal
     # Before install_middleware: outside its streams, GZip ignores minimum_size
     app.add_middleware(_compress)
     install_middleware(app)

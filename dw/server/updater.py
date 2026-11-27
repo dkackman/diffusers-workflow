@@ -177,6 +177,8 @@ def run_commands(commands, timeout=PIP_TIMEOUT_SECONDS):
         returncode=completed.returncode if completed is not None else 0,
         stdout="\n".join(stdout),
         stderr="\n".join(stderr),
+        # How many commands started: more than one means earlier ones landed
+        ran=len(stdout),
     )
 
 

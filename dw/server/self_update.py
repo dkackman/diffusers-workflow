@@ -165,6 +165,8 @@ def _run_commands():
         )
         result = run_commands(installs)
     if result.returncode != 0:
+        # A later step failed after dw itself was replaced on disk
+        result.partial = getattr(result, "ran", 1) > 1
         return result
     try:
         refreshed = run_commands([refresh])
@@ -222,6 +224,22 @@ class DwUpdater:
         self._lock = threading.Lock()
         self._thread = None
         self._state = {"status": "idle", "error": None, "log": None}
+        # New packages are on disk under this old process: no job until it exits
+        self._restart_required = False
+
+    def submission_refusal(self):
+        """Why no job may start now, or None: pip is replacing dw, or it
+        already has and this process has not restarted - a worker spawned
+        then would import the new engine under the old server."""
+        with self._lock:
+            if self._state["status"] == "running":
+                return (
+                    "dw is updating and the server will restart - submit this "
+                    "job again once it is back"
+                )
+            if self._restart_required:
+                return "dw was partly updated - restart dw-serve before submitting jobs"
+        return None
 
     def start(self, on_success=None):
         """Begin the update; returns the status. Raises ValueError if one is
@@ -252,12 +270,17 @@ class DwUpdater:
             if completed is not None:
                 output = (completed.stdout or "") + "\n" + (completed.stderr or "")
             tail = "\n".join(output.strip().splitlines()[-LOG_TAIL_LINES:])
+            partial = not ok and getattr(completed, "partial", False)
+            error = (
+                None if ok else f"the update exited with code {completed.returncode}"
+            )
+            if partial:
+                error += "; dw itself was replaced - restart dw-serve"
             with self._lock:
+                self._restart_required = self._restart_required or partial
                 self._state = {
                     "status": "succeeded" if ok else "failed",
-                    "error": None
-                    if ok
-                    else f"the update exited with code {completed.returncode}",
+                    "error": error,
                     "log": tail,
                 }
             if not ok:
@@ -276,6 +299,7 @@ class DwUpdater:
                 # so it cannot kill the job
                 error = "a job is running; restart dw-serve when it finishes"
                 with self._lock:
+                    self._restart_required = True
                     self._state = {**self._state, "status": "failed", "error": error}
                 logger.error(f"dw update: {error}")
                 return
