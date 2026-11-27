@@ -8,9 +8,11 @@ let list: HTMLElement
 const onmove = vi.fn<(key: string, move: Move) => void>()
 const oncommit = vi.fn()
 let reorder: Reorder
+let keys = ['a', 'b', 'c']
 
 beforeEach(() => {
   vi.useFakeTimers()
+  keys = ['a', 'b', 'c']
   onmove.mockReset()
   oncommit.mockReset()
   list = document.createElement('ul')
@@ -25,7 +27,7 @@ beforeEach(() => {
   }
   document.body.appendChild(list)
   reorder = new Reorder({
-    keys: () => ['a', 'b', 'c'],
+    keys: () => keys,
     list: () => list,
     onmove,
     oncommit,
@@ -92,6 +94,18 @@ it('a drag marks the landing row and moves on release', async () => {
   expect(reorder.dragging).toBeNull()
   expect(a.style.transform).toBe('')
   expect(c.classList.contains('insert-after')).toBe(false)
+})
+
+it('a drop after the rows changed under the drag moves nothing', async () => {
+  // The drop place was measured against the rows at pointer-down: a read
+  // that adds, drops or reorders one mid-drag would land it a place off
+  reorder.pointerdown(pointer(10), 'a')
+  reorder.pointermove(pointer(55))
+  keys = ['x', 'a', 'b', 'c']
+  reorder.pointerup(pointer(55))
+  await vi.advanceTimersByTimeAsync(0)
+  expect(onmove).not.toHaveBeenCalled()
+  expect(reorder.dragging).toBeNull()
 })
 
 it('a press that barely travels, or a cancelled drag, moves nothing', () => {

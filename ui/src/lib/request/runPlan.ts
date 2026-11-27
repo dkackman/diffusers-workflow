@@ -117,6 +117,16 @@ export function heldLine(
       text: 'Review time is up and the agent is connected: it may be starting this now.',
       tone: 'warn',
     }
+  if (review.state === 'due')
+    return {
+      text: 'Review time has passed. Running it now is your go-ahead.',
+      tone: 'plain',
+    }
+  if (review.state === 'redirected')
+    return {
+      text: 'Held: it will not start on its own. Running it now is your go-ahead.',
+      tone: 'plain',
+    }
   return {
     text: `Waiting for your OK until ${clockTime(review.until)}. Running it now is your go-ahead.`,
     tone: 'plain',

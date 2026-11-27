@@ -300,8 +300,15 @@ it("gives a held item's dialog row its line, warning when a session may be start
   }
   expect(heldLine(null, true)).toBeNull()
   expect(heldLine(hold('holding'), true)).toEqual(go)
-  expect(heldLine(hold('redirected'), false)).toEqual(go)
-  expect(heldLine(hold('due'), false)).toEqual(go)
+  // a deadline that has passed, or no longer applies, is not waited "until"
+  expect(heldLine(hold('redirected'), false)).toEqual({
+    text: 'Held: it will not start on its own. Running it now is your go-ahead.',
+    tone: 'plain',
+  })
+  expect(heldLine(hold('due'), false)).toEqual({
+    text: 'Review time has passed. Running it now is your go-ahead.',
+    tone: 'plain',
+  })
   expect(heldLine(hold('due'), true)).toEqual({
     text: 'Review time is up and the agent is connected: it may be starting this now.',
     tone: 'warn',

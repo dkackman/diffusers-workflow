@@ -38,6 +38,8 @@ type Drag = {
   to: number
   rows: HTMLElement[]
   boxes: { top: number; height: number }[]
+  /** The order the boxes were measured in */
+  keys: string
   active: boolean
 }
 
@@ -129,6 +131,7 @@ export class Reorder {
       startY: event.clientY,
       from,
       to: from,
+      keys: this.#options.keys().join('\n'),
       rows,
       boxes: rows.map((row) => {
         const { top, height } = row.getBoundingClientRect()
@@ -177,6 +180,9 @@ export class Reorder {
     if (event.pointerId !== this.#drag?.pointer) return
     const drag = this.#clear()
     if (!drag?.active) return
+    // A read changed the rows mid-drag: the place was measured against the
+    // old ones, so nothing moves
+    if (this.#options.keys().join('\n') !== drag.keys) return
     const move = moveTo(this.#options.keys(), drag.key, drag.to)
     if (move) void this.#move(drag.key, move)
   }
