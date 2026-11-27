@@ -112,6 +112,8 @@ comments name no `usage:` figures, so actual cost is not recorded.
   `Picks` keeps a filter-hidden pick on both pages, and `Name` sorts folder
   headings while files stay newest first. No code change; the amendment is
   filed as dkackman/harnest#307.
+- **Parent final check: two bounces,** fixed forward by #1769 and #1778
+  (below).
 
 ## Fix-forward after the final check
 
@@ -136,3 +138,19 @@ Added 2026-11-26 by `claude-opus-5-5` via `anthropic` (close-out).
   judged, because `ui-check` reported no viewport. harnest#325 added
   `in_viewport` to `ui-check inspect` (harnest `c92d20e`) and amended the
   case. It is closed.
+- **The second bounce.** The next final check judged C-F1332 and failed it
+  on both pages. An `open` hash marked the tile `active` but never scrolled
+  it into view (Gallery tile at top 9551, Assets at 1910, both
+  `in_viewport: false`). Neither page had scrolled before Stage C either, so
+  plan v1's Stage C line "opening a file by its `open` hash scrolls it into
+  view" was a gap in the plan, not something the build missed.
+- **#1778, fix-forward stage: the scroll (a848b8e4, merged d3b88d51).** The
+  delegate ruled `default`: build the scroll and keep C-F1332 as written.
+  When `mediaGrid` reveals an opened file, the page scrolls that file's tile
+  to the middle of the window once it has rendered. It does this once per
+  opened name, and leaves a tile alone if any part of it is already on
+  screen. Closing the viewer, scrolling away or a reload doesn't pull the
+  page back. The rule covers every open, so stepping through the viewer
+  also scrolls the grid behind it. Added a `mediaGrid` unit test and an e2e
+  spec. The tester verified C-F1332 on lem at d3b88d51 on both pages, with
+  `in_viewport: true` at tops 608 and 478.
