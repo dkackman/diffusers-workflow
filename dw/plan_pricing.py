@@ -111,6 +111,9 @@ def _own_price(
             own,
             _driver_scaling(definition, expanded, list_entries, base_dir=base_dir),
             fixed_minutes(_choose_entry(definition.get("cost"), device)[0]),
+            _repricing(
+                definition.get("cost"), device, list_entries, measured_entries or {}
+            ),
         )
         # A words-checked chain's Whisper passes, on top (#1262)
         own = with_words_check(own, definition, expanded)
@@ -189,6 +192,7 @@ def _child_catalog_price(child_definition, child_cost, step_arguments, device):
             child,
             _driver_scaling(child_definition, child_expanded, child_list_entries),
             fixed_minutes(_choose_entry(child_cost, device)[0]),
+            _repricing(child_cost, device, child_list_entries, child_measured_entries),
         )
         child = with_words_check(child, child_definition, child_expanded)
     return child
@@ -394,6 +398,45 @@ def _price(cost, device, list_entries, measured_entries):
         if basis == CATALOG:
             basis = repriced_basis
     return {"minutes": minutes, "basis": basis, "measured_on": chosen.get("name")}
+
+
+def _repricing(cost, device, list_entries, measured_entries):
+    """How `_price` re-priced the chosen row for a resized list, for
+    `_scaled` to name (#1773), or None when it did not: {minutes (the row's
+    own), name, count, measured_with} plus `each` for a `per_entry` rate.
+    Reads the same choice and the same rule `_price` applies."""
+    chosen = _choose_entry(cost, device)[0]
+    if chosen is None:
+        return None
+    minutes = float(chosen.get("minutes", 0))
+    per = chosen.get("per_entry")
+    if isinstance(per, dict) and per.get("variable") in list_entries:
+        name = per["variable"]
+        count, measured_with = list_entries[name], int(per.get("entries", 0))
+        if count == measured_with:
+            return None
+        each = float(per.get("minutes", 0))
+        return {
+            "minutes": minutes,
+            "name": name,
+            "count": count,
+            "measured_with": measured_with,
+            "each": each,
+        }
+    changed = [
+        (name, count, measured_entries[name])
+        for name, count in list_entries.items()
+        if name in measured_entries and count != measured_entries[name]
+    ]
+    if len(changed) != 1 or changed[0][2] <= 0:
+        return None
+    name, count, measured_with = changed[0]
+    return {
+        "minutes": minutes,
+        "name": name,
+        "count": count,
+        "measured_with": measured_with,
+    }
 
 
 def _repriced(minutes, list_entries, measured_entries):
