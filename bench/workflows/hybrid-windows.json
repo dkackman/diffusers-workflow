@@ -1,6 +1,6 @@
 {
   "id": "BenchHybridWindows",
-  "description": "#1188 S3 bench (#1571): one 60 s H3 t2va take of the constitution-walk monologue under experimental_hybrid_windows, the narration's first 60 s held (slice_audio). switch_step 0 is blended only (arm a); switch_step k runs k ordered steps then blended (arms b, c), handoff 'finished' or 'x0'. Needs DW_EXPERIMENTAL_HYBRID_WINDOWS=1 on the server. No image anchor: the key refuses image, keyframes and references.",
+  "description": "#1188 S3 bench (#1571): one 60 s H3 t2va take of the constitution-walk monologue under experimental_hybrid_windows, the narration's first 60 s held (slice_audio). switch_step 0 is blended only (arm a); switch_step k runs k ordered steps then blended (arms b, c), handoff 'finished' or 'x0'. Needs DW_EXPERIMENTAL_HYBRID_WINDOWS=1 on the server. No image anchor: the key refuses image, keyframes and references. anchor 'keystone' (#1188 S4/S5, #1691) lays window 1's finished first frame into every window; 'none' (the default) is S3's path.",
   "variables": {
     "narration": "asset:bench/constitution-narration-retimed.wav",
     "duration_seconds": 60.4167,
@@ -15,6 +15,7 @@
     "window_positions": "rebased",
     "switch_step": 3,
     "handoff": "finished",
+    "anchor": "none",
     "video_shift": 6,
     "audio_shift": 3,
     "weights_dtype": "{int8}",
@@ -179,7 +180,8 @@
             "blend": "variable:window_blend",
             "positions": "variable:window_positions",
             "switch_step": "variable:switch_step",
-            "handoff": "variable:handoff"
+            "handoff": "variable:handoff",
+            "anchor": "variable:anchor"
           },
           "output": [
             "videos",
