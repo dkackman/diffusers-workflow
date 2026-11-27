@@ -24,20 +24,22 @@ from dw.pipeline_processors.h3_rules import (  # noqa: E402
     hybrid_window_frames,
     lifts_duration_ceiling,
 )
+from dw.pipeline_processors.h3_window_rules import (  # noqa: E402
+    WINDOW_DEFAULTS,
+    fuse_weights,
+    hybrid_problems,
+    window_plan,
+)
 from dw.pipeline_processors.h3_windows import (  # noqa: E402
     DENOISER,
     HYBRID_DEVICE,
     REFINE_WINDOWS_INPUT,
     UPDATE,
-    WINDOW_DEFAULTS,
     DwH3HostLoopSchedulerStep,
     DwH3WindowedLoopDenoiser,
-    fuse_weights,
-    hybrid_problems,
     hybrid_refusal,
     insert_refine_windows,
     window_inputs,
-    window_plan,
     window_rows,
 )
 from tests.test_h3_windows import (  # noqa: E402

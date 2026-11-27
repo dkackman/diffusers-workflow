@@ -533,7 +533,7 @@ def task_remote_code_errors(workflow_definition, source_indices=None):
 
 def pipeline_remote_code_errors(workflow_definition, source_indices=None):
     """require_trusted_block over each pipeline step as a validate pass: the
-    gate the worker runs before a load (workflow_run.require_trusted_steps),
+    gate the worker runs before a load (workflow_probes.require_trusted_steps),
     so the same message, as [{path, message}] at the step's pipeline path
     (#1410)."""
     from .references import iter_steps, render_path

@@ -829,7 +829,7 @@ def measure_noise_floor(media, start, count, rms_dbfs):
 def measure_dead_air(media, start, count):
     """The longest run of consecutive `DEAD_AIR_WINDOW`-second windows inside
     a shot's audio span that sit at or below `DEAD_AIR_FLOOR_DBFS` - a gap in
-    the middle of the take, not the shot's own overall level (`_findings`'s
+    the middle of the take, not the shot's own overall level (`probe_findings`'s
     `unless` guard reads that separately). A window whose RMS is digital
     silence (`to_dbfs` answers None) counts as below the floor too - it is
     quieter than the floor, not un-measurable.

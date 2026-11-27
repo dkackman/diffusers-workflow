@@ -262,7 +262,8 @@ def _same(a, b):
 
 class TestHeldRuns:
     def test_a_frame_shown_four_times_is_one_run_of_three(self):
-        from dw.tasks.assess import frames_media, held_measure
+        from dw.tasks.assess import frames_media
+        from dw.tasks.held_frames import held_measure
         from dw.tasks.interpolate_frames import held_runs
 
         frames = _take()

@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import pytest
 
-from dw import workflow_run
+from dw import workflow_probes
 from dw.events import WorkflowCancelled
 from dw.pipeline_ownership import PipelineOwnership
 
@@ -136,7 +136,7 @@ def test_workflow_switch_keeps_pipelines_the_new_workflow_loads():
     worker.loaded_pipelines["shared-key"] = object()
     worker.loaded_pipelines["old-only-key"] = object()
 
-    with patch.object(workflow_run, "pipeline_keys", return_value={"shared-key"}):
+    with patch.object(workflow_probes, "pipeline_keys", return_value={"shared-key"}):
         messages = _execute(
             worker, TouchesShared(), command=snapshot_command("/w/other.json")
         )
@@ -153,7 +153,7 @@ def test_workflow_switch_falls_back_to_a_full_release_when_keys_cannot_be_taken(
     worker.loaded_pipelines["shared-key"] = object()
 
     with patch.object(
-        workflow_run, "pipeline_keys", side_effect=ValueError("bad variable")
+        workflow_probes, "pipeline_keys", side_effect=ValueError("bad variable")
     ):
         _execute(worker, StubWorkflow(), command=snapshot_command("/w/other.json"))
 
@@ -335,7 +335,7 @@ def test_a_failed_run_drops_the_traceback_before_reclaiming():
 
 
 def probe_answering(hits, seen=None):
-    """A stand-in for `workflow_run.cache_hits`, recording what it was asked."""
+    """A stand-in for `workflow_probes.cache_hits`, recording what it was asked."""
 
     def cache_hits(workflow, arguments):
         if seen is not None:
@@ -355,7 +355,7 @@ def test_probe_cache_answers_with_the_workflows_hits():
     )
     with (
         patch("dw.worker.workflow_from_snapshot", return_value=workflow),
-        patch.object(workflow_run, "cache_hits", probe_answering(["gen"], seen)),
+        patch.object(workflow_probes, "cache_hits", probe_answering(["gen"], seen)),
     ):
         worker._handle_probe_cache(command)
     assert _drain(worker.result_queue) == [
@@ -388,7 +388,7 @@ def test_probe_cache_activates_the_jobs_asset_dir(tmp_path):
 
     with (
         patch("dw.worker.workflow_from_snapshot", return_value=StubWorkflow()),
-        patch.object(workflow_run, "cache_hits", asset_aware_cache_hits),
+        patch.object(workflow_probes, "cache_hits", asset_aware_cache_hits),
     ):
         worker._handle_probe_cache(
             snapshot_command(type="probe_cache", asset_dir=str(tmp_path))
@@ -689,7 +689,7 @@ class TestProbeCacheWarmIdentity:
         worker.workflow_identity = warm
         command = snapshot_command(file_spec=requested, request_id="r1", arguments={})
         with (
-            patch.object(workflow_run, "cache_hits", return_value=["gen"]) as hits,
+            patch.object(workflow_probes, "cache_hits", return_value=["gen"]) as hits,
             patch.object(
                 worker, "_load_workflow", return_value=(StubWorkflow(), requested)
             ),

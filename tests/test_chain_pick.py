@@ -94,7 +94,7 @@ def test_validation_refuses_match_audio():
 def test_a_reference_for_match_audio_is_not_read_as_set():
     # a variable that resolves to false must not refuse the pick at validate (#1232)
     from dw.pipeline_processors.chain_rules import chain_carry_pick_problem
-    from dw.pipeline_processors.h3_rules import guide_backoff_problems
+    from dw.pipeline_processors.h3_chain_rules import guide_backoff_problems
 
     pick = {"carry_pick": {"sharpest": 3}, "match_audio": "variable:use_audio"}
     assert chain_carry_pick_problem(pick) is None

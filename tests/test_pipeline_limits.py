@@ -350,7 +350,7 @@ class TestThroughValidation:
 
     def test_the_seam_pass_takes_a_literal_long_take(self, tmp_path):
         """h3-seam-pass with the refine's `num_frames` written as a literal
-        60 s count, which `h3_windows._take_latent_frames` reads to plan the
+        60 s count, which `h3_window_rules._take_latent_frames` reads to plan the
         windows: clean, as the stock `previous_result:` spelling is."""
         from tests.test_h3_mask import write_video
 

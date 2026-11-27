@@ -84,14 +84,20 @@ from .pipeline_processors.chain_rules import (
     chain_stop_after_problem,
     resume_reference_problem,
 )
-from .pipeline_processors.h3_rules import (
+from .pipeline_processors.h3_chain_rules import (
     ANCHOR_NONE,
     CHAIN_CONTINUITY_MODES,
     GUIDE_CHAIN_DEFAULT,
     GUIDE_CHAIN_FRAMES,
-    GUIDES_INPUT,
     GUIDE_CHAIN_RULE,
     GUIDE_CONTINUITY,
+    chain_anchor_problem,
+    chain_keystone_problem,
+    guide_backoff_problems,
+    guide_chain_problems,
+)
+from .pipeline_processors.h3_rules import (
+    GUIDES_INPUT,
     GUIDE_LIMIT,
     GUIDE_NOISE_INPUT,
     HOLD_AUDIO_INPUT,
@@ -99,10 +105,6 @@ from .pipeline_processors.h3_rules import (
     LATENT_ANCHOR_STRENGTH_INPUT,
     anchor_strength_problem,
     RENDER_GRID,
-    chain_anchor_problem,
-    chain_keystone_problem,
-    guide_backoff_problems,
-    guide_chain_problems,
     guide_end_problem,
     guide_frame_problem,
     guide_noise_problem,
@@ -796,7 +798,10 @@ def windows_errors(workflow_definition, source_indices=None, written=None, given
         REFINE_WINDOWS_INPUT,
         renamed_windows_problem,
     )
-    from .pipeline_processors.h3_windows import hybrid_problems, window_problems
+    from .pipeline_processors.h3_window_rules import (
+        hybrid_problems,
+        window_problems,
+    )
 
     errors = []
     for _, _, pipeline, source, where in references.iter_steps(

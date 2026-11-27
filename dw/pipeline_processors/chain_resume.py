@@ -114,7 +114,11 @@ from .chain_rules import (
     LatentKeystone,
     resume_reference_problem,
 )
-from .h3_rules import ANCHOR_SEGMENT_1, GUIDE_CONTINUITY, KEYSTONE_SEGMENT_1
+from .h3_chain_rules import (
+    ANCHOR_SEGMENT_1,
+    GUIDE_CONTINUITY,
+    KEYSTONE_SEGMENT_1,
+)
 
 logger = logging.getLogger("dw")
 

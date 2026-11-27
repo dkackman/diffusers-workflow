@@ -22,7 +22,6 @@ from dw.tasks.assess import (
     THUMB_WIDTH,
     measure_dead_air,
     window_levels,
-    analyze_held_frames,
     analyze_seams,
     analyze_shots,
     analyze_sync_drift,
@@ -30,6 +29,7 @@ from dw.tasks.assess import (
     resolve_shots,
 )
 from dw.tasks.concat_videos import concat_videos
+from dw.tasks.held_frames import analyze_held_frames
 from dw.tasks.dissolve_videos import dissolve_videos
 
 
@@ -1431,7 +1431,8 @@ class TestHeldFrames:
         assert answer["held_frames"] == 30
 
     def test_a_real_cut_between_two_moving_shots_is_still_excused(self):
-        from dw.tasks.assess import held_measure, media_from
+        from dw.tasks.assess import media_from
+        from dw.tasks.held_frames import held_measure
 
         second = moving_grey(30, seed=1, speed=1)
         grey = numpy.concatenate([moving_grey(30, speed=1), second[:1], second])
@@ -1514,7 +1515,8 @@ class TestHeldFrames:
         grey[49] = grey[48]
         video = held_video(grey)
 
-        from dw.tasks.assess import _frame_deltas, _held_frames, media_from
+        from dw.tasks.assess import media_from
+        from dw.tasks.held_frames import _frame_deltas, _held_frames
 
         unguarded = _held_frames(_frame_deltas(media_from(video).thumbs), {0})
         assert unguarded == [49]
@@ -1536,7 +1538,7 @@ class TestHeldFrames:
         assert held_findings(answer) == []
 
     def test_detail_adds_a_bounded_series(self):
-        from dw.tasks.assess import HELD_SERIES_POINTS
+        from dw.tasks.held_frames import HELD_SERIES_POINTS
 
         grey = with_repeats(moving_grey(1000))
         plain = analyze_held_frames(held_video(grey))

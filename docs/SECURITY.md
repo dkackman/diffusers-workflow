@@ -192,7 +192,7 @@ default at `variables.<name>`, a `pre_load_modules` entry or a loader key at
 the step's `pipeline`), so nothing is queued to find out, and a submit that
 fails it makes no job. The worker repeats the pipeline, `pre_load_modules`,
 dotted-type and `constant:` checks over the same expansion before it releases
-the previous workflow's models (`workflow_run.require_trusted_pipelines`), so
+the previous workflow's models (`workflow_probes.require_trusted_pipelines`), so
 a refused job leaves them loaded. That check reads keys only: it loads no
 asset, clip or URL, and with `--trust-workflows` it does nothing. It covers
 the top-level steps; a sub-workflow's steps are refused by validate at

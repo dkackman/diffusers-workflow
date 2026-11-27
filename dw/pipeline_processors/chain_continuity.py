@@ -5,7 +5,7 @@ video reference, or the last segment's tail as a frame-0 H3 guide.
 Each mode is a class with `extract(artifact)`, the carry taken off a finished
 segment, and `inject(arguments, carry, segment_argument)`, the carry laid
 into the next segment's arguments. `CONTINUITY_MODES` names them on
-`h3_rules.CHAIN_CONTINUITY_MODES`, which validation reads too. Beside them,
+`h3_chain_rules.CHAIN_CONTINUITY_MODES`, which validation reads too. Beside them,
 what every mode shares at a seam: the one video artifact a segment produces
 (`_single_artifact`) and its generated audio, cut at the head trim and
 crossfaded into the track so far (`_generated_audio`, `_on_timeline_audio`,
@@ -27,7 +27,8 @@ from ..task_domains import frames_to_samples
 from ..tasks.joins import equal_power_crossfade_join
 from ..tasks.video_utils import extract_frame, frames_as_pil_list
 from .chain_pick import sharpest_index
-from .h3_rules import CHAIN_CONTINUITY_MODES, GUIDES_INPUT
+from .h3_chain_rules import CHAIN_CONTINUITY_MODES
+from .h3_rules import GUIDES_INPUT
 
 logger = logging.getLogger("dw")
 
@@ -192,7 +193,7 @@ class GuideContinuity:
             )
 
 
-# The names are h3_rules.CHAIN_CONTINUITY_MODES, which validation reads too;
+# The names are h3_chain_rules.CHAIN_CONTINUITY_MODES, which validation reads too;
 # strict, so a class added here without its name there fails at import
 CONTINUITY_MODES = dict(
     zip(

@@ -291,7 +291,7 @@ def require_trusted_type_references(steps):
     """component_type_errors' trust refusals over expanded steps, raised: a
     dotted type or a 'constant:' outside the ecosystem, as the run's realize
     pass would refuse it. The worker's check before it releases the warm
-    models (workflow_run.require_trusted_steps, #1511); a name that merely
+    models (workflow_probes.require_trusted_steps, #1511); a name that merely
     fails to resolve is left for the run to report.
 
     Raises:

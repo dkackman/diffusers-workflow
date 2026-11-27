@@ -14,6 +14,7 @@ from dw.pipeline_processors.h3_anchor import (
     match_channel_statistics,
     prepared_anchor,
 )
+from dw.pipeline_processors.h3_chain_rules import chain_anchor_problem
 from dw.pipeline_processors.h3_rules import (
     ANCHOR_AFTER,
     ANCHOR_BLOCK,
@@ -21,7 +22,6 @@ from dw.pipeline_processors.h3_rules import (
     LATENT_ANCHOR_STRENGTH_INPUT,
     TILE_CONFLICTS,
     anchor_strength_problem,
-    chain_anchor_problem,
 )
 from tests.test_chain import FakePipeline, video_output
 

@@ -15,6 +15,7 @@ from typing import Any, Dict, Optional
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from dw import workflow_probes
 from dw import workflow_run
 from dw.workflow import workflow_from_snapshot
 from dw.step_cache import step_cache
@@ -392,7 +393,9 @@ class WorkflowWorker:
         job.workflow, identity = self._load_workflow(command, command["output_dir"])
 
         # A refusal leaves the warm cache where it was
-        workflow_run.require_trusted_pipelines(job.workflow, command.get("arguments"))
+        workflow_probes.require_trusted_pipelines(
+            job.workflow, command.get("arguments")
+        )
 
         # Switching to a different workflow frees the old one's models
         # before the new one loads - on one accelerator, holding both is
@@ -423,7 +426,7 @@ class WorkflowWorker:
         itself will report what is wrong, and a full release is the safe
         default on a card that cannot hold two stacks."""
         try:
-            wanted = workflow_run.pipeline_keys(
+            wanted = workflow_probes.pipeline_keys(
                 workflow, command.get("arguments") or {}
             )
         except Exception as e:
@@ -634,7 +637,7 @@ class WorkflowWorker:
                 else None
             )
             try:
-                cached = workflow_run.cache_hits(
+                cached = workflow_probes.cache_hits(
                     workflow, command.get("arguments") or {}
                 )
             finally:

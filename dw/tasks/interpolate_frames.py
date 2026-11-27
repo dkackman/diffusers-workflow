@@ -26,7 +26,7 @@ logger = logging.getLogger("dw")
 _VALID_MULTIPLIERS = {2, 4, 8}
 
 # The values `refill` takes: "held" refills the frames the held-frame measure
-# flags (dw/tasks/assess.py held_measure)
+# flags (dw/tasks/held_frames.py held_measure)
 REFILL_MODES = ("held",)
 
 
@@ -142,7 +142,7 @@ def held_runs(d, held, cuts, frame_count, epsilon=None):
     a = first - 1 and b = last + 1. A run is left held when b is past the
     clip's end or a cut lands in (a, b] - never interpolated across a cut.
     """
-    from .assess import HELD_EPSILON
+    from .held_frames import HELD_EPSILON
 
     epsilon = HELD_EPSILON if epsilon is None else epsilon
     runs, seen = [], set()
@@ -176,7 +176,8 @@ def refill_held(video, load_model):
     `held_after` (on the refilled frames), and both go out as a `log` event.
     """
     from ..events import emit_log
-    from .assess import frames_media, held_measure
+    from .assess import frames_media
+    from .held_frames import held_measure
 
     source_fps = getattr(video, "fps", None)
     source_shots = carried_shots(video)

@@ -22,12 +22,12 @@ import json
 from .. import audio_qc, dsp
 from ..assessment_rules import finding, sort_findings
 from ..tasks.assess import (
-    held_frames_answer,
     read_media,
     seams_answer,
     shots_answer,
     sync_drift_answer,
 )
+from ..tasks.held_frames import held_frames_answer
 
 PROBES = {
     "analyze_shots": shots_answer,

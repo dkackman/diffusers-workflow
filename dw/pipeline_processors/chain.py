@@ -91,15 +91,17 @@ from .chain_rules import (
     place_keystone,
     segment_1_keystone,
 )
-from .h3_rules import (
+from .h3_chain_rules import (
     ANCHOR_SEGMENT_1,
-    GUIDES_INPUT,
     GUIDE_CHAIN_RULE,
     GUIDE_CONTINUITY,
+    KEYSTONE_SEGMENT_1,
+)
+from .h3_rules import (
+    GUIDES_INPUT,
     HOLD_AUDIO_INPUT,
     LATENT_ANCHOR_INPUT,
     LATENT_ANCHOR_STRENGTH_INPUT,
-    KEYSTONE_SEGMENT_1,
 )
 
 logger = logging.getLogger("dw")

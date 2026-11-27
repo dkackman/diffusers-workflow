@@ -23,17 +23,19 @@ from diffusers.schedulers import MiniMaxH3Scheduler  # noqa: E402
 from dw.pipeline_processors import h3_rules, h3_windows  # noqa: E402
 from dw.pipeline_processors.h3_hold import insert_audio_hold  # noqa: E402
 from dw.pipeline_processors.h3_mask import insert_mask_blocks  # noqa: E402
+from dw.pipeline_processors.h3_window_rules import (  # noqa: E402
+    WINDOW_DEFAULTS,
+    fuse_weights,
+    window_plan,
+    window_problems,
+    window_settings,
+)
 from dw.pipeline_processors.h3_windows import (  # noqa: E402
     DENOISER,
     REFINE_WINDOWS_INPUT,
-    WINDOW_DEFAULTS,
     DwH3WindowedLoopDenoiser,
-    fuse_weights,
     insert_refine_windows,
-    window_plan,
-    window_problems,
     window_rows,
-    window_settings,
     windows_refine,
     windows_refusal,
 )

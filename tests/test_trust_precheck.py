@@ -1,4 +1,4 @@
-"""The worker's trust pre-check (workflow_run.require_trusted_pipelines), the
+"""The worker's trust pre-check (workflow_probes.require_trusted_pipelines), the
 gate it runs before it releases the previous workflow's models (#1333).
 
 It reads the definition's keys only, so it loads no media and, trusted,
@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 import pytest
 
-from dw import arguments, workflow_run
+from dw import arguments, workflow_probes
 from dw.security import UntrustedWorkflowError
 from dw.workflow import Workflow
 
@@ -63,7 +63,7 @@ class TestThePreCheckLoadsNoMedia:
 
     def test_untrusted_reads_keys_only(self, tmp_path, monkeypatch, media_calls):
         monkeypatch.setenv("DW_TRUST_WORKFLOWS", "0")
-        workflow_run.require_trusted_pipelines(_media_workflow(tmp_path), {})
+        workflow_probes.require_trusted_pipelines(_media_workflow(tmp_path), {})
         assert media_calls == []
 
     def test_untrusted_still_refuses_remote_code(
@@ -74,7 +74,7 @@ class TestThePreCheckLoadsNoMedia:
         pipeline = workflow.workflow_definition["steps"][0]["pipeline"]
         pipeline["from_pretrained_arguments"]["trust_remote_code"] = True
         with pytest.raises(UntrustedWorkflowError, match="trust_remote_code"):
-            workflow_run.require_trusted_pipelines(workflow, {})
+            workflow_probes.require_trusted_pipelines(workflow, {})
         assert media_calls == []
 
     def test_trusted_does_no_work(self, tmp_path, monkeypatch, media_calls):
@@ -83,10 +83,10 @@ class TestThePreCheckLoadsNoMedia:
         # The pre-check swallows a preparation failure, so count the calls
         # rather than raising from them
         with (
-            patch.object(workflow_run, "prepare_definition") as prepared,
+            patch.object(workflow_probes, "prepare_definition") as prepared,
             patch.object(Workflow, "expanded_definition") as expanded,
         ):
-            workflow_run.require_trusted_pipelines(workflow, {})
+            workflow_probes.require_trusted_pipelines(workflow, {})
         assert prepared.call_count == 0 and expanded.call_count == 0
         assert media_calls == []
 
@@ -126,7 +126,7 @@ def test_the_pre_check_refuses(tmp_path, monkeypatch, kind):
         _refused_definition(kind), str(tmp_path), str(tmp_path / "w.json"), None
     )
     with pytest.raises(UntrustedWorkflowError):
-        workflow_run.require_trusted_pipelines(workflow, {})
+        workflow_probes.require_trusted_pipelines(workflow, {})
 
 
 @pytest.mark.parametrize("kind", KINDS)
@@ -135,7 +135,7 @@ def test_trusted_lets_each_through(tmp_path, monkeypatch, kind):
     workflow = Workflow(
         _refused_definition(kind), str(tmp_path), str(tmp_path / "w.json"), None
     )
-    workflow_run.require_trusted_pipelines(workflow, {})
+    workflow_probes.require_trusted_pipelines(workflow, {})
 
 
 def test_an_allowed_pre_load_module_passes(tmp_path, monkeypatch):
@@ -143,7 +143,7 @@ def test_an_allowed_pre_load_module_passes(tmp_path, monkeypatch):
     definition = _refused_definition("pre_load_modules")
     definition["steps"][0]["pipeline"]["configuration"]["pre_load_modules"] = ["sdnq"]
     workflow = Workflow(definition, str(tmp_path), str(tmp_path / "w.json"), None)
-    workflow_run.require_trusted_pipelines(workflow, {})
+    workflow_probes.require_trusted_pipelines(workflow, {})
 
 
 @pytest.mark.parametrize("kind", KINDS)

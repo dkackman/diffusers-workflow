@@ -16,7 +16,8 @@ from pydantic import (
 from pydantic_core import PydanticCustomError
 
 from .api_models_base import ApiModel, JobStatus, OutputKind, sometimes
-from ..ledger import MAX_CLOSE_REASON_LENGTH, MAX_TITLE_LENGTH, MAX_WHY_LENGTH
+from ..ledger import MAX_CLOSE_REASON_LENGTH, MAX_WHY_LENGTH
+from ..ledger_items import MAX_TITLE_LENGTH
 from ..lora_catalog import STATUS_ORDER
 from .catalog_shape import SHAPES, TRAITS
 

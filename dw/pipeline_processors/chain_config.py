@@ -62,19 +62,21 @@ from .chain_rules import (
     match_audio_source_problem,
 )
 from .h3_hold import hold_audio_reference
-from .h3_rules import (
+from .h3_chain_rules import (
     ANCHOR_NONE,
     CHAIN_CONTINUITY_MODES,
     GUIDE_CHAIN_DEFAULT,
     GUIDE_CONTINUITY,
-    GUIDE_NOISE_INPUT,
-    HOLD_AUDIO_INPUT,
     KEYSTONE_NONE,
-    anchor_strength_problem,
     chain_anchor_problem,
     chain_keystone_problem,
     guide_backoff_problems,
     guide_chain_problems,
+)
+from .h3_rules import (
+    GUIDE_NOISE_INPUT,
+    HOLD_AUDIO_INPUT,
+    anchor_strength_problem,
 )
 
 logger = logging.getLogger("dw")

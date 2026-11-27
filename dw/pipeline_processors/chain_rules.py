@@ -38,7 +38,7 @@ def chain_carry_pick_problem(chain, num_frames=None):
     if "carry_pick" not in chain:
         return None
     from ..variable_constraints import aligned
-    from .h3_rules import _set_for_plan
+    from .h3_chain_rules import _set_for_plan
 
     pick = chain["carry_pick"]
     if isinstance(pick, str) and references.is_ref(references.UNRESOLVED, pick):
@@ -446,8 +446,8 @@ def chain_anchor_every_problem(chain):
     value = chain.get(CHAIN_ANCHOR_EVERY)
     if value is None or _unresolved(value):
         return None
+    from .h3_chain_rules import KEYSTONE_SEGMENT_1
     from .h3_rules import (
-        KEYSTONE_SEGMENT_1,
         REFINE_WINDOWS_ENV_VAR,
         refine_windows_enabled,
     )
@@ -508,8 +508,8 @@ def chain_latent_carry_problem(chain, guide_noise=None):
     carry = chain.get(CHAIN_LATENT_CARRY)
     if carry is None or carry is False:
         return None
+    from .h3_chain_rules import GUIDE_CONTINUITY
     from .h3_rules import (
-        GUIDE_CONTINUITY,
         REFINE_WINDOWS_ENV_VAR,
         refine_windows_enabled,
     )
@@ -598,7 +598,7 @@ def chain_keystone_slot_problem(chain, num_frames=None, arguments=None):
     slot = chain.get(CHAIN_KEYSTONE_SLOT)
     if slot is None or slot == KEYSTONE_SLOT_FIRST or _unresolved(slot):
         return None
-    from .h3_rules import KEYSTONE_SEGMENT_1
+    from .h3_chain_rules import KEYSTONE_SEGMENT_1
 
     keystone = chain.get("keystone")
     if keystone != KEYSTONE_SEGMENT_1 and not _unresolved(keystone):
@@ -629,8 +629,8 @@ def chain_keystone_slot_problem(chain, num_frames=None, arguments=None):
 def _latent_slot_problem(chain):
     """Why `keystone_slot: "latent"` is refused, or None: the flag off, or a
     continuity other than `guide` - the latent goes over a guide's latent 0."""
+    from .h3_chain_rules import GUIDE_CONTINUITY
     from .h3_rules import (
-        GUIDE_CONTINUITY,
         REFINE_WINDOWS_ENV_VAR,
         refine_windows_enabled,
     )
@@ -674,7 +674,8 @@ def _gate_problem(gate):
 def _frame_slot_problem(chain, frame, num_frames):
     """Why a frame slot's `frame` is refused, or None: off the 17-frame grid,
     inside the carried guide, or past the segment's `num_frames` when known."""
-    from .h3_rules import GUIDE_CHAIN_DEFAULT, guide_frame_problem
+    from .h3_chain_rules import GUIDE_CHAIN_DEFAULT
+    from .h3_rules import guide_frame_problem
 
     if _unresolved(frame):
         return None
@@ -892,7 +893,7 @@ def chain_keystone_images_problem(chain, segment_count=None, arguments=None, run
     images = chain.get(CHAIN_KEYSTONE_IMAGES)
     if images is None or _unresolved_value(images):
         return None
-    from .h3_rules import KEYSTONE_SEGMENT_1
+    from .h3_chain_rules import KEYSTONE_SEGMENT_1
 
     keystone = chain.get("keystone")
     slot = chain.get(CHAIN_KEYSTONE_SLOT)

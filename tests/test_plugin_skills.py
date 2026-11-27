@@ -589,7 +589,7 @@ class TestMiniMaxH3Skill:
     def test_the_guide_chain_lengths_the_skill_offers_are_the_engines(self):
         """Review 2026-10-07: `guide_frames` 22 or 39 is hand-written in the
         skill; the engine's GUIDE_CHAIN_FRAMES is the rule it must match."""
-        from dw.pipeline_processors.h3_rules import GUIDE_CHAIN_FRAMES
+        from dw.pipeline_processors.h3_chain_rules import GUIDE_CHAIN_FRAMES
 
         body = " ".join(skill_body(H3_SKILL).split())
         offered = " or ".join(str(frames) for frames in GUIDE_CHAIN_FRAMES)
