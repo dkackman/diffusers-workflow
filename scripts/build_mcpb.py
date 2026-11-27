@@ -25,8 +25,9 @@ REPO = Path(__file__).resolve().parents[1]
 TEMPLATES = REPO / "packaging" / "mcpb"
 # dw_mcp imports anyio directly; the root pyproject only gets it through mcp
 ANYIO_FLOOR = "anyio>=4.0"
-# The one owner of the packer's version: pack and unpack both use it
-MCPB_PACKAGE = "@anthropic-ai/mcpb@2.1.2"
+# The packer is pinned (with its transitive dependencies) by the root
+# package.json and package-lock.json; `npm ci` at the repo root installs it here
+MCPB_BIN = REPO / "node_modules" / ".bin" / "mcpb"
 BUNDLE_DEPENDENCIES = ("httpx", "anyio", "packaging")
 
 
@@ -62,7 +63,11 @@ def render_server_json(version, sha):
 
 
 def mcpb_command(*args):
-    return ["npx", "-y", MCPB_PACKAGE, *map(str, args)]
+    if not MCPB_BIN.is_file():
+        raise SystemExit(
+            f"{MCPB_BIN.relative_to(REPO)} is missing: run `npm ci` at the repo root"
+        )
+    return [str(MCPB_BIN), *map(str, args)]
 
 
 def stage(out, project=None, lock=True):
