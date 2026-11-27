@@ -254,6 +254,15 @@ def test_a_refused_target_names_no_server_path(client, tmp_path, target):
     assert _overlay() is None
 
 
+def test_a_refused_builtin_target_names_no_install_path(client):
+    import dw
+
+    answer = client.put("/api/preferences/qa_sec", json={"best": ["builtin:a/b.json"]})
+    assert answer.status_code == 422, answer.text
+    assert "packaged workflows" in answer.text
+    assert os.path.dirname(dw.__file__) not in answer.text
+
+
 # --- the full read: resolve as admission does, with used_by and contract
 
 

@@ -3954,3 +3954,23 @@ class TestPriceOwnsItsRepricingText:
         price, repricing = _price(cost, "cuda", {"shots": 5}, {"shots": 5})
         assert repricing is None
         assert price["minutes"] == pytest.approx(21.2)
+
+
+def test_a_component_one_step_nulls_and_another_loads_is_still_counted():
+    """A null component is skipped for a repo only when every step that
+    loads the repo nulls it: one step's `"safety_checker": null` must not
+    hide the folder another step fetches."""
+    from dw.plan_downloads import _collect_sources
+
+    def step(**source):
+        return {"from_pretrained_arguments": {"model_name": "org/sd", **source}}
+
+    def skips_of(tree):
+        skips = {}
+        _collect_sources(tree, [], {}, [], skips=skips)
+        return skips
+
+    assert skips_of([step(safety_checker=None), step()]).get("org/sd") == set()
+    assert skips_of([step(), step(safety_checker=None)]).get("org/sd") == set()
+    both = [step(safety_checker=None), step(safety_checker=None)]
+    assert skips_of(both)["org/sd"] == {"safety_checker"}

@@ -687,7 +687,7 @@ def _ladder_targets(key, ladder):
 def _target_problem(key, tier, name, arguments, open_target):
     """Why a PUT would refuse one target: (stale, message), or None when it
     would store it."""
-    from .library import SubWorkflowNotFound
+    from .library import SubWorkflowNotFound, builtin_root
     from .security import SecurityError
 
     try:
@@ -697,8 +697,10 @@ def _target_problem(key, tier, name, arguments, open_target):
             f"Preference '{key}' tier {tier}: target '{name}' is not in the catalog"
         )
     except (SecurityError, InvalidInputError) as e:
+        # The engine names where 'builtin:' looks (#422); a route does not
+        why = str(e).replace(f": {builtin_root()}", "")
         return False, (
-            f"Preference '{key}' tier {tier}: target '{name}' is refused: {e}"
+            f"Preference '{key}' tier {tier}: target '{name}' is refused: {why}"
         )
     except ValueError as e:  # a catalog file that is not JSON
         return False, (

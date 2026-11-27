@@ -288,12 +288,14 @@ def _collect_sources(
                         variants[name] = variant
                 if skips is not None:
                     # A component passed as null (`"safety_checker": null`) is
-                    # not loaded, so its folder is not fetched (#1580)
-                    skips.setdefault(name, set()).update(
+                    # not loaded, so its folder is not fetched (#1580) - unless
+                    # another load of the same repo does take it
+                    nulled = {
                         key
                         for key, value in source.items()
                         if value is None and isinstance(key, str)
-                    )
+                    }
+                    skips[name] = skips[name] & nulled if name in skips else nulled
                 overrides = isinstance(load_components, dict) and _moves_to_a_repo(
                     load_components.get(OVERRIDE_KEY)
                 )
