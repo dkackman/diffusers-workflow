@@ -401,10 +401,11 @@ def _price(cost, device, list_entries, measured_entries):
 
 
 def _repricing(cost, device, list_entries, measured_entries):
-    """How `_price` re-priced the chosen row for a resized list, for
-    `_scaled` to name (#1773), or None when it did not: {minutes (the row's
-    own), name, count, measured_with} plus `each` for a `per_entry` rate.
-    Reads the same choice and the same rule `_price` applies."""
+    """How `_price` re-priced the chosen row for a resized list, as the
+    (base minutes, note, leading axes) `_scaled` names (#1773), or None when
+    it did not: base x the ratios named is then the figure. Linear in the
+    length, the row's own minutes and a length ratio; a `per_entry` rate
+    is no ratio, so the re-priced base and how it was reached."""
     chosen = _choose_entry(cost, device)[0]
     if chosen is None:
         return None
@@ -416,13 +417,12 @@ def _repricing(cost, device, list_entries, measured_entries):
         if count == measured_with:
             return None
         each = float(per.get("minutes", 0))
-        return {
-            "minutes": minutes,
-            "name": name,
-            "count": count,
-            "measured_with": measured_with,
-            "each": each,
-        }
+        base = max(0.0, (minutes - each * measured_with) + each * count)
+        note = (
+            f" ({_shown(minutes)} min at {measured_with} {name}, "
+            f"{_shown(each)} min per entry to {count})"
+        )
+        return base, note, []
     changed = [
         (name, count, measured_entries[name])
         for name, count in list_entries.items()
@@ -431,12 +431,7 @@ def _repricing(cost, device, list_entries, measured_entries):
     if len(changed) != 1 or changed[0][2] <= 0:
         return None
     name, count, measured_with = changed[0]
-    return {
-        "minutes": minutes,
-        "name": name,
-        "count": count,
-        "measured_with": measured_with,
-    }
+    return minutes, "", [f"{name} {count} vs {measured_with}"]
 
 
 def _repriced(minutes, list_entries, measured_entries):
