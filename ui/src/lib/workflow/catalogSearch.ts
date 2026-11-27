@@ -55,6 +55,25 @@ function holdsInOrder(held: string[], words: string[]): boolean {
  * same-named one inside a model's folder. */
 const depthOf = (name: string) => name.split('/').length
 
+/** What a word still being typed finds: the workflows holding a word that
+ * starts with it. Only asked when no whole word of the query matched, so
+ * `flu` does not empty the list on the way to `flux`, while `cat` still
+ * finds a cat and not a category. */
+function typedSoFar(
+  names: string[],
+  details: Record<string, WorkflowCard>,
+  stem: string,
+): string[] {
+  return names
+    .filter((name) =>
+      textOf(name, details[name]).some((word) => word.startsWith(stem)),
+    )
+    .sort(
+      (left, right) =>
+        depthOf(left) - depthOf(right) || left.localeCompare(right),
+    )
+}
+
 /** The workflows that answer a query by words, best first. A word matches a
  * whole word of the text, never part of one (`art` is not `smart`). A
  * workflow's score is how many of the query's words its text holds; only the
@@ -62,7 +81,8 @@ const depthOf = (name: string) => name.split('/').length
  * words and `video of a cat` lists the video workflows. Ties go by how much
  * of the query the name holds, then by how shallow its folder is, then by
  * name. A query with no meaningful word matches everything, in the order
- * given. */
+ * given; one whose words match nothing whole falls back to `typedSoFar` on
+ * its last word. */
 export function catalogMatches(
   names: string[],
   details: Record<string, WorkflowCard>,
@@ -86,7 +106,7 @@ export function catalogMatches(
     }
   })
   const best = Math.max(...scored.map((entry) => entry.score))
-  if (best === 0) return []
+  if (best === 0) return typedSoFar(names, details, words[words.length - 1])
   return scored
     .filter((entry) => entry.score === best)
     .sort(

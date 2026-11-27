@@ -82,8 +82,21 @@ it('a name that holds the words in the order asked ranks ahead of its reverse', 
 
 it('a query word matches a whole word, not part of one', () => {
   expect(catalogMatches(names, details, 'cat')).toEqual(['clip'])
-  expect(catalogMatches(names, details, 'ca')).toEqual([])
-  expect(catalogMatches(names, details, 'phot')).toEqual([])
+  expect(catalogMatches(names, details, 'lux')).toEqual([])
+  // a whole word, where there is one, is the only match
+  expect(catalogMatches(['cat-clip', 'category'], {}, 'cat')).toEqual([
+    'cat-clip',
+  ])
+})
+
+it('with no whole word matched yet, the last word matches as it is typed', () => {
+  // the box filters on every keystroke: `flu` must not empty the list on
+  // the way to `flux`
+  expect(catalogMatches(names, details, 'f')).toEqual(['flux-image', 'photo'])
+  expect(catalogMatches(names, details, 'flu')).toEqual(['flux-image', 'photo'])
+  expect(catalogMatches(names, details, 'ca')).toEqual(['clip'])
+  expect(catalogMatches(names, details, 'phot')).toEqual(['photo'])
+  expect(catalogMatches(names, details, 'zz')).toEqual([])
 })
 
 it('punctuation is not part of a word', () => {
