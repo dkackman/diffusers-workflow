@@ -50,7 +50,12 @@ const info = (overrides: Partial<ServerInfo> = {}): ServerInfo => ({
       oldest: 1_760_000_000,
       newest: 1_764_000_000,
     },
-    logs: { path: '/d/log/dw.log', size_bytes: 2048, backups: 2, total_bytes: 4096 },
+    logs: {
+      path: '/d/log/dw.log',
+      size_bytes: 2048,
+      backups: 2,
+      total_bytes: 4096,
+    },
   },
   ...overrides,
 })
@@ -207,7 +212,11 @@ describe('storage lines', () => {
     expect(
       jobHistoryLine({
         ...storage,
-        job_history: { ...storage.job_history!, size_bytes: null, oldest: null },
+        job_history: {
+          ...storage.job_history!,
+          size_bytes: null,
+          oldest: null,
+        },
       }),
     ).toBe('412 jobs')
     expect(jobHistoryLine({ ...storage, job_history: null })).toBe('not open')
