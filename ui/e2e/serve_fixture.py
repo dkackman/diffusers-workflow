@@ -249,6 +249,12 @@ with sqlite3.connect(history_db) as connection:
 # `request` and `item` a linked submit records.
 from dw import ledger  # noqa: E402
 
+# A request's takes are the linked jobs created since it was (#1761). The
+# seeded jobs carry made-up 2026-01 times, so the seeded requests are dated
+# before them all. Only this seeding process is patched: the server is
+# exec'd fresh below, and a request a spec creates is dated as usual.
+ledger._created = lambda: 0
+
 REQUEST_ID = "e2e-launch"
 linked = {
     "hero": [
