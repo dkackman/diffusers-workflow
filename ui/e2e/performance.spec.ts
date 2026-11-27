@@ -5,8 +5,12 @@ import { expect, test, type Page, type Response } from './test'
 // UI: the bytes the server sent for a response body (as compressed; a KB is 1,000 bytes), summed
 // over the responses of one load in a fresh context. Sizes, never timings, so
 // a budget cannot flake. A budget is raised only with Don.
-/** The entry bundle (index-*.js + index-*.css). Today 282 KB. */
-const ENTRY_BUDGET_KB = 300
+/** The entry bundle (index-*.js + index-*.css). Today 310 KB: 282 when the
+ * budget was set, then the Preferences editor and the server pages. Raised
+ * from 300 on 2026-11-27 in the release review, on Don's "raise if sound":
+ * every page is still in the entry, and loading the server pages lazily is
+ * the way back under 300. */
+const ENTRY_BUDGET_KB = 320
 /** The Overview's first load, every response. Today 356 KB. */
 const FIRST_LOAD_BUDGET_KB = 420
 /** The JSON view's first open, every response. Today 1,351 KB. Don set 1,400

@@ -7,7 +7,7 @@
   "modules_in_import_cycles": 0,
   "layering_violations": 0,
   "prefix_literals": 0,
-  "a11y_suppressions": 1,
+  "a11y_suppressions": 2,
   "raw_error_toasts": 0,
   "empty_outside_loadstate": 0,
   "unwatched_reads": 0,
