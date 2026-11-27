@@ -546,10 +546,14 @@ export const api = {
    * `stale_write` when the key changed since. The answer carries this
    * host's pick per tier */
   setPreference: (key: string, ladder: unknown, ifMatch?: string) =>
-    request<PreferenceSet>(
-      `/api/preferences/${encodeURIComponent(key)}`,
-      jsonInit('PUT', ladder, preconditionHeaders({ ifMatch })),
-    ),
+    request<PreferenceSet>(`/api/preferences/${encodeURIComponent(key)}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...preconditionHeaders({ ifMatch }),
+      },
+      body: JSON.stringify(ladder),
+    }),
   /** Drop this server's ladder for a key, back to what ships */
   resetPreference: (key: string, ifMatch?: string) =>
     request<PreferenceReset>(`/api/preferences/${encodeURIComponent(key)}`, {
@@ -558,14 +562,14 @@ export const api = {
     }),
   /** The tier a `preference:` reference without one resolves at */
   setDefaultTier: (defaultTier: string, ifMatch?: string) =>
-    request<DefaultTierSet>(
-      '/api/preferences',
-      jsonInit(
-        'PUT',
-        { default_tier: defaultTier },
-        preconditionHeaders({ ifMatch }),
-      ),
-    ),
+    request<DefaultTierSet>('/api/preferences', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...preconditionHeaders({ ifMatch }),
+      },
+      body: JSON.stringify({ default_tier: defaultTier }),
+    }),
   /** Catalog LoRA entries for one base: `model` a Hub repo id (or a saved
    * workflow's name), `workflow` an optional partition. Catalog-only - the
    * Hub is searched by /api/loras/recommend, which the UI never calls.

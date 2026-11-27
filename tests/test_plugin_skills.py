@@ -3002,7 +3002,7 @@ AGENT_RULES_PINS = {
         "Pass the tier the user asked for.",
         "If they asked for none, pass none, so the store's default applies.",
         "`arguments.tier`",
-        "Before choosing a tier, `get_preferences(key=\"text_to_image\")` shows the"
+        'Before choosing a tier, `get_preferences(key="text_to_image")` shows the'
         " ladder and this host's pick per tier",
     ],
 }
