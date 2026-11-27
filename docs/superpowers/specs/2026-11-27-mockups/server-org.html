@@ -1,0 +1,85 @@
+<style>
+  .m { font: 12.5px/1.45 -apple-system, system-ui, sans-serif; color:#d8d8dc; background:#1b1b1f; border-radius:8px; padding:12px; display:flex; gap:12px; }
+  .m code { font-family: ui-monospace, Menlo, monospace; font-size:11.5px; }
+  .m .side { width:150px; flex:none; border-right:1px solid #2f2f36; padding-right:10px; }
+  .m .side .g { color:#8b8b93; font-size:11px; text-transform:uppercase; letter-spacing:.04em; margin:8px 0 4px; }
+  .m .side .i { padding:3px 6px; border-radius:5px; }
+  .m .side .i.on { background:#2a2d3a; color:#7aa7ff; }
+  .m .main { flex:1; min-width:0; }
+  .m .p { font-size:15px; font-weight:600; color:#fff; margin-bottom:6px; }
+  .m .tabs { display:flex; gap:14px; border-bottom:1px solid #2f2f36; margin-bottom:8px; }
+  .m .tabs span { padding:3px 0; color:#8b8b93; }
+  .m .tabs .on { color:#fff; border-bottom:2px solid #7aa7ff; }
+  .m .blk { background:#232328; border:1px solid #34343b; border-radius:6px; padding:6px 9px; margin-bottom:6px; }
+  .m .blk b { color:#fff; font-weight:600; }
+  .m .muted { color:#8b8b93; }
+  .m .mv { color:#e0b252; }
+  .m .top { font-size:11px; color:#8b8b93; text-align:right; margin-bottom:6px; }
+  .m .top b { color:#7aa7ff; }
+</style>
+
+<h2>Models, Preferences, Status: how should the Server pages be arranged?</h2>
+<p class="subtitle">Today: Models (hub cache + downloads + <span style="color:#e0b252">diffusers/dw updates</span>), Preferences, Status (health, runtime, binding, addresses, MCP, auth, connect, directories, storage, caches, all-workspace queue). Schema leaves the sidebar in every option: it moves to the top bar next to OpenAPI. Moved items are <span style="color:#e0b252">amber</span>.</p>
+
+<div class="options">
+
+<div class="option" data-choice="a" onclick="toggleSelect(this)">
+  <div class="letter">A</div>
+  <div class="content">
+    <h3>Tidy in place (3 pages)</h3>
+    <p>Same three pages. Updates move to Status beside the runtime versions. Status gets a jump list down its side. Preferences and Models link to each other. Lowest risk, but Status is still one long scroll that answers three different questions.</p>
+    <div class="m">
+      <div class="side"><div class="g">Server</div><div class="i">Models</div><div class="i">Preferences</div><div class="i on">Status</div><div class="top" style="margin-top:14px;text-align:left">top bar: <b>{ } OpenAPI</b> <b>Schema</b></div></div>
+      <div class="main">
+        <div class="p">Status</div>
+        <div class="blk"><b>Server</b> + health per card</div>
+        <div class="blk"><b>Runtime</b> <span class="mv">+ dw &amp; diffusers updates</span></div>
+        <div class="blk muted">Binding · Addresses · MCP · Auth · Connect · Directories · Storage · Caches</div>
+        <div class="blk"><b>Queue</b> (all workspaces)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="option" data-choice="b" onclick="toggleSelect(this)">
+  <div class="letter">B</div>
+  <div class="content">
+    <h3>One page per question (4 pages)</h3>
+    <p>Split Status by what you came for; fold Preferences into Models, since “which model answers a request” and “is it on disk” are the same subject. The top-bar status button lands on Activity.</p>
+    <div class="m">
+      <div class="side"><div class="g">Server</div><div class="i on">Activity</div><div class="i">Models</div><div class="i">Connect</div><div class="i">System</div></div>
+      <div class="main">
+        <div class="blk"><b>Activity</b> <span class="muted">— what is it doing?</span><br>cards &amp; health · queue across workspaces · <span class="mv">downloads in flight</span> · <span class="mv">updates in flight</span></div>
+        <div class="blk"><b>Models</b> <span class="muted">— what runs, and is it here?</span><br><span class="mv">Preferences (A + chain editor)</span> · Downloaded (cache, size bars, delete) · Download a repo</div>
+        <div class="blk"><b>Connect</b> <span class="muted">— how do I reach it?</span><br>binding · addresses · auth · MCP · browser / Claude Code snippets</div>
+        <div class="blk"><b>System</b> <span class="muted">— what is it running on?</span><br>version · <span class="mv">dw &amp; diffusers updates</span> · runtime · directories · storage · caches</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="option" data-choice="c" onclick="toggleSelect(this)">
+  <div class="letter">C</div>
+  <div class="content">
+    <h3>One Server entry, tabs inside</h3>
+    <p>B's grouping, but the sidebar has a single “Server” row and the four are tabs (<code>#/server/activity</code>, <code>/models</code>, …). Shortest sidebar; one more click to reach Models or Preferences.</p>
+    <div class="m">
+      <div class="side"><div class="g">Server</div><div class="i on">Server</div></div>
+      <div class="main">
+        <div class="p">lem <span class="muted" style="font-weight:400;font-size:12px">· v0.23 · cuda ×1</span></div>
+        <div class="tabs"><span class="on">Activity</span><span>Models</span><span>Connect</span><span>System</span></div>
+        <div class="blk"><b>Cards</b> cuda:0 · idle · 23.1 / 24 GB free</div>
+        <div class="blk"><b>Queue</b> 2 running · 5 waiting</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<h3 style="margin-top:24px">Inside B / C's Models page</h3>
+<div class="m" style="display:block">
+  <div class="tabs"><span class="on">Preferences</span><span>Downloaded · 14 · 212 GB</span></div>
+  <div class="blk"><b>Text to image</b> · Standard → <code>models/z-image</code> ready · Best → <code>models/qwen-image-2.1</code> <span class="mv">downloads 41 GB first</span> <span style="color:#7aa7ff">[Download now]</span></div>
+  <div class="muted" style="font-size:11.5px">A preference's “downloads first” can start the download right there; a cached repo shows which preferences use it.</div>
+</div>

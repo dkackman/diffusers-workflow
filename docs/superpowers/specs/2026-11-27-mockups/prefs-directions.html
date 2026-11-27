@@ -1,0 +1,109 @@
+<style>
+  .m { font: 13px/1.45 -apple-system, system-ui, sans-serif; color:#d8d8dc; background:#1b1b1f; border-radius:8px; padding:16px; }
+  .m code, .m .mono { font-family: ui-monospace, Menlo, monospace; font-size:12px; }
+  .m h4 { margin:0 0 4px; font-size:18px; color:#fff; }
+  .m .muted { color:#8b8b93; }
+  .m .panel { background:#232328; border:1px solid #34343b; border-radius:8px; padding:12px 14px; margin-top:10px; }
+  .m .row { display:flex; align-items:center; gap:10px; }
+  .m .chip { font-size:11px; padding:1px 7px; border-radius:10px; background:#34343b; color:#c8c8d0; white-space:nowrap; }
+  .m .good { color:#6fcf97; } .m .warn { color:#e0b252; } .m .bad { color:#eb6f6f; }
+  .m .sel { color:#7aa7ff; }
+  .m .btn { font-size:12px; padding:3px 10px; border:1px solid #44444c; border-radius:6px; color:#d8d8dc; background:#2b2b31; }
+  .m .btn.primary { background:#3b5bdb; border-color:#3b5bdb; color:#fff; }
+  .m .tierlbl { width:72px; font-weight:600; color:#fff; }
+  .m .strike { text-decoration:line-through; color:#77777f; }
+  .m .arrow { color:#66666e; }
+  .m table { border-collapse:collapse; width:100%; }
+  .m td, .m th { padding:7px 8px; border-bottom:1px solid #2f2f36; text-align:left; vertical-align:top; }
+  .m th { font-weight:500; color:#8b8b93; font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
+  .m .seg { display:inline-flex; border:1px solid #44444c; border-radius:6px; overflow:hidden; }
+  .m .seg span { padding:3px 10px; font-size:12px; }
+  .m .seg .on { background:#3b5bdb; color:#fff; }
+  .m .step { display:inline-flex; flex-direction:column; align-items:flex-start; padding:6px 10px; border:1px solid #34343b; border-radius:6px; background:#26262c; }
+  .m .ghost { border-style:dashed; color:#8b8b93; }
+</style>
+
+<h2>Preferences: three directions for a first-time reader</h2>
+<p class="subtitle">Same data as today (text_to_image, a 4090-less Mac host). Click the one closest to right. Mixing them is fine, just say which parts.</p>
+
+<div class="options">
+
+<!-- A -->
+<div class="option" data-choice="a" onclick="toggleSelect(this)">
+  <div class="letter">A</div>
+  <div class="content">
+    <h3>Answer first, edit on demand</h3>
+    <p>The page opens read-only and says what each request will actually run here. Fallbacks are listed under each answer. Edit turns one card into the editor.</p>
+    <div class="m">
+      <h4>Preferences</h4>
+      <div class="muted">When a workflow or agent asks for <b>“an image”</b> without naming a model, dw picks one from a ranked list. Each list has three quality tiers; dw runs the first model in the tier that this machine can run.</div>
+      <div class="panel">
+        <div class="row" style="justify-content:space-between">
+          <div class="row"><b style="color:#fff;font-size:15px">Text to image</b> <code class="muted">text_to_image</code> <span class="chip">as shipped</span></div>
+          <div class="row"><span class="muted" style="font-size:12px">used by 3 workflows</span><span class="btn">Edit</span></div>
+        </div>
+        <div style="margin-top:10px">
+          <div class="row" style="padding:5px 0"><span class="tierlbl">Draft</span><span class="good">●</span><code>templates/text-to-image</code><span class="muted">ready</span></div>
+          <div class="row" style="padding:5px 0;background:#2a2d3a;border-radius:6px;padding-left:6px;margin-left:-6px"><span class="tierlbl">Standard <span class="chip sel" style="font-weight:400">default</span></span><span class="good">●</span><code>models/z-image</code><span class="muted">ready · then z-image-sdnq</span></div>
+          <div class="row" style="padding:5px 0"><span class="tierlbl">Best</span><span class="warn">●</span><code>models/qwen-image-2.1</code><span class="warn">downloads 41 GB first</span></div>
+          <div class="row" style="padding:0 0 0 82px;font-size:12px"><span class="strike mono">minimax-h3-image</span><span class="muted">passed over: needs CUDA</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- B -->
+<div class="option" data-choice="b" onclick="toggleSelect(this)">
+  <div class="letter">B</div>
+  <div class="content">
+    <h3>Fallback chains, edited in place</h3>
+    <p>One row per tier, read left to right: try this, else this. What runs here is the lit chip; passed-over ones are struck with the reason. Chips drag to reorder; “+” adds with an “only on” picker in a popover. No always-open add rows.</p>
+    <div class="m">
+      <h4>Preferences</h4>
+      <div class="muted">Pick which model answers a request for an image. dw tries each tier's models in order and runs the first one this machine can run.</div>
+      <div class="panel">
+        <div class="row" style="justify-content:space-between"><div class="row"><b style="color:#fff;font-size:15px">Text to image</b> <span class="chip">as shipped</span></div><div class="row"><span class="muted" style="font-size:12px">unsaved changes</span><span class="btn">Discard</span><span class="btn primary">Save</span></div></div>
+        <table style="margin-top:8px">
+          <tr><th>Tier</th><th>Try in order →</th></tr>
+          <tr><td class="tierlbl">Draft<div class="muted" style="font-weight:400;font-size:11px">fastest</div></td><td><span class="row"><span class="step" style="border-color:#6fcf97"><code>templates/text-to-image</code><span class="good" style="font-size:11px">runs here</span></span><span class="step ghost">+ add</span></span></td></tr>
+          <tr><td class="tierlbl">Standard<div class="sel" style="font-weight:400;font-size:11px">default</div></td><td><span class="row"><span class="step" style="border-color:#6fcf97"><code>models/z-image</code><span class="good" style="font-size:11px">runs here</span></span><span class="arrow">→</span><span class="step"><code>models/z-image-sdnq</code><span class="muted" style="font-size:11px">fallback</span></span><span class="step ghost">+ add</span></span></td></tr>
+          <tr><td class="tierlbl">Best<div class="muted" style="font-weight:400;font-size:11px">highest quality</div></td><td><span class="row"><span class="step"><code class="strike">models/minimax-h3-image</code><span class="muted" style="font-size:11px">CUDA only — skipped</span></span><span class="arrow">→</span><span class="step" style="border-color:#e0b252"><code>models/qwen-image-2.1</code><span class="warn" style="font-size:11px">runs here · 41 GB download</span></span><span class="step ghost">+ add</span></span></td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- C -->
+<div class="option" data-choice="c" onclick="toggleSelect(this)">
+  <div class="letter">C</div>
+  <div class="content">
+    <h3>Teach by trying it</h3>
+    <p>A small “what would happen” strip at the top: pick a tier and watch dw walk the list on this machine. The editor (A or B style) sits under it. Explains the mechanism without a paragraph.</p>
+    <div class="m">
+      <h4>Preferences</h4>
+      <div class="panel" style="background:#1f2230;border-color:#2f3550">
+        <div class="row"><span class="muted">If someone asks for</span><b style="color:#fff">Text to image</b><span class="muted">at</span><span class="seg"><span>Draft</span><span class="on">Standard</span><span>Best</span></span></div>
+        <div class="row" style="margin-top:10px;flex-wrap:wrap">
+          <span class="step"><code>z-image</code><span class="good" style="font-size:11px">✓ fits this Mac</span></span>
+          <span class="arrow">⇒</span><b class="good">runs z-image</b>
+          <span class="muted" style="font-size:12px">(z-image-sdnq stays as the fallback)</span>
+        </div>
+        <div class="muted" style="font-size:12px;margin-top:8px">Switch to Best: <span class="strike mono">minimax-h3-image</span> needs CUDA → <code>qwen-image-2.1</code> fits, downloads 41 GB first.</div>
+      </div>
+      <div class="panel muted" style="text-align:center">… editor below …</div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<h3 style="margin-top:28px">Also on every direction</h3>
+<ul>
+  <li>Plain names (“Text to image”) with the key as a small code tag</li>
+  <li>“Used by N workflows” links, so a key nobody calls is visible</li>
+  <li>The download note the server already computes (“downloads 41 GB first”), linked to Models</li>
+  <li>“as shipped” / “changed on this server” in words, and Reset says what it resets to</li>
+  <li>“New preference” as a guided form that shows the arguments every model on the list must accept</li>
+</ul>
