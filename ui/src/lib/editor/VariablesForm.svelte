@@ -399,8 +399,9 @@
         collapsed={!foldShown}
         ontoggle={() => (foldChoice = !foldShown)}
       >
-        {#if !foldShown && foldedSet}<span class="muted">{foldedSet} set</span
-          >{/if}
+        {#if !foldShown && foldedSet}<span class="muted">
+            {foldedSet} set
+          </span>{/if}
       </GroupHeading>
     </div>
     {#if foldShown}

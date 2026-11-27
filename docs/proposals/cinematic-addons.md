@@ -2,7 +2,7 @@
 
 Source: [audits/2026-11-higgsfield](audits/2026-11-higgsfield/README.md), the section "Add-ons that unlock re-shoot, angles and dubbing".
 
-**Follows:** the tier 1 plan in [../superpowers/plans/2026-11-01-cinematic-controls.md](../superpowers/plans/2026-11-01-cinematic-controls.md).
+**Follows:** the tier 1 plan (#1141).
 
 Every stage below opens with a probe on lem. A stage becomes a template only after a 24 GB proof and a licence read. Each probe is a `spend` decision for Don, and some also need a `trust` decision.
 

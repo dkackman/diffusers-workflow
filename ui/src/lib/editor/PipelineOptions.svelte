@@ -337,8 +337,7 @@
           onchange={(e) => (cache.type = e.currentTarget.value)}
         >
           {#if !cache.type}<option value="" disabled>choose a type</option>{/if}
-          {#each optionsWith(CACHE_TYPES, cache.type) as cacheType (cacheType)}<option
-            >
+          {#each optionsWith(CACHE_TYPES, cache.type) as cacheType (cacheType)}<option>
               {cacheType}
             </option>{/each}
         </select>

@@ -120,16 +120,20 @@
           type="button"
           class="quiet"
           disabled={declining.busy}
-          onclick={cancel}>Cancel</button
+          onclick={cancel}
         >
+          Cancel
+        </button>
       </form>
     {:else}
       <div class="answer">
         <button
           type="button"
           disabled={closing}
-          onclick={() => onclose(pending.state)}>Close</button
+          onclick={() => onclose(pending.state)}
         >
+          Close
+        </button>
         <button type="button" onclick={ask}>Keep open</button>
       </div>
     {/if}

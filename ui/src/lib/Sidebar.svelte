@@ -99,9 +99,9 @@
      take the width that tells the rows apart -->
 {#snippet wsName(name: string, prefix?: string)}
   {@const { said, own } = splitName(name, prefix)}
-  <span class="name"
-    >{#if said}<span class="sr-only">{said}</span>{/if}{own}</span
-  >
+  <span class="name">
+    {#if said}<span class="sr-only">{said}</span>{/if}{own}
+  </span>
 {/snippet}
 
 {#snippet wsRow(name: string, prefix?: string)}

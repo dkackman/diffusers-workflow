@@ -81,15 +81,11 @@ Then brainstorm (superpowers:brainstorming) with the user on what the repair
 covers, and write the two specs the way the first pass did:
 `docs/superpowers/specs/<date>-<family>-catalog-repair-design.md` and the
 skill's design if the plugin's outline does not already cover the family.
-The H3/LTX-2.5 pair are the worked examples:
-`docs/superpowers/specs/2026-09-07-ltx-h3-catalog-repair-design.md` and
-`docs/superpowers/specs/2026-09-07-dw-plugin-skills-design.md`.
 
 ### 3. Repair the catalog
 
 Plan it with superpowers:writing-plans and run it with
-superpowers:subagent-driven-development. The shape that worked, from
-`docs/superpowers/plans/2026-09-07-ltx-h3-catalog-repair.md`:
+superpowers:subagent-driven-development. The shape that worked:
 
 - One task per repaired thing, each with a test that would have caught the
   drift: a template's literal equals the library constant it copies; a stored

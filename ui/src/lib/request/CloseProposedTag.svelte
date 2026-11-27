@@ -8,8 +8,9 @@
   class="tag"
   data-testid="close-proposed-tag"
   title="The agent proposes to close this request: open it to close or keep it open"
-  >close proposed</span
 >
+  close proposed
+</span>
 
 <style>
   .tag {
