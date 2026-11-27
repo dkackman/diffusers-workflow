@@ -92,6 +92,29 @@ it("holds a 422 as the draft's shape error", async () => {
   expect(run.answer).toBeNull()
 })
 
+it('a failed check drops the last answer and says so', async () => {
+  api.checkPreference
+    .mockResolvedValueOnce(answer('a'))
+    .mockRejectedValueOnce(new ApiError('server error', 500))
+    .mockResolvedValueOnce(answer('c'))
+  const { run, state } = make({ best: ['a'] })
+  await vi.advanceTimersByTimeAsync(300)
+  expect(run.answer).toEqual(answer('a'))
+  expect(run.failed).toBe(false)
+  state.draft = { best: ['b'] }
+  flushSync()
+  await vi.advanceTimersByTimeAsync(300)
+  // the answer was the previous draft's: it no longer stands
+  expect(run.answer).toBeNull()
+  expect(run.refused).toBeNull()
+  expect(run.failed).toBe(true)
+  state.draft = { best: ['c'] }
+  flushSync()
+  await vi.advanceTimersByTimeAsync(300)
+  expect(run.answer).toEqual(answer('c'))
+  expect(run.failed).toBe(false)
+})
+
 it('sends nothing for a ladder with no model in it', async () => {
   const { run } = make({ best: [] })
   await vi.advanceTimersByTimeAsync(600)

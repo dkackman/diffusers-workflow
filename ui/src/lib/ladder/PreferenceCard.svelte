@@ -21,6 +21,7 @@
   import {
     blockedFrom,
     draftOf,
+    judgedFrom,
     sameLadder,
     sendable,
     staleEtag,
@@ -185,7 +186,9 @@
       doing: () => `reset ${key}`,
       success: (r) => `${r.key} is back to what ships`,
       confirm: () => ({
-        message: `Restore the shipped list for ${key}? This server's own list is dropped.`,
+        message:
+          `Restore the shipped list for ${key}? This server's own list is dropped.` +
+          (editing && dirty ? ' Your unsaved changes go too.' : ''),
         confirmLabel: 'Reset',
         danger: true,
       }),
@@ -276,11 +279,15 @@
       {catalog}
       answer={check.answer}
       contract={entry?.contract}
-      base={entry ? base : undefined}
+      judged={judgedFrom(entry?.resolutions)}
       {defaultTier}
     />
     {#if check.refused}
       <ErrorLine error={check.refused} doing="check {key}" />
+    {:else if check.failed}
+      <p class="muted check-failed">
+        Couldn't check this draft; Save still checks it.
+      </p>
     {/if}
     <footer>
       {#if dirty}
@@ -350,6 +357,10 @@
   }
   .unsaved-note {
     color: var(--warn);
+    font-size: var(--t-sm);
+  }
+  .check-failed {
+    margin: 0;
     font-size: var(--t-sm);
   }
   .used {

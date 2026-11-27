@@ -21,7 +21,7 @@ function edit(
   first: Ladder,
   over: {
     answer?: PreferenceCheck | null
-    base?: Ladder
+    judged?: string[]
     contract?: { required: string[]; optional: string[] }
   } = {},
 ) {
@@ -29,7 +29,7 @@ function edit(
     draft: first,
     catalog: ['x', 'models/z-image'],
     answer: over.answer ?? null,
-    base: over.base,
+    judged: over.judged,
     contract: over.contract,
   })
   render(ChainEditor, { props })
@@ -95,7 +95,7 @@ it("marks each chip with the dry run's answer for it", () => {
   edit(
     { best: ['m/skip', 'a', 'gone/x', 'b', 'w'] },
     {
-      base: { best: ['m/skip', 'a', 'gone/x', 'b', 'w'] },
+      judged: ['m/skip', 'a'],
       answer: {
         tiers: {
           best: {
@@ -114,7 +114,7 @@ it("marks each chip with the dry run's answer for it", () => {
   expect(skipped.textContent).toContain('needs CUDA')
   expect(chip('best', 'a').textContent).toContain('runs here')
   expect(chip('best', 'a').classList.contains('good')).toBe(true)
-  // a model already in the list is not "checked on save"
+  // a model the full read judged is not "checked on save"
   expect(chip('best', 'a').textContent).not.toContain('access checked on save')
   expect(chip('best', 'gone/x').classList.contains('bad')).toBe(true)
   expect(chip('best', 'gone/x').textContent).toContain('not in the catalog')
@@ -127,11 +127,67 @@ it('a model added in this edit that runs here says access is checked on save', (
   edit(
     { best: ['new'] },
     {
-      base: { best: ['old'] },
+      judged: ['old'],
       answer: { tiers: { best: { target: 'new', skipped: [] } } },
     },
   )
   expect(chip('best', 'new').textContent).toContain('access checked on save')
+})
+
+it('a fallback the full read never checked, moved first, is checked on save', () => {
+  // the full read stopped at its pick, a: b was never access-checked
+  edit(
+    { best: ['b', 'a'] },
+    {
+      judged: ['a'],
+      answer: { tiers: { best: { target: 'b', skipped: [], after: ['a'] } } },
+    },
+  )
+  expect(chip('best', 'b').textContent).toContain('runs here')
+  expect(chip('best', 'b').textContent).toContain('access checked on save')
+})
+
+it('a tier where nothing fits strikes each model with its reason', () => {
+  const error =
+    "Preference 'k' tier best: no target fits this host - a: cuda-only; b: mps-only"
+  edit(
+    { best: ['a', 'b'] },
+    {
+      answer: {
+        tiers: {
+          best: {
+            error,
+            skipped: [
+              { workflow: 'a', reason: 'cuda-only' },
+              { workflow: 'b', reason: 'mps-only' },
+            ],
+          },
+        },
+      },
+    },
+  )
+  expect(chip('best', 'a').querySelector('s')?.textContent).toBe('a')
+  expect(chip('best', 'a').textContent).toContain('needs CUDA')
+  expect(chip('best', 'b').querySelector('s')?.textContent).toBe('b')
+  expect(chip('best', 'b').textContent).toContain('needs Apple MPS')
+  expect(tier('best').querySelector('.nothing')?.textContent?.trim()).toBe(
+    'Nothing fits this machine',
+  )
+  expect(tier('best').textContent).not.toContain('no target fits')
+})
+
+it('any other tier refusal is not put down to the machine', () => {
+  const error =
+    "Preference 'k' tier best names a target not in the catalog: 'x'"
+  edit({ best: ['x'] }, { answer: { tiers: { best: { error } } } })
+  const lead = tier('best').querySelector('.nothing')?.textContent ?? ''
+  expect(lead).toContain(`This tier is refused: ${error}`)
+  expect(lead).not.toContain('Nothing fits')
+})
+
+it("an unstruck model's name has no stray space", () => {
+  edit({ best: ['a'] })
+  expect(tier('best').querySelector('li.target code')?.textContent).toBe('a')
 })
 
 it('an emptied tier says its requests are refused', async () => {

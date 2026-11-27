@@ -126,3 +126,19 @@ export function blockedFrom(
         blocked.add(skip.workflow)
   return [...blocked]
 }
+
+/** Every target the last full read judged on this host - each tier's pick
+ * and each model it passed over. The read stops at a tier's pick, so a model
+ * after it was never access-checked: the editor says a pick outside this set
+ * is "access checked on save" */
+export function judgedFrom(
+  resolutions: Record<string, PreferenceResolution> | undefined,
+): string[] {
+  const judged = new Set<string>()
+  for (const resolution of Object.values(resolutions ?? {})) {
+    if (typeof resolution.target === 'string') judged.add(resolution.target)
+    for (const skip of (resolution.skipped ?? []) as { workflow?: unknown }[])
+      if (typeof skip.workflow === 'string') judged.add(skip.workflow)
+  }
+  return [...judged]
+}

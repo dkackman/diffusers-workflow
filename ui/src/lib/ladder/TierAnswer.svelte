@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Rung } from '../preferences'
   import { serverHref } from '../routes'
-  import { downloadNote, reasonText } from './preferenceCopy'
+  import { downloadNote, reasonText, refusalLead } from './preferenceCopy'
 
   // One tier of a preference's read view: what this machine runs for it, the
   // models passed over and why, and the models after the pick, which are not
@@ -35,7 +35,7 @@
   {#if rung?.error}
     <p class="answer">
       <span class="dot bad" aria-hidden="true"></span>
-      Nothing fits this machine: {rung.error}
+      {refusalLead(rung.error, rung.skipped)}
     </p>
   {:else if rung?.target}
     <p class="answer">

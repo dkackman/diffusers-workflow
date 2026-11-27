@@ -4,7 +4,12 @@
   import { serverHref } from '../routes'
   import type { PreferenceCheck, PreferenceTierCheck } from '../types'
   import AddTarget from './AddTarget.svelte'
-  import { downloadNote, keyLabel, reasonText } from './preferenceCopy'
+  import {
+    downloadNote,
+    keyLabel,
+    reasonText,
+    refusalLead,
+  } from './preferenceCopy'
   import {
     added,
     moved,
@@ -25,7 +30,7 @@
     catalog,
     answer,
     contract,
-    base,
+    judged = [],
     defaultTier,
   }: {
     draft: Ladder
@@ -35,8 +40,9 @@
     answer: PreferenceCheck | null
     /** The arguments every target of the key takes, when the key ships one */
     contract?: { required: string[]; optional: string[] }
-    /** The ladder the edit started from: a model not in it is new here */
-    base?: Ladder
+    /** The targets the last full read judged on this host (each pick and
+     * each skip): a pick outside them was never access-checked */
+    judged?: readonly string[]
     defaultTier?: string
   } = $props()
 
@@ -53,9 +59,7 @@
     download: string | null
   }
 
-  const known = $derived(
-    new Set(Object.values(base ?? {}).flatMap((list) => list.map(targetName))),
-  )
+  const known = $derived(new Set(judged))
 
   /** What the dry run says of one target in a tier */
   function shown(check: PreferenceTierCheck | undefined, name: string): Shown {
@@ -171,9 +175,11 @@
                 ondrop={(e) => drop(e, tier, i)}
               >
                 <span class="head">
-                  {#if state.struck}<s><code>{name}</code></s>{:else}<code>
-                      {name}
-                    </code>{/if}
+                  {#if state.struck}
+                    <s><code>{name}</code></s>
+                  {:else}
+                    <code>{name}</code>
+                  {/if}
                   <span class="moves">
                     <button
                       type="button"
@@ -242,7 +248,7 @@
         />
       </div>
       {#if check?.error && draft[tier].length}
-        <p class="nothing">Nothing fits this machine: {check.error}</p>
+        <p class="nothing">{refusalLead(check.error, check.skipped ?? [])}</p>
       {/if}
     </div>
   {/each}

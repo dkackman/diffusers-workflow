@@ -4,8 +4,10 @@
 // so no Hub call). Nothing is written. Each check carries a sequence
 // number; an answer older than the latest sent is dropped, so a slow check
 // never paints over a later draft. A 422 is the draft's shape error, held
-// as `refused` for the card to show and to hold Save on; any other failure
-// leaves the last answer, and Save, as they were - the PUT is the gate.
+// as `refused` for the card to show and to hold Save on. Any other failure
+// (5xx, network, 401) drops the last answer - it was an earlier draft's, and
+// a chip it refused may be gone - and sets `failed`: Save falls back to the
+// PUT, which checks the draft itself.
 import { api } from '../api'
 import { ApiError } from '../apiErrors'
 import type { PreferenceCheck } from '../types'
@@ -21,6 +23,8 @@ export type DryRun = {
   readonly checking: boolean
   /** The server's 422 for the draft's shape, as caught; null otherwise */
   readonly refused: unknown
+  /** The latest check failed for a reason other than the draft (not a 422) */
+  readonly failed: boolean
 }
 
 export function dryRun(
@@ -31,6 +35,7 @@ export function dryRun(
   let answer = $state<PreferenceCheck | null>(null)
   let checking = $state(false)
   let refused = $state<unknown>(null)
+  let failed = $state(false)
   // Not state: which answer is still wanted
   let sent = 0
 
@@ -49,12 +54,13 @@ export function dryRun(
       if (seq !== sent) return
       answer = got
       refused = null
+      failed = false
     } catch (e) {
       if (seq !== sent) return
-      if (e instanceof ApiError && e.status === 422) {
-        answer = null
-        refused = e
-      }
+      answer = null
+      const shape = e instanceof ApiError && e.status === 422
+      refused = shape ? e : null
+      failed = !shape
     } finally {
       if (seq === sent) checking = false
     }
@@ -71,6 +77,7 @@ export function dryRun(
       sent++
       answer = null
       refused = null
+      failed = false
       checking = false
       return
     }
@@ -90,6 +97,9 @@ export function dryRun(
     },
     get refused() {
       return refused
+    },
+    get failed() {
+      return failed
     },
   }
 }

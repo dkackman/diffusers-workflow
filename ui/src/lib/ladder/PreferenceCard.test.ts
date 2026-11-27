@@ -118,16 +118,34 @@ it('used by N workflows expands to each name, linked where it lives', async () =
   ).toMatch(/^#\/ws\/[^/]+\/workflows\/templates\/b$/)
 })
 
-it('a tier with no fit reads Nothing fits this machine inside the card', () => {
+it('a tier refused for another reason says so, not that nothing fits', () => {
   const error =
     "Preference 'k' tier best names a target not in the catalog: 'gone/x'"
   const e = entry()
   e.resolutions.best = { error } as never
   render(PreferenceCard, props(e))
   const card = screen.getByRole('region', { name: 'preference text_to_image' })
+  expect(within(card).getByText(/This tier is refused:/).textContent).toContain(
+    error,
+  )
+  expect(within(card).queryByText(/Nothing fits this machine/)).toBeNull()
+})
+
+it('a tier with no fit strikes each model with its reason', () => {
+  const error =
+    "Preference 'k' tier best: no target fits this host - models/flux-dev: cuda-only"
+  const e = entry()
+  e.resolutions.best = {
+    error,
+    skipped: [{ workflow: 'models/flux-dev', reason: 'cuda-only' }],
+  } as never
+  render(PreferenceCard, props(e))
+  expect(tier('best').querySelector('s')?.textContent).toBe('models/flux-dev')
+  expect(tier('best').textContent).toContain('needs CUDA')
   expect(
-    within(card).getByText(/Nothing fits this machine/).textContent,
-  ).toContain(error)
+    within(tier('best')).getByText('Nothing fits this machine'),
+  ).toBeTruthy()
+  expect(tier('best').textContent).not.toContain('no target fits')
 })
 
 it('Reset to shipped shows only for the server own list; Edit opens the editor', async () => {
@@ -241,6 +259,84 @@ it("a dry run's shape refusal shows and holds Save", async () => {
   expect(
     screen.getByRole<HTMLButtonElement>('button', { name: 'Save' }).disabled,
   ).toBe(true)
+})
+
+it('a check that fails drops the last answer, frees Save and says so', async () => {
+  const { ApiError } = await import('../apiErrors')
+  api.checkPreference
+    .mockResolvedValueOnce({
+      tiers: {
+        draft: {
+          target: 'models/z-image',
+          skipped: [],
+          target_errors: { 'models/z-image-sdnq': 'not in the catalog' },
+        },
+      },
+    })
+    .mockRejectedValue(new ApiError('server error', 500))
+  render(PreferenceCard, props(entry()))
+  await edit()
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Move models/z-image down' }),
+  )
+  await waitFor(() =>
+    expect(
+      screen.getByRole<HTMLButtonElement>('button', { name: 'Save' }).disabled,
+    ).toBe(true),
+  )
+  // the bad chip goes; this draft's check fails
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Remove models/z-image-sdnq' }),
+  )
+  expect(
+    await screen.findByText("Couldn't check this draft; Save still checks it."),
+  ).toBeTruthy()
+  expect(
+    screen.getByRole<HTMLButtonElement>('button', { name: 'Save' }).disabled,
+  ).toBe(false)
+})
+
+it('a model the full read never checked, moved first, is checked on save', async () => {
+  api.checkPreference.mockResolvedValue({
+    tiers: {
+      draft: {
+        target: 'models/z-image-sdnq',
+        skipped: [],
+        after: ['models/z-image'],
+      },
+    },
+  })
+  render(PreferenceCard, props(entry()))
+  await edit()
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Move models/z-image-sdnq up' }),
+  )
+  await waitFor(() =>
+    expect(tier('draft').textContent).toContain('access checked on save'),
+  )
+})
+
+it('Reset with an unsaved edit says the edit goes too', async () => {
+  const { confirmDialog } = await import('../confirm.svelte')
+  vi.mocked(confirmDialog).mockClear()
+  vi.mocked(confirmDialog).mockResolvedValueOnce(false)
+  render(
+    PreferenceCard,
+    props(entry({ source: 'server', ladder: { standard: ['a', 'b'] } })),
+  )
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Reset to shipped' }),
+  )
+  expect(vi.mocked(confirmDialog).mock.calls[0][0]).not.toContain('unsaved')
+  vi.mocked(confirmDialog).mockResolvedValueOnce(false)
+  await edit()
+  await fireEvent.click(screen.getByRole('button', { name: 'Remove a' }))
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Reset to shipped' }),
+  )
+  expect(vi.mocked(confirmDialog).mock.calls[1][0]).toContain(
+    'Your unsaved changes go too.',
+  )
 })
 
 // A write made elsewhere while this one was being edited: the edit stays,

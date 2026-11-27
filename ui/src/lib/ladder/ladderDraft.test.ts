@@ -3,6 +3,7 @@ import { ApiError } from '../apiErrors'
 import {
   added,
   blockedFrom,
+  judgedFrom,
   draftOf,
   keyProblem,
   moved,
@@ -92,4 +93,21 @@ it('names the targets the last full read found gated, once each', () => {
     }),
   ).toEqual(['models/flux-dev'])
   expect(blockedFrom(undefined)).toEqual([])
+})
+
+it('names every target the full read judged: each pick and each skip', () => {
+  expect(
+    judgedFrom({
+      best: {
+        target: 'b',
+        skipped: [{ workflow: 'a', reason: 'cuda-only' }],
+      },
+      standard: {
+        error: 'no target fits',
+        skipped: [{ workflow: 'c', reason: 'cuda-only' }],
+      },
+      draft: { target: 'b' },
+    }).sort(),
+  ).toEqual(['a', 'b', 'c'])
+  expect(judgedFrom(undefined)).toEqual([])
 })
