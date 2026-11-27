@@ -23,6 +23,7 @@
     workspace,
     onaccept,
     onnote,
+    onview,
   }: {
     item: LedgerItem
     workspace: string
@@ -31,6 +32,8 @@
     onaccept?: (take: Take, job: string | null) => void
     /** Add this take to the new note. Left out for a dropped item */
     onnote?: (take: Take) => void
+    /** A take was opened in the viewer: the row must not close under it */
+    onview?: () => void
   } = $props()
 
   const takes = $derived(takesOf(item))
@@ -62,8 +65,10 @@
   // A name in the hash that is another item's names no file here, and
   // opens nothing
   let open = $state<string | null>(openInHash())
-  const openTake = (job: string, name: string) => () =>
-    (open = viewerKey(job, name))
+  const openTake = (job: string, name: string) => () => {
+    open = viewerKey(job, name)
+    onview?.()
+  }
   // Two or more takes with a picture or clip: the newest few side by side.
   // The compare route addresses files by name: each name once, the newest
   // take's place

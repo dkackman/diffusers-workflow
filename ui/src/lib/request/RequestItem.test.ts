@@ -705,6 +705,23 @@ it('a take opens in the viewer, and Accept there accepts it', async () => {
   expect(location.hash).toContain('open=')
 })
 
+it('a row stays open while one of its takes is being viewed', async () => {
+  // Open only by default (takes to choose from): a read that accepts one
+  // would close it, and the viewer with it, in the middle of looking
+  // no take named in the hash yet: a deep link would hold the row open itself
+  history.replaceState(null, '', '#/ws/studio/requests/r1')
+  const view = render(RequestItem, props([filedTakes()]))
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'take 1 of Shot 3' }),
+  )
+  expect(screen.getByRole('dialog')).toBeTruthy()
+  await view.rerender(
+    props([filedTakes({ accepted: { job: 'j1', run_id: 'r1' } })]),
+  )
+  expect(title('Shot 3').getAttribute('aria-expanded')).toBe('true')
+  expect(screen.getByRole('dialog')).toBeTruthy()
+})
+
 it('the caption of a take links its job', () => {
   render(RequestItem, props([filedTakes()]))
   expect(
