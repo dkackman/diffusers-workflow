@@ -7,7 +7,7 @@ the two up).
 caller's lists (`list_entries`, `_repriced`); `_own_price` and
 `_child_catalog_price` then scale it along the cost drivers that moved
 (`dw/cost_scaling.py`). `_ChildTotals` is what the children add up to, folded
-in one child at a time.
+in one child at a time by `_add_children`.
 
 `_observed` reads this box's history as an estimate, `_frames_rescaled`
 rescales a bucket to the frames a run renders, and `_with_worst_case` quotes a
@@ -276,6 +276,59 @@ class _ChildTotals:
             self.minutes += child["minutes"]
         else:
             self.minutes = child["minutes"]
+
+
+def _add_children(
+    totals,
+    composing_steps,
+    included,
+    own_minutes,
+    device,
+    base_dir,
+    workflow_dir,
+    observed_for_child,
+    price_child,
+):
+    """Fold each composed child into `totals`, from `composing_steps`'
+    (step name, path, arguments). A child this box has run is quoted from
+    that history, else from its cost block, else by `price_child` from what
+    it composes; one the parent's row already holds (`included`) is skipped."""
+    for step, path, step_arguments in composing_steps:
+        measured_child = included.measured_child(step)
+        if measured_child and included.holds(path, measured_child):
+            continue
+        child_definition, child_cost = _read_child(path, base_dir, workflow_dir)
+        child_observed = _child_observed(
+            observed_for_child, path, child_definition, step_arguments, own_minutes
+        )
+        child = _observed(child_observed, device)
+        is_observed = child is not None
+        if not is_observed:
+            child = _child_catalog_price(
+                child_definition, child_cost, step_arguments, device
+            )
+            if child["minutes"] is None and price_child is not None:
+                # A child with no figure of its own that composes others -
+                # a saved workflow around a 'preference:' step, say - is
+                # priced from what it composes, opened at the tier the chain
+                # hands it (#1721)
+                composed = price_child(path, step_arguments)
+                if composed is not None and composed.get("minutes") is not None:
+                    child = composed
+                    if composed.get("partial"):
+                        totals.partial = True
+                        totals.unpriced.extend(composed.get("unpriced") or [])
+        totals.add(path, child, is_observed)
+        note = (
+            None
+            if is_observed
+            else _unresolved_list_note(path, child_cost, step_arguments, device)
+        )
+        if note and child["minutes"] is not None:
+            totals.differs.append(note)
+        if measured_child and child["minutes"] is not None:
+            totals.scaled.append(_replaced_child_note(step, path, measured_child))
+    return totals
 
 
 def _unresolved_list_note(path, child_cost, step_arguments, device):

@@ -46,14 +46,10 @@ from . import references
 from .plan_downloads import _composing_steps, _sub_workflow_paths, downloads_required
 from .plan_pricing import (
     with_first_at_shape,
-    _child_catalog_price,
-    _child_observed,
+    _add_children,
     _ChildTotals,
     _IncludedSteps,
     _own_price,
-    _read_child,
-    _replaced_child_note,
-    _unresolved_list_note,
     task_rate_price,
     undeclared_task_commands,
     list_entries,
@@ -949,41 +945,17 @@ def estimate(
     included = _IncludedSteps(
         definition, device, own["minutes"], base_dir, workflow_dir
     )
-    for step, path, step_arguments in _composing_steps(expanded):
-        measured_child = included.measured_child(step)
-        if measured_child and included.holds(path, measured_child):
-            continue
-        child_definition, child_cost = _read_child(path, base_dir, workflow_dir)
-        child_observed = _child_observed(
-            observed_for_child, path, child_definition, step_arguments, own["minutes"]
-        )
-        child = _observed(child_observed, device)
-        is_observed = child is not None
-        if not is_observed:
-            child = _child_catalog_price(
-                child_definition, child_cost, step_arguments, device
-            )
-            if child["minutes"] is None and price_child is not None:
-                # A child with no figure of its own that composes others -
-                # a saved workflow around a 'preference:' step, say - is
-                # priced from what it composes, opened at the tier the chain
-                # hands it (#1721)
-                composed = price_child(path, step_arguments)
-                if composed is not None and composed.get("minutes") is not None:
-                    child = composed
-                    if composed.get("partial"):
-                        totals.partial = True
-                        totals.unpriced.extend(composed.get("unpriced") or [])
-        totals.add(path, child, is_observed)
-        note = (
-            None
-            if is_observed
-            else _unresolved_list_note(path, child_cost, step_arguments, device)
-        )
-        if note and child["minutes"] is not None:
-            totals.differs.append(note)
-        if measured_child and child["minutes"] is not None:
-            totals.scaled.append(_replaced_child_note(step, path, measured_child))
+    _add_children(
+        totals,
+        _composing_steps(expanded),
+        included,
+        own["minutes"],
+        device,
+        base_dir,
+        workflow_dir,
+        observed_for_child,
+        price_child,
+    )
     result = _rolled_up_estimate(own, totals, device, cached_steps, total_steps)
     if own.get("task_rates") and result["minutes"] is not None:
         # A declared rate is a bound, never a measurement (#1619)
