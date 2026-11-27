@@ -96,7 +96,8 @@ The Claude Code skill `choosing-a-model` carries the same rules.
   `templates/preferred/text-to-image`, which composes
   `preference:text_to_image`. Use the matching `preference:` key for the task.
 - `tier` is `draft`, `standard` or `best`. Pass the tier the user asked for.
-  If they asked for none, pass none, so the store's default applies. An
+  If they asked for none, pass the server's `default_tier` from `get_preferences`.
+  The template itself runs `standard` when no tier is passed. An
   unknown tier is refused at `arguments.tier`.
 - Before choosing a tier, `get_preferences(key="text_to_image")` shows the
   ladder and this host's pick per tier. It is free.

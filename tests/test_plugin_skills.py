@@ -3000,7 +3000,7 @@ AGENT_RULES_PINS = {
         "`templates/preferred/text-to-image`",
         "`preference:text_to_image`",
         "Pass the tier the user asked for.",
-        "If they asked for none, pass none, so the store's default applies.",
+        "If they asked for none, pass the server's `default_tier` from `get_preferences`.",
         "`arguments.tier`",
         'Before choosing a tier, `get_preferences(key="text_to_image")` shows the'
         " ladder and this host's pick per tier",

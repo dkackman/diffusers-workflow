@@ -52,10 +52,11 @@ The words map like this:
 |---|---|
 | "quick", "rough", "a draft", "just to see" | `draft` |
 | "the best you can", "highest quality", "final" | `best` |
-| nothing about quality | **pass none** |
+| nothing about quality | the server's `default_tier` |
 
-If they asked for none, pass none, so the store's default applies. Today
-that default is `standard`. Don't pick `best` to impress: it is the slowest rung and the
+If they asked for none, pass the server's `default_tier` from `get_preferences`. The
+template itself runs `standard` when no tier is passed, whatever the server's
+default is, so pass it. Don't pick `best` to impress: it is the slowest rung and the
 biggest download. Don't pass any other value: an unknown tier is refused at
 `arguments.tier`.
 
