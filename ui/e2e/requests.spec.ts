@@ -511,7 +511,9 @@ test('dropping an item others wait on says what it does to them, and Restore put
   let put = written(page)
   await confirm.getByRole('button', { name: 'Drop' }).click()
   expect((await put).status()).toBe(200)
-  expect(await order(page)).toEqual(['board', 'cut', 'title', 'score'])
+  await expect
+    .poll(() => order(page))
+    .toEqual(['board', 'cut', 'title', 'score'])
   // the dependent no longer waits: with nothing else to wait on, it is ready
   await expect(cut.getByTestId('item-chip')).toHaveText('ready')
   await expect(cut.getByTestId('item-row')).not.toContainText('waits on')
@@ -530,7 +532,9 @@ test('dropping an item others wait on says what it does to them, and Restore put
   expect((await put).status()).toBe(200)
   await expect(group).toHaveCount(0)
   // its place and what waited on it, as they were
-  expect(await order(page)).toEqual(['board', 'shot', 'cut', 'title', 'score'])
+  await expect
+    .poll(() => order(page))
+    .toEqual(['board', 'shot', 'cut', 'title', 'score'])
   await expect(cut.getByTestId('item-row')).toContainText(
     'waits on Opening shot (failed)',
   )
@@ -560,7 +564,9 @@ test('the handle reorders with the keys, in one write that a reload still shows'
   await handle.focus()
   await page.keyboard.press('ArrowUp')
   await page.keyboard.press('ArrowUp')
-  expect(await order(page)).toEqual(['board', 'title', 'shot', 'cut', 'score'])
+  await expect
+    .poll(() => order(page))
+    .toEqual(['board', 'title', 'shot', 'cut', 'score'])
   // focus stays on the handle, which now says where the item is
   await expect(handle).toBeFocused()
   await expect(handle).toHaveAccessibleName(
@@ -603,7 +609,9 @@ test("an edit made over the agent's write goes on top of it, and the page says s
   )
   // refused once as stale, then made over the plan as the agent left it
   expect(answers).toEqual([409, 200])
-  expect(await order(page)).toEqual(['score', 'board', 'title', 'shot', 'cut'])
+  await expect
+    .poll(() => order(page))
+    .toEqual(['score', 'board', 'title', 'shot', 'cut'])
   await expect(boardRow(page, 'cut').getByTestId('item-name')).toHaveText(
     'Final cut, tighter',
   )
@@ -642,14 +650,16 @@ test('a drop of an item the agent changed is held back until the user answers', 
   )
   // not dropped, and nothing written
   await expect(score.getByTestId('item-name')).toHaveText('Score, strings only')
-  expect(await order(page)).toContain('score')
+  await expect.poll(() => order(page)).toContain('score')
   expect((await ledger(request)).revision).toBe(theirs)
 
   const put = written(page)
   await card.getByRole('button', { name: 'Drop anyway' }).click()
   expect((await put).status()).toBe(200)
   await expect(card).toHaveCount(0)
-  expect(await order(page)).toEqual(['board', 'title', 'shot', 'cut'])
+  await expect
+    .poll(() => order(page))
+    .toEqual(['board', 'title', 'shot', 'cut'])
   const stored = await ledger(request)
   expect(stored.items.at(-1)).toMatchObject({
     key: 'score',
@@ -795,7 +805,16 @@ test('running a ready item queues a job bound to its quote, and the job appears 
   const offered = Number(/\d+/.exec((await header.textContent()) ?? '')?.[0])
   await header.click()
   const dialog = page.getByRole('dialog', { name: 'Run what can run now' })
-  await expect(dialog.getByTestId('run-row')).toHaveCount(offered)
+  // every offered item is a row while it is priced; one the server refuses
+  // then moves to "Will not run" - so the two together are what was offered,
+  // whichever side of that refusal this reads
+  const refused = dialog.locator('.wont li', { hasText: 'would be refused' })
+  await expect
+    .poll(
+      async () =>
+        (await dialog.getByTestId('run-row').count()) + (await refused.count()),
+    )
+    .toBe(offered)
   await expect(
     dialog.locator('[data-testid="run-row"][data-key="title"]'),
   ).toHaveCount(1)
@@ -853,7 +872,9 @@ test('running a ready item queues a job bound to its quote, and the job appears 
 
 test('dragging the handle moves an item, in one write', async ({ page }) => {
   await page.goto(BOARD)
-  expect(await order(page)).toEqual(['board', 'title', 'shot', 'cut'])
+  await expect
+    .poll(() => order(page))
+    .toEqual(['board', 'title', 'shot', 'cut'])
   const handle = page.locator('#req-item-board-handle')
   const target = boardRow(page, 'title')
   const from = await handle.boundingBox()
@@ -868,7 +889,9 @@ test('dragging the handle moves an item, in one write', async ({ page }) => {
   })
   await expect(target).toHaveClass(/insert-after/)
   await page.mouse.up()
-  expect(await order(page)).toEqual(['title', 'board', 'shot', 'cut'])
+  await expect
+    .poll(() => order(page))
+    .toEqual(['title', 'board', 'shot', 'cut'])
   const body = (await put).request().postDataJSON()
   expect(body.why).toBe('reorder board')
   await page.reload()

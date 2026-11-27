@@ -170,15 +170,16 @@ test('steps folds', async ({ page, request }) => {
     const editor = await editPretty(page, name, BASE)
     const steps = editor.locator('.view-line', { hasText: '"steps"' })
     await expect(steps).toBeVisible()
-    const line = await steps.boundingBox()
     // the margin's fold control on the steps line
     const controls = editor.locator(
       '.margin-view-overlays .codicon-folding-expanded',
     )
     // the controls are drawn as the folding ranges arrive: look until the
-    // steps line has its own
+    // steps line has its own. The line is measured on each look too - the
+    // editor can still be laying out, and a stale box never matches
     let onSteps: Locator | null = null
     await expect(async () => {
+      const line = await steps.boundingBox()
       for (const control of await controls.all()) {
         const box = await control.boundingBox()
         if (box && line && Math.abs(box.y - line.y) < line.height)
