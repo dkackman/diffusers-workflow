@@ -26,7 +26,7 @@ npm run check                       # svelte-check + tsc
 npm run lint                        # eslint
 npm run format                      # prettier --write
 npm test                            # vitest
-npx playwright test                 # e2e; starts its own server on :8971
+npx playwright test                 # e2e; starts its own servers, :8971 up (docs/TESTING.md)
 npm run preflight                   # all of the above, plus the ratchet and build
 ```
 

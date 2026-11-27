@@ -96,6 +96,36 @@ CONSTRAINT_DOCUMENTATION_KEYS = ("reason",)
 PLACEMENT_RESULT_KEYS = ("file_base_name", "role", "subfolder")
 
 
+def _work_fingerprint(
+    candidate, expanded, definition, annotations, base_dir, prompt_dir
+):
+    """The plan's fingerprint: the work includes the text a stored prompt
+    holds now, not only its name - so it is taken over the expansion with
+    each 'prompt:' inlined, as realization inlines it into the record, and
+    each composed child's own work digest."""
+    work, _ = realize_workflow(
+        expanded,
+        None,
+        seed=0,
+        base_dir=base_dir,
+        prompt_dir=prompt_dir,
+        output_root=candidate.output_dir,
+        workflow_dir=candidate.workflow_dir,
+        pin_outputs=False,
+    )
+    return fingerprint(
+        work,
+        definition,
+        {
+            **annotations,
+            "sub_workflows": {
+                path: child_work_digest(path, base_dir, candidate.workflow_dir)
+                for path in annotations.get("sub_workflows") or {}
+            },
+        },
+    )
+
+
 def build_plan(
     candidate,
     arguments,
@@ -182,30 +212,9 @@ def build_plan(
     )
     step_count = len(expanded.get("steps") or [])
     cache_hits = cached_steps(definition, realized, arguments, cache_probe)
-    # The work includes the text a stored prompt holds now, not only its
-    # name - so the fingerprint is taken over the expansion with each
-    # 'prompt:' inlined, as realization inlines it into the record
-    work, _ = realize_workflow(
-        expanded,
-        None,
-        seed=0,
-        base_dir=base_dir,
-        prompt_dir=prompt_dir,
-        output_root=candidate.output_dir,
-        workflow_dir=candidate.workflow_dir,
-        pin_outputs=False,
-    )
     return {
-        "fingerprint": fingerprint(
-            work,
-            definition,
-            {
-                **annotations,
-                "sub_workflows": {
-                    path: child_work_digest(path, base_dir, candidate.workflow_dir)
-                    for path in annotations.get("sub_workflows") or {}
-                },
-            },
+        "fingerprint": _work_fingerprint(
+            candidate, expanded, definition, annotations, base_dir, prompt_dir
         ),
         "steps": step_count,
         "elided_steps": elided,

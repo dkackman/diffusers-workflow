@@ -6,6 +6,7 @@ from PIL import Image
 
 from dw.events import RunContext, activate_context, deactivate_context
 from dw.tasks.judge import judge, _DEFAULT_MODEL
+from dw.tasks import text_generation
 
 
 class TestJudge(unittest.TestCase):
@@ -23,7 +24,7 @@ class TestJudge(unittest.TestCase):
         mock_pipeline.return_value = pipe
         return pipe
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
+    @patch.object(text_generation, "hf_pipeline")
     def test_parses_a_clean_number(self, mock_pipeline):
         self._mock_pipe(mock_pipeline, "7")
 
@@ -33,7 +34,7 @@ class TestJudge(unittest.TestCase):
 
         self.assertEqual(score, 7.0)
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
+    @patch.object(text_generation, "hf_pipeline")
     def test_parses_a_number_in_prose(self, mock_pipeline):
         self._mock_pipe(mock_pipeline, "I would rate this a 8 out of 10 for sharpness.")
 
@@ -57,7 +58,7 @@ class TestJudge(unittest.TestCase):
             deactivate_context(token)
         return score, [e for e in events if e["event"] == "warning"]
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
+    @patch.object(text_generation, "hf_pipeline")
     def test_a_reply_with_no_number_is_asked_again_for_digits(self, mock_pipeline):
         pipe = self._mock_pipe(mock_pipeline, "unused")
         pipe.side_effect = [
@@ -75,7 +76,7 @@ class TestJudge(unittest.TestCase):
         self.assertIn("Sharpest image", asks[1])
         self.assertIn("digits only", asks[1])
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
+    @patch.object(text_generation, "hf_pipeline")
     def test_no_number_twice_scores_low_and_warns(self, mock_pipeline):
         pipe = self._mock_pipe(mock_pipeline, "Malformed limbs.")
 
@@ -87,7 +88,7 @@ class TestJudge(unittest.TestCase):
         self.assertIn("Malformed limbs.", warnings[0]["message"])
         self.assertEqual(warnings[0]["score"], 1.0)
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
+    @patch.object(text_generation, "hf_pipeline")
     def test_uses_default_model(self, mock_pipeline):
         self._mock_pipe(mock_pipeline, "5")
 
@@ -95,7 +96,7 @@ class TestJudge(unittest.TestCase):
 
         self.assertEqual(mock_pipeline.call_args[1]["model"], _DEFAULT_MODEL)
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
+    @patch.object(text_generation, "hf_pipeline")
     def test_custom_model_name(self, mock_pipeline):
         self._mock_pipe(mock_pipeline, "5")
 
@@ -111,7 +112,7 @@ class TestJudge(unittest.TestCase):
             mock_pipeline.call_args[1]["model"], "Qwen/Qwen2.5-VL-3B-Instruct"
         )
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
+    @patch.object(text_generation, "hf_pipeline")
     def test_rubric_and_scale_are_in_the_prompt(self, mock_pipeline):
         pipe = self._mock_pipe(mock_pipeline, "5")
 

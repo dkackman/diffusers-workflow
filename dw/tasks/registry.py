@@ -126,6 +126,22 @@ def _checked_cost(command_name, cost, consumes_device):
     return {key: float(cost[key]) for key in COST_KEYS}
 
 
+def _command_rules(cost, domains, choices, static_check, required_weights):
+    """The value rules a command registers with, each only when given."""
+    rules = {}
+    if domains:
+        rules["domains"] = dict(domains)
+    if choices:
+        rules["choices"] = {name: tuple(values) for name, values in choices.items()}
+    if static_check is not None:
+        rules["static_check"] = static_check
+    if required_weights:
+        rules["required_weights"] = required_weights
+    if cost is not None:
+        rules["cost"] = cost
+    return rules
+
+
 def register_command(
     command_name: str,
     implementation=None,
@@ -235,6 +251,13 @@ def register_command(
     """
 
     cost = _checked_cost(command_name, cost, consumes_device)
+    rules = _command_rules(
+        cost, domains, choices, static_check, required_weights
+    ) | _named_arguments(
+        media_arguments=media_arguments,
+        weight_file_arguments=weight_file_arguments,
+        whole_numbers=whole_numbers,
+    )
 
     def decorator(func: Callable) -> Callable:
         if consumes_device:
@@ -262,24 +285,6 @@ def register_command(
         if parameter_descriptions:
             info["parameter_descriptions"] = dict(parameter_descriptions)
         _COMMAND_INFO[command_name] = info
-        rules = {}
-        if domains:
-            rules["domains"] = dict(domains)
-        if choices:
-            rules["choices"] = {name: tuple(values) for name, values in choices.items()}
-        if static_check is not None:
-            rules["static_check"] = static_check
-        if required_weights:
-            rules["required_weights"] = required_weights
-        if cost is not None:
-            rules["cost"] = cost
-        rules.update(
-            _named_arguments(
-                media_arguments=media_arguments,
-                weight_file_arguments=weight_file_arguments,
-                whole_numbers=whole_numbers,
-            )
-        )
         _COMMAND_RULES[command_name] = rules
         logger.debug(f"Registered command handler: {command_name}")
         return func

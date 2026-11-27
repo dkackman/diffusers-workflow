@@ -12,6 +12,7 @@ import torch
 from dw import torch_numerics
 from dw.pipeline_processors import h3_lead_in, h3_rules, h3_tst
 from dw.workflow_run import RunRecord, write_run_manifest
+from dw.tasks import text_generation
 
 from .test_run_manifest_roles import _stand_in
 from .test_runs import _workflow_definition, fake_pipeline  # noqa: F401
@@ -238,7 +239,7 @@ def test_the_h3_enhancer_run_names_the_model_that_ran(tmp_path):
         events = []
         token = activate_context(RunContext(on_event=events.append))
         try:
-            with patch("dw.tasks.text_generation.hf_pipeline", return_value=pipe):
+            with patch.object(text_generation, "hf_pipeline", return_value=pipe):
                 Workflow(
                     definition, str(tmp_path), f"/w/workflows/{definition['id']}.json"
                 ).run({})
@@ -258,7 +259,7 @@ def test_a_cached_text_model_still_names_itself():
     events = []
     token = activate_context(RunContext(on_event=events.append))
     try:
-        with patch("dw.tasks.text_generation.hf_pipeline", return_value=pipe) as loader:
+        with patch.object(text_generation, "hf_pipeline", return_value=pipe) as loader:
             generate_text("a", device="cpu", model_name="m/cached")
             generate_text("b", device="cpu", model_name="m/cached")
     finally:

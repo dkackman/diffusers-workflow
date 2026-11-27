@@ -17,16 +17,14 @@ python -m dw.serve
 dw setup    # service + Claude registrations (docs/INSTALL.md); checkout: venv/bin/dw setup --no-service --no-desktop
 dw agent    # Claude Code with the dw-notes channel
 
-# Run a workflow - dw.run only queues the job on a running dw.serve. This
-# template is the SD 1.5 smoke test: small and ungated, so it needs no Hugging
-# Face login. It proves the engine works; it is not the default picture
+# Run a workflow - dw.run only queues it on a running dw.serve. This is the SD 1.5
+# smoke test: small and ungated (no HF login); it proves the engine, not the picture
 python -m dw.run workflows/templates/text-to-image.json
 python -m dw.run workflows/templates/text-to-image.json prompt="a cat" num_images_per_prompt=4
 
-# A picture on the model this server prefers (preference:text_to_image), by tier
+# A picture on the model this server prefers (preference:text_to_image), by tier;
+# a gated model (workflows/models/flux-dev.json) needs `hf auth login` first
 python -m dw.run workflows/templates/preferred/text-to-image.json prompt="a cat" tier=best
-
-# A gated model (workflows/models/flux-dev.json) needs `hf auth login` first
 
 # Validate a workflow against schema
 python -m dw.validate workflows/models/z-image.json
@@ -64,24 +62,21 @@ The guides in `docs/`, by topic:
 - `MCP.md` - the MCP tool surface; `AGENT_LOOP.md` - the automated implementer/tester loop.
 - `WORKER_GUIDE.md` - the persistent worker and its queue protocol.
 - `TASKS.md` - the utility task commands (`dw/tasks/`).
-- `ACCELERATION.md` - caching, compile, attention backends, device settings, MPS;
-  `QUANTIZATION.md` - per-component quantization backends; `RECIPES_24GB.md` - tested
-  combinations of both per model family.
+- `ACCELERATION.md` - caching, compile, attention backends, device settings, MPS; `QUANTIZATION.md` -
+  per-component quantization backends; `RECIPES_24GB.md` - tested combinations of both per model family.
 - `LORAS.md`, `IP_ADAPTER.md`, `PROMPT_WEIGHTING.md` - those features, one each.
-- `SECURITY.md` - the validators and trust gate in depth; `SECURITY_QUICKREF.md` - the
-  same at a glance.
+- `SECURITY.md` - the validators and trust gate in depth; `SECURITY_QUICKREF.md` - the same at a glance.
 - `TESTING.md` - the test suite; `DEPENDENCIES.md` - installation; `RELEASING.md` - releases.
 
 ### Claude Code plugin
 
-`.claude-plugin/marketplace.json` publishes the `dw` plugin in `plugins/dw/` (it also starts the `dw` MCP server, `plugins/dw/.mcp.json`): one composition skill per model family (`minimax-h3`,
-`minimax-music3`, `ltx-2.5`, `kandinsky-6`, `flux3-klein`, `minimax-h3-image`) that chooses a template for a request's shape and
-states the family's hard rules, plus cross-cutting composition skills (`script-to-video`, `series-episodes`, `cinematography`,
-`storyboard`, `long-form`) - shapes above the families that orchestrate the decision trees, cast consistency across multiple
-generations, one camera-and-look vocabulary compiled per family, boards and a timed animatic before video, and the measured playbook
-for pieces longer than one clip - and `choosing-a-model`, for a request that names no family, workflow or model: it routes to the
-server's `preference:` ladder (`templates/preferred/text-to-image`) and keeps SD 1.5 for smoke tests. Every skill the directory holds is named in `plugins/dw/README.md` and here, pinned by
-`tests/test_plugin_skills.py`; that README says how the rest is pinned and versioned.
+`.claude-plugin/marketplace.json` publishes the `dw` plugin in `plugins/dw/` (it also starts the `dw` MCP server,
+`plugins/dw/.mcp.json`): one composition skill per model family (`minimax-h3`, `minimax-music3`, `ltx-2.5`, `kandinsky-6`,
+`flux3-klein`, `minimax-h3-image`) that chooses a template for a request's shape and states the family's hard rules, the
+cross-cutting shapes above the families (`script-to-video`, `series-episodes`, `cinematography`, `storyboard`, `long-form`), and
+`choosing-a-model`, which routes a request naming no family, workflow or model to the server's `preference:` ladder. Every skill
+is named in `plugins/dw/README.md` (which says what each does and how it is pinned and versioned) and here, pinned by
+`tests/test_plugin_skills.py`.
 
 ## Security Rules
 
@@ -106,6 +101,5 @@ noise. `validate_path(path, base)` is a barrier only when `base` is not `None`; 
   enforces it (`dw/reference_limits.py`, `dw/pipeline_limits.py`); the engine names the class, never the number.
 - **Compare backends with `get_device_type()`, not `== "cuda"`** - a device like
   `cuda:1` fails the string compare (`dw/__init__.py`).
-- **`{}` keeps a value a string**: under a `*_type`/`*_dtype`/`dtype` key `"{nf4}"` stays
-  `"nf4"`; unbraced it is loaded as a type, and fails at load time, after validation has
-  passed (`docs/WORKFLOW_GUIDE.md` *Types and escaping*; `dw/arguments.py`).
+- **`{}` keeps a value a string**: under a `*_type`/`*_dtype`/`dtype` key `"{nf4}"` stays `"nf4"`; unbraced it is
+  loaded as a type, and fails at load time, after validation has passed (`docs/WORKFLOW_GUIDE.md` *Types and escaping*; `dw/arguments.py`).

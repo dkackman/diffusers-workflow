@@ -22,35 +22,44 @@ export function loadEditorLists(): void {
   const keep = () => {}
   api
     .listPipelines()
-    .then((r) => (editorLists.pipelines = r.pipelines))
+    .then((r) => {
+      editorLists.pipelines = r.pipelines
+    })
     .catch(keep)
   api
     .listClasses('models')
-    .then((r) => (editorLists.modelClasses = r.classes))
+    .then((r) => {
+      editorLists.modelClasses = r.classes
+    })
     .catch(keep)
   api
     .listClasses('schedulers')
-    .then((r) => (editorLists.schedulerClasses = r.classes))
+    .then((r) => {
+      editorLists.schedulerClasses = r.classes
+    })
     .catch(keep)
   api
     .listClasses('quantization')
-    .then((r) => (editorLists.quantizationClasses = r.classes))
+    .then((r) => {
+      editorLists.quantizationClasses = r.classes
+    })
     .catch(keep)
   api
     .listTasks()
-    .then(
-      (r) =>
-        (editorLists.taskCommands = [
-          ...r.commands,
-          ...r.image_processors,
-          ...r.video_processors,
-        ].sort()),
-    )
+    .then((r) => {
+      editorLists.taskCommands = [
+        ...r.commands,
+        ...r.image_processors,
+        ...r.video_processors,
+      ].sort()
+    })
     .catch(keep)
   // An older server has no such route, and the call may not even exist -
   // the path field just offers the library
   Promise.resolve()
     .then(() => api.listBuiltinWorkflows())
-    .then((r) => (editorLists.builtinWorkflows = r.workflows))
+    .then((r) => {
+      editorLists.builtinWorkflows = r.workflows
+    })
     .catch(keep)
 }

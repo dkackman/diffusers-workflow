@@ -11,6 +11,7 @@ from dw.step_cache import step_cache
 from dw.workflow import Workflow
 from dw.writers import read_embedded_metadata
 from tests.test_events import FakePipeline
+from dw import pipeline_ownership
 
 EMBED = {"content_type": "image/png", "embed_metadata": True}
 
@@ -39,7 +40,7 @@ def embedded(tmp_path, definition, resident=None):
         definition, str(tmp_path / "out"), str(tmp_path / "parent.json")
     )
     with patch.object(Pipeline, "load", mock_load):
-        with patch("dw.pipeline_ownership.empty_device_cache"):
+        with patch.object(pipeline_ownership, "empty_device_cache"):
             workflow.run({}, previous_pipelines={} if resident is None else resident)
     return read_embedded_metadata(workflow.manifest[-1]["files"][0])
 

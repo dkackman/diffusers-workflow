@@ -124,6 +124,21 @@ class SubmissionRefused(Exception):
     engine); a route answers it with 409."""
 
 
+def _request_spec(workflow_path, workflow, base_dir, admitted):
+    """The request as its caller made it, the start of a job's spec: kept
+    for a rerun (which admits afresh) and for `definition()`."""
+    if workflow_path is not None:
+        return {"workflow_path": workflow_path, "source": "path"}
+    # Without one, the directory admission resolved relative paths against -
+    # the synthetic file_spec's own - kept so a rerun admits against the same
+    # directory
+    return {
+        "workflow": workflow,
+        "base_dir": base_dir or os.path.dirname(admitted.file_spec),
+        "source": "inline",
+    }
+
+
 class JobManager(Dispatcher, Reruns):
     """Queues jobs and dispatches them onto one worker process per card."""
 
@@ -410,17 +425,7 @@ class JobManager(Dispatcher, Reruns):
         )
         os.makedirs(job_output_dir, exist_ok=True)
 
-        if workflow_path is not None:
-            spec = {"workflow_path": workflow_path, "source": "path"}
-        else:
-            # Without one, the directory admission resolved relative paths
-            # against - the synthetic file_spec's own - kept so a rerun
-            # admits against the same directory
-            spec = {
-                "workflow": workflow,
-                "base_dir": base_dir or os.path.dirname(admitted.file_spec),
-                "source": "inline",
-            }
+        spec = _request_spec(workflow_path, workflow, base_dir, admitted)
         # The snapshot admission checked: what the worker builds and runs
         spec["definition"] = admitted.workflow_definition
         spec["file_spec"] = admitted.file_spec

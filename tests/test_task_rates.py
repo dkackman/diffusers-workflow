@@ -192,7 +192,9 @@ def test_the_probe_is_shared_across_steps(tmp_path):
         ]
     }
     probes = {}
-    with patch("dw.media.probe_metadata", wraps=dw.media.probe_metadata) as probe:
+    with patch.object(
+        dw.media, "probe_metadata", wraps=dw.media.probe_metadata
+    ) as probe:
         task_rate_price(expanded, str(tmp_path), probes)
     assert probe.call_count == 1
     assert len(probes) == 1

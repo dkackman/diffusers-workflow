@@ -359,6 +359,45 @@ def skip_reason(definition, arguments, devices, host, child=None):
     return None
 
 
+def _replay(path, tier, key, pinned, opened):
+    """An admission pin's resolution, replayed: its target must still open."""
+    from .library import SubWorkflowNotFound
+
+    target = pinned.get("target")
+    try:
+        opened(target)
+    except SubWorkflowNotFound as e:
+        raise PreferenceError(
+            f"Preference '{key}' tier {tier}: the pinned target '{target}' "
+            "is no longer in the catalog"
+        ) from e
+    return Resolution(
+        path=path,
+        tier=tier,
+        target=target,
+        arguments=dict(pinned.get("arguments") or {}),
+        skipped=list(pinned.get("skipped") or []),
+        source=pinned.get("source") or SOURCE_SHIPPED,
+        pinned=True,
+    )
+
+
+def _rung(store, key, tier):
+    """The store's entries for `key` at `tier`; refused when there are none."""
+    ladders = store.get("preferences") or {}
+    if key not in ladders:
+        known = ", ".join(sorted(ladders)) or "<none>"
+        raise PreferenceError(
+            f"Unknown preference '{key}': no such key in the preferences "
+            f"store; known keys: {known}"
+        )
+    ladder = ladders[key]
+    entries = ladder.get(tier) if isinstance(ladder, dict) else None
+    if not isinstance(entries, list) or not entries:
+        raise PreferenceError(f"Preference '{key}' has no targets for tier {tier}")
+    return entries
+
+
 def resolve(path, tier, host, open_target, store, *, pinned=None):
     """Resolve one `preference:` path at `tier` on `host`.
 
@@ -390,37 +429,8 @@ def resolve(path, tier, host, open_target, store, *, pinned=None):
             ) from e
 
     if pinned:
-        target = pinned.get("target")
-        arguments = pinned.get("arguments") or {}
-        try:
-            opened(target)
-        except SubWorkflowNotFound as e:
-            raise PreferenceError(
-                f"Preference '{key}' tier {tier}: the pinned target '{target}' "
-                "is no longer in the catalog"
-            ) from e
-        return Resolution(
-            path=path,
-            tier=tier,
-            target=target,
-            arguments=dict(arguments),
-            skipped=list(pinned.get("skipped") or []),
-            source=pinned.get("source") or SOURCE_SHIPPED,
-            pinned=True,
-        )
-
-    ladders = store.get("preferences") or {}
-    if key not in ladders:
-        known = ", ".join(sorted(ladders)) or "<none>"
-        raise PreferenceError(
-            f"Unknown preference '{key}': no such key in the preferences "
-            f"store; known keys: {known}"
-        )
-    ladder = ladders[key]
-    entries = ladder.get(tier) if isinstance(ladder, dict) else None
-    if not isinstance(entries, list) or not entries:
-        raise PreferenceError(f"Preference '{key}' has no targets for tier {tier}")
-    targets = [_target(entry, key, tier) for entry in entries]
+        return _replay(path, tier, key, pinned, opened)
+    targets = [_target(entry, key, tier) for entry in _rung(store, key, tier)]
 
     # Every stale target in the rung is named, not only the first
     candidates = []
