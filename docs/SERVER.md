@@ -225,7 +225,13 @@ them instead.
   naming the variables they set, and the fields a bundle sets show the
   chosen bundle's values as placeholders - only the selector is sent, so
   the server applies the bundle itself; in the editor the selector stays
-  a text field with that line and its bundle names), the raw JSON on request, **Edit**, **Duplicate**, **Run** and delete.
+  a text field with that line and its bundle names; a workflow that declares
+  `tier` and composes one `preference:` key lists under the `tier` dropdown
+  what each tier runs on this host, from `GET /api/preferences?key=<k>&resolve=true` -
+  the target, the targets skipped greyed with their reason, or the refusal a
+  tier would give - with the chosen tier marked and no per-tier figure, the run
+  check's being the chosen one's; the run check lists each `plan.preferences`
+  line; `ui/src/lib/preferences.ts`), the raw JSON on request, **Edit**, **Duplicate**, **Run** and delete.
   Under the title, the card's curated figure says whose it is and the
   settings it holds for - "a maintainer's figure: ~3 min · 22 GB VRAM,
   measured on RTX 4090 at num_frames=121" (the card's `cost_drivers`, a list

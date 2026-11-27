@@ -17,16 +17,18 @@
       aria-current={rung.tier === current ? 'true' : undefined}
     >
       <span class="tier">{rung.tier}</span>
-      {#if rung.target}
-        <code>{rung.target}</code>
-      {:else}
-        <span class="warn">{rung.error ?? 'nothing fits this host'}</span>
-      {/if}
-      {#each rung.skipped as skip (skip.workflow)}
-        <span class="skip muted" title={skip.reason}>
-          <code>{skip.workflow}</code> skipped: {skip.reason}
-        </span>
-      {/each}
+      <span class="pick">
+        {#if rung.target}
+          <code>{rung.target}</code>
+        {:else}
+          <span class="warn">{rung.error ?? 'nothing fits this host'}</span>
+        {/if}
+        {#each rung.skipped as skip (skip.workflow)}
+          <span class="skip muted" title={skip.reason}>
+            <code>{skip.workflow}</code> skipped: {skip.reason}
+          </span>
+        {/each}
+      </span>
     </li>
   {/each}
 </ul>
@@ -40,15 +42,21 @@
     padding: 0;
     font-size: var(--t-sm);
   }
+  /* The tier in its own column, so a long refusal wraps beside it */
   li {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: 5.5em 1fr;
     align-items: baseline;
     gap: var(--space-2);
   }
   .tier {
-    min-width: 5.5em;
     color: var(--muted);
+  }
+  .pick {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-1) var(--space-2);
   }
   .current .tier {
     color: inherit;
