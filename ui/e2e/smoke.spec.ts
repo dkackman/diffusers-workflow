@@ -294,7 +294,7 @@ test('validation flags a signature typo through the real server', async ({
 
 test('models page inventories the hub cache', async ({ page }) => {
   // Read-only: this runs against the developer's real hub cache
-  await page.goto('/#/models')
+  await page.goto('/#/server/models/downloaded')
   await expect(page.locator('h1')).toHaveText('Models')
   await expect(page.locator('.pagehead .muted')).toContainText('cached', {
     timeout: 30_000,

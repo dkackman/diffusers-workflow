@@ -90,7 +90,8 @@ const PAGE_TABLE: Record<string, Freshness[]> = {
   'pages/JsonEditorStub.svelte': [],
   'pages/NotFoundPage.svelte': [],
   'pages/ModelsPage.svelte': [{ watch: ['models'] }],
-  'pages/ModelsDownloaded.svelte': [{ watch: ['models'] }],
+  // reads nothing of its own: ModelsPage hands it the one cache resource
+  'pages/ModelsDownloaded.svelte': [],
   'pages/OverviewPage.svelte': [
     { watch: ['gallery'] },
     { watch: ['jobs'] },
@@ -133,6 +134,14 @@ const PAGE_TABLE: Record<string, Freshness[]> = {
   ],
   // a text tile's first lines, read once when first seen
   'ui/TextExcerpt.svelte': [{ watch: [] }],
+}
+
+/** Pages that hold no resource because their parent page hands them its
+ * resource as a prop; their `api` use is writes, each with why */
+const RESOURCE_PROP_PAGES: Record<string, string> = {
+  'pages/ModelsDownloaded.svelte':
+    'a tab of ModelsPage, which owns the one hub-cache resource (header, ' +
+    "tab count and table); the tab's api calls are a download and a delete",
 }
 
 /** The pages that edit one document: it is kept fresh by what they call to
@@ -468,7 +477,12 @@ export function bareHelperReaders(
     })
   return Object.entries(svelte)
     .map(([k, source]) => [k, read(source)] as const)
-    .filter(([k, r]) => r.resources.length === 0 && !DOCUMENT_PAGES.includes(k))
+    .filter(
+      ([k, r]) =>
+        r.resources.length === 0 &&
+        !DOCUMENT_PAGES.includes(k) &&
+        !(k in RESOURCE_PROP_PAGES),
+    )
     .flatMap(([k, r]) => readsThrough(k, r).map((n) => `${k}:${n}`))
     .filter((entry) => !(entry in exceptions))
 }
@@ -633,7 +647,12 @@ it('a page that reads the server does so through a resource', () => {
     r.imports.some((i) => i === '../api' || /lib\.svelte$/.test(i))
   const bare = [...reads]
     .filter(([k, r]) => isPage(k) && readsServer(r))
-    .filter(([k, r]) => r.resources.length === 0 && !DOCUMENT_PAGES.includes(k))
+    .filter(
+      ([k, r]) =>
+        r.resources.length === 0 &&
+        !DOCUMENT_PAGES.includes(k) &&
+        !(k in RESOURCE_PROP_PAGES),
+    )
     .map(([k]) => k)
   expect(bare).toEqual([])
 })

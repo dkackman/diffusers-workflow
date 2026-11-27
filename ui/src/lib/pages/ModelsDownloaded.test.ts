@@ -42,6 +42,8 @@ const cache = vi.hoisted(() => ({
   repos: [] as ModelRepo[],
   // what the cache listing fails with, while it fails
   error: null as Error | null,
+  // what the downloads listing returns
+  downloads: [] as unknown[],
 }))
 vi.mock('../confirm.svelte', () => ({ confirmDialog: vi.fn() }))
 
@@ -61,7 +63,7 @@ api.listModels.mockImplementation(() =>
 api.listDownloads.mockImplementation(() =>
   cache.error
     ? Promise.reject(cache.error)
-    : Promise.resolve({ downloads: [] }),
+    : Promise.resolve({ downloads: cache.downloads }),
 )
 api.startDownload.mockImplementation(() => new Promise(() => {}))
 api.deleteModel.mockImplementation(() => Promise.resolve({}))
@@ -74,6 +76,7 @@ afterEach(() => {
   cleanup()
   cache.repos = []
   cache.error = null
+  cache.downloads = []
   vi.mocked(confirmDialog).mockReset()
   api.startDownload.mockClear()
   api.deleteModel.mockClear()
@@ -310,4 +313,64 @@ it('a repo id can be sent', async () => {
   expect((send as HTMLButtonElement).disabled).toBe(false)
   await fireEvent.click(send)
   expect(api.startDownload).toHaveBeenCalledWith('org/name')
+})
+
+const running = (repo_id: string) => ({
+  id: 'd1',
+  repo_id,
+  status: 'downloading',
+  downloaded: 10,
+  total: 100,
+  error: null,
+  finished_at: null,
+})
+
+it('a started download shows at once, without a feed change', async () => {
+  render(ModelsPage, { tab: 'downloaded' })
+  const input = await screen.findByPlaceholderText(
+    'org/name, e.g. black-forest-labs/FLUX.1-dev',
+  )
+  await waitFor(() => expect(api.listDownloads).toHaveBeenCalled())
+  api.startDownload.mockImplementationOnce(() => {
+    cache.downloads = [running('org/new')]
+    return Promise.resolve({})
+  })
+  await fireEvent.input(input, { target: { value: 'org/new' } })
+  await fireEvent.click(screen.getByRole('button', { name: /Download/ }))
+  await screen.findByLabelText('cancel downloading org/new')
+})
+
+it('the header and the tab count follow a finished download', async () => {
+  cache.repos = [repo('org/a', null, null)]
+  cache.downloads = [running('org/b')]
+  render(ModelsPage, { tab: 'downloaded' })
+  await screen.findByRole('link', { name: 'Downloaded · 1' })
+  await screen.findByLabelText('cancel downloading org/b')
+  const reads = api.listModels.mock.calls.length
+  cache.repos = [repo('org/a', null, null), repo('org/b', null, null)]
+  cache.downloads = []
+  feed.move(workspace.current, 'models')
+  await screen.findByRole('link', { name: 'Downloaded · 2' })
+  expect(screen.getByText(/2 cached/)).toBeTruthy()
+  await screen.findByText('org/b')
+  // One read for the page, not one each for the shell and the tab (the move
+  // and the finished download may each ask)
+  expect(api.listModels.mock.calls.length - reads).toBeLessThanOrEqual(2)
+})
+
+it('the header and the tab count follow a delete', async () => {
+  cache.repos = [repo('org/a', null, null), repo('org/b', null, null)]
+  vi.mocked(confirmDialog).mockResolvedValue(true)
+  render(ModelsPage, { tab: 'downloaded' })
+  await screen.findByRole('link', { name: 'Downloaded · 2' })
+  expect(screen.getByText(/2 cached/)).toBeTruthy()
+  api.deleteModel.mockImplementationOnce(() => {
+    cache.repos = [repo('org/b', null, null)]
+    return Promise.resolve({})
+  })
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'delete org/a from the cache' }),
+  )
+  await screen.findByRole('link', { name: 'Downloaded · 1' })
+  expect(screen.getByText(/1 cached/)).toBeTruthy()
 })

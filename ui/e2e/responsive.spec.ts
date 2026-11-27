@@ -105,7 +105,7 @@ test('the models table shows size at 390px', async ({ page }) => {
     })
   })
   await page.setViewportSize({ width: 390, height: 844 })
-  await page.goto('/#/models')
+  await page.goto('/#/server/models/downloaded')
   await page.waitForLoadState('networkidle')
   const size = page.getByRole('columnheader', { name: 'size' })
   await expect(

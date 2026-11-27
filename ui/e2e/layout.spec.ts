@@ -182,7 +182,7 @@ test("models: the phone rule hides only the table's own wide columns", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 400, height: 800 })
-  await page.goto('/#/models')
+  await page.goto('/#/server/models/downloaded')
   const column = page.locator('.datatable th.wideonly').first()
   await expect(column).toBeAttached()
   await expect(column).toBeHidden()

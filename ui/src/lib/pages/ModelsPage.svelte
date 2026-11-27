@@ -11,7 +11,8 @@
   let { tab }: { tab: ModelsTab } = $props()
 
   // The hub cache follows the models feed (a delete or a download, here or
-  // by an agent); the header and the tab count show it
+  // by an agent); the header, the tab count and the Downloaded table all show
+  // this one read
   const cacheRead = resource(() => api.listModels(), { watch: ['models'] })
   const cache = $derived(cacheRead.data ?? null)
 </script>
@@ -50,7 +51,7 @@
 </nav>
 
 {#if tab === 'downloaded'}
-  <ModelsDownloaded />
+  <ModelsDownloaded {cacheRead} />
 {:else}
   <PreferencesPage />
 {/if}

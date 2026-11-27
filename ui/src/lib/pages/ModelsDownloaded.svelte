@@ -1,6 +1,6 @@
 <script lang="ts">
   import { repoIdHint } from '../repoId'
-  import { resource } from '../resource.svelte'
+  import type { Resource } from '../resource.svelte'
   import ActiveDownloads from '../ActiveDownloads.svelte'
   import LoadState from '../ui/LoadState.svelte'
   import { formatBytes, gbFromBytes } from '../format'
@@ -17,20 +17,24 @@
   import { modelDeleteConfirm } from '../destructive'
   import CopyButton from '../CopyButton.svelte'
   import LastUsedCell, { LAST_USED_TIP } from '../LastUsedCell.svelte'
-  import type { ModelRepo } from '../types'
+  import type { ModelCache, ModelRepo } from '../types'
+
+  // The hub cache is the shell's one read (ModelsPage): its header and the tab
+  // count show the same copy this table does
+  let { cacheRead }: { cacheRead: Resource<ModelCache> } = $props()
 
   let expanded = $state<Record<string, boolean>>({})
   let repoInput = $state('')
   const repoHint = $derived(repoIdHint(repoInput))
 
-  // The hub cache follows the models feed (a delete, here or by an agent, or
-  // a download finishing); ModelsPage reads it too, for its header
-  const cacheRead = resource(() => api.listModels(), { watch: ['models'] })
   const cache = $derived(cacheRead.data ?? null)
+  let downloads: ActiveDownloads | undefined = $state()
   const startDownload = action(
     async (repo: string) => {
       await api.startDownload(repo)
       repoInput = ''
+      // Show the new download now, not at the next feed change
+      await downloads?.refresh()
     },
     { doing: (repo) => `download ${repo}` },
   )
@@ -86,7 +90,7 @@
   </form>
 </div>
 
-<ActiveDownloads onfinished={() => cacheRead.refresh()} />
+<ActiveDownloads bind:this={downloads} onfinished={() => cacheRead.refresh()} />
 
 {#if cache?.warnings.length}
   <p class="muted skipped" title={cache.warnings.join('\n')}>

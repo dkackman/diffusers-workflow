@@ -29,6 +29,11 @@
     wasActive = now
   })
 
+  /** Read the list now: after this page starts one */
+  export function refresh() {
+    return downloadsRead.refresh()
+  }
+
   const cancelDownload = action(
     async (id: string) => {
       await api.cancelDownload(id)
