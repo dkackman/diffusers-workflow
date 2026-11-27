@@ -20,6 +20,10 @@ This skill is written for dw `0.23.0-alpha.4`; `get_server_info`'s `plugin` says
 1. `get_server_info`: the device. A ladder target can be CUDA-only, so the
    same tier can resolve to a different workflow on a Mac than on a CUDA box.
 2. Decide what the user named, in this order; the first that applies wins.
+3. Before choosing a tier, `get_preferences(key="text_to_image")` shows the
+   ladder and this host's pick per tier, with each skip and its reason. It
+   is free. Use it to say what each tier would run here; the validate line
+   below stays the check before spending.
 
 ## Who decides the model
 
