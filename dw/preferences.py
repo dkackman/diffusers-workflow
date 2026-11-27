@@ -42,6 +42,7 @@ warnings, realization, validation and the run all follow the resolved child.
 
 import json
 import logging
+import math
 import os
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -82,6 +83,14 @@ def pin_key(path, tier):
     """The admission pin's key for one resolution: the path as written and
     the tier it resolved at, so a rerun at another tier resolves fresh."""
     return f"{path}@{tier}"
+
+
+def pinned_tier(pinned, path):
+    """The tier of the only pin `pinned` holds for `path`, or None: what an
+    untiered step was admitted at, whatever the store's default is by now."""
+    prefix = f"{path}@"
+    tiers = [key[len(prefix) :] for key in pinned or {} if key.startswith(prefix)]
+    return tiers[0] if len(tiers) == 1 else None
 
 
 def overlay_path():
@@ -175,7 +184,8 @@ def default_host():
     total_mb = (host_memory_stats() or {}).get("total_mb")
     return Host(
         device_type=device_type,
-        smallest_card_gb=card,
+        # Whole GB, rounded up as the pool rounds: a 3090's 23.6 GiB is the 24
+        smallest_card_gb=math.ceil(card) if card else None,
         host_ram_gb=total_mb / 1024.0 if total_mb else None,
     )
 

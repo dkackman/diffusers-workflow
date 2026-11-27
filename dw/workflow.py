@@ -563,6 +563,7 @@ class Workflow:
         if not isinstance(steps, list):
             return definition
         session = None
+        self._preference_errors = {}
         for step in steps:
             reference = step.get("workflow") if isinstance(step, dict) else None
             if not isinstance(reference, dict):
@@ -579,6 +580,8 @@ class Workflow:
                 tier = arguments.get(preferences.TIER_ARGUMENT)
                 if tier is None:
                     tier = self._effective_tier
+                if tier is None:
+                    tier = preferences.pinned_tier(session.pinned, path)
                 if tier is None:
                     tier = session.preferences()["default_tier"]
                 if not isinstance(tier, str):
@@ -597,9 +600,10 @@ class Workflow:
                     pinned=pinned,
                 )
             except preferences.PreferenceError as e:
-                self._preference_errors[path] = e
+                # The first refusal for a path: a later step that resolves
+                # the same path at another tier must not erase it
+                self._preference_errors.setdefault(path, e)
                 continue
-            self._preference_errors.pop(path, None)
             target_definition, _ = self._open_preference_target(resolution.target)
             merged = {**resolution.arguments, **arguments}
             declared = target_definition.get("variables") or {}

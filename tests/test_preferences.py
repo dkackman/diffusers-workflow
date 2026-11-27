@@ -887,3 +887,52 @@ def test_check_draft_strikes_each_skip_of_a_no_fit():
     assert "no target fits" in tiers["best"]["error"]
     assert [s["workflow"] for s in tiers["best"]["skipped"]] == ["qa/a", "qa/b"]
     assert "after" not in tiers["best"]
+
+
+# --- review fixes, 2026-11-27 ---------------------------------------------
+
+
+def test_default_host_rounds_the_card_up_like_the_pool(monkeypatch):
+    """A 3090 reports 23.6 GiB and is the 24 a catalog figure names
+    (dw/worker_manager.py rounds the same way)."""
+    import dw
+
+    monkeypatch.setattr(dw, "device_capacity_gb", lambda *a, **k: 23.6)
+    assert preferences.default_host().smallest_card_gb == 24
+
+
+def test_pinned_tier_reads_the_only_pin_for_a_path():
+    pin = {"target": "models/z-image"}
+    assert preferences.pinned_tier({f"{PATH}@standard": pin}, PATH) == "standard"
+    assert (
+        preferences.pinned_tier({f"{PATH}@draft": pin, f"{PATH}@best": pin}, PATH)
+        is None
+    )
+    assert preferences.pinned_tier({"preference:other@draft": pin}, PATH) is None
+    assert preferences.pinned_tier({}, PATH) is None
+
+
+def test_a_default_tier_change_does_not_move_a_pinned_untiered_step(
+    tmp_path, cuda_session
+):
+    assert target_of(parent(tmp_path)) == "models/z-image"
+    admitted = dict(cuda_session.resolved)
+    moved = dict(preferences.load_preferences(), default_tier="draft")
+    worker = preferences.Session(host=cuda_session.host, pinned=admitted, store=moved)
+    with preferences.activated(worker):
+        assert target_of(parent(tmp_path)) == "models/z-image"
+    assert list(worker.resolved) == [f"{PATH}@standard"]
+
+
+def test_a_refused_step_keeps_its_reason_when_a_later_step_resolves(
+    tmp_path, cuda_session
+):
+    steps = [
+        {"name": "a", "workflow": {"path": PATH, "arguments": {"tier": "ultra"}}},
+        {"name": "b", "workflow": {"path": PATH, "arguments": {"tier": "draft"}}},
+    ]
+    spec = {"id": "parent", "variables": {}, "steps": steps}
+    workflow = workflow_from_definition(spec, str(tmp_path), WORKFLOWS, None)
+    errors = workflow.validation_errors()
+    assert errors[0]["path"] == "steps[0].workflow.path"
+    assert "Unknown tier 'ultra'" in errors[0]["message"]
