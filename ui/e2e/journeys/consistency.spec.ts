@@ -231,8 +231,22 @@ test('content shown above a list while it loads late does not end its restore', 
     },
   )
   await page.goBack()
-  // the restore has gone as far as the loading page reaches
-  await expect.poll(() => scrollY(page)).toBeGreaterThan(0)
+  // the restore has gone as far as the loading page reaches (which may be
+  // nowhere: with the sidebar sticky, only the page's own content gives the
+  // document its height, and a page still loading can be shorter than the
+  // window)
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          window.scrollY ===
+          Math.max(
+            0,
+            document.documentElement.scrollHeight - window.innerHeight,
+          ),
+      ),
+    )
+    .toBe(true)
   expect(await scrollY(page)).toBeLessThan(left)
   // the server goes quiet and the shell's banner grows above the list
   await page.route('**/api/**', (route) => route.abort())

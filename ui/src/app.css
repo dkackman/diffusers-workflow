@@ -210,6 +210,14 @@ textarea,
     animation: none;
   }
 }
+/* No scroll anchoring on the page: content that grows above what the user is
+   reading leaves the page where it is, and a navigation's place is the
+   router's (restoreScroll). Until the sidebar became sticky its in-flow
+   column was always the browser's anchor, which never moved, so this keeps
+   the page as it behaved then */
+html {
+  overflow-anchor: none;
+}
 body {
   margin: 0;
   background: var(--bg);

@@ -306,7 +306,16 @@
 </aside>
 
 <style>
+  /* The window's height, pinned while the page scrolls: the nav list is its
+     own scroller, so a link clicked low in it keeps its place when the page
+     goes back to the top. On a phone the shell's drawer rule (App.svelte)
+     makes it fixed instead, which also fills the window */
   aside {
+    position: sticky;
+    top: 0;
+    align-self: flex-start;
+    height: 100vh;
+    height: 100dvh;
     display: flex;
     flex-direction: column;
     width: 236px;
@@ -345,7 +354,10 @@
     display: flex;
     flex-direction: column;
     padding: var(--space-2) 0;
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
+    overscroll-behavior: contain;
   }
   .group {
     display: flex;

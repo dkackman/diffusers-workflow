@@ -191,3 +191,30 @@ test("models: the phone rule hides only the table's own wide columns", async ({
   const probe = await mount(page, '<div class="wideonly">elsewhere</div>')
   await expect(probe.locator('.wideonly')).toBeVisible()
 })
+
+test('sidebar: it scrolls on its own and keeps its place across a navigation', async ({
+  page,
+}) => {
+  // short enough that the sidebar's list overflows
+  await page.setViewportSize({ width: 1200, height: 360 })
+  await page.goto('/#/server/activity')
+  const aside = page.locator('aside[aria-label="navigation"]')
+  const nav = aside.locator('nav')
+  await expect(nav).toBeVisible()
+  // the aside fills the window and stays put while the page scrolls
+  expect((await box(aside)).height).toBeCloseTo(360, -1)
+  const scrollable = await nav.evaluate(
+    (el) => el.scrollHeight > el.clientHeight,
+  )
+  expect(scrollable, 'the sidebar list overflows this window').toBe(true)
+  await nav.evaluate((el) => (el.scrollTop = el.scrollHeight))
+  const before = await nav.evaluate((el) => el.scrollTop)
+  expect(before).toBeGreaterThan(0)
+  const system = aside.getByRole('link', { name: 'System' })
+  await system.click()
+  await expect(page).toHaveURL(/#\/server\/system$/)
+  // the list did not go back to its top: the link just clicked is still on
+  // screen (the list may settle as the workspaces load, so not to the pixel)
+  expect(await nav.evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
+  await expect(system).toBeInViewport()
+})
