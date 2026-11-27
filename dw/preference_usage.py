@@ -35,7 +35,7 @@ def _definitions(library):
         if path is None:
             continue
         try:
-            with open(path, "r") as file:
+            with open(path, "r", encoding="utf-8") as file:
                 definition = json.load(file)
         except (OSError, ValueError) as e:
             logger.debug(f"Preference usage skips unreadable workflow {name}: {e}")
