@@ -1440,6 +1440,23 @@ class TestHeldFrames:
         assert 30 in cuts
         assert 31 not in held  # the cut's own repeat
 
+    def test_clusters_without_a_frame_rate_are_in_frames_only(self):
+        """No fps, no seconds: a time at an assumed 24 fps is a wrong time."""
+        grey = with_repeats(moving_grey(96))
+        frames = [
+            Image.fromarray(numpy.stack([g] * 3, -1)) for g in grey.astype("uint8")
+        ]
+        bare = analyze_held_frames(AudioVideo(frames, None, None, fps=None))
+        timed = analyze_held_frames(AudioVideo(frames, None, None, fps=12))
+
+        assert bare["held_frames"] == timed["held_frames"] == 24
+        cluster = bare["clusters"][0]
+        assert (cluster["first_frame"], cluster["last_frame"]) == (2, 94)
+        assert "start" not in cluster and "end" not in cluster
+        assert [f["at"] for f in held_findings(bare)] == [{"file": True}]
+        assert timed["clusters"][0]["start"] == round(2 / 12, 3)
+        assert timed["clusters"][0]["first_frame"] == 2
+
     def test_a_count_at_the_threshold_raises_a_file_and_cluster_finding(self):
         answer = analyze_held_frames(held_video(with_repeats(moving_grey(96))))
 

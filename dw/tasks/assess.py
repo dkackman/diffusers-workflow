@@ -951,7 +951,9 @@ def _held_frames(d, skip, epsilon=HELD_EPSILON, moving=TYPICAL_DELTA_FLOOR):
 
 def _held_clusters(frames, fps):
     """Runs of held frames whose gaps are at most HELD_CLUSTER_GAP frames, of
-    at least HELD_CLUSTER_MIN holds: [{start, end, held}] in seconds."""
+    at least HELD_CLUSTER_MIN holds: [{first_frame, last_frame, held}], with
+    {start, end} in seconds when the video carries a frame rate - a time at an
+    assumed rate would be a wrong one."""
     runs, current = [], []
     for frame in sorted(frames):
         if current and frame - current[-1] - 1 > HELD_CLUSTER_GAP:
@@ -960,11 +962,15 @@ def _held_clusters(frames, fps):
         current.append(frame)
     if current:
         runs.append(current)
-    rate = fps or 24.0
     return [
         {
-            "start": round(run[0] / rate, 3),
-            "end": round(run[-1] / rate, 3),
+            "first_frame": run[0],
+            "last_frame": run[-1],
+            **(
+                {"start": round(run[0] / fps, 3), "end": round(run[-1] / fps, 3)}
+                if fps
+                else {}
+            ),
             "held": len(run),
         }
         for run in runs
@@ -1010,8 +1016,9 @@ def analyze_held_frames(video, shots=None, detail=False):
         detail: Also return the frame-to-frame difference series, downsampled
 
     Returns:
-        {held_frames, held_ratio, frames, clusters: [{start, end, held}],
-        findings, rules_applied, rules_skipped, shots_source} - with detail,
+        {held_frames, held_ratio, frames, clusters: [{first_frame,
+        last_frame, held, and start, end in seconds when the video has a
+        frame rate}], findings, rules_applied, rules_skipped, shots_source} - with detail,
         also series: [{frame, d}]
     """
     media = media_from(video)
@@ -1093,7 +1100,7 @@ def held_frames_answer(media, records, source, detail=False):
     findings = _findings(
         "analyze_held_frames", {"held_frames": len(held)}, {"file": True}
     )
-    if findings:
+    if findings and media.fps:  # a finding is placed in seconds
         for cluster in clusters:
             findings.append(
                 {
