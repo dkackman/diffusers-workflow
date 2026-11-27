@@ -209,3 +209,25 @@ describe('adding a discovered argument', () => {
     expect(addedArgument('mine', undefined)).toBe('')
   })
 })
+
+describe('a braced value', () => {
+  it('stays braced when its text is replaced', () => {
+    // Add wrote `{pil}` so the engine keeps it a string; typing over it must
+    // not leave a bare word the engine loads as a type, after validation
+    expect(commitArgument(undefined, 'latent', '{pil}')).toBe('{latent}')
+    expect(commitArgument(undefined, '{latent}', '{pil}')).toBe('{latent}')
+  })
+
+  it('an unbraced type, a reference and an emptied field are left as typed', () => {
+    expect(commitArgument(undefined, 'torch.float32', 'torch.float16')).toBe(
+      'torch.float32',
+    )
+    expect(commitArgument(undefined, 'variable:kind', '{pil}')).toBe(
+      'variable:kind',
+    )
+    expect(commitArgument(undefined, 'torch.float32', '{pil}')).toBe(
+      'torch.float32',
+    )
+    expect(commitArgument(undefined, '', '{pil}')).toBe('')
+  })
+})

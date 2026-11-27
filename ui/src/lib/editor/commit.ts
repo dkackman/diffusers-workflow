@@ -26,8 +26,17 @@ export function commitArgument(
   const shape = isReference(previous)
     ? (parameter?.default ?? undefined)
     : previous
-  return coerce(widgetFor(parameter, shape), raw)
+  const value = coerce(widgetFor(parameter, shape), raw)
+  // A value held in {} stays a string to the engine. Typing a plain word
+  // over it keeps the braces: bare, under a type key, it would be loaded as
+  // a type and fail at load time, after validation has passed
+  return isBraced(previous) && isPlainWord(value) && !isReference(value)
+    ? `{${value}}`
+    : value
 }
+
+const isBraced = (value: unknown) =>
+  typeof value === 'string' && /^\{[^{}]*\}$/.test(value)
 
 // The keys whose string the engine loads as a type (dw/arguments.py);
 // tests/test_ui_twins.py pins this against it

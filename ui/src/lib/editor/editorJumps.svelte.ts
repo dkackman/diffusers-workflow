@@ -38,7 +38,15 @@ export class EditorJumps {
    * field focused. */
   goTo = (place: Place) => {
     if (place.kind === 'step') {
-      this.#modes.set(this.#ed.doc.steps![place.index], 'full')
+      // The finding may be older than the document: a step removed since
+      // leaves its index pointing past the end, or at another step
+      const steps = this.#ed.doc.steps ?? []
+      const step =
+        steps[place.index]?.name === place.name
+          ? steps[place.index]
+          : steps.find((candidate) => candidate.name === place.name)
+      if (!step) return
+      this.#modes.set(step, 'full')
       this.showStep(place.name)
       // Focus goes where the finding is: the step's name field, once the
       // list has drawn it open
