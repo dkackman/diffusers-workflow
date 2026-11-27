@@ -138,7 +138,9 @@ main() {
   if [ "$TORCH_INDEX" = "pypi" ]; then
     run uv pip install --python "$PY" "${UPGRADE[@]+"${UPGRADE[@]}"}" -c "$CONSTRAINTS" "$REQ"
   else
-    run uv pip install --python "$PY" "${UPGRADE[@]+"${UPGRADE[@]}"}" --extra-index-url "$TORCH_INDEX" -c "$CONSTRAINTS" "$REQ"
+    # Both indexes weighed: uv takes a package from the first index that
+    # carries it, and the PyTorch index's requests is below dw's floor
+    run uv pip install --python "$PY" "${UPGRADE[@]+"${UPGRADE[@]}"}" --extra-index-url "$TORCH_INDEX" --index-strategy unsafe-best-match -c "$CONSTRAINTS" "$REQ"
   fi
 
   # --- diffusers main, from a GitHub archive (no git needed). Forced because main

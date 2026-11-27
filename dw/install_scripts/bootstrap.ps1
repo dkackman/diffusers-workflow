@@ -121,7 +121,11 @@ elseif ($Version) { $req = "diffusers-workflow[server,mcp]==$Version" }
 else { $req = "diffusers-workflow[server,mcp]" }
 $installArgs = @("pip", "install", "--python", $py)
 if ($existing) { $installArgs += "-U" }
-if ($TorchIndex -ne "pypi") { $installArgs += @("--extra-index-url", $TorchIndex) }
+# Both indexes weighed: uv takes a package from the first index that carries
+# it, and the PyTorch index's requests is below dw's floor
+if ($TorchIndex -ne "pypi") {
+    $installArgs += @("--extra-index-url", $TorchIndex, "--index-strategy", "unsafe-best-match")
+}
 Invoke-Step uv ($installArgs + @("-c", $constraints, $req))
 
 # --- diffusers main, from a GitHub archive (no git needed)

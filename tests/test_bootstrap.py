@@ -136,6 +136,14 @@ def test_torch_index_follows_the_driver(driver_cuda, expected, run_bootstrap):
     else:
         assert f"--index-url {expected}" in out.torch_line
     assert f"torch index: {expected}" in out.text
+    # uv takes a package from the first index that has it, and the PyTorch
+    # index carries an old requests: the dw install must weigh both indexes
+    dw_line = next(line for line in out.lines if "diffusers-workflow[" in line)
+    if expected == "pypi":
+        assert "--extra-index-url" not in dw_line
+    else:
+        assert f"--extra-index-url {expected}" in dw_line
+        assert "--index-strategy unsafe-best-match" in dw_line
 
 
 @needs_bash
@@ -363,6 +371,10 @@ def test_the_powershell_twin_follows_the_driver(driver_cuda, expected, tmp_path)
     assert result.returncode == 0, result.stderr
     assert f"torch index: {expected}" in result.stdout
     assert "diffusers-workflow[server,mcp]" in result.stdout
+    dw_line = next(
+        line for line in result.stdout.splitlines() if "diffusers-workflow[" in line
+    )
+    assert ("--index-strategy unsafe-best-match" in dw_line) == (expected != "pypi")
     assert f"archive/{SHA}.zip" in result.stdout
 
 
