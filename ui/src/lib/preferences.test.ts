@@ -59,6 +59,7 @@ describe('rungsOf', () => {
           best: {
             target: 'models/z-image',
             skipped: [{ workflow: 'models/minimax-h3-image', reason: 'mps' }],
+            notes: ['will download 41.2 GB'],
           },
           draft: { target: 'templates/text-to-image', skipped: [] },
           standard: { error: 'no target fits this host' },
@@ -74,18 +75,21 @@ describe('rungsOf', () => {
         target: 'templates/text-to-image',
         skipped: [],
         error: null,
+        notes: [],
       },
       {
         tier: 'standard',
         target: null,
         skipped: [],
         error: 'no target fits this host',
+        notes: [],
       },
       {
         tier: 'best',
         target: 'models/z-image',
         skipped: [{ workflow: 'models/minimax-h3-image', reason: 'mps' }],
         error: null,
+        notes: ['will download 41.2 GB'],
       },
     ])
   })

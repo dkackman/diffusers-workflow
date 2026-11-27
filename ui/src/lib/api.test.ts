@@ -688,3 +688,32 @@ describe('an id is one path segment', () => {
     expect(calls[0][0]).toContain('/api/classes?kind=a%26b%3D1')
   })
 })
+
+describe('preferences', () => {
+  it('asks for the full resolved read', async () => {
+    const calls = stubFetch({ ok: true, body: {} })
+    await api.getPreferences({ resolve: true, full: true })
+    expect(calls[0][0]).toBe('/api/preferences?resolve=true&full=true')
+  })
+
+  it('posts a ladder to its key check, full off unless asked', async () => {
+    const calls = stubFetch({ ok: true, body: { tiers: {} } })
+    await api.checkPreference('k', { ladder: { best: ['a'] } })
+    expect(calls[0][0]).toBe('/api/preferences/k/check')
+    expect(calls[0][1]?.method).toBe('POST')
+    expect(JSON.parse(String(calls[0][1]?.body))).toEqual({
+      ladder: { best: ['a'] },
+      full: false,
+    })
+    await api.checkPreference('k', {
+      ladder: {},
+      full: true,
+      known_blocked: ['m'],
+    })
+    expect(JSON.parse(String(calls[1][1]?.body))).toEqual({
+      ladder: {},
+      full: true,
+      known_blocked: ['m'],
+    })
+  })
+})

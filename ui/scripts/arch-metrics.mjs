@@ -256,6 +256,7 @@ export const NOT_READS = [
   // checks a click asks for: each answers one question about what the user
   // holds now, a snapshot nothing renders as a view to keep fresh
   'validate',
+  'checkPreference',
   'assess',
   'checkToken',
   // a precondition read for a save, not a view: the note and etag a save
