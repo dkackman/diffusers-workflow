@@ -19,11 +19,11 @@ const LIVE_FILES = [
   'src/App.svelte',
   'src/app.css',
   'src/frames.css',
+  'src/lib/ActiveDownloads.svelte',
   'src/lib/editor/FlowLegend.svelte',
   'src/lib/editor/FlowSegments.svelte',
   'src/lib/editor/FlowView.svelte',
   'src/lib/job/JobProgress.svelte',
-  'src/lib/pages/ModelsPage.svelte',
   'src/lib/request/RequestProgress.svelte',
 ]
 

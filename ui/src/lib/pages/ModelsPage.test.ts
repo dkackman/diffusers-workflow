@@ -42,12 +42,6 @@ const cache = vi.hoisted(() => ({
   repos: [] as ModelRepo[],
   // what the cache listing fails with, while it fails
   error: null as Error | null,
-  // how many times the diffusers status was read
-  diffusersReads: 0,
-  // the diffusers status the page reads; null stays pending
-  diffusers: null as unknown,
-  // the dw update state the page reads; null stays pending
-  dw: null as unknown,
 }))
 vi.mock('../confirm.svelte', () => ({ confirmDialog: vi.fn() }))
 
@@ -69,18 +63,6 @@ api.listDownloads.mockImplementation(() =>
     ? Promise.reject(cache.error)
     : Promise.resolve({ downloads: [] }),
 )
-api.diffusersStatus.mockImplementation(() => {
-  cache.diffusersReads++
-  if (cache.error) return Promise.reject(cache.error)
-  return cache.diffusers
-    ? Promise.resolve(cache.diffusers)
-    : new Promise(() => {})
-})
-api.updateDiffusers.mockImplementation(() => Promise.resolve({}))
-api.dwStatus.mockImplementation(() =>
-  cache.dw ? Promise.resolve(cache.dw) : new Promise(() => {}),
-)
-api.updateDw.mockImplementation(() => Promise.resolve({}))
 api.startDownload.mockImplementation(() => new Promise(() => {}))
 api.deleteModel.mockImplementation(() => Promise.resolve({}))
 vi.mock('../changes.svelte', async () => ({
@@ -92,12 +74,7 @@ afterEach(() => {
   cleanup()
   cache.repos = []
   cache.error = null
-  cache.diffusersReads = 0
-  cache.diffusers = null
-  cache.dw = null
   vi.mocked(confirmDialog).mockReset()
-  api.updateDiffusers.mockClear()
-  api.updateDw.mockClear()
   api.startDownload.mockClear()
   api.deleteModel.mockClear()
 })
@@ -191,8 +168,8 @@ it('recovers on reconnect', async () => {
   cache.error = new NetworkError('fetch failed')
   render(ModelsPage)
   await screen.findByText("Couldn't load the hub cache: Can't reach the server")
-  // Offline, only the cache list says so: downloads and the diffusers
-  // version fail quietly beside it
+  // Offline, only the cache list says so: the downloads read fails quietly
+  // beside it
   expect(screen.getAllByText(/Couldn't load/)).toHaveLength(1)
   expect(screen.getAllByRole('alert')).toHaveLength(1)
   expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy()
@@ -221,121 +198,6 @@ it('ModelsPage reloads its cache list on a models move', async () => {
   await screen.findByText('org/fetched')
   // Quiet: the list never went back to loading
   expect(screen.getByText('org/first')).toBeTruthy()
-})
-
-it('a models move reads the diffusers status again', async () => {
-  render(ModelsPage)
-  await waitFor(() => expect(cache.diffusersReads).toBe(1))
-  // An update started by another tab or an agent bumps models
-  feed.move(workspace.current, 'models')
-  await waitFor(() => expect(cache.diffusersReads).toBe(2))
-})
-
-it('Update diffusers asks first and runs only on yes', async () => {
-  cache.diffusers = { version: '0.30', commit: null, status: 'idle' }
-  render(ModelsPage)
-  const button = await screen.findByRole('button', {
-    name: /Update from GitHub/,
-  })
-  vi.mocked(confirmDialog).mockResolvedValueOnce(false)
-  await fireEvent.click(button)
-  await waitFor(() => expect(confirmDialog).toHaveBeenCalledTimes(1))
-  expect(api.updateDiffusers).not.toHaveBeenCalled()
-  vi.mocked(confirmDialog).mockResolvedValueOnce(true)
-  await fireEvent.click(button)
-  await waitFor(() => expect(api.updateDiffusers).toHaveBeenCalledTimes(1))
-  expect(vi.mocked(confirmDialog).mock.calls[1]).toEqual([
-    "This changes the server's Python environment and restarts the idle worker.",
-    {
-      title: 'Update diffusers from GitHub?',
-      confirmLabel: 'Update diffusers',
-      cancelLabel: undefined,
-      danger: false,
-    },
-  ])
-})
-
-const dwState = (over: Record<string, unknown>) => ({
-  version: '0.23.0',
-  latest: '0.24.0',
-  newer: true,
-  managed: true,
-  command: 'curl -LsSf https://example.test/bootstrap.sh | sh',
-  status: 'idle',
-  error: null,
-  log: null,
-  ...over,
-})
-
-it('an unmanaged server shows the install command and no update button', async () => {
-  cache.dw = dwState({ managed: false })
-  render(ModelsPage)
-  await screen.findByText(/bootstrap\.sh/)
-  expect(screen.queryByRole('button', { name: /Update dw/ })).toBeNull()
-  expect(screen.getByTitle('copy the update command')).toBeTruthy()
-})
-
-it('Update dw on a managed server with a newer release asks, then runs', async () => {
-  cache.dw = dwState({})
-  render(ModelsPage)
-  const button = await screen.findByRole('button', { name: /Update dw/ })
-  vi.mocked(confirmDialog).mockResolvedValueOnce(true)
-  await fireEvent.click(button)
-  await waitFor(() => expect(api.updateDw).toHaveBeenCalledTimes(1))
-})
-
-it('a managed server already on the latest offers no update', async () => {
-  cache.dw = dwState({ latest: '0.23.0', newer: false })
-  render(ModelsPage)
-  await screen.findByText('up to date')
-  expect(screen.queryByRole('button', { name: /Update dw/ })).toBeNull()
-})
-
-it('the server decides newer: 0.10.0 over 0.9.0 offers the update', async () => {
-  cache.dw = dwState({ version: '0.9.0', latest: '0.10.0', newer: true })
-  render(ModelsPage)
-  await screen.findByRole('button', { name: /Update dw/ })
-  expect(screen.getByText('0.10.0 is available')).toBeTruthy()
-})
-
-it('newer false offers no update even when latest reads newer as a string', async () => {
-  cache.dw = dwState({ version: '1.0.0', latest: '1.0.0rc1', newer: false })
-  render(ModelsPage)
-  await screen.findByText('up to date')
-  expect(screen.queryByRole('button', { name: /Update dw/ })).toBeNull()
-})
-
-it('a null newer offers no update and claims nothing', async () => {
-  cache.dw = dwState({ latest: 'not a version', newer: null })
-  render(ModelsPage)
-  await screen.findByText('0.23.0')
-  expect(screen.queryByRole('button', { name: /Update dw/ })).toBeNull()
-  expect(screen.queryByText(/is available/)).toBeNull()
-  expect(screen.queryByText('up to date')).toBeNull()
-})
-
-it('an unmanaged server with a null newer names no available release', async () => {
-  cache.dw = dwState({ managed: false, latest: null, newer: null })
-  render(ModelsPage)
-  await screen.findByText(/bootstrap\.sh/)
-  expect(screen.queryByText(/is available/)).toBeNull()
-})
-
-it('a running dw update shows progress and keeps polling', async () => {
-  vi.useFakeTimers({ shouldAdvanceTime: true })
-  try {
-    cache.dw = dwState({ status: 'running' })
-    render(ModelsPage)
-    await screen.findByText(/the server restarts/)
-    expect(screen.queryByRole('button', { name: /Update dw/ })).toBeNull()
-    const reads = api.dwStatus.mock.calls.length
-    await vi.advanceTimersByTimeAsync(2100)
-    await waitFor(() =>
-      expect(api.dwStatus.mock.calls.length).toBeGreaterThan(reads),
-    )
-  } finally {
-    vi.useRealTimers()
-  }
 })
 
 it('a second click while starting a download sends one request', async () => {

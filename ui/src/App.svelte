@@ -55,9 +55,10 @@
   import AssetsPage from './lib/pages/AssetsPage.svelte'
   import ModelsPage from './lib/pages/ModelsPage.svelte'
   import PreferencesPage from './lib/pages/PreferencesPage.svelte'
-  import ServerPage from './lib/pages/ServerPage.svelte'
+  import ConnectPage from './lib/pages/ConnectPage.svelte'
+  import SystemPage from './lib/pages/SystemPage.svelte'
   import SchemaPage from './lib/pages/SchemaPage.svelte'
-  import StatusPage from './lib/pages/StatusPage.svelte'
+  import ActivityPage from './lib/pages/ActivityPage.svelte'
 
   const health = $derived(connection.health)
   let helpOpen = $state(false)
@@ -357,8 +358,9 @@
           <!-- temporary: Task 4 replaces both with the tabbed Models page -->
           {#if view.rest[0] === 'preferences'}<PreferencesPage />
           {:else}<ModelsPage />{/if}
-        {:else if view.section === 'activity'}<StatusPage />
-        {:else}<ServerPage />{/if}
+        {:else if view.section === 'activity'}<ActivityPage />
+        {:else if view.section === 'connect'}<ConnectPage />
+        {:else}<SystemPage />{/if}
       {:else if view.kind === 'shared'}
         {#if view.section === 'prompts'}<PromptsPage />
         {:else if view.section === 'prompt-edit'}<PromptEditorPage

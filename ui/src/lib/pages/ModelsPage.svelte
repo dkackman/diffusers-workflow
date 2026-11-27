@@ -11,86 +11,40 @@
     ChevronRight,
     Download,
     ExternalLink,
-    RefreshCw,
     Trash2,
-    X,
   } from '@lucide/svelte'
   import { api } from '../api'
   import { action } from '../action.svelte'
-  import {
-    modelDeleteConfirm,
-    UPDATE_DIFFUSERS_CONFIRM,
-    UPDATE_DW_CONFIRM,
-  } from '../destructive'
+  import { modelDeleteConfirm } from '../destructive'
   import CopyButton from '../CopyButton.svelte'
   import LastUsedCell, { LAST_USED_TIP } from '../LastUsedCell.svelte'
-  import type { ModelDownload, ModelRepo } from '../types'
+  import type { ModelRepo } from '../types'
 
   let expanded = $state<Record<string, boolean>>({})
   let repoInput = $state('')
   const repoHint = $derived(repoIdHint(repoInput))
 
-  // The hub cache and downloads follow the models feed (a delete, a
-  // download started or cancelled, here or by an agent); a download or a
-  // diffusers update in flight also keeps a 2 s poll while it runs
+  // The hub cache follows the models feed (a delete, here or by an agent)
   const cacheRead = resource(() => api.listModels(), { watch: ['models'] })
   const cache = $derived(cacheRead.data ?? null)
+  // A download in flight is shown on the Activity page; it is read here only
+  // so a download finishing re-reads the repo list, which then shows it with
+  // its real size
   const downloadsRead = resource(() => api.listDownloads(), {
     watch: ['models'],
     alsoLive: (): number | null => (active ? 2000 : null),
   })
-  const downloads = $derived(downloadsRead.data?.downloads ?? [])
   const active = $derived(
-    downloads.filter((d) => d.status === 'downloading').length,
+    (downloadsRead.data?.downloads ?? []).filter(
+      (d) => d.status === 'downloading',
+    ).length,
   )
-  // A download finishing re-reads the repo list, so it appears with its
-  // real size
   let wasActive = 0
   $effect(() => {
     const now = active
     if (now < wasActive) void cacheRead.refresh()
     wasActive = now
   })
-  // An update started or finished elsewhere (another tab, an agent) moves
-  // models too
-  const diffusersRead = resource(() => api.diffusersStatus(), {
-    watch: ['models'],
-    alsoLive: (): number | null => (updating ? 2000 : null),
-  })
-  const diffusers = $derived(diffusersRead.data)
-  // Polled while pip runs so the badge flips when it finishes
-  const updating = $derived(diffusers?.status === 'running')
-
-  // dw itself: an installed copy updates in place and restarts; any other
-  // server shows the command that does it
-  const dwRead = resource(() => api.dwStatus(), {
-    watch: ['models'],
-    alsoLive: (): number | null => (dwUpdating ? 2000 : null),
-  })
-  const dw = $derived(dwRead.data)
-  const dwUpdating = $derived(dw?.status === 'running')
-  // The server's PEP 440 compare; null (unknown) offers no update
-  const dwNewer = $derived(dw?.newer === true)
-
-  const updateDw = action(
-    async () => {
-      await api.updateDw()
-      await dwRead.reload()
-    },
-    { doing: 'start the dw update', confirm: () => UPDATE_DW_CONFIRM },
-  )
-
-  const update = action(
-    async () => {
-      await api.updateDiffusers()
-      await diffusersRead.reload()
-    },
-    {
-      doing: 'start the diffusers update',
-      confirm: () => UPDATE_DIFFUSERS_CONFIRM,
-    },
-  )
-
   const startDownload = action(
     async (repo: string) => {
       await api.startDownload(repo)
@@ -99,19 +53,6 @@
     },
     { doing: (repo) => `download ${repo}` },
   )
-
-  const cancelDownload = action(
-    async (id: string) => {
-      await api.cancelDownload(id)
-      await downloadsRead.reload()
-    },
-    { doing: 'cancel the download' },
-  )
-
-  const pct = (download: ModelDownload) =>
-    download.total
-      ? Math.min(100, Math.round((100 * download.downloaded) / download.total))
-      : null
 
   const remove = action(
     async (repo: ModelRepo) => {
@@ -181,120 +122,7 @@
     </button>
     {#if repoHint}<span class="hint">{repoHint}</span>{/if}
   </form>
-
-  <LoadState of={diffusersRead} label="the diffusers version" quiet>
-    {#if diffusers}
-      <div class="engine">
-        <span class="enginename">diffusers</span>
-        <code>{diffusers.version ?? 'not installed'}</code>
-        {#if diffusers.commit}
-          <span
-            class="muted"
-            title="installed from git commit {diffusers.commit}"
-          >
-            @{diffusers.commit.slice(0, 9)}
-          </span>
-        {/if}
-        {#if updating}
-          <span class="muted busy">
-            <RefreshCw size={14} class="spin" />updating from GitHub…
-          </span>
-        {:else}
-          <button
-            class="quiet withicon"
-            onclick={() => update.run()}
-            disabled={update.busy}
-            title="install the latest diffusers from GitHub - new model pipelines usually land there before a release. The worker restarts when idle so the next job uses it"
-          >
-            <RefreshCw size={14} />Update from GitHub
-          </button>
-          {#if diffusers.status === 'failed'}
-            <span class="bad" title={diffusers.log ?? ''}>
-              update failed: {diffusers.error} (hover for pip output)
-            </span>
-          {:else if diffusers.status === 'succeeded'}
-            <span class="updated">updated - the next job uses it</span>
-          {/if}
-        {/if}
-      </div>
-    {/if}
-  </LoadState>
-
-  <LoadState of={dwRead} label="the dw version" quiet>
-    {#if dw}
-      <div class="engine">
-        <span class="enginename">dw</span>
-        <code>{dw.version}</code>
-        {#if dwUpdating}
-          <span class="muted busy">
-            <RefreshCw size={14} class="spin" />updating - the server restarts
-            when it is done…
-          </span>
-        {:else if dw.managed}
-          {#if dwNewer}
-            <button
-              class="quiet withicon"
-              onclick={() => updateDw.run()}
-              disabled={updateDw.busy}
-              title="upgrade dw to {dw.latest} and move diffusers to GitHub main, then restart the server"
-            >
-              <RefreshCw size={14} />Update dw
-            </button>
-            <span class="muted">{dw.latest} is available</span>
-          {:else if dw.newer === false}
-            <span class="muted">up to date</span>
-          {/if}
-          {#if dw.status === 'failed'}
-            <span class="bad" title={dw.log ?? ''}>
-              update failed: {dw.error} (hover for the output)
-            </span>
-          {/if}
-        {:else}
-          <span class="muted">
-            {dwNewer
-              ? `${dw.latest} is available - update with`
-              : 'update with'}
-          </span>
-          <code>{dw.command}</code>
-          <CopyButton text={dw.command} title="copy the update command" />
-        {/if}
-      </div>
-    {/if}
-  </LoadState>
 </div>
-
-<LoadState of={downloadsRead} label="downloads" quiet>
-  {#each downloads.filter((d) => d.status === 'downloading' || (d.finished_at && Date.now() / 1000 - d.finished_at < 300)) as download (download.id)}
-    <div class="dl" class:failed={download.status === 'failed'}>
-      <span class="dlrepo">{download.repo_id}</span>
-      {#if download.status === 'downloading'}
-        {#if pct(download) != null}
-          <span class="dlbar">
-            <span style="width: {pct(download)}%"></span>
-          </span>
-          <span class="muted dlnum">
-            {gb(download.downloaded)} / {gb(download.total ?? 0)} GB
-          </span>
-        {:else}
-          <span class="muted dlnum">{gb(download.downloaded)} GB…</span>
-        {/if}
-        <button
-          class="quiet icon"
-          onclick={() => cancelDownload.run(download.id)}
-          disabled={cancelDownload.busy}
-          title="cancel this download - partial files resume on retry"
-          aria-label="cancel downloading {download.repo_id}"
-        >
-          <X size={14} />
-        </button>
-      {:else if download.status === 'failed'}
-        <span class="bad">{download.error}</span>
-      {:else}
-        <span class="muted">{download.status}</span>
-      {/if}
-    </div>
-  {/each}
-</LoadState>
 
 {#if cache?.warnings.length}
   <p class="muted skipped" title={cache.warnings.join('\n')}>
@@ -417,41 +245,6 @@
 </LoadState>
 
 <style>
-  .engine {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 0.6rem;
-    margin-left: auto;
-    font-size: 0.9rem;
-  }
-  .enginename {
-    color: var(--muted);
-  }
-  .busy {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-  }
-  .engine :global(.spin) {
-    animation: spin 1.2s linear infinite;
-  }
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .engine :global(.spin) {
-      animation: none;
-    }
-  }
-  .updated {
-    color: var(--accent);
-  }
-  .bad {
-    font-size: 0.9rem;
-  }
   .toolrow {
     display: flex;
     align-items: center;
@@ -473,9 +266,6 @@
       flex-direction: column;
       align-items: stretch;
     }
-    .engine {
-      margin-left: 0;
-    }
     .dlform input {
       flex: 1;
       max-width: none;
@@ -484,40 +274,6 @@
     .datatable :global(.wideonly) {
       display: none;
     }
-  }
-  .dl {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 0.4rem 0.7rem;
-    font-size: 0.88rem;
-    margin-bottom: 0.4rem;
-  }
-  .dl.failed .bad {
-    font-size: 0.82rem;
-  }
-  .dlrepo {
-    font-family: var(--font-mono);
-    font-size: var(--t-sm);
-    font-weight: 500;
-  }
-  .dlbar {
-    width: 180px;
-    height: 7px;
-    border-radius: 4px;
-    background: var(--line);
-    overflow: hidden;
-    display: inline-block;
-  }
-  /* A download in flight - the machine working, so the signal colour, the
-     same as a running job and a filling progress bar */
-  .dlbar > span {
-    display: block;
-    height: 100%;
-    background: var(--live);
-  }
-  .dlnum {
-    font-variant-numeric: tabular-nums;
   }
   .skipped {
     font-size: 0.82rem;

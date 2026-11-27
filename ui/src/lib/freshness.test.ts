@@ -53,7 +53,12 @@ const PAGE_TABLE: Record<string, Freshness[]> = {
   // the listing, then the open workspace's content moving its time (lazy,
   // at most once per clock tick)
   'Sidebar.svelte': [{ watch: ['workspaces'] }],
+  'ActiveDownloads.svelte': [{ watch: ['models'], alsoLive: true }],
   'CachesPanel.svelte': [{ watch: ['models'] }],
+  'SoftwareVersions.svelte': [
+    { watch: ['models'], alsoLive: true },
+    { watch: ['models'], alsoLive: true },
+  ],
   'editor/ArgumentsEditor.svelte': [{ watch: [] }],
   'editor/LorasEditor.svelte': [{ watch: ['loras'] }],
   // The pipeline class's components, then the scheduler's compatibles: a class
@@ -67,7 +72,13 @@ const PAGE_TABLE: Record<string, Freshness[]> = {
     { watch: ['workflows'] },
     { watch: ['workflows'] },
   ],
+  'pages/ActivityPage.svelte': [
+    { watch: [] },
+    { watch: ['models'], alsoLive: true },
+    { watch: ['models'], alsoLive: true },
+  ],
   'pages/AssetsPage.svelte': [{ watch: ['assets'] }, { watch: ['assets'] }],
+  'pages/ConnectPage.svelte': [{ watch: [] }],
   'pages/ComparePage.svelte': [{ watch: ['gallery'] }],
   'pages/EditorPage.svelte': [{ watch: ['workflows'] }],
   'pages/GalleryPage.svelte': [{ watch: ['gallery'] }, { watch: ['gallery'] }],
@@ -80,8 +91,6 @@ const PAGE_TABLE: Record<string, Freshness[]> = {
   'pages/NotFoundPage.svelte': [],
   'pages/ModelsPage.svelte': [
     { watch: ['models'] },
-    { watch: ['models'], alsoLive: true },
-    { watch: ['models'], alsoLive: true },
     { watch: ['models'], alsoLive: true },
   ],
   'pages/OverviewPage.svelte': [
@@ -104,8 +113,7 @@ const PAGE_TABLE: Record<string, Freshness[]> = {
     { watch: ['workflows'] },
   ],
   'pages/SchemaPage.svelte': [{ watch: [] }],
-  'pages/ServerPage.svelte': [{ watch: [] }],
-  'pages/StatusPage.svelte': [],
+  'pages/SystemPage.svelte': [{ watch: [] }],
   'pages/WorkflowPage.svelte': [
     { watch: ['workflows'] },
     { watch: ['gallery'] },
