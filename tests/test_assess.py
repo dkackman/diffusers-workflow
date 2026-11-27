@@ -1413,6 +1413,33 @@ class TestHeldFrames:
         assert answer["clusters"][0]["held"] == 24
         json.dumps(answer)
 
+    def test_a_clip_on_threes_reports_its_holds(self):
+        """8 fps content in a 24 fps file: most neighbours are held, so the
+        cut detector's median is 0 and every new picture looked like a cut."""
+        grey = numpy.repeat(moving_grey(20, speed=20), 3, axis=0)
+        answer = analyze_held_frames(held_video(grey))
+
+        assert answer["frames"] == 60
+        # 40 repeats, less frame 1 and frame 59: an end frame has no moving
+        # neighbour to be held against
+        assert answer["held_frames"] == 38
+
+    def test_a_half_rate_clip_reports_holds_at_head_and_tail(self):
+        grey = numpy.repeat(moving_grey(30, speed=20), 2, axis=0)
+        answer = analyze_held_frames(held_video(grey))
+
+        assert answer["held_frames"] == 30
+
+    def test_a_real_cut_between_two_moving_shots_is_still_excused(self):
+        from dw.tasks.assess import held_measure, media_from
+
+        second = moving_grey(30, seed=1, speed=1)
+        grey = numpy.concatenate([moving_grey(30, speed=1), second[:1], second])
+        _d, held, cuts = held_measure(media_from(held_video(grey)))
+
+        assert 30 in cuts
+        assert 31 not in held  # the cut's own repeat
+
     def test_a_count_at_the_threshold_raises_a_file_and_cluster_finding(self):
         answer = analyze_held_frames(held_video(with_repeats(moving_grey(96))))
 

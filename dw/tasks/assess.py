@@ -1031,7 +1031,7 @@ def held_measure(media):
     held = _held_frames(d, skip)
     cuts = []
     if held:
-        cuts = _cut_frames(media)
+        cuts = [cut for cut in _cut_frames(media) if _cut_among_holds(d, cut, held)]
         for cut in cuts:
             skip.update(
                 range(
@@ -1041,6 +1041,25 @@ def held_measure(media):
             )
         held = _held_frames(d, skip)
     return d, held, cuts
+
+
+def _cut_among_holds(d, cut, held):
+    """False for a "cut" that is only a new picture between holds. The cut
+    detector calls a change a spike against the median of its neighbours;
+    where most of those are held that median is 0 and every new picture of a
+    clip on twos or threes spikes. There the change is held against the
+    neighbours that did move instead."""
+    from .scene_cuts import CUT_SPIKE, CUT_WINDOW
+
+    around = [
+        i
+        for i in range(max(1, cut - CUT_WINDOW), min(len(d), cut + CUT_WINDOW + 1))
+        if i != cut
+    ]
+    if not around or numpy.nanmedian(d[around]) >= HELD_EPSILON:
+        return True
+    moved = [d[i] for i in around if i not in set(held) and d[i] >= HELD_EPSILON]
+    return bool(moved) and d[cut] >= CUT_SPIKE * float(numpy.median(moved))
 
 
 def frames_media(frames):
