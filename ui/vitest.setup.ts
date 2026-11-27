@@ -35,3 +35,18 @@ if (typeof window !== 'undefined' && !window.matchMedia) {
       dispatchEvent: () => false,
     }) as MediaQueryList
 }
+
+// jsdom implements neither window.scrollTo nor media playback, and logs
+// "Not implemented" to stderr on every call. Both are silent no-ops here (play
+// resolves, as a browser's does); a test that asserts on scrolling spies on
+// window.scrollTo over this stub.
+if (typeof window !== 'undefined') {
+  window.scrollTo = () => {}
+}
+if (typeof HTMLMediaElement !== 'undefined') {
+  HTMLMediaElement.prototype.pause = function () {}
+  HTMLMediaElement.prototype.play = function () {
+    return Promise.resolve()
+  }
+  HTMLMediaElement.prototype.load = function () {}
+}

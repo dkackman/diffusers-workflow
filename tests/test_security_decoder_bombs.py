@@ -34,6 +34,10 @@ UNDER_PILLOWS_ERROR = (12_000, 12_000)  # 144M pixels: Pillow only warns
 OVER_PILLOWS_ERROR = (20_000, 20_000)  # 400M pixels: Pillow refuses on open
 DECODE_LIMIT = 50_000_000
 
+# Pillow warns on opening an image in its warn-only band - the very images
+# these tests hand the routes, which refuse them after that open
+pytestmark = pytest.mark.filterwarnings("ignore::PIL.Image.DecompressionBombWarning")
+
 
 def _chunk(kind, data):
     body = kind + data

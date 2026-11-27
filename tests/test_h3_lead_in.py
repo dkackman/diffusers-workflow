@@ -151,6 +151,8 @@ def test_zero_or_none_touches_nothing(h3, lead_in):
 def test_no_turbo_layer_lists_the_adapters_it_has():
     transformer = FakeH3(layers=1)
     layer = transformer.layers[0]
+    # Deleting the active adapter makes peft warn as it switches; switch first
+    layer.set_adapter("style")
     layer.delete_adapter("turbo")
     with pytest.raises(ValueError, match="style"):
         with lead_in_call(pipeline_of(transformer), 1, 4, "clip"):

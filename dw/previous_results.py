@@ -199,7 +199,7 @@ def _as_frame_lists(artifacts):
     never decodes, and Result.retainable still sees what it was built from.
     """
     from .media_types import AudioVideo
-    from .pipeline_processors.chain import SavedFrames
+    from .pipeline_processors.chain_spill import SavedFrames
 
     handed = []
     for artifact in artifacts:
