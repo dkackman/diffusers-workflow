@@ -214,14 +214,11 @@ jobs:
           name: dw-mcp-bundle
           path: dist/dw-mcp-*.mcpb
 
-  release:
-    # A v<semver> tag that passed the full test and build chain becomes a
-    # GitHub release carrying the wheel and sdist
+  tag-check:
+    # Gates every publish: a tag that is not v<semver>, or not the version
+    # pyproject declares, reaches neither PyPI nor a GitHub release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: wheel
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v7
       - name: Check the tag against the declared versions
@@ -235,6 +232,19 @@ jobs:
             echo "Tag $tag != pyproject version $pyproject"
             exit 1
           fi
+
+  release:
+    # A v<semver> tag that passed the full test and build chain becomes a
+    # GitHub release carrying the wheel and sdist. After pypi: the release's
+    # bootstrap installs this version from PyPI and is the documented
+    # one-line install, so the release must not exist before the upload
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [wheel, pypi]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
           name: diffusers-workflow-dist
@@ -298,7 +308,8 @@ jobs:
     # Trusted publishing (OIDC) - register on pypi.org first: project
     # diffusers-workflow, owner dkackman, repo diffusers-workflow,
     # workflow ci.yml, environment pypi. No token or secret is stored.
-    needs: release
+    # Before release (see there); tag-check is what limits it to a tag
+    needs: [wheel, tag-check]
     runs-on: ubuntu-latest
     environment:
       name: pypi
