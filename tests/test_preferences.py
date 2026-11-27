@@ -759,3 +759,113 @@ def test_nested_preference_is_shown_and_priced_at_the_inherited_tier(
     assert plan["estimate"]["minutes"] is not None
     assert plan["estimate"]["minutes"] == direct_plan["estimate"]["minutes"]
     assert plan["estimate"]["unpriced"] == []
+
+
+# --- the dry-run check of an unsaved ladder (the Preferences page's) ------
+
+QA = {"qa/a": definition("qa/a"), "qa/b": definition("qa/b")}
+
+
+def check_draft(ladder, host=CUDA, contract=None, catalog=QA):
+    return preferences.check_draft(
+        "k", ladder, store({}), host, opener(catalog), contract
+    )
+
+
+def test_target_problems_names_each_stale_target():
+    problems = preferences.target_problems(
+        "k", {"draft": ["qa/a", "gone/x"], "best": ["gone/y"]}, opener(QA)
+    )
+    assert set(problems) == {"gone/x", "gone/y"}
+    for message in problems.values():
+        assert "not in the catalog" in message
+
+
+def test_target_problems_names_refused_arguments():
+    ladder = {"best": [{"workflow": "qa/a", "arguments": {"nope": 1}}]}
+    problems = preferences.target_problems("k", ladder, opener(QA))
+    assert "nope" in problems["qa/a"]
+
+
+def test_target_problems_raises_on_a_bad_shape():
+    with pytest.raises(PreferenceError, match="huge"):
+        preferences.target_problems("k", {"huge": ["qa/a"]}, opener(QA))
+
+
+def test_check_draft_lists_after_the_pick():
+    tiers = check_draft({"standard": ["qa/a", "qa/b"]})
+    assert tiers["standard"]["target"] == "qa/a"
+    assert tiers["standard"]["after"] == ["qa/b"]
+    assert "skipped" not in tiers["standard"]
+    assert set(tiers) == {"standard"}
+
+
+def test_check_draft_skips_known_blocked():
+    host = Host(
+        "cuda",
+        48,
+        128,
+        gate_check=preferences.skip_known_blocked(lambda *a: (None, None), ["qa/a"]),
+    )
+    tiers = check_draft({"standard": ["qa/a", "qa/b"]}, host=host)
+    assert tiers["standard"]["target"] == "qa/b"
+    assert tiers["standard"]["skipped"] == [
+        {"workflow": "qa/a", "reason": "gated, no access (last full check)"}
+    ]
+    assert "after" not in tiers["standard"]
+
+
+def test_check_draft_warns_on_contract():
+    tiers = check_draft(
+        {"standard": ["qa/a"]}, contract={"required": ["prompt", "width"]}
+    )
+    assert tiers["standard"]["warnings"] == {"qa/a": ["does not take width"]}
+
+
+def test_check_draft_names_a_stale_target_and_the_tier_error():
+    tiers = check_draft({"best": ["qa/a", "gone/x"]})
+    assert "not in the catalog" in tiers["best"]["error"]
+    assert "not in the catalog" in tiers["best"]["target_errors"]["gone/x"]
+    assert "target" not in tiers["best"]
+
+
+def test_no_fit_carries_its_skips():
+    ladder = {"best": [{"workflow": "a", "devices": ["cuda"]}]}
+    with pytest.raises(PreferenceError) as raised:
+        resolve(ladder, {"a": definition("a")}, host=Host("mps", 18, 64))
+    assert raised.value.skipped == [{"workflow": "a", "reason": "cuda-only"}]
+
+
+def test_other_refusals_carry_no_skips():
+    with pytest.raises(PreferenceError) as raised:
+        resolve({"best": ["gone"]}, {})
+    assert raised.value.skipped == []
+
+
+def test_resolutions_answer_a_no_fit_with_its_skips():
+    ladder = {"best": [{"workflow": "qa/a", "devices": ["cuda"]}]}
+    answer = preferences.resolutions(
+        "k", store(ladder), Host("mps", 18, 64), opener(QA)
+    )
+    assert "no target fits" in answer["best"]["error"]
+    assert answer["best"]["skipped"] == [{"workflow": "qa/a", "reason": "cuda-only"}]
+    assert "target" not in answer["best"]
+
+
+def test_resolutions_answer_another_refusal_without_skips():
+    answer = preferences.resolutions("k", store({"best": ["gone/x"]}), CUDA, opener(QA))
+    assert set(answer["best"]) == {"error"}
+
+
+def test_check_draft_strikes_each_skip_of_a_no_fit():
+    ladder = {"best": [{"workflow": "qa/a", "devices": ["cuda"]}, "qa/b"]}
+    host = Host(
+        "mps",
+        18,
+        64,
+        gate_check=preferences.skip_known_blocked(lambda *a: (None, None), ["qa/b"]),
+    )
+    tiers = check_draft(ladder, host=host)
+    assert "no target fits" in tiers["best"]["error"]
+    assert [s["workflow"] for s in tiers["best"]["skipped"]] == ["qa/a", "qa/b"]
+    assert "after" not in tiers["best"]

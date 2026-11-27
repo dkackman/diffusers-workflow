@@ -150,6 +150,7 @@ UI_READ_ROUTES = [
     ("post", "/api/memory/clear"),
     ("get", "/api/models"),
     ("get", "/api/preferences"),
+    ("post", "/api/preferences/{key}/check"),
     ("put", "/api/preferences/{key}"),
     ("delete", "/api/preferences/{key}"),
     ("put", "/api/preferences"),

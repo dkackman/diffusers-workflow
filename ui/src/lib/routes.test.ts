@@ -99,7 +99,24 @@ describe('parseView', () => {
     expect(parseView(['server', 'models'])).toEqual({
       kind: 'server',
       section: 'models',
+      rest: [],
     })
+    expect(parseView(['server', 'models', 'downloaded'])).toEqual({
+      kind: 'server',
+      section: 'models',
+      rest: ['downloaded'],
+    })
+  })
+  it('takes a sub-path only for a Models tab', () => {
+    expect(parseView(['server', 'models', 'nope'])?.kind).toBe('missing')
+    expect(parseView(['server', 'models', 'downloaded', 'x'])?.kind).toBe(
+      'missing',
+    )
+    expect(parseView(['server', 'activity', 'x'])?.kind).toBe('missing')
+  })
+  it('no longer reads status or preferences as sections', () => {
+    expect(parseView(['server', 'status'])).toBeNull()
+    expect(parseView(['server', 'preferences'])).toBeNull()
   })
   it('answers null for a legacy or empty hash', () => {
     expect(parseView([])).toBeNull()
@@ -125,7 +142,7 @@ describe('legacyRedirect', () => {
       ['edit', 'a', 'b'],
       ['ws', 'studio', 'edit', 'a', 'b'],
     ],
-    [['jobs'], ['server', 'status']],
+    [['jobs'], ['server', 'activity']],
     [
       ['jobs', 'j1'],
       ['ws', 'studio', 'jobs', 'j1'],
@@ -137,7 +154,15 @@ describe('legacyRedirect', () => {
     ],
     [['models'], ['server', 'models']],
     [['schema'], ['server', 'schema']],
-    [['server'], ['server', 'status']],
+    [['server'], ['server', 'activity']],
+    [
+      ['server', 'status'],
+      ['server', 'activity'],
+    ],
+    [
+      ['server', 'preferences'],
+      ['server', 'models', 'preferences'],
+    ],
     [['ws'], ['ws', 'studio', 'overview']],
     [['shared'], ['shared', 'prompts']],
   ])('%j -> %j', (from, to) => {
@@ -159,6 +184,9 @@ describe('href builders', () => {
     )
     expect(sharedHref('prompt-edit', 'p')).toBe('#/shared/prompt-edit/p')
     expect(serverHref('models')).toBe('#/server/models')
+    expect(serverHref('models', 'downloaded')).toBe(
+      '#/server/models/downloaded',
+    )
   })
 })
 
@@ -262,9 +290,9 @@ describe('switchHref', () => {
     expect(
       switchHref('other', { kind: 'shared', section: 'prompts', rest: [] }),
     ).toBe(overview)
-    expect(switchHref('other', { kind: 'server', section: 'models' })).toBe(
-      overview,
-    )
+    expect(
+      switchHref('other', { kind: 'server', section: 'models', rest: [] }),
+    ).toBe(overview)
     expect(switchHref('other', { kind: 'missing', path: '/nope' })).toBe(
       overview,
     )

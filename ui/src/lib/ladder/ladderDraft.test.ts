@@ -2,6 +2,8 @@ import { expect, it } from 'vitest'
 import { ApiError } from '../apiErrors'
 import {
   added,
+  blockedFrom,
+  judgedFrom,
   draftOf,
   keyProblem,
   moved,
@@ -72,4 +74,40 @@ it('reads the etag a 412 stale_write carries, and nothing else', () => {
   expect(staleEtag(new ApiError('changed', 409, 'stale_write'))).toBeUndefined()
   expect(staleEtag(new ApiError('bad', 422))).toBeUndefined()
   expect(staleEtag(new Error('x'))).toBeUndefined()
+})
+
+it('names the targets the last full read found gated, once each', () => {
+  expect(
+    blockedFrom({
+      best: {
+        target: 'models/qwen-image-2.1',
+        skipped: [
+          { workflow: 'models/flux-dev', reason: 'gated, no access' },
+          { workflow: 'models/minimax-h3-image', reason: 'cuda-only' },
+        ],
+      },
+      standard: {
+        skipped: [{ workflow: 'models/flux-dev', reason: 'gated, no access' }],
+      },
+      draft: { target: 'a' },
+    }),
+  ).toEqual(['models/flux-dev'])
+  expect(blockedFrom(undefined)).toEqual([])
+})
+
+it('names every target the full read judged: each pick and each skip', () => {
+  expect(
+    judgedFrom({
+      best: {
+        target: 'b',
+        skipped: [{ workflow: 'a', reason: 'cuda-only' }],
+      },
+      standard: {
+        error: 'no target fits',
+        skipped: [{ workflow: 'c', reason: 'cuda-only' }],
+      },
+      draft: { target: 'b' },
+    }).sort(),
+  ).toEqual(['a', 'b', 'c'])
+  expect(judgedFrom(undefined)).toEqual([])
 })

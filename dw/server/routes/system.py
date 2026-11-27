@@ -47,6 +47,7 @@ from ...introspection import (
     list_tasks,
 )
 from ...log_setup import log_storage_stats
+from ...preference_usage import preference_users
 from ...schema import SchemaSectionError, load_schema, schema_section
 from ...security import InvalidInputError, validate_commit_hash
 from ... import __version__
@@ -58,12 +59,14 @@ from .. import updater as updater_module
 from ..api_models_library import (
     DefaultTierSet,
     DefaultTierWrite,
+    PreferenceCheck,
+    PreferenceCheckRequest,
     PreferenceReset,
     PreferenceSet,
     PreferencesRead,
 )
 from ..changes import MODELS, NO_CHANGE, WORKFLOWS, ChangeRoute, writes
-from ..deps import internal_error, selected_workspace
+from ..deps import internal_error, selected_workspace, sources_for
 from ..preconditions import check_if_match, content_etag_of
 from ..guides import GuideError
 from ..jobs import JobsActive, WorkerBusy
@@ -740,7 +743,12 @@ def _storage(state):
 #
 # Resolutions answered here use the host's device and smallest card, without
 # the gated-access and download probe admission adds, so a read makes no Hub
-# calls. A job already queued keeps the target admission pinned into it.
+# calls. The exception is the full read (`resolve=true&full=true`, the
+# Preferences page's): it resolves as admission does, probe included - a
+# probe that fails is logged and skips nothing - and adds which catalog
+# workflows use each key and the key's shipped contract. PUT and DELETE
+# answer as the plain resolve does. A job already queued keeps the target
+# admission pinned into it.
 
 # A stale If-Match: 412 Precondition Failed (the note routes predate this and
 # answer 409)
@@ -791,6 +799,14 @@ def _host(request):
     return host
 
 
+def _full_host(request):
+    """`_host`, with the gated-access and download probe admission adds
+    (dw/server/admission.py)."""
+    host = _host(request)
+    host.gate_check = preferences.downloads_gate_check()
+    return host
+
+
 def _opener(ws: Workspace):
     """`open_target(name)` the way a workflow in `ws` opens a preference
     target, opening each name once."""
@@ -800,16 +816,26 @@ def _opener(ws: Workspace):
     return workflow._open_preference_target
 
 
-def _entry(request, ws, store, key, resolve):
+def _entry(request, ws, store, key, resolve, full=None):
+    """One key's answer. `full`, the full read's per-request facts
+    ({"host", "used_by"}), resolves on its host and adds `used_by` and the
+    shipped `contract`."""
     entry = {
         "source": store["sources"][key],
         "etag": _key_etag(store, key),
         "ladder": store["preferences"][key],
     }
     if resolve:
-        entry["resolutions"] = preferences.resolutions(
-            key, store, _host(request), _opener(ws)
-        )
+        host = full["host"] if full else _host(request)
+        entry["resolutions"] = preferences.resolutions(key, store, host, _opener(ws))
+    if resolve and full:
+        entry["used_by"] = full["used_by"].get(key, [])
+        contract = (store.get("contracts") or {}).get(key)
+        if isinstance(contract, dict):
+            entry["contract"] = {
+                "required": list(contract.get("required") or []),
+                "optional": list(contract.get("optional") or []),
+            }
     return entry
 
 
@@ -849,6 +875,11 @@ def get_preferences(
     resolve: bool = Query(
         False, description="Add this host's pick per tier to each key"
     ),
+    full: bool = Query(
+        False,
+        description="With resolve: resolve as admission does (gated access, "
+        "download notes) and add used_by and contract",
+    ),
     ws: Workspace = Depends(selected_workspace),
 ):
     """The merged ladders - shipped, with this server's overlay replacing
@@ -860,11 +891,61 @@ def get_preferences(
             raise _unknown(store, key)
         response.headers["ETag"] = _key_etag(store, key)
     keys = [key] if key is not None else sorted(store["preferences"])
+    facts = None
+    if resolve and full:
+        # Once per request, not per key
+        facts = {
+            "host": _full_host(request),
+            "used_by": preference_users(sources_for(request.app.state, ws)),
+        }
     return {
         "default_tier": store["default_tier"],
         "etag": _tier_etag(store),
-        "preferences": {k: _entry(request, ws, store, k, resolve) for k in keys},
+        "preferences": {k: _entry(request, ws, store, k, resolve, facts) for k in keys},
     }
+
+
+@router.post(
+    "/api/preferences/{key}/check",
+    response_model=PreferenceCheck,
+    response_model_exclude_unset=True,
+)
+@NO_CHANGE("a dry run of an unsaved ladder; writes nothing")
+def check_preference(
+    request: Request,
+    key: str,
+    body: PreferenceCheckRequest = Body(),
+    ws: Workspace = Depends(selected_workspace),
+):
+    """What saving `ladder` under `key` would give, without saving it: this
+    host's pick per tier, the targets after it, each target a PUT would
+    refuse and each argument of the key's shipped contract a target does not
+    take. A key not in the store is allowed; a ladder of the wrong shape is
+    a 422. `full=false` makes no Hub calls - a target in `known_blocked` is
+    skipped as gated - and `full=true` probes as admission does."""
+    _checked_key(key)
+    if body.full:
+        host = _full_host(request)
+    else:
+        host = _host(request)
+        host.gate_check = preferences.skip_known_blocked(
+            preferences.downloads_gate_check(lookup_sizes=False),
+            body.known_blocked,
+        )
+    store = preferences.load_preferences()
+    contract = (store.get("contracts") or {}).get(key)
+    try:
+        tiers = preferences.check_draft(
+            key,
+            body.ladder,
+            store,
+            host,
+            _opener(ws),
+            contract if isinstance(contract, dict) else None,
+        )
+    except preferences.PreferenceError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {"tiers": tiers}
 
 
 @router.put(

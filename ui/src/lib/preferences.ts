@@ -55,6 +55,8 @@ export type Rung = {
   target: string | null
   skipped: Skip[]
   error: string | null
+  /** What the server noted about the pick, e.g. that it downloads first */
+  notes: string[]
 }
 
 const isSkip = (s: unknown): s is Skip =>
@@ -85,6 +87,7 @@ export function rungsFrom(
         target: r.target ?? null,
         skipped: (r.skipped ?? []).filter(isSkip),
         error: r.error ?? null,
+        notes: r.notes ?? [],
       }
     })
 }

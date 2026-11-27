@@ -27,7 +27,7 @@ const RESOLUTIONS = {
   standard: { target: 'models/z-image', skipped: [] },
   best: {
     target: 'models/qwen-image-2.1',
-    skipped: [{ workflow: 'models/minimax-h3-image', reason: 'cuda only' }],
+    skipped: [{ workflow: 'models/minimax-h3-image', reason: 'cuda-only' }],
   },
 }
 
@@ -53,47 +53,49 @@ beforeEach(() => {
   api.listWorkflows.mockResolvedValue({
     workflows: ['models/z-image', 'models/flux-dev'],
   })
+  api.checkPreference.mockResolvedValue({ tiers: {} })
 })
 afterEach(cleanup)
 
 async function card() {
   return screen.findByRole('region', { name: 'preference text_to_image' })
 }
+async function edit(el: HTMLElement) {
+  await fireEvent.click(within(el).getByRole('button', { name: 'Edit' }))
+  return screen.getByRole('region', { name: 'preference text_to_image' })
+}
 const tier = (el: HTMLElement, name: string) =>
   el.querySelector<HTMLElement>(`.tier[data-tier="${name}"]`)!
-const pick = (el: HTMLElement, name: string) =>
-  el.querySelector<HTMLElement>(`.rungs [data-tier="${name}"]`)!
 
 it('lists a shipped key, its three tiers and the default tier', async () => {
   render(PreferencesPage)
   const el = await card()
-  expect(api.getPreferences).toHaveBeenCalledWith({ resolve: true })
-  expect(within(el).getByText('shipped')).toBeTruthy()
+  expect(api.getPreferences).toHaveBeenCalledWith({
+    resolve: true,
+    full: true,
+  })
+  expect(within(el).getByText('as shipped')).toBeTruthy()
   expect(
     [...el.querySelectorAll('div.tier')].map((t) =>
       t.getAttribute('data-tier'),
     ),
   ).toEqual(['draft', 'standard', 'best'])
   expect(tier(el, 'best').textContent).toContain('models/minimax-h3-image')
-  expect(tier(el, 'best').textContent).toContain('cuda only')
-  expect(pick(el, 'best').textContent).toContain('models/qwen-image-2.1')
-  expect(screen.getByLabelText<HTMLSelectElement>('Default tier').value).toBe(
-    'standard',
-  )
+  expect(tier(el, 'best').textContent).toContain('needs CUDA')
+  expect(tier(el, 'best').textContent).toContain('models/qwen-image-2.1')
+  expect(
+    screen
+      .getByRole('group', { name: "Requests that don't name a tier run at" })
+      .querySelector('[aria-pressed="true"]')?.textContent,
+  ).toBe('Standard')
   // a shipped key has nothing to reset to
   expect(
     within(el).queryByRole('button', { name: 'Reset to shipped' }),
   ).toBeNull()
-  // nothing edited yet: nothing to save
-  expect(
-    within(el).getByRole<HTMLButtonElement>('button', { name: 'Save' })
-      .disabled,
-  ).toBe(true)
 })
 
 it('saves a reordered tier with the etag and shows the picks it answers', async () => {
-  api.setPreference.mockResolvedValue({
-    key: 'text_to_image',
+  const saved = {
     source: 'server',
     etag: '"k2"',
     ladder: { ...LADDER, best: ['models/qwen-image-2.1', CUDA] },
@@ -101,9 +103,16 @@ it('saves a reordered tier with the etag and shows the picks it answers', async 
       ...RESOLUTIONS,
       best: { target: 'models/qwen-image-2.1', skipped: [], notes: ['moved'] },
     },
-  })
+  }
+  api.setPreference.mockResolvedValue({ key: 'text_to_image', ...saved })
   render(PreferencesPage)
-  const el = await card()
+  await card()
+  // the read after the save: what the server now holds
+  api.getPreferences.mockResolvedValue({
+    ...read(),
+    preferences: { text_to_image: saved },
+  })
+  const el = await edit(await card())
   await fireEvent.click(
     within(tier(el, 'best')).getByRole('button', {
       name: 'Move models/qwen-image-2.1 up',
@@ -118,13 +127,15 @@ it('saves a reordered tier with the etag and shows the picks it answers', async 
     ),
   )
   // the answer's picks replace the read's: the skip is gone, the key is the server's
-  await waitFor(() =>
-    expect(pick(el, 'best').textContent).not.toContain('skipped'),
-  )
-  expect(within(el).getByText('server')).toBeTruthy()
+  const after = await screen.findByText('changed on this server')
+  expect(after).toBeTruthy()
+  const shown = await card()
+  expect(shown.textContent).not.toContain('needs CUDA')
   expect(
-    within(el).getByRole('button', { name: 'Reset to shipped' }),
+    within(shown).getByRole('button', { name: 'Reset to shipped' }),
   ).toBeTruthy()
+  // and the page reads its preferences again
+  await waitFor(() => expect(api.getPreferences).toHaveBeenCalledTimes(2))
 })
 
 it('asks Reload or Overwrite on a 412, and Overwrite sends the new etag', async () => {
@@ -148,7 +159,7 @@ it('asks Reload or Overwrite on a 412, and Overwrite sends the new etag', async 
       resolutions: RESOLUTIONS,
     })
   render(PreferencesPage)
-  const el = await card()
+  const el = await edit(await card())
   await fireEvent.click(
     within(tier(el, 'standard')).getByRole('button', {
       name: 'Remove models/z-image-sdnq',
@@ -177,7 +188,9 @@ it('asks Reload or Overwrite on a 412, and Overwrite sends the new etag', async 
       '"theirs"',
     ),
   )
-  await waitFor(() => expect(within(el).queryByRole('alert')).toBeNull())
+  await waitFor(() =>
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull(),
+  )
 })
 
 it('Reload on a 412 drops the edit and reads the server copy again', async () => {
@@ -185,7 +198,7 @@ it('Reload on a 412 drops the edit and reads the server copy again', async () =>
     new ApiError('changed', 412, 'stale_write', { etag: '"theirs"' }),
   )
   render(PreferencesPage)
-  const el = await card()
+  const el = await edit(await card())
   await fireEvent.click(
     within(tier(el, 'standard')).getByRole('button', {
       name: 'Remove models/z-image-sdnq',
@@ -207,14 +220,24 @@ it("shows the server's 422 refusal beside the key", async () => {
     ),
   )
   render(PreferencesPage)
-  const el = await card()
-  const field = within(tier(el, 'draft')).getByLabelText(
-    'workflow to add to draft',
-  )
-  await fireEvent.input(field, { target: { value: 'models/flux-dev' } })
+  const el = await edit(await card())
   await fireEvent.click(
-    within(tier(el, 'draft')).getByRole('button', { name: 'Add' }),
+    within(tier(el, 'draft')).getByRole('button', {
+      name: 'Add a model to draft',
+    }),
   )
+  const pop = await waitFor(() => {
+    const found = document.querySelector<HTMLElement>('[data-popover-content]')
+    expect(found).not.toBeNull()
+    return found!
+  })
+  await fireEvent.input(
+    within(pop).getByLabelText('workflow to add to draft'),
+    {
+      target: { value: 'models/flux-dev' },
+    },
+  )
+  await fireEvent.click(within(pop).getByText('Add'))
   expect(tier(el, 'draft').textContent).toContain('models/flux-dev')
   await fireEvent.click(within(el).getByRole('button', { name: 'Save' }))
   const refusal = await within(el).findByRole('alert')
@@ -241,36 +264,95 @@ it('Reset to shipped sends DELETE with the etag and shows the key as shipped', a
   await waitFor(() =>
     expect(api.resetPreference).toHaveBeenCalledWith('text_to_image', '"k1"'),
   )
-  await waitFor(() => expect(within(el).getByText('shipped')).toBeTruthy())
-  expect(
-    within(el).queryByRole('button', { name: 'Reset to shipped' }),
-  ).toBeNull()
+  await waitFor(() => expect(screen.getByText('as shipped')).toBeTruthy())
+  expect(screen.queryByRole('button', { name: 'Reset to shipped' })).toBeNull()
 })
 
-it('refuses an invalid new key before sending, and adds a valid one unsaved', async () => {
+async function newPreference(name: string, first: string) {
+  await fireEvent.click(screen.getByRole('button', { name: 'New preference' }))
+  const form = screen.getByRole('form', { name: 'New preference' })
+  await fireEvent.input(within(form).getByLabelText('Name'), {
+    target: { value: name },
+  })
+  await fireEvent.input(
+    within(form).getByLabelText('First model for the standard tier'),
+    { target: { value: first } },
+  )
+  await fireEvent.click(within(form).getByRole('button', { name: 'Create' }))
+  return form
+}
+
+it('New preference makes an unsaved card in the editor, its first model in the default tier', async () => {
   render(PreferencesPage)
   await card()
-  const field = screen.getByLabelText('New key')
-  await fireEvent.input(field, { target: { value: '../etc' } })
-  await fireEvent.click(screen.getByRole('button', { name: 'Add key' }))
-  expect((await screen.findByRole('alert')).textContent).toMatch(
-    /starts with a letter/,
-  )
-  await fireEvent.input(field, { target: { value: 'text_to_image' } })
-  await fireEvent.click(screen.getByRole('button', { name: 'Add key' }))
-  expect((await screen.findByRole('alert')).textContent).toMatch(/already/)
-  await fireEvent.input(field, { target: { value: 'image_edit' } })
-  await fireEvent.click(screen.getByRole('button', { name: 'Add key' }))
+  await fireEvent.click(screen.getByRole('button', { name: 'New preference' }))
+  expect(
+    screen.getByText(
+      /A workflow uses it by naming preference:<name> as a step's workflow path\./,
+    ),
+  ).toBeTruthy()
+  await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  await newPreference('image_edit', 'qa/a')
   const added = await screen.findByRole('region', {
     name: 'preference image_edit',
   })
   expect(within(added).getByText('not saved')).toBeTruthy()
-  // an empty ladder is not sent: the server refuses an empty rung
+  expect(tier(added, 'standard').textContent).toContain('qa/a')
   expect(
     within(added).getByRole<HTMLButtonElement>('button', { name: 'Save' })
       .disabled,
-  ).toBe(true)
+  ).toBe(false)
+  // one card in edit at a time: the others wait for this one
+  const other = await card()
+  const edit = within(other).getByRole<HTMLButtonElement>('button', {
+    name: 'Edit',
+  })
+  expect(edit.disabled).toBe(true)
   expect(api.setPreference).not.toHaveBeenCalled()
+  // Discard drops a key never saved
+  await fireEvent.click(within(added).getByRole('button', { name: 'Discard' }))
+  expect(
+    screen.queryByRole('region', { name: 'preference image_edit' }),
+  ).toBeNull()
+  expect(edit.disabled).toBe(false)
+})
+
+it('one preference in edit: the open New preference form locks every Edit, and an open edit locks New', async () => {
+  render(PreferencesPage)
+  const el = await card()
+  await fireEvent.click(screen.getByRole('button', { name: 'New preference' }))
+  const edit = within(el).getByRole<HTMLButtonElement>('button', {
+    name: 'Edit',
+  })
+  expect(edit.disabled).toBe(true)
+  expect(edit.title).toBe('Save or discard the open edit first')
+  // closing the form frees the card; an open edit then locks New
+  await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  const again = within(await card()).getByRole<HTMLButtonElement>('button', {
+    name: 'Edit',
+  })
+  expect(again.disabled).toBe(false)
+  await fireEvent.click(again)
+  expect(
+    screen.getByRole<HTMLButtonElement>('button', { name: 'New preference' })
+      .disabled,
+  ).toBe(true)
+  expect(screen.queryByRole('form', { name: 'New preference' })).toBeNull()
+})
+
+it('New preference refuses a name the server would, before sending', async () => {
+  render(PreferencesPage)
+  await card()
+  const form = await newPreference('../etc', 'qa/a')
+  expect(within(form).getByRole('alert').textContent).toMatch(
+    /starts with a letter/,
+  )
+  await fireEvent.input(within(form).getByLabelText('Name'), {
+    target: { value: 'text_to_image' },
+  })
+  await fireEvent.click(within(form).getByRole('button', { name: 'Create' }))
+  expect(within(form).getByRole('alert').textContent).toMatch(/already/)
+  expect(screen.queryByRole('region', { name: 'preference ../etc' })).toBeNull()
 })
 
 it('changing the default tier writes it with its etag', async () => {
@@ -280,8 +362,7 @@ it('changing the default tier writes it with its etag', async () => {
   })
   render(PreferencesPage)
   await card()
-  const select = screen.getByLabelText<HTMLSelectElement>('Default tier')
-  await fireEvent.change(select, { target: { value: 'best' } })
+  await fireEvent.click(screen.getByRole('button', { name: 'Best' }))
   await waitFor(() =>
     expect(api.setDefaultTier).toHaveBeenCalledWith('best', '"tier1"'),
   )

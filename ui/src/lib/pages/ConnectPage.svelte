@@ -2,26 +2,18 @@
   import { Globe, Plug, ShieldCheck, TriangleAlert } from '@lucide/svelte'
   import { api } from '../api'
   import CopyButton from '../CopyButton.svelte'
-  import ServerHealthList from '../ServerHealthList.svelte'
   import { resource } from '../resource.svelte'
+  import { serverAddress } from '../serverAddress.svelte'
   import LoadState from '../ui/LoadState.svelte'
   import PageHeader from '../ui/PageHeader.svelte'
-  import { SECTION_LABELS } from '../routes'
-  import CachesPanel from '../CachesPanel.svelte'
   import {
     addressLabel,
     bindSnippet,
     browserUrl,
-    isLoopbackBind,
     isUnauthenticatedPublicBind,
-    jobHistoryLine,
-    logsLine,
     mcpAddCommandAt,
     mcpUrlAt,
-    reachedOrigin,
     REMOTE_GUIDE,
-    runtimeRows,
-    runtimeText,
   } from '../serverinfo'
   import type { ServerInfo } from '../types'
 
@@ -29,91 +21,18 @@
   // the epoch, which reads it again, so the page recovers on its own
   const read = resource(() => api.server(), { watch: [] })
   const info = $derived<ServerInfo | null>(read.data ?? null)
-
-  /** Which interface address the connect snippets are written against. */
-  let selected = $state('')
-  // A wildcard bind answers on every interface; a bind to one address answers
-  // on that address only, so it is the only one worth offering
-  const addresses = $derived.by(() => {
-    if (!info) return []
-    if (info.wildcard_bind || isLoopbackBind(info.bind_host)) {
-      return info.addresses
-    }
-    const named = info.addresses.find((a) => a.address === info.bind_host)
-    return [
-      named ?? {
-        address: info.bind_host,
-        family: info.bind_host.includes(':') ? 'IPv6' : 'IPv4',
-        interface: '',
-      },
-    ]
-  })
-  const address = $derived(
-    addresses.find((a) => a.address === selected)?.address ??
-      addresses[0]?.address ??
-      '',
-  )
+  const where = serverAddress(() => info)
+  const { addresses, loopback, proxied, origin, base } = $derived(where)
+  const address = $derived(where.address)
   const port = $derived(info?.port ?? 0)
   const mcpPath = $derived(info?.mcp.path ?? '/mcp')
-  const loopback = $derived(info ? isLoopbackBind(info.bind_host) : false)
-  // A loopback bind read from a page that is not on loopback: the reader got
-  // here through a proxy or tunnel, so the page's own origin is the address
-  // that works, and rebinding (plaintext on every interface) is never advised
-  const origin = reachedOrigin()
-  const proxied = $derived(loopback && origin !== null)
-  /** The base URL the connect snippets are built on; empty when there is
-   * none worth offering (a loopback page on a loopback bind, no address). */
-  const base = $derived(
-    proxied
-      ? (origin ?? '')
-      : loopback || !address
-        ? ''
-        : browserUrl(address, port),
-  )
 </script>
 
-<!-- The status page's header: the queue below it is a section of this page -->
-<PageHeader
-  title={SECTION_LABELS.server.status}
-  secondary={info ? `${info.hostname} · v${info.version}` : undefined}
-  baseline
-/>
+<PageHeader title="Connect" />
 
 <LoadState of={read} label="the server details" />
 
 {#if info}
-  <div class="panel">
-    <h2>Server</h2>
-    <dl class="kv">
-      <dt>Hostname</dt>
-      <dd>{info.hostname}</dd>
-      <dt>Version</dt>
-      <dd>{info.version}</dd>
-      <dt>Device</dt>
-      <dd>{info.device}</dd>
-    </dl>
-    <ServerHealthList />
-  </div>
-
-  <div class="panel runtime">
-    <h2>
-      Runtime
-      <CopyButton text={runtimeText(info)} title="copy the runtime versions" />
-    </h2>
-    <dl class="kv">
-      {#each runtimeRows(info.runtime) as row (row.name)}
-        <dt>{row.name}</dt>
-        <dd>
-          {#if row.value != null}
-            <code>{row.value}</code>
-          {:else}
-            <span class="muted">{row.absent}</span>
-          {/if}
-        </dd>
-      {/each}
-    </dl>
-  </div>
-
   <div class="panel">
     <h2>Binding</h2>
     <dl class="kv">
@@ -175,7 +94,7 @@
                     name="address"
                     value={entry.address}
                     checked={entry.address === address}
-                    onchange={() => (selected = entry.address)}
+                    onchange={() => (where.selected = entry.address)}
                     aria-label="use {addressLabel(entry)} in the snippets below"
                   />
                 </td>
@@ -194,6 +113,26 @@
           </tbody>
         </table>
       </div>
+    {/if}
+  </div>
+
+  <div class="panel" class:warn-edge={isUnauthenticatedPublicBind(info)}>
+    <h2><ShieldCheck size={15} />Authentication</h2>
+    <dl class="kv">
+      <dt>Token required</dt>
+      <dd>{info.auth_required ? 'yes' : 'no'}</dd>
+    </dl>
+    {#if isUnauthenticatedPublicBind(info)}
+      <p class="warn">
+        <TriangleAlert size={14} />
+        No token is set and this server is bound beyond loopback: anyone who can reach
+        this address can run workflows on this GPU.
+      </p>
+    {:else if info.auth_required}
+      <p class="muted note">
+        The token is never displayed here. It lives in the server's environment;
+        the browser keeps its own copy in <code>localStorage</code>.
+      </p>
     {/if}
   </div>
 
@@ -221,26 +160,6 @@
         Not mounted. Restart the server with --mcp (<code>
           python -m dw.serve --mcp
         </code>) to serve the MCP tools at <code>{info.mcp.path}</code>.
-      </p>
-    {/if}
-  </div>
-
-  <div class="panel" class:warn-edge={isUnauthenticatedPublicBind(info)}>
-    <h2><ShieldCheck size={15} />Authentication</h2>
-    <dl class="kv">
-      <dt>Token required</dt>
-      <dd>{info.auth_required ? 'yes' : 'no'}</dd>
-    </dl>
-    {#if isUnauthenticatedPublicBind(info)}
-      <p class="warn">
-        <TriangleAlert size={14} />
-        No token is set and this server is bound beyond loopback: anyone who can reach
-        this address can run workflows on this GPU.
-      </p>
-    {:else if info.auth_required}
-      <p class="muted note">
-        The token is never displayed here. It lives in the server's environment;
-        the browser keeps its own copy in <code>localStorage</code>.
       </p>
     {/if}
   </div>
@@ -273,7 +192,7 @@
           Address
           <select
             value={address}
-            onchange={(e) => (selected = e.currentTarget.value)}
+            onchange={(e) => (where.selected = e.currentTarget.value)}
           >
             {#each addresses as entry (entry.address)}
               <option value={entry.address}>{addressLabel(entry)}</option>
@@ -317,52 +236,6 @@
       {/if}
     {/if}
   </div>
-
-  <div class="panel">
-    <h2>Directories</h2>
-    <dl class="kv">
-      <dt>Workspace</dt>
-      <dd>
-        {#if info.directories.workspace}
-          <code>{info.directories.workspace}</code>
-        {:else}
-          <span class="muted">none — directories set individually</span>
-        {/if}
-      </dd>
-      <dt>Workflows</dt>
-      <dd><code>{info.directories.workflows}</code></dd>
-      <dt>Outputs</dt>
-      <dd><code>{info.directories.outputs}</code></dd>
-      <dt>Prompts</dt>
-      <dd>
-        {#if info.directories.prompts}
-          <code>{info.directories.prompts}</code>
-        {:else}
-          <span class="muted">none configured</span>
-        {/if}
-      </dd>
-      <dt>Assets</dt>
-      <dd>
-        {#if info.directories.assets}
-          <code>{info.directories.assets}</code>
-        {:else}
-          <span class="muted">none configured</span>
-        {/if}
-      </dd>
-    </dl>
-  </div>
-
-  <div class="panel">
-    <h2>Storage</h2>
-    <dl class="kv">
-      <dt>Job history</dt>
-      <dd>{jobHistoryLine(info.storage)}</dd>
-      <dt>Logs</dt>
-      <dd>{logsLine(info.storage)}</dd>
-    </dl>
-  </div>
-
-  <CachesPanel />
 {/if}
 
 <style>

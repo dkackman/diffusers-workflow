@@ -58,6 +58,7 @@ import type {
   WorkspaceInfo,
   WorkspaceChanges,
   WorkspaceList,
+  PreferenceCheck,
   PreferenceSet,
   PreferenceReset,
   DefaultTierSet,
@@ -531,16 +532,35 @@ export const api = {
   listPrompts: () => request<PromptList>('/api/prompts?times=true'),
   /** The model preference ladders (#1626); `key` narrows to one, and
    * `resolve` adds this host's pick per tier - its target, the targets it
-   * skipped and why, or the error validate would give at that tier */
+   * skipped and why, or the error validate would give at that tier; `full`
+   * adds what the pages show: each key's `used_by` and contract */
   getPreferences: ({
     key,
     resolve,
-  }: { key?: string; resolve?: boolean } = {}) => {
+    full,
+  }: { key?: string; resolve?: boolean; full?: boolean } = {}) => {
     const query = new URLSearchParams()
     if (key) query.set('key', key)
     if (resolve) query.set('resolve', 'true')
+    if (full) query.set('full', 'true')
     return request<PreferencesRead>(`/api/preferences?${query}`)
   },
+  /** Dry-run a ladder the user has not saved: each tier's pick on this host,
+   * the way a save would resolve it. `full` also checks gated access;
+   * `known_blocked` names targets a last full check found closed, which a
+   * check skips. Nothing is written. */
+  checkPreference: (
+    key: string,
+    body: { ladder: unknown; full?: boolean; known_blocked?: string[] },
+  ) =>
+    request<PreferenceCheck>(
+      `/api/preferences/${encodeURIComponent(key)}/check`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ full: false, ...body }),
+      },
+    ),
   /** Replace (or add) a key's ladder in this server's overlay; `ifMatch`
    * the key's etag as read. 422 for a ladder the server refuses, 412
    * `stale_write` when the key changed since. The answer carries this

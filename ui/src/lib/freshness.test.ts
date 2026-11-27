@@ -53,7 +53,12 @@ const PAGE_TABLE: Record<string, Freshness[]> = {
   // the listing, then the open workspace's content moving its time (lazy,
   // at most once per clock tick)
   'Sidebar.svelte': [{ watch: ['workspaces'] }],
+  'ActiveDownloads.svelte': [{ watch: ['models'], alsoLive: true }],
   'CachesPanel.svelte': [{ watch: ['models'] }],
+  'SoftwareVersions.svelte': [
+    { watch: ['models'], alsoLive: true },
+    { watch: ['models'], alsoLive: true },
+  ],
   'editor/ArgumentsEditor.svelte': [{ watch: [] }],
   'editor/LorasEditor.svelte': [{ watch: ['loras'] }],
   // The pipeline class's components, then the scheduler's compatibles: a class
@@ -67,7 +72,13 @@ const PAGE_TABLE: Record<string, Freshness[]> = {
     { watch: ['workflows'] },
     { watch: ['workflows'] },
   ],
+  'pages/ActivityPage.svelte': [
+    { watch: [] },
+    { watch: ['models'], alsoLive: true },
+    { watch: ['models'], alsoLive: true },
+  ],
   'pages/AssetsPage.svelte': [{ watch: ['assets'] }, { watch: ['assets'] }],
+  'pages/ConnectPage.svelte': [{ watch: [] }],
   'pages/ComparePage.svelte': [{ watch: ['gallery'] }],
   'pages/EditorPage.svelte': [{ watch: ['workflows'] }],
   'pages/GalleryPage.svelte': [{ watch: ['gallery'] }, { watch: ['gallery'] }],
@@ -78,12 +89,9 @@ const PAGE_TABLE: Record<string, Freshness[]> = {
   ],
   'pages/JsonEditorStub.svelte': [],
   'pages/NotFoundPage.svelte': [],
-  'pages/ModelsPage.svelte': [
-    { watch: ['models'] },
-    { watch: ['models'], alsoLive: true },
-    { watch: ['models'], alsoLive: true },
-    { watch: ['models'], alsoLive: true },
-  ],
+  'pages/ModelsPage.svelte': [{ watch: ['models'] }],
+  // reads nothing of its own: ModelsPage hands it the one cache resource
+  'pages/ModelsDownloaded.svelte': [],
   'pages/OverviewPage.svelte': [
     { watch: ['gallery'] },
     { watch: ['jobs'] },
@@ -104,8 +112,7 @@ const PAGE_TABLE: Record<string, Freshness[]> = {
     { watch: ['workflows'] },
   ],
   'pages/SchemaPage.svelte': [{ watch: [] }],
-  'pages/ServerPage.svelte': [{ watch: [] }],
-  'pages/StatusPage.svelte': [],
+  'pages/SystemPage.svelte': [{ watch: [] }],
   'pages/WorkflowPage.svelte': [
     { watch: ['workflows'] },
     { watch: ['gallery'] },
@@ -127,6 +134,14 @@ const PAGE_TABLE: Record<string, Freshness[]> = {
   ],
   // a text tile's first lines, read once when first seen
   'ui/TextExcerpt.svelte': [{ watch: [] }],
+}
+
+/** Pages that hold no resource because their parent page hands them its
+ * resource as a prop; their `api` use is writes, each with why */
+const RESOURCE_PROP_PAGES: Record<string, string> = {
+  'pages/ModelsDownloaded.svelte':
+    'a tab of ModelsPage, which owns the one hub-cache resource (header, ' +
+    "tab count and table); the tab's api calls are a download and a delete",
 }
 
 /** The pages that edit one document: it is kept fresh by what they call to
@@ -462,7 +477,12 @@ export function bareHelperReaders(
     })
   return Object.entries(svelte)
     .map(([k, source]) => [k, read(source)] as const)
-    .filter(([k, r]) => r.resources.length === 0 && !DOCUMENT_PAGES.includes(k))
+    .filter(
+      ([k, r]) =>
+        r.resources.length === 0 &&
+        !DOCUMENT_PAGES.includes(k) &&
+        !(k in RESOURCE_PROP_PAGES),
+    )
     .flatMap(([k, r]) => readsThrough(k, r).map((n) => `${k}:${n}`))
     .filter((entry) => !(entry in exceptions))
 }
@@ -627,7 +647,12 @@ it('a page that reads the server does so through a resource', () => {
     r.imports.some((i) => i === '../api' || /lib\.svelte$/.test(i))
   const bare = [...reads]
     .filter(([k, r]) => isPage(k) && readsServer(r))
-    .filter(([k, r]) => r.resources.length === 0 && !DOCUMENT_PAGES.includes(k))
+    .filter(
+      ([k, r]) =>
+        r.resources.length === 0 &&
+        !DOCUMENT_PAGES.includes(k) &&
+        !(k in RESOURCE_PROP_PAGES),
+    )
     .map(([k]) => k)
   expect(bare).toEqual([])
 })

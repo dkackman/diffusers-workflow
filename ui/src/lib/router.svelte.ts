@@ -1,6 +1,7 @@
 import { untrack } from 'svelte'
 import {
   legacyRedirect,
+  placeOf,
   queryString,
   resolveView,
   type RouteView,
@@ -187,7 +188,12 @@ function parse(): { parts: string[]; view: RouteView } {
   if (redirect) {
     // replaceState raises no second hashchange: the settle that called this
     // (or the module's load) commits the redirected entry
-    const hash = '#/' + redirect.map(encodeURIComponent).join('/')
+    // the query is the page's own view state: it survives the move
+    const query = hashParts()[1]
+    const hash =
+      '#/' +
+      redirect.map(encodeURIComponent).join('/') +
+      (query ? '?' + query : '')
     history.replaceState(history.state, '', hash)
     parts = redirect
   }
@@ -496,7 +502,8 @@ window.addEventListener('hashchange', () => {
   if (asking || home()) return
   const path = pathOf(location.hash)
   const exempt = carried?.unguarded && carried.path === path
-  if (!guards.size || exempt || path === pathOf(committed)) settle()
+  if (!guards.size || exempt || placeOf(path) === placeOf(pathOf(committed)))
+    settle()
   else ask()
 })
 

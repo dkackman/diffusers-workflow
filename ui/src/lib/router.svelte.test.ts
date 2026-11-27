@@ -80,6 +80,13 @@ it('redirects a legacy hash to the last-used workspace at load', async () => {
   })
 })
 
+it('a legacy redirect keeps the hash query', async () => {
+  location.hash = '#/server/status?x=1'
+  const { route } = await import('./router.svelte')
+  expect(location.hash).toBe('#/server/activity?x=1')
+  expect(route.view).toMatchObject({ kind: 'server', section: 'activity' })
+})
+
 it('an empty hash lands on the default overview', async () => {
   const { route } = await import('./router.svelte')
   expect(location.hash).toBe('#/ws/default/overview')
@@ -172,6 +179,21 @@ it('does not guard a query-only change', async () => {
   expect(guard).not.toHaveBeenCalled()
   expect(location.hash).toBe('#/ws/studio/jobs?q=b')
   expect(route.view).toMatchObject({ section: 'jobs' })
+})
+
+it('does not guard a move between Models and its Preferences tab', async () => {
+  const { route, addLeaveGuard } = await loadRouter()
+  await go('#/server/models')
+  const guard = vi.fn(() => false)
+  addLeaveGuard(guard)
+  await go('#/server/models/preferences')
+  expect(location.hash).toBe('#/server/models/preferences')
+  await go('#/server/models')
+  expect(guard).not.toHaveBeenCalled()
+  expect(route.view).toMatchObject({ section: 'models' })
+  // another tab is a navigation
+  await go('#/server/models/downloaded', 2)
+  expect(guard).toHaveBeenCalledTimes(1)
 })
 
 it('a removed guard is not asked', async () => {

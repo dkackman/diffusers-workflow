@@ -956,11 +956,20 @@ class PreferenceResolution(ApiModel):
 
     target: str = sometimes("The workflow this host resolves the tier to.")
     skipped: list[Any] = sometimes(
-        "Each earlier target passed over, with the reason (mps-only, ...)."
+        "Each earlier target passed over, with the reason (mps-only, ...). "
+        "With `error`, when no target fits this host: every target, each "
+        "with why it was passed over."
     )
     notes: list[str] = sometimes()
     line: str = sometimes("The line a validate plan prints for this pick.")
     error: str = sometimes("The refusal validate would give at this tier.")
+
+
+class PreferenceContract(ApiModel):
+    """The arguments every target of a key takes, from the shipped file."""
+
+    required: list[str] = Field(description="Arguments each target must take.")
+    optional: list[str] = Field(description="Arguments a target may take.")
 
 
 class PreferenceEntry(ApiModel):
@@ -975,6 +984,14 @@ class PreferenceEntry(ApiModel):
     )
     resolutions: dict[str, PreferenceResolution] = sometimes(
         "With `resolve=true`: this host's pick per tier."
+    )
+    used_by: list[str] = sometimes(
+        "With `resolve=true&full=true`: the catalog workflows that reach this "
+        "key, directly or through composed workflows, sorted."
+    )
+    contract: PreferenceContract = sometimes(
+        "With `resolve=true&full=true`, when the shipped file has one: the "
+        "arguments the key's targets take."
     )
 
 
@@ -1010,3 +1027,46 @@ class DefaultTierWrite(ApiModel):
 class DefaultTierSet(ApiModel):
     default_tier: PreferenceTier
     etag: str
+
+
+class PreferenceCheckRequest(ApiModel):
+    ladder: dict[str, Any] = Field(
+        description="The unsaved ladder: tier -> an ordered list of targets."
+    )
+    full: bool = Field(
+        False,
+        description="Probe gated access and downloads as admission does (Hub "
+        "calls); false reads only what is on this box.",
+    )
+    known_blocked: list[str] = Field(
+        default_factory=list,
+        description="With `full=false`: targets the last full check found "
+        "gated for this box, skipped without asking the Hub.",
+    )
+
+
+class PreferenceTierCheck(ApiModel):
+    """What saving the ladder would give at one tier."""
+
+    target: str = sometimes("The workflow this host would resolve the tier to.")
+    skipped: list[Any] = sometimes(
+        "Each earlier target passed over, with the reason. With `error`, when "
+        "no target fits this host: every target, each with why."
+    )
+    notes: list[str] = sometimes()
+    after: list[str] = sometimes(
+        "The targets after the pick: fallbacks, not checked here."
+    )
+    error: str = sometimes("The refusal validate would give at this tier.")
+    target_errors: dict[str, str] = sometimes(
+        "Target -> why saving the ladder would refuse it."
+    )
+    warnings: dict[str, list[str]] = sometimes(
+        "Target -> each argument the key's contract requires that it does not take."
+    )
+
+
+class PreferenceCheck(ApiModel):
+    tiers: dict[str, PreferenceTierCheck] = Field(
+        description="Per tier in the ladder, in tier order."
+    )

@@ -137,6 +137,16 @@ it('the help button opens the shortcuts', async () => {
   expect(await screen.findByText("search this page's list")).toBeTruthy()
 })
 
+it('the top bar links the workflow schema beside OpenAPI', async () => {
+  render(App)
+  const link = screen.getByRole('link', { name: 'workflow schema' })
+  expect(link.getAttribute('href')).toBe('#/server/schema')
+  expect(link.hasAttribute('target')).toBe(false)
+  expect(link.nextElementSibling).toBe(
+    screen.getByRole('link', { name: 'interactive API reference (OpenAPI)' }),
+  )
+})
+
 function addSearch() {
   const head = document.createElement('div')
   head.className = 'pagehead'

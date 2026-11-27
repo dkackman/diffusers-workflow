@@ -252,3 +252,235 @@ def test_a_refused_target_names_no_server_path(client, tmp_path, target):
     for folder in {str(tmp_path), os.path.realpath(str(tmp_path))}:
         assert folder not in answer.text
     assert _overlay() is None
+
+
+# --- the full read: resolve as admission does, with used_by and contract
+
+
+def _composer(root, name, key):
+    path = os.path.join(root, name + ".json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as handle:
+        json.dump(
+            {
+                "id": os.path.basename(name),
+                "steps": [{"name": "s", "workflow": {"path": f"preference:{key}"}}],
+            },
+            handle,
+        )
+
+
+def _no_probe(*_args, **_kwargs):
+    raise AssertionError("the plain resolve read must make no Hub calls")
+
+
+def test_full_read_adds_used_by_and_contract(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        preferences, "downloads_gate_check", lambda: lambda *a: (None, None)
+    )
+    _composer(str(tmp_path / "workflows"), "qa/uses", SHIPPED_KEY)
+    answer = client.get("/api/preferences", params={"resolve": "true", "full": "true"})
+    assert answer.status_code == 200, answer.text
+    entry = answer.json()["preferences"][SHIPPED_KEY]
+    assert isinstance(entry["used_by"], list)
+    assert "qa/uses" in entry["used_by"]
+    assert entry["used_by"] == sorted(entry["used_by"])
+    assert entry["contract"]["required"] == ["prompt", "seed", "width", "height"]
+    assert "num_inference_steps" in entry["contract"]["optional"]
+
+
+def test_plain_resolve_is_unchanged(client, monkeypatch):
+    monkeypatch.setattr(preferences, "downloads_gate_check", _no_probe)
+    answer = client.get("/api/preferences", params={"resolve": "true"})
+    assert answer.status_code == 200, answer.text
+    for entry in answer.json()["preferences"].values():
+        assert "used_by" not in entry
+        assert "contract" not in entry
+        assert "resolutions" in entry
+    # full without resolve is ignored
+    plain = client.get("/api/preferences", params={"full": "true"}).json()
+    for entry in plain["preferences"].values():
+        assert not {"used_by", "contract", "resolutions"} & set(entry)
+
+
+def test_full_read_runs_the_gate_check(client, monkeypatch):
+    def gate():
+        def check(name, definition, arguments, child):
+            if name == "qa/a":
+                return "gated, no access to org/x", None
+            return None, None
+
+        return check
+
+    monkeypatch.setattr(preferences, "downloads_gate_check", gate)
+    client.put("/api/preferences/qa_gated", json={"best": ["qa/a", "qa/b"]})
+    answer = client.get(
+        "/api/preferences",
+        params={"key": "qa_gated", "resolve": "true", "full": "true"},
+    )
+    best = answer.json()["preferences"]["qa_gated"]["resolutions"]["best"]
+    assert best["target"] == "qa/b"
+    assert best["skipped"] == [
+        {"workflow": "qa/a", "reason": "gated, no access to org/x"}
+    ]
+
+
+def test_full_read_survives_hub_failure(client, monkeypatch):
+    def gate():
+        def check(*_args):
+            raise OSError("the Hub is unreachable")
+
+        return check
+
+    monkeypatch.setattr(preferences, "downloads_gate_check", gate)
+    client.put("/api/preferences/qa_offline", json={"best": ["qa/a"]})
+    answer = client.get(
+        "/api/preferences",
+        params={"key": "qa_offline", "resolve": "true", "full": "true"},
+    )
+    assert answer.status_code == 200, answer.text
+    best = answer.json()["preferences"]["qa_offline"]["resolutions"]["best"]
+    assert best["target"] == "qa/a"
+    assert best["notes"] == []
+    assert best["skipped"] == []
+
+
+# --- the dry-run check: POST /api/preferences/{key}/check
+
+
+def test_check_writes_nothing(client):
+    answer = client.post(
+        f"/api/preferences/{SHIPPED_KEY}/check",
+        json={"ladder": {"standard": ["qa/a", "qa/b"]}},
+    )
+    assert answer.status_code == 200, answer.text
+    standard = answer.json()["tiers"]["standard"]
+    assert standard["target"] == "qa/a"
+    assert standard["after"] == ["qa/b"]
+    assert _overlay() is None
+
+
+def test_check_accepts_a_new_key(client):
+    answer = client.post(
+        "/api/preferences/brand_new/check", json={"ladder": {"best": ["qa/a"]}}
+    )
+    assert answer.status_code == 200, answer.text
+    assert answer.json()["tiers"]["best"]["target"] == "qa/a"
+
+
+def test_check_refuses_a_bad_shape(client):
+    answer = client.post(
+        "/api/preferences/qa_x/check", json={"ladder": {"huge": ["qa/a"]}}
+    )
+    assert answer.status_code == 422
+    assert "huge" in answer.text
+
+
+@pytest.mark.parametrize("key", ["..x", "has%20space"])
+def test_check_validates_the_key(client, key):
+    answer = client.post(
+        f"/api/preferences/{key}/check", json={"ladder": {"best": ["qa/a"]}}
+    )
+    assert answer.status_code == 422
+    assert "Invalid preference key" in answer.text
+
+
+def test_check_a_key_with_a_slash_never_reaches_a_check(client):
+    """`../x` is two path segments: no route takes it, as no PUT does."""
+    answer = client.post(
+        "/api/preferences/..%2Fx/check", json={"ladder": {"best": ["qa/a"]}}
+    )
+    assert answer.status_code in (404, 405)
+
+
+def test_check_warns_on_the_shipped_contract(client):
+    answer = client.post(
+        f"/api/preferences/{SHIPPED_KEY}/check", json={"ladder": {"best": ["qa/a"]}}
+    )
+    warnings = answer.json()["tiers"]["best"]["warnings"]["qa/a"]
+    assert "does not take width" in warnings
+
+
+def _hub_workflow(root, name, repo):
+    path = os.path.join(root, name + ".json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as handle:
+        json.dump(
+            {
+                "id": os.path.basename(name),
+                "variables": {"prompt": "a cat"},
+                "steps": [
+                    {
+                        "name": "s",
+                        "pipeline": {
+                            "configuration": {
+                                "component_type": "StableDiffusionPipeline"
+                            },
+                            "from_pretrained_arguments": {"model_name": repo},
+                        },
+                    }
+                ],
+            },
+            handle,
+        )
+
+
+def test_check_fast_makes_no_hub_call(client, tmp_path, monkeypatch):
+    import huggingface_hub
+    import requests
+
+    from dw import plan_downloads
+
+    calls = []
+
+    def hub(*args, **_kwargs):
+        calls.append(args)
+        raise AssertionError("the fast check must make no Hub calls")
+
+    for name in ("model_info", "get_hf_file_metadata", "_fetch_index"):
+        monkeypatch.setattr(plan_downloads, name, hub)
+    for name in ("model_info", "auth_check", "get_paths_info"):
+        monkeypatch.setattr(huggingface_hub.HfApi, name, hub)
+    for name in ("head", "get"):
+        monkeypatch.setattr(requests, name, hub)
+    _hub_workflow(str(tmp_path / "workflows"), "qa/hub", "qa-org/not-cached")
+    answer = client.post(
+        "/api/preferences/qa_hub/check",
+        json={"ladder": {"best": ["qa/hub", "qa/a"]}, "known_blocked": ["qa/b"]},
+    )
+    assert answer.status_code == 200, answer.text
+    best = answer.json()["tiers"]["best"]
+    assert best["target"] == "qa/hub"
+    assert best["notes"] == ["will download its weights"]
+    assert calls == []
+
+
+def test_check_skips_known_blocked_on_the_fast_check(client):
+    answer = client.post(
+        "/api/preferences/qa_k/check",
+        json={"ladder": {"best": ["qa/a", "qa/b"]}, "known_blocked": ["qa/a"]},
+    )
+    best = answer.json()["tiers"]["best"]
+    assert best["target"] == "qa/b"
+    assert best["skipped"] == [
+        {"workflow": "qa/a", "reason": "gated, no access (last full check)"}
+    ]
+
+
+def test_check_full_runs_the_gate_check(client, monkeypatch):
+    def gate():
+        def check(name, definition, arguments, child):
+            if name == "qa/a":
+                return "gated, no access to org/x", None
+            return None, None
+
+        return check
+
+    monkeypatch.setattr(preferences, "downloads_gate_check", gate)
+    answer = client.post(
+        "/api/preferences/qa_full/check",
+        json={"ladder": {"best": ["qa/a", "qa/b"]}, "full": True},
+    )
+    best = answer.json()["tiers"]["best"]
+    assert best["target"] == "qa/b"
+    assert best["skipped"][0]["reason"] == "gated, no access to org/x"

@@ -5915,9 +5915,89 @@
         "title": "PlanHostMemory",
         "type": "object"
       },
+      "PreferenceCheck": {
+        "additionalProperties": false,
+        "properties": {
+          "tiers": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/PreferenceTierCheck"
+            },
+            "description": "Per tier in the ladder, in tier order.",
+            "title": "Tiers",
+            "type": "object"
+          }
+        },
+        "required": [
+          "tiers"
+        ],
+        "title": "PreferenceCheck",
+        "type": "object"
+      },
+      "PreferenceCheckRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "full": {
+            "default": false,
+            "description": "Probe gated access and downloads as admission does (Hub calls); false reads only what is on this box.",
+            "title": "Full",
+            "type": "boolean"
+          },
+          "known_blocked": {
+            "description": "With `full=false`: targets the last full check found gated for this box, skipped without asking the Hub.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Known Blocked",
+            "type": "array"
+          },
+          "ladder": {
+            "additionalProperties": true,
+            "description": "The unsaved ladder: tier -> an ordered list of targets.",
+            "title": "Ladder",
+            "type": "object"
+          }
+        },
+        "required": [
+          "ladder"
+        ],
+        "title": "PreferenceCheckRequest",
+        "type": "object"
+      },
+      "PreferenceContract": {
+        "additionalProperties": false,
+        "description": "The arguments every target of a key takes, from the shipped file.",
+        "properties": {
+          "optional": {
+            "description": "Arguments a target may take.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Optional",
+            "type": "array"
+          },
+          "required": {
+            "description": "Arguments each target must take.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Required",
+            "type": "array"
+          }
+        },
+        "required": [
+          "required",
+          "optional"
+        ],
+        "title": "PreferenceContract",
+        "type": "object"
+      },
       "PreferenceEntry": {
         "additionalProperties": false,
         "properties": {
+          "contract": {
+            "$ref": "#/components/schemas/PreferenceContract",
+            "description": "With `resolve=true&full=true`, when the shipped file has one: the arguments the key's targets take."
+          },
           "etag": {
             "description": "What `If-Match` on PUT or DELETE /api/preferences/{key} names.",
             "title": "Etag",
@@ -5945,6 +6025,14 @@
             ],
             "title": "Source",
             "type": "string"
+          },
+          "used_by": {
+            "description": "With `resolve=true&full=true`: the catalog workflows that reach this key, directly or through composed workflows, sorted.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Used By",
+            "type": "array"
           }
         },
         "required": [
@@ -6021,7 +6109,7 @@
             "type": "array"
           },
           "skipped": {
-            "description": "Each earlier target passed over, with the reason (mps-only, ...).",
+            "description": "Each earlier target passed over, with the reason (mps-only, ...). With `error`, when no target fits this host: every target, each with why it was passed over.",
             "items": {},
             "title": "Skipped",
             "type": "array"
@@ -6038,6 +6126,10 @@
       "PreferenceSet": {
         "additionalProperties": false,
         "properties": {
+          "contract": {
+            "$ref": "#/components/schemas/PreferenceContract",
+            "description": "With `resolve=true&full=true`, when the shipped file has one: the arguments the key's targets take."
+          },
           "etag": {
             "description": "What `If-Match` on PUT or DELETE /api/preferences/{key} names.",
             "title": "Etag",
@@ -6069,6 +6161,14 @@
             ],
             "title": "Source",
             "type": "string"
+          },
+          "used_by": {
+            "description": "With `resolve=true&full=true`: the catalog workflows that reach this key, directly or through composed workflows, sorted.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Used By",
+            "type": "array"
           }
         },
         "required": [
@@ -6078,6 +6178,64 @@
           "key"
         ],
         "title": "PreferenceSet",
+        "type": "object"
+      },
+      "PreferenceTierCheck": {
+        "additionalProperties": false,
+        "description": "What saving the ladder would give at one tier.",
+        "properties": {
+          "after": {
+            "description": "The targets after the pick: fallbacks, not checked here.",
+            "items": {
+              "type": "string"
+            },
+            "title": "After",
+            "type": "array"
+          },
+          "error": {
+            "description": "The refusal validate would give at this tier.",
+            "title": "Error",
+            "type": "string"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "skipped": {
+            "description": "Each earlier target passed over, with the reason. With `error`, when no target fits this host: every target, each with why.",
+            "items": {},
+            "title": "Skipped",
+            "type": "array"
+          },
+          "target": {
+            "description": "The workflow this host would resolve the tier to.",
+            "title": "Target",
+            "type": "string"
+          },
+          "target_errors": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Target -> why saving the ladder would refuse it.",
+            "title": "Target Errors",
+            "type": "object"
+          },
+          "warnings": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": "Target -> each argument the key's contract requires that it does not take.",
+            "title": "Warnings",
+            "type": "object"
+          }
+        },
+        "title": "PreferenceTierCheck",
         "type": "object"
       },
       "PreferencesRead": {
@@ -11637,6 +11795,18 @@
             }
           },
           {
+            "description": "With resolve: resolve as admission does (gated access, download notes) and add used_by and contract",
+            "in": "query",
+            "name": "full",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "With resolve: resolve as admission does (gated access, download notes) and add used_by and contract",
+              "title": "Full",
+              "type": "boolean"
+            }
+          },
+          {
             "in": "query",
             "name": "workspace",
             "required": false,
@@ -11836,6 +12006,72 @@
           }
         },
         "summary": "Put Preference"
+      }
+    },
+    "/api/preferences/{key}/check": {
+      "post": {
+        "description": "What saving `ladder` under `key` would give, without saving it: this\nhost's pick per tier, the targets after it, each target a PUT would\nrefuse and each argument of the key's shipped contract a target does not\ntake. A key not in the store is allowed; a ladder of the wrong shape is\na 422. `full=false` makes no Hub calls - a target in `known_blocked` is\nskipped as gated - and `full=true` probes as admission does.",
+        "operationId": "check_preference_api_preferences__key__check_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreferenceCheckRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreferenceCheck"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Check Preference"
       }
     },
     "/api/prompt-schema": {

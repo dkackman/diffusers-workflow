@@ -339,7 +339,7 @@ test('models: a repo an agent deletes leaves the open list', async ({
   page,
   request,
 }) => {
-  await page.goto('/#/models')
+  await page.goto('/#/server/models/downloaded')
   const row = page.getByRole('row', { name: /e2e\/tiny/ })
   test.skip((await row.count()) === 0, 'e2e/tiny is not seeded')
   const navigated = countNavigations(page)

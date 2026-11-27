@@ -9,6 +9,7 @@
     ChevronDown,
     Keyboard,
     KeyRound,
+    ListTree,
     Menu,
     Moon,
     MonitorCog,
@@ -53,9 +54,10 @@
   import OverviewPage from './lib/pages/OverviewPage.svelte'
   import AssetsPage from './lib/pages/AssetsPage.svelte'
   import ModelsPage from './lib/pages/ModelsPage.svelte'
-  import PreferencesPage from './lib/pages/PreferencesPage.svelte'
+  import ConnectPage from './lib/pages/ConnectPage.svelte'
+  import SystemPage from './lib/pages/SystemPage.svelte'
   import SchemaPage from './lib/pages/SchemaPage.svelte'
-  import StatusPage from './lib/pages/StatusPage.svelte'
+  import ActivityPage from './lib/pages/ActivityPage.svelte'
 
   const health = $derived(connection.health)
   let helpOpen = $state(false)
@@ -326,6 +328,14 @@
           </a>
           <a
             class="plain helplink"
+            href="#/server/schema"
+            title="workflow schema"
+            aria-label="workflow schema"
+          >
+            <ListTree size={15} />
+          </a>
+          <a
+            class="plain helplink"
             href="/docs"
             target="_blank"
             rel="noopener"
@@ -343,9 +353,13 @@
       {#if view.kind === 'missing'}<NotFoundPage />
       {:else if view.kind === 'server'}
         {#if view.section === 'schema'}<SchemaPage />
-        {:else if view.section === 'models'}<ModelsPage />
-        {:else if view.section === 'preferences'}<PreferencesPage />
-        {:else}<StatusPage />{/if}
+        {:else if view.section === 'models'}
+          <ModelsPage
+            tab={view.rest[0] === 'downloaded' ? 'downloaded' : 'preferences'}
+          />
+        {:else if view.section === 'activity'}<ActivityPage />
+        {:else if view.section === 'connect'}<ConnectPage />
+        {:else}<SystemPage />{/if}
       {:else if view.kind === 'shared'}
         {#if view.section === 'prompts'}<PromptsPage />
         {:else if view.section === 'prompt-edit'}<PromptEditorPage
