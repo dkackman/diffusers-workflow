@@ -6,10 +6,10 @@
     PreferenceEntry,
     PreferenceReset,
     PreferenceSet,
-    PreferencesRead,
   } from '../types'
-  import LadderCard from '../ladder/LadderCard.svelte'
+  import PreferenceCard from '../ladder/PreferenceCard.svelte'
   import { TIERS, keyProblem, staleEtag } from '../ladder/ladderDraft'
+  import Segmented from '../ui/Segmented.svelte'
   import LoadState from '../ui/LoadState.svelte'
   import StaleNotice from '../ui/StaleNotice.svelte'
 
@@ -18,9 +18,12 @@
   // reference without one runs at. The routes are the store's only writer
   // (dw/server/routes/system.py); a PUT on one key refreshes the
   // `workflows` change kind, and a resolution reads the host's cards
-  const read = resource(() => api.getPreferences({ resolve: true }), {
-    watch: ['workflows', 'models'],
-  })
+  const read = resource(
+    () => api.getPreferences({ resolve: true, full: true }),
+    {
+      watch: ['workflows', 'models'],
+    },
+  )
   const catalog = resource(() => api.listWorkflows(), { watch: ['workflows'] })
   const names = $derived(catalog.data?.workflows ?? [])
 
@@ -36,7 +39,13 @@
     const data = read.data
     if (!data) return
     const preferences = { ...data.preferences }
-    if (entry) preferences[key] = entry
+    // a save or reset answers without who uses the key: that has not changed
+    if (entry)
+      preferences[key] = {
+        used_by: data.preferences[key]?.used_by,
+        contract: data.preferences[key]?.contract,
+        ...entry,
+      }
     else delete preferences[key]
     read.adopt({ ...data, preferences })
   }
@@ -90,11 +99,6 @@
       success: (r) => `The default tier is ${r.default_tier}`,
     },
   )
-
-  function chooseTier(event: Event, data: PreferencesRead) {
-    const tier = (event.currentTarget as HTMLSelectElement).value
-    void setTier.run(tier, data.etag)
-  }
 </script>
 
 <LoadState of={read} label="the preferences" />
@@ -102,22 +106,24 @@
 {#if read.data}
   {@const data = read.data}
   <p class="muted intro">
-    A <code>preference:&lt;key&gt;</code> workflow path runs the first target in its
-    tier that fits this host. A key this server saved replaces the shipped one whole;
-    Reset to shipped drops it.
+    When a workflow or agent asks for an image (or another kind of output)
+    without naming a model, dw picks one from that preference's list. Each list
+    has three tiers — Draft is fastest, Best is highest quality — and dw runs
+    the first model in the tier that this machine can run.
   </p>
 
   <div class="panel top">
-    <label for="default-tier">Default tier</label>
-    <select
-      id="default-tier"
-      value={data.default_tier}
-      disabled={setTier.busy}
-      onchange={(e) => chooseTier(e, data)}
-    >
-      {#each TIERS as tier (tier)}<option value={tier}>{tier}</option>{/each}
-    </select>
-    <span class="muted">what a reference with no tier runs at</span>
+    <span class="muted">Requests that don't name a tier run at</span>
+    <Segmented
+      label="Requests that don't name a tier run at"
+      size="sm"
+      options={TIERS.map((t) => ({
+        value: t,
+        label: t.charAt(0).toUpperCase() + t.slice(1),
+      }))}
+      value={data.default_tier as (typeof TIERS)[number]}
+      onselect={(tier) => void setTier.run(tier, data.etag)}
+    />
     {#if tierStale}
       {@const held = tierStale}
       <StaleNotice
@@ -132,7 +138,7 @@
   </div>
 
   {#each shown as key (key)}
-    <LadderCard
+    <PreferenceCard
       {key}
       entry={data.preferences[key] ?? null}
       catalog={names}
@@ -178,7 +184,6 @@
     padding: var(--space-3) var(--space-4);
     margin-bottom: var(--space-3);
   }
-  .top select,
   .addkey input {
     width: auto;
     min-width: 12rem;

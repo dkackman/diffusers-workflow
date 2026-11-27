@@ -44,7 +44,10 @@ it('Preferences tab is current, links both tabs and shows the preferences', asyn
   expect(downloaded.getAttribute('href')).toBe('#/server/models/downloaded')
   expect(downloaded.getAttribute('aria-current')).toBeNull()
   await waitFor(() =>
-    expect(api.getPreferences).toHaveBeenCalledWith({ resolve: true }),
+    expect(api.getPreferences).toHaveBeenCalledWith({
+      resolve: true,
+      full: true,
+    }),
   )
   expect(screen.queryByLabelText('Hugging Face repo to download')).toBeNull()
 })

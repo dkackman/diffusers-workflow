@@ -27,7 +27,7 @@ const RESOLUTIONS = {
   standard: { target: 'models/z-image', skipped: [] },
   best: {
     target: 'models/qwen-image-2.1',
-    skipped: [{ workflow: 'models/minimax-h3-image', reason: 'cuda only' }],
+    skipped: [{ workflow: 'models/minimax-h3-image', reason: 'cuda-only' }],
   },
 }
 
@@ -59,36 +59,38 @@ afterEach(cleanup)
 async function card() {
   return screen.findByRole('region', { name: 'preference text_to_image' })
 }
+async function edit(el: HTMLElement) {
+  await fireEvent.click(within(el).getByRole('button', { name: 'Edit' }))
+  return screen.getByRole('region', { name: 'preference text_to_image' })
+}
 const tier = (el: HTMLElement, name: string) =>
   el.querySelector<HTMLElement>(`.tier[data-tier="${name}"]`)!
-const pick = (el: HTMLElement, name: string) =>
-  el.querySelector<HTMLElement>(`.rungs [data-tier="${name}"]`)!
 
 it('lists a shipped key, its three tiers and the default tier', async () => {
   render(PreferencesPage)
   const el = await card()
-  expect(api.getPreferences).toHaveBeenCalledWith({ resolve: true })
-  expect(within(el).getByText('shipped')).toBeTruthy()
+  expect(api.getPreferences).toHaveBeenCalledWith({
+    resolve: true,
+    full: true,
+  })
+  expect(within(el).getByText('as shipped')).toBeTruthy()
   expect(
     [...el.querySelectorAll('div.tier')].map((t) =>
       t.getAttribute('data-tier'),
     ),
   ).toEqual(['draft', 'standard', 'best'])
   expect(tier(el, 'best').textContent).toContain('models/minimax-h3-image')
-  expect(tier(el, 'best').textContent).toContain('cuda only')
-  expect(pick(el, 'best').textContent).toContain('models/qwen-image-2.1')
-  expect(screen.getByLabelText<HTMLSelectElement>('Default tier').value).toBe(
-    'standard',
-  )
+  expect(tier(el, 'best').textContent).toContain('needs CUDA')
+  expect(tier(el, 'best').textContent).toContain('models/qwen-image-2.1')
+  expect(
+    screen
+      .getByRole('group', { name: "Requests that don't name a tier run at" })
+      .querySelector('[aria-pressed="true"]')?.textContent,
+  ).toBe('Standard')
   // a shipped key has nothing to reset to
   expect(
     within(el).queryByRole('button', { name: 'Reset to shipped' }),
   ).toBeNull()
-  // nothing edited yet: nothing to save
-  expect(
-    within(el).getByRole<HTMLButtonElement>('button', { name: 'Save' })
-      .disabled,
-  ).toBe(true)
 })
 
 it('saves a reordered tier with the etag and shows the picks it answers', async () => {
@@ -103,7 +105,7 @@ it('saves a reordered tier with the etag and shows the picks it answers', async 
     },
   })
   render(PreferencesPage)
-  const el = await card()
+  const el = await edit(await card())
   await fireEvent.click(
     within(tier(el, 'best')).getByRole('button', {
       name: 'Move models/qwen-image-2.1 up',
@@ -118,12 +120,12 @@ it('saves a reordered tier with the etag and shows the picks it answers', async 
     ),
   )
   // the answer's picks replace the read's: the skip is gone, the key is the server's
-  await waitFor(() =>
-    expect(pick(el, 'best').textContent).not.toContain('skipped'),
-  )
-  expect(within(el).getByText('server')).toBeTruthy()
+  const after = await screen.findByText('changed on this server')
+  expect(after).toBeTruthy()
+  const read = await card()
+  expect(read.textContent).not.toContain('needs CUDA')
   expect(
-    within(el).getByRole('button', { name: 'Reset to shipped' }),
+    within(read).getByRole('button', { name: 'Reset to shipped' }),
   ).toBeTruthy()
 })
 
@@ -148,7 +150,7 @@ it('asks Reload or Overwrite on a 412, and Overwrite sends the new etag', async 
       resolutions: RESOLUTIONS,
     })
   render(PreferencesPage)
-  const el = await card()
+  const el = await edit(await card())
   await fireEvent.click(
     within(tier(el, 'standard')).getByRole('button', {
       name: 'Remove models/z-image-sdnq',
@@ -177,7 +179,9 @@ it('asks Reload or Overwrite on a 412, and Overwrite sends the new etag', async 
       '"theirs"',
     ),
   )
-  await waitFor(() => expect(within(el).queryByRole('alert')).toBeNull())
+  await waitFor(() =>
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull(),
+  )
 })
 
 it('Reload on a 412 drops the edit and reads the server copy again', async () => {
@@ -185,7 +189,7 @@ it('Reload on a 412 drops the edit and reads the server copy again', async () =>
     new ApiError('changed', 412, 'stale_write', { etag: '"theirs"' }),
   )
   render(PreferencesPage)
-  const el = await card()
+  const el = await edit(await card())
   await fireEvent.click(
     within(tier(el, 'standard')).getByRole('button', {
       name: 'Remove models/z-image-sdnq',
@@ -207,7 +211,7 @@ it("shows the server's 422 refusal beside the key", async () => {
     ),
   )
   render(PreferencesPage)
-  const el = await card()
+  const el = await edit(await card())
   const field = within(tier(el, 'draft')).getByLabelText(
     'workflow to add to draft',
   )
@@ -241,10 +245,8 @@ it('Reset to shipped sends DELETE with the etag and shows the key as shipped', a
   await waitFor(() =>
     expect(api.resetPreference).toHaveBeenCalledWith('text_to_image', '"k1"'),
   )
-  await waitFor(() => expect(within(el).getByText('shipped')).toBeTruthy())
-  expect(
-    within(el).queryByRole('button', { name: 'Reset to shipped' }),
-  ).toBeNull()
+  await waitFor(() => expect(screen.getByText('as shipped')).toBeTruthy())
+  expect(screen.queryByRole('button', { name: 'Reset to shipped' })).toBeNull()
 })
 
 it('refuses an invalid new key before sending, and adds a valid one unsaved', async () => {
@@ -280,8 +282,7 @@ it('changing the default tier writes it with its etag', async () => {
   })
   render(PreferencesPage)
   await card()
-  const select = screen.getByLabelText<HTMLSelectElement>('Default tier')
-  await fireEvent.change(select, { target: { value: 'best' } })
+  await fireEvent.click(screen.getByRole('button', { name: 'Best' }))
   await waitFor(() =>
     expect(api.setDefaultTier).toHaveBeenCalledWith('best', '"tier1"'),
   )

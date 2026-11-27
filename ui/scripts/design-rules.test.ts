@@ -100,10 +100,14 @@ it('--warn and --live pass WCAG AA on --panel and --panel-2', () => {
   expect(failing).toEqual([])
 })
 
-// The places --select may appear: the focus ring and the sidebar's open
-// workspace and active section. It is chrome only - never a surface behind
+// The places --select may appear: the focus ring, the sidebar's open
+// workspace and active section, and a preference's default-tier tag. It is chrome only - never a surface behind
 // an image
-const SELECT_FILES = ['src/app.css', 'src/lib/Sidebar.svelte']
+const SELECT_FILES = [
+  'src/app.css',
+  'src/lib/Sidebar.svelte',
+  'src/lib/ladder/TierAnswer.svelte',
+]
 
 it('uses --select only for the focus ring and the nav', () => {
   const using = sourceFiles()
