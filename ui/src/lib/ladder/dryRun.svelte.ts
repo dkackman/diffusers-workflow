@@ -1,9 +1,10 @@
 // The live dry run under the chain editor (#1762): 300 ms after the last
 // change to a draft, ask the server what each tier would run on this host
 // if the draft were saved (`POST /api/preferences/{key}/check`, full=false,
-// so no Hub call). Nothing is written. Each check carries a sequence
-// number; an answer older than the latest sent is dropped, so a slow check
-// never paints over a later draft. A 422 is the draft's shape error, held
+// so no Hub call). Nothing is written. Each change to the draft takes a
+// sequence number, which its check carries; an answer for an earlier number
+// is dropped, so a slow check never paints over a later draft - not even one
+// still inside its 300 ms. A 422 is the draft's shape error, held
 // as `refused` for the card to show and to hold Save on. Any other failure
 // (5xx, network, 401) drops the last answer - it was an earlier draft's, and
 // a chip it refused may be gone - and sets `failed`: Save falls back to the
@@ -36,7 +37,7 @@ export function dryRun(
   let checking = $state(false)
   let refused = $state<unknown>(null)
   let failed = $state(false)
-  // Not state: which answer is still wanted
+  // Not state: which draft's answer is still wanted
   let sent = 0
 
   async function check(
@@ -81,9 +82,11 @@ export function dryRun(
       checking = false
       return
     }
+    // numbered now, not when sent: a check in flight is this draft's no more
+    const seq = ++sent
     const timer = setTimeout(() => {
       checking = true
-      void check(++sent, name, body, blocked)
+      void check(seq, name, body, blocked)
     }, DRY_RUN_AFTER_MS)
     return () => clearTimeout(timer)
   })

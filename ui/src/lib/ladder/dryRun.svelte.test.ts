@@ -83,6 +83,27 @@ it('drops an answer older than the latest check sent', async () => {
   expect(run.checking).toBe(false)
 })
 
+it("drops an answer that lands during the next draft's quiet", async () => {
+  // The first check answers after the draft moved on but before the second
+  // is sent: it is the earlier draft's, and must not be shown against this one
+  let first!: (v: unknown) => void
+  api.checkPreference
+    .mockImplementationOnce(() => new Promise((r) => (first = r)))
+    .mockResolvedValue(answer('b'))
+  const { run, state } = make({ best: ['a'] })
+  await vi.advanceTimersByTimeAsync(300)
+  state.draft = { best: ['b'] }
+  flushSync()
+  first(answer('a'))
+  await vi.advanceTimersByTimeAsync(100)
+  expect(api.checkPreference).toHaveBeenCalledTimes(1)
+  expect(run.answer).toBeNull()
+  expect(run.checking).toBe(true)
+  await vi.advanceTimersByTimeAsync(200)
+  expect(run.answer).toEqual(answer('b'))
+  expect(run.checking).toBe(false)
+})
+
 it("holds a 422 as the draft's shape error", async () => {
   const refusal = new ApiError("tier best: 'x' is not a target", 422)
   api.checkPreference.mockRejectedValueOnce(refusal)
