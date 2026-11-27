@@ -215,7 +215,6 @@ from `validate_workflow`, never these.
 
 ## Sources
 
-The long-form design (`docs/proposals/long-form-media.md`, sections 1-2).
 The bench records `counters.md`, `check.md`, `repair.md`, `structural.md`,
 `noise-floor.md`, `determinism.md`, `words.md`, `for-don.md` and `narrated.md` under
 `bench/records/`.

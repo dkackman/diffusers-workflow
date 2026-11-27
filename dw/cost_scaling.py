@@ -223,15 +223,10 @@ def _field_values(entries, field):
 def _list_frames_scaling(
     name, default_entries, effective_entries, list_entries, field=FRAMES_DRIVER
 ):
-    """A list driver's per-entry frames as (factor, axis) - (1.0, None) when
-    they did not move - or None when they moved in a way that cannot be
-    scaled (#593, #866).
-
-    The frames a list renders are the sum over its entries. When the list's
-    length is already priced (`_repriced`, a `per_entry` rate), only the
-    mean per entry is left to scale, so the two multiply to the summed ratio
-    rather than counting the length twice.
-    """
+    """A list driver's per-entry frames as (factor, axis) - (1.0, None)
+    unmoved - or None when they moved past scaling (#593, #866). The sum
+    over entries, or with the length priced already (`_repriced`, a
+    `per_entry` rate) the mean per entry, and the axis names that (#1773)."""
     measured = _entry_frames(default_entries, field)
     running = _entry_frames(effective_entries, field)
     if measured is None or running is None:
@@ -251,21 +246,16 @@ def _list_frames_scaling(
     was, now = sum(measured), sum(running)
     if was == now:
         return 1.0, None
-    factor = now / was
-    label = "frames" if field == FRAMES_DRIVER else field
+    factor, per = now / was, ""
     if name in list_entries:
         factor = (now / len(running)) / (was / len(measured))
         if math.isclose(factor, 1.0):
             return 1.0, None
         if len(running) != len(measured):
-            # The length is its own ratio (`_scaled`'s `repriced`), so the
-            # text names the per-entry means this factor is (#1773)
-            now, was = now / len(running), was / len(measured)
-            return (
-                factor,
-                f"{label} {_shown(now)} vs {_shown(was)} per entry over {name}",
-            )
-    return factor, f"{label} {_shown(now)} vs {_shown(was)} over {name}"
+            # The length is named as its own ratio, so the means are (#1773)
+            now, was, per = now / len(running), was / len(measured), " per entry"
+    label = "frames" if field == FRAMES_DRIVER else field
+    return factor, f"{label} {_shown(now)} vs {_shown(was)}{per} over {name}"
 
 
 # The declared drivers that set how many segments a chain runs; the count
@@ -1071,12 +1061,7 @@ def _scaled(price, scaling, fixed=0.0, repriced=None):
     for a resized list - #589), with `scaled` saying from what. A driver with
     no rule to scale by that moved leaves the basis alone, and is named in
     `differs` with `low_confidence` set: the figure was measured at another
-    setting of it (#866).
-
-    `repriced` is how `price` was re-priced for a resized list, when it was
-    (`plan_pricing._repricing`): `scaled` then names the row's own minutes
-    and the length ratio (linear) or the per-entry rate, so the base times
-    the ratios the text names is the figure quoted (#1773)."""
+    setting of it (#866); a resized list's is `repriced`'s (#1773)."""
     if scaling is None:
         return {"minutes": None, "basis": UNKNOWN, "measured_on": None}
     factor, axes, unscaled = scaling
@@ -1090,26 +1075,13 @@ def _scaled(price, scaling, fixed=0.0, repriced=None):
     # The fixed share is paid once however far the drivers moved (#1224)
     fixed = min(fixed, price["minutes"])
     note = f" ({_shown(fixed)} min of it fixed)" if fixed else ""
-    base = price["minutes"]
-    if repriced is not None:
-        row, name = repriced["minutes"], repriced["name"]
-        count, measured_with = repriced["count"], repriced["measured_with"]
-        each = repriced.get("each")
-        if each is None:
-            # Linear in the length: the row's minutes times the length ratio
-            base = row
-            axes = [f"{name} {_shown(count)} vs {_shown(measured_with)}"] + list(axes)
-        else:
-            note = (
-                f" ({_shown(row)} min at {_shown(measured_with)} {name}, "
-                f"{_shown(each)} min per entry to {_shown(count)}){note}"
-            )
+    base, lead_note, lead = repriced or (price["minutes"], "", [])
     return {
         **price,
         "minutes": fixed + (price["minutes"] - fixed) * factor,
         "basis": basis,
-        "scaled": f"scaled from the curated {_shown(base)} min{note}: "
-        + ", ".join(axes),
+        "scaled": f"scaled from the curated {_shown(base)} min{lead_note}{note}: "
+        + ", ".join(lead + list(axes)),
     }
 
 
