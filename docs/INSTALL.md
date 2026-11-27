@@ -50,7 +50,7 @@ The script's own options:
 | macOS, Linux | Windows | Meaning |
 | --- | --- | --- |
 | `--torch-index URL` | `-TorchIndex URL` | Where torch comes from: an index URL, `pypi`, `cpu` or `cu130` (the short names expand to `https://download.pytorch.org/whl/cpu` and `.../cu130`). Skips the detection below and is recorded |
-| `--version X` | `-Version X` | Install dw `X` from PyPI instead of the newest release |
+| `--version X` | `-Version X` | Install dw `X` from PyPI instead of the script's default. The default is the release the script was attached to: one fetched from `releases/download/vX/` installs `X`, one from `releases/latest/download/` installs the latest release (the release job stamps its version into the copies it attaches; the repo copy, unstamped, installs the newest on PyPI). `DW_BOOTSTRAP_WHEEL` overrides both |
 
 `DW_INSTALL_ROOT` moves the install root (below).
 

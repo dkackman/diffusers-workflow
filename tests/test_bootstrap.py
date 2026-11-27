@@ -9,6 +9,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -73,7 +74,13 @@ def run_bootstrap(tmp_path):
     root = tmp_path / "root"
 
     def run(
-        driver_cuda=None, args=(), system="Linux", sha=SHA, root_dir=root, env=None
+        driver_cuda=None,
+        args=(),
+        system="Linux",
+        sha=SHA,
+        root_dir=root,
+        env=None,
+        script=SCRIPTS / "bootstrap.sh",
     ):
         bin_dir = _fakes(tmp_path, driver_cuda, system, sha)
         home = tmp_path / "home"
@@ -87,7 +94,7 @@ def run_bootstrap(tmp_path):
             **(env or {}),
         }
         result = subprocess.run(
-            [BASH, str(SCRIPTS / "bootstrap.sh"), *args],
+            [BASH, str(script), *args],
             env=full_env,
             capture_output=True,
             text=True,
@@ -183,6 +190,36 @@ def test_version_and_wheel_choose_the_requirement(run_bootstrap):
         "/tmp/dw-1.0-py3-none-any.whl[server,mcp]" in wheel
         and "diffusers-workflow[" not in wheel
     )
+
+
+@needs_bash
+def test_a_release_stamped_script_installs_its_release(run_bootstrap, tmp_path):
+    """The release job's stamp (scripts/stamp_bootstrap.py) on a copy: that copy
+    installs its own version, and --version and DW_BOOTSTRAP_WHEEL still win."""
+    stamped = tmp_path / "bootstrap.sh"
+    shutil.copy(SCRIPTS / "bootstrap.sh", stamped)
+    shutil.copy(SCRIPTS / "bootstrap.ps1", tmp_path / "bootstrap.ps1")
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(REPO / "scripts" / "stamp_bootstrap.py"),
+            "4.5.6",
+            str(stamped),
+            str(tmp_path / "bootstrap.ps1"),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "diffusers-workflow[server,mcp]==4.5.6" in run_bootstrap(script=stamped).text
+    assert (
+        "diffusers-workflow[server,mcp]==1.2.3"
+        in run_bootstrap(script=stamped, args=["--version", "1.2.3"]).text
+    )
+    wheel = run_bootstrap(
+        script=stamped, env={"DW_BOOTSTRAP_WHEEL": "/tmp/dw-1.0-py3-none-any.whl"}
+    ).text
+    assert "diffusers-workflow[" not in wheel
 
 
 @needs_bash

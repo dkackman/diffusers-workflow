@@ -7,8 +7,9 @@ import re
 import subprocess
 import sys
 import tomllib
-
 from pathlib import Path
+
+import pytest
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -105,11 +106,53 @@ def test_the_stage_without_lock_runs_nothing(tmp_path, monkeypatch):
     assert calls == []
 
 
-def test_pack_and_unpack_name_the_pinned_packer():
+def test_pack_and_unpack_name_the_pinned_packer(tmp_path, monkeypatch):
+    """The root package.json pins mcpb exactly, its lock agrees, and pack and
+    unpack run the binary `npm ci` installs: no `npx -y` resolve at build time."""
+    package = json.loads((REPO / "package.json").read_text())
+    assert package["private"] is True
+    assert "scripts" not in package
+    pin = package["devDependencies"]["@anthropic-ai/mcpb"]
+    assert re.fullmatch(r"\d+\.\d+\.\d+", pin), "an exact version, no range"
+    lock = json.loads((REPO / "package-lock.json").read_text())
+    assert lock["packages"][""]["devDependencies"] == package["devDependencies"]
+    locked = lock["packages"]["node_modules/@anthropic-ai/mcpb"]
+    assert locked["version"] == pin
+    assert locked["integrity"].startswith("sha512-")
+    # Every transitive package is locked to a resolved tarball and hash
+    for name, entry in lock["packages"].items():
+        if name:
+            assert entry.get("integrity"), name
+
     script = _script()
-    assert re.fullmatch(r"@anthropic-ai/mcpb@\d+\.\d+\.\d+", script.MCPB_PACKAGE)
+    binary = tmp_path / "node_modules" / ".bin" / "mcpb"
+    binary.parent.mkdir(parents=True)
+    binary.write_text("")
+    monkeypatch.setattr(script, "MCPB_BIN", binary)
     for verb in ("pack", "unpack"):
-        assert script.MCPB_PACKAGE in script.mcpb_command(verb, "a", "b")
+        assert script.mcpb_command(verb, "a", "b") == [str(binary), verb, "a", "b"]
+    assert _script().MCPB_BIN == REPO / "node_modules" / ".bin" / "mcpb"
+    source = (REPO / "scripts" / "build_mcpb.py").read_text()
+    assert "npx" not in source
+
+
+def test_a_missing_packer_says_to_run_npm_ci(tmp_path, monkeypatch):
+    script = _script()
+    monkeypatch.setattr(script, "MCPB_BIN", tmp_path / "node_modules" / ".bin" / "mcpb")
+    monkeypatch.setattr(script, "REPO", tmp_path)
+    with pytest.raises(SystemExit, match="run `npm ci` at the repo root"):
+        script.mcpb_command("pack", "a", "b")
+
+
+def test_the_wheel_job_installs_the_root_lock():
+    ci = (REPO / ".github" / "workflows" / "ci.yml").read_text()
+    wheel = ci[ci.index("\n  wheel:") : ci.index("\n  release:")]
+    assert re.search(
+        r"cache-dependency-path: \|\n\s+ui/package-lock.json\n\s+package-lock.json\n",
+        wheel,
+    )
+    assert re.search(r"\n      - run: npm ci\n", wheel)
+    assert wheel.index("- run: npm ci") < wheel.index("scripts/build_mcpb.py --out")
 
 
 def test_ci_pins_the_publisher_and_verifies_it():

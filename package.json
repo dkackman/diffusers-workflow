@@ -1,0 +1,8 @@
+{
+  "name": "diffusers-workflow",
+  "private": true,
+  "description": "Build-time tools only: the pinned .mcpb packer that scripts/build_mcpb.py runs",
+  "devDependencies": {
+    "@anthropic-ai/mcpb": "2.1.2"
+  }
+}

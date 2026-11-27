@@ -179,11 +179,15 @@ jobs:
         with:
           node-version-file: ui/.nvmrc
           cache: npm
-          cache-dependency-path: ui/package-lock.json
+          cache-dependency-path: |
+            ui/package-lock.json
+            package-lock.json
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - run: cd ui && npm ci
+      # The root lock pins the .mcpb packer that build_mcpb.py runs
+      - run: npm ci
       - run: pip install build
       - run: bash scripts/build_dist.sh
       - uses: actions/upload-artifact@v7
@@ -242,6 +246,9 @@ jobs:
       - name: Add the bootstrap scripts and checksums
         run: |
           cp dw/install_scripts/bootstrap.sh dw/install_scripts/bootstrap.ps1 dist/
+          # A script fetched from releases/download/<tag>/ installs that tag;
+          # fails unless each placeholder is stamped exactly once
+          python3 scripts/stamp_bootstrap.py "${GITHUB_REF_NAME#v}" dist/bootstrap.sh dist/bootstrap.ps1
           (cd dist && sha256sum -- * > ../SHA256SUMS)
           mv SHA256SUMS dist/
       - name: Create GitHub release
