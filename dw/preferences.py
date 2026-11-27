@@ -68,7 +68,13 @@ class PreferenceError(InvalidInputError):
     """A `preference:` path that cannot resolve: an unknown key, a bad key or
     tier name, a stale target, no target that fits, or a target that fails
     path or argument validation. The message is what validate and the run
-    both say."""
+    both say. `skipped` is the no-fit refusal's list of every target passed
+    over ([{"workflow", "reason"}]), so a reader can strike each one; it is
+    empty for every other refusal."""
+
+    def __init__(self, message, skipped=None):
+        super().__init__(message)
+        self.skipped = list(skipped or [])
 
 
 def pin_key(path, tier):
@@ -487,7 +493,8 @@ def resolve(path, tier, host, open_target, store, *, pinned=None):
         )
     raise PreferenceError(
         f"Preference '{key}' tier {tier}: no target fits this host - "
-        + "; ".join(f"{skip['workflow']}: {skip['reason']}" for skip in skipped)
+        + "; ".join(f"{skip['workflow']}: {skip['reason']}" for skip in skipped),
+        skipped=skipped,
     )
 
 
@@ -772,8 +779,9 @@ def check_draft(key, ladder, store, host, open_target, contract=None):
 
 def resolutions(key, store, host, open_target):
     """This host's pick at each tier of one key, as {tier: {"target",
-    "skipped", "notes", "line"} | {"error"}} - what `resolve` answers for
-    `preference:<key>`, a refusal as its message."""
+    "skipped", "notes", "line"} | {"error", "skipped"?}} - what `resolve`
+    answers for `preference:<key>`, a refusal as its message. A no-fit
+    refusal also carries `skipped`: every target passed over, with why."""
     answer = {}
     ladder = (store.get("preferences") or {}).get(key)
     for tier in TIERS:
@@ -784,6 +792,9 @@ def resolutions(key, store, host, open_target):
             found = resolve(path, tier, host, open_target, store)
         except Exception as e:  # noqa: BLE001 - a refusal is the answer
             answer[tier] = {"error": str(e)}
+            skipped = getattr(e, "skipped", None)
+            if isinstance(e, PreferenceError) and skipped:
+                answer[tier]["skipped"] = list(skipped)
             continue
         answer[tier] = {
             "target": found.target,

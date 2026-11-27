@@ -4965,7 +4965,7 @@ export interface components {
             notes?: string[];
             /**
              * Skipped
-             * @description Each earlier target passed over, with the reason (mps-only, ...).
+             * @description Each earlier target passed over, with the reason (mps-only, ...). With `error`, when no target fits this host: every target, each with why it was passed over.
              */
             skipped?: unknown[];
             /**
@@ -5030,7 +5030,7 @@ export interface components {
             notes?: string[];
             /**
              * Skipped
-             * @description Each earlier target passed over, with the reason.
+             * @description Each earlier target passed over, with the reason. With `error`, when no target fits this host: every target, each with why.
              */
             skipped?: unknown[];
             /**

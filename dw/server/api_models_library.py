@@ -956,7 +956,9 @@ class PreferenceResolution(ApiModel):
 
     target: str = sometimes("The workflow this host resolves the tier to.")
     skipped: list[Any] = sometimes(
-        "Each earlier target passed over, with the reason (mps-only, ...)."
+        "Each earlier target passed over, with the reason (mps-only, ...). "
+        "With `error`, when no target fits this host: every target, each "
+        "with why it was passed over."
     )
     notes: list[str] = sometimes()
     line: str = sometimes("The line a validate plan prints for this pick.")
@@ -1047,7 +1049,10 @@ class PreferenceTierCheck(ApiModel):
     """What saving the ladder would give at one tier."""
 
     target: str = sometimes("The workflow this host would resolve the tier to.")
-    skipped: list[Any] = sometimes("Each earlier target passed over, with the reason.")
+    skipped: list[Any] = sometimes(
+        "Each earlier target passed over, with the reason. With `error`, when "
+        "no target fits this host: every target, each with why."
+    )
     notes: list[str] = sometimes()
     after: list[str] = sometimes(
         "The targets after the pick: fallbacks, not checked here."

@@ -827,3 +827,45 @@ def test_check_draft_names_a_stale_target_and_the_tier_error():
     assert "not in the catalog" in tiers["best"]["error"]
     assert "not in the catalog" in tiers["best"]["target_errors"]["gone/x"]
     assert "target" not in tiers["best"]
+
+
+def test_no_fit_carries_its_skips():
+    ladder = {"best": [{"workflow": "a", "devices": ["cuda"]}]}
+    with pytest.raises(PreferenceError) as raised:
+        resolve(ladder, {"a": definition("a")}, host=Host("mps", 18, 64))
+    assert raised.value.skipped == [{"workflow": "a", "reason": "cuda-only"}]
+
+
+def test_other_refusals_carry_no_skips():
+    with pytest.raises(PreferenceError) as raised:
+        resolve({"best": ["gone"]}, {})
+    assert raised.value.skipped == []
+
+
+def test_resolutions_answer_a_no_fit_with_its_skips():
+    ladder = {"best": [{"workflow": "qa/a", "devices": ["cuda"]}]}
+    answer = preferences.resolutions(
+        "k", store(ladder), Host("mps", 18, 64), opener(QA)
+    )
+    assert "no target fits" in answer["best"]["error"]
+    assert answer["best"]["skipped"] == [{"workflow": "qa/a", "reason": "cuda-only"}]
+    assert "target" not in answer["best"]
+
+
+def test_resolutions_answer_another_refusal_without_skips():
+    answer = preferences.resolutions("k", store({"best": ["gone/x"]}), CUDA, opener(QA))
+    assert set(answer["best"]) == {"error"}
+
+
+def test_check_draft_strikes_each_skip_of_a_no_fit():
+    ladder = {"best": [{"workflow": "qa/a", "devices": ["cuda"]}, "qa/b"]}
+    host = Host(
+        "mps",
+        18,
+        64,
+        gate_check=preferences.skip_known_blocked(lambda *a: (None, None), ["qa/b"]),
+    )
+    tiers = check_draft(ladder, host=host)
+    assert "no target fits" in tiers["best"]["error"]
+    assert [s["workflow"] for s in tiers["best"]["skipped"]] == ["qa/a", "qa/b"]
+    assert "after" not in tiers["best"]
