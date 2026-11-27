@@ -13,8 +13,7 @@ inside diffusers as `LTX2_5_T2V_DEFAULT_SYSTEM_PROMPT` and
 the [enhancer](enhance-prompt.json) runs; the stored prompts under `prompts/ltx2/` are
 written to it. Settings come from the
 [model card](https://huggingface.co/Lightricks/LTX-2.5-Diffusers) and Lightricks'
-`ltx-pipelines` notes. Audited against those sources on 2026-09-07
-([the audit](../../../docs/proposals/audits/2026-09-07-ltx-2.5-audit.md)).
+`ltx-pipelines` notes. Audited against those sources on 2026-09-07.
 
 An agent driving this family from Claude Code has the `ltx-2.5` skill of the
 [dw plugin](../../../plugins/dw/README.md), which chooses among these templates

@@ -13,8 +13,7 @@ and the diffusers pipeline source (`diffusers.modular_pipelines.minimax_h3_image
 weights are under the MiniMax-H3-Image Community License Agreement
 ([LICENSE](https://huggingface.co/MiniMaxAI/MiniMax-H3-Image/blob/main/LICENSE)): read it
 before use, since its territory and commercial terms are narrower than an open licence's.
-Audited against those sources on 2026-11-17
-([the audit](../../../docs/proposals/audits/2026-11-17-minimax-h3-image-audit.md)).
+Audited against those sources on 2026-11-17.
 The timings are from `bench/records/h3-image.md`, on an RTX 3090 with 128 GB of host RAM. They are priced on the slower of lem's two 3090s, which sits on a PCIe x4 link; this offload is bus-bound, so a card on an x16 link runs it in about half the time. A price covers a run that has just loaded its models, less the load itself: the first text encode after a load is about 10 s slower than a fully warm one, and the job's start-up and save add about 10 s more.
 
 Read them in this order and each introduces one new idea on top of the last.

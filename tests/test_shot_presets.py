@@ -152,7 +152,7 @@ def test_cost_row_is_the_guide_figure():
     # against last_frame's 9.6 (docs/proposals/complete/h3-guides-complete.md).
     definition = json.loads(TEMPLATE.read_text())
     assert [row["minutes"] for row in definition["cost"]] == [13.5]
-    assert "h3-guides-complete" in definition["description"]
+    assert "the seam A/B" in definition["description"]
 
 
 def test_cost_drivers_bucket_continuity_shot_and_anchor():

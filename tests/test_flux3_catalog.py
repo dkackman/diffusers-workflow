@@ -1,6 +1,5 @@
 """The FLUX 3 Image Klein catalog: the upsampler builtins, the templates' settings
-and their placement. The vendor values here are the ones the design states
-(docs/superpowers/specs/2026-10-15-flux-3-klein-catalog-design.md)."""
+and their placement. The vendor values here are the ones the design states."""
 
 import json
 import os
