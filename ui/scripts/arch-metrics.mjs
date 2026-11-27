@@ -173,6 +173,9 @@ export const LAYER_ALLOWS = {
   request: [],
   // SchemaNode, read by pages/SchemaPage only
   schema: [],
+  // the Server → Preferences key editor, read by pages/PreferencesPage; it
+  // shows each tier's pick with the run check's rung list
+  ladder: ['editor'],
   // test support (apiMock and its kin) - non-test sources should not import it
   test: [],
 }
@@ -230,6 +233,9 @@ export const WRITES = [
   'deleteWorkflow',
   'deletePrompt',
   'enhance',
+  'setPreference',
+  'resetPreference',
+  'setDefaultTier',
 ]
 /** api.ts's exports outside the `api` object that write: a use of one is a
  * write, as an `api.<write>` call is */

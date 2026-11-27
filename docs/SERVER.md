@@ -189,7 +189,7 @@ it (`#/ws/studio/gallery`), so a link and a reload land where they say; a
 pre-workspace bookmark (`#/gallery`) redirects to the last workspace used.
 Below the workspaces, **Shared** holds what every workspace sees - Prompts,
 the `common` Assets library and the read-only Examples - and **Server**
-holds Models, Schema and Status. The header carries the breadcrumb, a VRAM
+holds Models, Preferences, Schema and Status. The header carries the breadcrumb, a VRAM
 meter per card with a status popover (workers, queue), the API-token key
 icon, a finish-alert toggle, the theme toggle, and links to these docs and
 `/docs`. `?` lists the keyboard shortcuts.
@@ -585,6 +585,20 @@ them instead.
 
   ![The model manager: each cached repo with its size, file count and last use](img/ui-models.png)
 
+- **Preferences** (Server) - the `preference:` ladders this server resolves
+  (`GET /api/preferences?resolve=true`). Each key shows a `shipped` or
+  `server` badge and its three tiers as ordered target lists: a catalog name,
+  or one limited to devices (`cuda only`). Targets can be moved up or down,
+  removed, or added from the catalog with an optional device limit. **Save**
+  sends `PUT /api/preferences/{key}` with the key's etag as `If-Match`, and
+  the card's *On this host* list then shows the picks the answer carries.
+  **Reset to shipped** (`DELETE`) appears only on a server key. **New key**
+  checks the name as the server would (a letter or `_`, then letters,
+  numbers, `_` and `-`) before adding an unsaved card. **Default tier** writes
+  `PUT /api/preferences`. A 422 shows the server's refusal beside the key; a
+  412 (someone else wrote the key, or the default tier, since the page read
+  it) offers **Reload**, which drops the edit for the server's copy, or
+  **Overwrite**, which writes it again over that copy.
 - **Schema** (Server) - the workflow JSON schema the server validates
   against, as a browsable tree: the root and every definition, with types,
   required markers, defaults, enums and descriptions. `$ref` labels jump to

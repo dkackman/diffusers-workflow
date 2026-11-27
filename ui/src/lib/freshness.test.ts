@@ -97,6 +97,12 @@ const PAGE_TABLE: Record<string, Freshness[]> = {
   'pages/RequestPage.svelte': [{ watch: ['requests'], alsoLive: true }],
   'pages/RequestRoute.svelte': [],
   'pages/RequestsPage.svelte': [{ watch: ['requests'] }],
+  // the ladders with this host's picks (a PUT moves `workflows`; a pick
+  // reads the cards), then the catalog the add-target picker offers
+  'pages/PreferencesPage.svelte': [
+    { watch: ['workflows', 'models'] },
+    { watch: ['workflows'] },
+  ],
   'pages/SchemaPage.svelte': [{ watch: [] }],
   'pages/ServerPage.svelte': [{ watch: [] }],
   'pages/StatusPage.svelte': [],

@@ -23,7 +23,12 @@ export const SHARED_SECTIONS = [
 ] as const
 export type SharedSection = (typeof SHARED_SECTIONS)[number]
 
-export const SERVER_SECTIONS = ['models', 'schema', 'status'] as const
+export const SERVER_SECTIONS = [
+  'models',
+  'preferences',
+  'schema',
+  'status',
+] as const
 export type ServerSection = (typeof SERVER_SECTIONS)[number]
 
 /** The one set of section names: the sidebar's items and the breadcrumb
@@ -50,7 +55,12 @@ export const SECTION_LABELS: {
     assets: 'Assets',
     examples: 'Examples',
   },
-  server: { models: 'Models', schema: 'Schema', status: 'Status' },
+  server: {
+    models: 'Models',
+    preferences: 'Preferences',
+    schema: 'Schema',
+    status: 'Status',
+  },
   groups: { shared: 'Shared', server: 'Server' },
 }
 
