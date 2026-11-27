@@ -32,7 +32,9 @@ function Invoke-Step {
         return
     }
     & $Exe @StepArgs
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    # A throw, never `exit`: run as a script block, `exit` would close the
+    # PowerShell window this was typed into, and the error with it
+    if ($LASTEXITCODE -ne 0) { throw "$Exe $($StepArgs[0..1] -join ' ') failed (code $LASTEXITCODE)" }
 }
 
 if (-not $dry) { New-Item -ItemType Directory -Force -Path $root | Out-Null }
@@ -97,8 +99,30 @@ if (Test-Path $manifest) {
 if ($ourTask) {
     if ($dry) { Write-Output "+ schtasks /End /TN dw-serve" }
     else {
-        & schtasks /End /TN dw-serve 2>&1 | Out-Null
+        # Windows PowerShell 5.1 makes redirected native stderr a terminating
+        # error under Stop, and a task that is already gone writes to it
+        $ErrorActionPreference = "Continue"
+        try { & schtasks /End /TN dw-serve 2>&1 | Out-Null } catch { }
+        $ErrorActionPreference = "Stop"
         $global:LASTEXITCODE = 0
+    }
+}
+
+# --- an upgrade: nothing may still be running from the venv. Claude Desktop and
+# Claude Code run its dw-mcp.exe, which uv cannot replace; stop before anything
+# is changed. The task ended above gets a few seconds to go
+if ($existing -and -not $dry) {
+    $running = @()
+    foreach ($attempt in 1..10) {
+        $running = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
+                $_.Path -and $_.Path.StartsWith($venv, [StringComparison]::OrdinalIgnoreCase)
+            })
+        if (-not $running) { break }
+        Start-Sleep -Seconds 1
+    }
+    if ($running) {
+        $names = ($running | ForEach-Object { $_.ProcessName } | Sort-Object -Unique) -join ", "
+        throw "Still running from ${venv}: $names. Close Claude Desktop and Claude Code, then run this again."
     }
 }
 
@@ -121,10 +145,11 @@ elseif ($Version) { $req = "diffusers-workflow[server,mcp]==$Version" }
 else { $req = "diffusers-workflow[server,mcp]" }
 $installArgs = @("pip", "install", "--python", $py)
 if ($existing) { $installArgs += "-U" }
-# Both indexes weighed: uv takes a package from the first index that carries
-# it, and the PyTorch index's requests is below dw's floor
+# uv takes a package only from the first index that carries it, and the PyTorch
+# index's requests is below dw's floor. first-match goes on to PyPI only when
+# that index has no version that fits; it never lets the newest of both win
 if ($TorchIndex -ne "pypi") {
-    $installArgs += @("--extra-index-url", $TorchIndex, "--index-strategy", "unsafe-best-match")
+    $installArgs += @("--extra-index-url", $TorchIndex, "--index-strategy", "unsafe-first-match")
 }
 Invoke-Step uv ($installArgs + @("-c", $constraints, $req))
 
@@ -153,9 +178,9 @@ $dw = Join-Path $venv "Scripts\dw.exe"
 if ($dry) {
     Write-Output "+ write ${record}: {`"torch_index`": `"$TorchIndex`", `"version`": `"<installed>`", `"diffusers_commit`": $shaJson}"
     Write-Output ("+ exec $dw setup " + ($SetupArgs -join " "))
-    exit 0
+    return
 }
 $dwVersion = (& $py -c "import importlib.metadata as m; print(m.version('diffusers-workflow'))").Trim()
 Set-Content -Path $record -Value "{`"torch_index`": `"$TorchIndex`", `"version`": `"$dwVersion`", `"diffusers_commit`": $shaJson}"
 & $dw setup @SetupArgs
-exit $LASTEXITCODE
+if ($LASTEXITCODE -ne 0) { throw "dw setup failed (code $LASTEXITCODE)" }

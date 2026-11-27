@@ -351,7 +351,9 @@ says what it does.
 
 ## Updating
 
-**dw.** Re-run the one-liner. Over an existing install it keeps the recorded
+**dw.** Re-run the one-liner (on Windows, close Claude Desktop and Claude Code
+first: they run the venv's `dw-mcp.exe`, and the script stops if anything from
+the venv is still running). Over an existing install it keeps the recorded
 torch index, pins torch to the installed build, upgrades dw to the newest
 release, moves diffusers to `main`, rewrites `install.json` and re-runs
 `dw setup`, which refreshes the registered paths, rewrites the service and

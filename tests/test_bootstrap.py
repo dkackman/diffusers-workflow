@@ -6,6 +6,7 @@ would run and nothing is downloaded or installed. HOME and DW_INSTALL_ROOT point
 into tmp_path."""
 
 import json
+import re
 import os
 import shutil
 import subprocess
@@ -143,7 +144,7 @@ def test_torch_index_follows_the_driver(driver_cuda, expected, run_bootstrap):
         assert "--extra-index-url" not in dw_line
     else:
         assert f"--extra-index-url {expected}" in dw_line
-        assert "--index-strategy unsafe-best-match" in dw_line
+        assert "--index-strategy unsafe-first-match" in dw_line
 
 
 @needs_bash
@@ -374,7 +375,7 @@ def test_the_powershell_twin_follows_the_driver(driver_cuda, expected, tmp_path)
     dw_line = next(
         line for line in result.stdout.splitlines() if "diffusers-workflow[" in line
     )
-    assert ("--index-strategy unsafe-best-match" in dw_line) == (expected != "pypi")
+    assert ("--index-strategy unsafe-first-match" in dw_line) == (expected != "pypi")
     assert f"archive/{SHA}.zip" in result.stdout
 
 
@@ -415,3 +416,35 @@ def test_the_powershell_upgrade_ends_setups_task_before_pip(tmp_path):
 @pytest.mark.skipif(PWSH is None, reason="pwsh not available")
 def test_the_powershell_install_ends_no_task_setup_did_not_record(tmp_path):
     assert "schtasks" not in _pwsh_dry_run(tmp_path, tmp_path / "no-helper")
+
+
+def _ps1_code():
+    """bootstrap.ps1 without its comments."""
+    text = (SCRIPTS / "bootstrap.ps1").read_text(encoding="utf-8")
+    return "\n".join(line.split("#", 1)[0] for line in text.splitlines())
+
+
+def test_the_windows_script_never_exits_the_host():
+    """`exit` in the documented `& ([scriptblock]::Create((irm ...)))` form
+    closes the PowerShell window the user typed it into, taking setup's
+    output or the error with it. A failure throws; the end returns."""
+    assert not re.search(r"\bexit\b", _ps1_code())
+
+
+def test_the_windows_upgrade_checks_for_processes_in_the_venv_before_pip():
+    """A running dw-mcp.exe (Claude open) cannot be replaced by uv: the
+    upgrade stops first and says what to close, before anything is changed."""
+    code = _ps1_code()
+    check = code.index("Get-Process")
+    assert check < code.index('"pip", "install"')
+    assert "Close Claude Desktop and Claude Code, then run this again" in code
+
+
+def test_schtasks_end_cannot_abort_the_upgrade():
+    """Windows PowerShell 5.1 turns a native command's redirected stderr
+    into a terminating error under Stop; a task already gone must not."""
+    code = _ps1_code()
+    end = code.index("& schtasks /End")
+    relaxed = code.rindex('$ErrorActionPreference = "Continue"', 0, end)
+    assert '$ErrorActionPreference = "Stop"' not in code[relaxed:end]
+    assert '$ErrorActionPreference = "Stop"' in code[end:]
