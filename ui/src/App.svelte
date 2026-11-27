@@ -9,6 +9,7 @@
     ChevronDown,
     Keyboard,
     KeyRound,
+    ListTree,
     Menu,
     Moon,
     MonitorCog,
@@ -323,6 +324,14 @@
             aria-label="documentation on GitHub"
           >
             <BookOpen size={15} />
+          </a>
+          <a
+            class="plain helplink"
+            href="#/server/schema"
+            title="workflow schema"
+            aria-label="workflow schema"
+          >
+            <ListTree size={15} />
           </a>
           <a
             class="plain helplink"

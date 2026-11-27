@@ -8,7 +8,6 @@ import {
   LayoutDashboard,
   Layers,
   ListTodo,
-  ListTree,
   MessageSquareText,
   Server,
   SlidersHorizontal,
@@ -78,6 +77,5 @@ export const SERVER_ITEMS: {
     label: SECTION_LABELS.server.preferences,
     icon: SlidersHorizontal,
   },
-  { section: 'schema', label: SECTION_LABELS.server.schema, icon: ListTree },
   { section: 'status', label: SECTION_LABELS.server.status, icon: Server },
 ]

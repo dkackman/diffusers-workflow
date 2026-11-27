@@ -91,6 +91,12 @@ it('shared and server groups link to their sections', async () => {
   ).toBe('#/server/status')
 })
 
+it('the server group has no schema row', async () => {
+  render(Sidebar, { collapsed: false, onToggle: () => {} })
+  const nav = screen.getByRole('navigation')
+  expect(nav.querySelector('a[href="#/server/schema"]')).toBeNull()
+})
+
 it('new opens the form in its place, and closing it brings new back empty', async () => {
   render(Sidebar, { collapsed: false, onToggle: () => {} })
   await waitFor(() => expect(screen.getByText('default')).toBeTruthy())
