@@ -598,6 +598,26 @@ class TestEstimate:
         assert answer["minutes"] == 4 + 3 * 5
         assert answer["basis"] == "per_entry"
 
+    def test_a_scaled_per_entry_rate_names_the_rate(self, plan):
+        """#1773: a per_entry rate is not a ratio, so the text keeps the
+        re-priced base, says how it was reached, and scales frames per entry."""
+        spec = definition()
+        spec["cost"] = [
+            cost("cuda", 10, {"variable": "shots", "minutes": 3, "entries": 2})
+        ]
+        spec["cost_drivers"] = ["shots"]
+        spec["variables"]["shots"] = [
+            {"name": n, "prompt": n, "num_frames": 100} for n in "ab"
+        ]
+        shots = [{"name": n, "prompt": n, "num_frames": 150} for n in "abcde"]
+        answer = plan(spec, arguments={"shots": shots})["estimate"]
+        # (4 + 3 x 5) x 150/100
+        assert (answer["minutes"], answer["basis"]) == (28.5, "derived")
+        assert answer["scaled"] == (
+            "scaled from the curated 19 min (10 min at 2 shots, 3 min per entry "
+            "to 5): frames 150 vs 100 per entry over shots"
+        )
+
     def test_per_entry_floors_at_zero(self, plan):
         spec = definition()
         spec["cost"] = [
@@ -809,8 +829,10 @@ class TestEstimate:
         moved = plan(spec, arguments={"shots": long})["estimate"]
         # 4 min x 10/5 shots x (1461/10)/(620/5) frames per shot
         assert (moved["minutes"], moved["basis"]) == (23.6, "derived")
+        # 10 x 10/5 x 146.1/124: base x the ratios named is the figure (#1773)
         assert moved["scaled"] == (
-            "scaled from the curated 20 min: frames 1461 vs 620 over shots"
+            "scaled from the curated 10 min: shots 10 vs 5, "
+            "frames 146.1 vs 124 per entry over shots"
         )
 
     def test_position_fields_do_not_block_a_derived_figure(self, plan):
@@ -1213,7 +1235,9 @@ class TestDriverScaling:
         answer = plan(scalable(), arguments=arguments)["estimate"]
         # 10 x 4/2 shots x 18/9 steps
         assert (answer["minutes"], answer["basis"]) == (40.0, "derived")
-        assert answer["scaled"] == "scaled from the curated 20 min: steps 18 vs 9"
+        assert answer["scaled"] == (
+            "scaled from the curated 10 min: shots 4 vs 2, steps 18 vs 9"
+        )
 
     def test_a_non_numeric_value_stays_unknown(self, plan):
         # A text default keeps a text argument as text; an int one would
@@ -1347,6 +1371,40 @@ class TestTheCatalogTemplatesScale:
         assert answer["scaled"] == (
             "scaled from the curated 21.2 min: frames 705 vs 637 over shots"
         )
+
+    @pytest.mark.parametrize(
+        "frames, minutes, scaled",
+        [
+            # C-F1298 step 4: 21.2 x 1/5 x 12/9 x 175/127.4
+            (
+                [175],
+                7.8,
+                "scaled from the curated 21.2 min: shots 1 vs 5, steps 12 vs 9, "
+                "frames 175 vs 127.4 per entry over shots",
+            ),
+            # 21.2 x 2/5 x 12/9 x 149.5/127.4
+            (
+                [175, 124],
+                13.3,
+                "scaled from the curated 21.2 min: shots 2 vs 5, steps 12 vs 9, "
+                "frames 149.5 vs 127.4 per entry over shots",
+            ),
+        ],
+    )
+    def test_fewer_shots_name_the_rows_own_minutes(self, plan, frames, minutes, scaled):
+        """#1773: the text named 21.2 already re-priced to 4.2 for one shot,
+        then a summed frames ratio on top, so base x ratios read 1.5, not
+        the 7.8 quoted. It names the row, the length and the per-shot mean."""
+        template = self.load(CATALOG_DIALOGUE)
+        defaults = template["variables"]["shots"]
+        shots = [dict(defaults[i], num_frames=n) for i, n in enumerate(frames)]
+        arguments = {"num_inference_steps": 12, "shots": shots}
+        answer = plan(template, arguments=arguments)["estimate"]
+        assert answer["scaled"].startswith(scaled)
+        assert answer["minutes"] == minutes
+        # The text's own arithmetic is the figure it explains
+        product = 21.2 * len(frames) / 5 * 12 / 9 * (sum(frames) / len(frames)) / 127.4
+        assert round(product, 1) == minutes
 
 
 class TestUnscalableDrivers:

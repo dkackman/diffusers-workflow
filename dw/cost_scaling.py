@@ -252,11 +252,19 @@ def _list_frames_scaling(
     if was == now:
         return 1.0, None
     factor = now / was
+    label = "frames" if field == FRAMES_DRIVER else field
     if name in list_entries:
         factor = (now / len(running)) / (was / len(measured))
         if math.isclose(factor, 1.0):
             return 1.0, None
-    label = "frames" if field == FRAMES_DRIVER else field
+        if len(running) != len(measured):
+            # The length is its own ratio (`_scaled`'s `repriced`), so the
+            # text names the per-entry means this factor is (#1773)
+            now, was = now / len(running), was / len(measured)
+            return (
+                factor,
+                f"{label} {_shown(now)} vs {_shown(was)} per entry over {name}",
+            )
     return factor, f"{label} {_shown(now)} vs {_shown(was)} over {name}"
 
 
@@ -1056,14 +1064,19 @@ def fixed_share(definition, device):
     return min(1.0, fixed / total)
 
 
-def _scaled(price, scaling, fixed=0.0):
+def _scaled(price, scaling, fixed=0.0, repriced=None):
     """`price` scaled by a `_driver_scaling` answer (`fixed` minutes of it,
     the entry's `fixed_minutes`, stay as they are): `derived` once any axis
     moved (another device's figure stays `other_device`, as `_price` keeps it
     for a resized list - #589), with `scaled` saying from what. A driver with
     no rule to scale by that moved leaves the basis alone, and is named in
     `differs` with `low_confidence` set: the figure was measured at another
-    setting of it (#866)."""
+    setting of it (#866).
+
+    `repriced` is how `price` was re-priced for a resized list, when it was
+    (`plan_pricing._repricing`): `scaled` then names the row's own minutes
+    and the length ratio (linear) or the per-entry rate, so the base times
+    the ratios the text names is the figure quoted (#1773)."""
     if scaling is None:
         return {"minutes": None, "basis": UNKNOWN, "measured_on": None}
     factor, axes, unscaled = scaling
@@ -1077,11 +1090,25 @@ def _scaled(price, scaling, fixed=0.0):
     # The fixed share is paid once however far the drivers moved (#1224)
     fixed = min(fixed, price["minutes"])
     note = f" ({_shown(fixed)} min of it fixed)" if fixed else ""
+    base = price["minutes"]
+    if repriced is not None:
+        row, name = repriced["minutes"], repriced["name"]
+        count, measured_with = repriced["count"], repriced["measured_with"]
+        each = repriced.get("each")
+        if each is None:
+            # Linear in the length: the row's minutes times the length ratio
+            base = row
+            axes = [f"{name} {_shown(count)} vs {_shown(measured_with)}"] + list(axes)
+        else:
+            note = (
+                f" ({_shown(row)} min at {_shown(measured_with)} {name}, "
+                f"{_shown(each)} min per entry to {_shown(count)}){note}"
+            )
     return {
         **price,
         "minutes": fixed + (price["minutes"] - fixed) * factor,
         "basis": basis,
-        "scaled": f"scaled from the curated {_shown(price['minutes'])} min{note}: "
+        "scaled": f"scaled from the curated {_shown(base)} min{note}: "
         + ", ".join(axes),
     }
 
