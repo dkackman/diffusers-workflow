@@ -108,21 +108,30 @@ def test_host_ram_from_a_tier_variable_is_read_with_the_arguments():
     assert "200 GB" in found.skipped[0]["reason"]
 
 
-def test_vram_skip_against_smallest_card():
-    big = definition("a", cost=[{"device": "cuda", "vram_gb": 40, "minutes": 1}])
+def test_a_soft_figure_does_not_skip():
+    """A `cost` row's card is where it was measured, not a floor."""
+    big = definition("a", cost=[{"device": "cuda", "vram_gb": 24, "minutes": 1}])
     catalog = {"a": big, "b": definition("b")}
-    found = resolve({"best": ["a", "b"]}, catalog, host=Host("cuda", 24, 128))
-    assert found.target == "b"
-    assert "40 GB VRAM on cuda" in found.skipped[0]["reason"]
+    found = resolve({"best": ["a", "b"]}, catalog, host=Host("cuda", 12, 64))
+    assert found.target == "a"
+    assert found.skipped == []
 
 
-def test_vram_cost_on_a_numbered_card_counts():
+def test_a_soft_figure_over_the_card_is_a_note():
+    big = definition("a", cost=[{"device": "cuda", "vram_gb": 24, "minutes": 1}])
+    found = resolve({"best": ["a"]}, {"a": big}, host=Host("cuda", 12, 64))
+    assert found.notes == [
+        "measured on a 24 GB card; this one has 12 GB, so the fit is not checked"
+    ]
+    fits = resolve({"best": ["a"]}, {"a": big}, host=Host("cuda", 24, 64))
+    assert fits.notes == []
+
+
+def test_a_soft_figure_on_a_numbered_card_is_read():
     """`cuda:0` is a cuda entry: the dispatcher's figure splits the ordinal."""
     big = definition("a", cost=[{"device": "cuda:0", "vram_gb": 40, "minutes": 1}])
-    catalog = {"a": big, "b": definition("b")}
-    found = resolve({"best": ["a", "b"]}, catalog, host=Host("cuda", 24, 128))
-    assert found.target == "b"
-    assert "40 GB VRAM on cuda" in found.skipped[0]["reason"]
+    found = resolve({"best": ["a"]}, {"a": big}, host=Host("cuda", 24, 128))
+    assert "measured on a 40 GB card" in found.notes[0]
 
 
 def test_declared_vram_estimate_is_the_figure():
@@ -193,14 +202,13 @@ def test_stale_targets_are_all_named():
 
 def test_no_fit_names_every_skip():
     ladder = {"best": [{"workflow": "a", "devices": ["cuda"]}, "b"]}
-    heavy = definition("b", cost=[{"device": "mps", "vram_gb": 90, "minutes": 1}])
-    catalog = {"a": definition("a"), "b": heavy}
+    catalog = {"a": definition("a"), "b": definition("b", host_ram_gb=200)}
     with pytest.raises(PreferenceError) as raised:
         resolve(ladder, catalog, host=Host("mps", 18, 64))
     message = str(raised.value)
     assert "no target fits" in message
     assert "a: cuda-only" in message
-    assert "b: needs 90 GB VRAM on mps" in message
+    assert "b: host RAM" in message
 
 
 def test_unknown_key_names_known_keys():
@@ -450,8 +458,7 @@ def test_step_arguments_merge_over_target_over_defaults(tmp_path, cuda_session):
 
 
 def test_rung_skips_cuda_only_target_on_mps(tmp_path):
-    # 54 GB: the card qwen-image-2.1's mps `cost` was measured on (#1712);
-    # a smaller card would skip qwen on that row's VRAM as well
+    # 54 GB: the card qwen-image-2.1's mps `cost` was measured on (#1712)
     session = preferences.Session(host=Host("mps", 54, 64))
     token = preferences.activate(session)
     try:

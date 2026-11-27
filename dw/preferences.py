@@ -24,12 +24,13 @@ A target is a catalog name or `{"workflow": name, "arguments": {...},
 "devices": [...]}`. It is skipped, with its reason, when its `devices` list
 leaves out `get_device_type()`, its declared `host_ram_gb` (with the gate's
 margin) is more than this host's RAM (`host_ram_declared.host_too_small`, the
-verdict admission refuses on), the VRAM it needs on this device type
-(`vram_estimate.required_vram_gb`, the figure dispatch holds a card to) is
-more than the smallest card, or it is gated and this host has no access. Not
-downloaded is a note, not a skip; a target with no `vram_estimate` and no
-`cost` entry for this device is not skipped. No fit refuses - a resolution
-never drops to another tier.
+verdict admission refuses on), its declared `vram_estimate` on this device
+type (`vram_estimate.required_vram_gb`, the hard figure dispatch holds a card
+to) is more than the smallest card, or it is gated and this host has no
+access. Not downloaded is a note, not a skip, and so is a `cost` row measured
+on a bigger card than this one: that figure says where the catalog was
+measured, not what the target needs. No fit refuses - a resolution never
+drops to another tier.
 
 The tier comes from the composing step's `tier` argument, else the enclosing
 workflow's folded `tier` variable (walking up the composition chain), else
@@ -328,12 +329,13 @@ def _target(entry, key, tier):
 
 
 def card_need_gb(definition, arguments, device_type, child=None):
-    """What a card must hold for a target on `device_type`, in GB, or None
-    when nothing says (no `vram_estimate` and no `cost` entry for this
-    device: not skipped, there is no figure). The figure is the dispatcher's
-    own (`vram_estimate.required_vram_gb`), read off the target's expanded
+    """What a card must hold for a target on `device_type`, as `(gb, hard)`,
+    or None when nothing says (no `vram_estimate` and no `cost` entry for
+    this device). The figure is the dispatcher's own
+    (`vram_estimate.required_vram_gb`), read off the target's expanded
     definition with its arguments, so a target the fit passes is one the
-    pool admits."""
+    pool admits: a declared `vram_estimate` is hard, a `cost` row's card is
+    only where the catalog was measured."""
     from .vram_estimate import required_vram_gb
 
     expanded = definition
@@ -344,8 +346,29 @@ def card_need_gb(definition, arguments, device_type, child=None):
             base_dir = os.path.dirname(child.file_spec)
         except Exception:  # an unexpandable target is refused elsewhere
             expanded = definition
-    need = required_vram_gb(expanded, arguments, device_type, base_dir)
-    return need[0] if need else None
+    return required_vram_gb(expanded, arguments, device_type, base_dir)
+
+
+def _over_card(definition, arguments, host, child):
+    """The `(gb, hard)` figure of a target that asks for more than `host`'s
+    smallest card, or None."""
+    device = host.device_type
+    need = card_need_gb(definition, arguments, device, child) if device else None
+    if need and host.smallest_card_gb and need[0] > host.smallest_card_gb:
+        return need
+    return None
+
+
+def unchecked_fit_note(definition, arguments, host, child=None):
+    """What to say of a target chosen on a card smaller than the one its
+    `cost` was measured on, or None: a soft figure never skips."""
+    over = _over_card(definition, arguments, host, child)
+    if over is None or over[1]:
+        return None
+    return (
+        f"measured on a {over[0]:g} GB card; this one has "
+        f"{host.smallest_card_gb:.0f} GB, so the fit is not checked"
+    )
 
 
 def skip_reason(definition, arguments, devices, host, child=None):
@@ -363,10 +386,10 @@ def skip_reason(definition, arguments, devices, host, child=None):
         too_small = None
     if too_small:
         return f"host RAM: {too_small}"
-    need = card_need_gb(definition, arguments, device, child) if device else None
-    if need is not None and host.smallest_card_gb and need > host.smallest_card_gb:
+    over = _over_card(definition, arguments, host, child)
+    if over is not None and over[1]:
         return (
-            f"needs {need:g} GB VRAM on {device}, the smallest card has "
+            f"needs {over[0]:g} GB VRAM on {device}, the smallest card has "
             f"{host.smallest_card_gb:.0f} GB"
         )
     return None
@@ -485,6 +508,9 @@ def resolve(path, tier, host, open_target, store, *, pinned=None):
         if reason is not None:
             skipped.append({"workflow": name, "reason": reason})
             continue
+        unchecked = unchecked_fit_note(definition, arguments, host, child)
+        if unchecked:
+            notes.append(unchecked)
         return Resolution(
             path=path,
             tier=tier,

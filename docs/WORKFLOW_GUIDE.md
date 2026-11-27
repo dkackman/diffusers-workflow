@@ -1131,13 +1131,13 @@ shipped key.
   resolved target declares a `tier` variable.
 - **Fit**: the first target that fits the host runs. A target is skipped when
   its `devices` exclude the host, its declared `host_ram_gb` plus the host-RAM
-  gate's margin exceeds the host's RAM (the verdict admission refuses on), the
-  VRAM it needs on this device type exceeds the smallest card (its
-  `vram_estimate` when it declares one, else its smallest `cost` entry for this
-  device, `cuda:0` counting as `cuda`: the figure dispatch uses), or it is a
-  gated repo the server has no access to. A model not yet downloaded is only a
-  note, and a target with neither a `vram_estimate` nor a `cost` entry for this
-  device is not skipped.
+  gate's margin exceeds the host's RAM (the verdict admission refuses on), its
+  declared `vram_estimate` on this device type exceeds the smallest card, or it
+  is a gated repo the server has no access to. A model not yet downloaded is
+  only a note. So is a `cost` entry measured on a bigger card than this one
+  (`cuda:0` counting as `cuda`): it says where the catalog was measured, not
+  what the target needs, so the target still runs and the note says the fit is
+  not checked.
 - **Arguments**: the step's arguments over the target entry's `arguments` over
   the child's defaults.
 - **Where it resolves**: right after expansion, so validation, the plan,
