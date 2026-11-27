@@ -29,7 +29,7 @@
     suggestions.find((s) => s.name === key)?.hint ?? ''
 
   function update(key: string, raw: string) {
-    if (args) args[key] = commitArgument(undefined, raw, args[key])
+    if (args) args[key] = commitArgument(undefined, raw, args[key], key)
   }
 
   function add(key: string) {

@@ -181,7 +181,9 @@ def _cut_among_holds(d, cut, held):
     if not around or numpy.nanmedian(d[around]) >= HELD_EPSILON:
         return True
     moved = [d[i] for i in around if i not in set(held) and d[i] >= HELD_EPSILON]
-    return bool(moved) and d[cut] >= CUT_SPIKE * float(numpy.median(moved))
+    # No neighbour moved at all (two still shots): nothing to hold the cut
+    # against, so it stands
+    return not moved or d[cut] >= CUT_SPIKE * float(numpy.median(moved))
 
 
 def held_frames_answer(media, records, source, detail=False):

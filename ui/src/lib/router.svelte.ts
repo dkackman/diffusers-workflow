@@ -126,12 +126,13 @@ const boxes = new Set<{
   sync: () => void
 }>()
 
-// One listener for every box: a browser runs microtasks between listeners, so
-// with one each, the first box's write effect flushed before the next box had
-// read the new hash, and wrote that box's old value back into it
-window.addEventListener('hashchange', () => {
+// One listener for every box (registered at the foot of the module, after the
+// router's own): a browser runs microtasks between listeners, so with one
+// each, the first box's write effect flushed before the next box had read
+// the new hash, and wrote that box's old value back into it
+const syncBoxes = () => {
   for (const box of boxes) box.sync()
-})
+}
 
 /** A list's filter kept in the hash's query under `key`, so opening an item
  * and pressing Back - or sharing the link - keeps the narrowed view. Writing
@@ -589,3 +590,9 @@ export function goWs(section: WsSection, ...rest: string[]) {
 }
 
 setRouteReplacer(replaceRoute)
+
+// Last of the module's hashchange listeners, so the router has settled the
+// move before a box reset by the new hash writes it: a write in the turn
+// between the two would commit the hash under the router, which would then
+// see nothing to settle and ask no leave guard
+window.addEventListener('hashchange', syncBoxes)

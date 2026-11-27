@@ -163,7 +163,11 @@ def _run_commands():
             torch_index_from_record(),
             constraints_dir,
         )
-        result = run_commands(installs)
+        try:
+            result = run_commands(installs)
+        except Exception as e:  # a later step hung after dw was replaced
+            e.partial = getattr(e, "ran", 0) >= 1
+            raise
     if result.returncode != 0:
         # A later step failed after dw itself was replaced on disk
         result.partial = getattr(result, "ran", 1) > 1
@@ -232,7 +236,9 @@ class DwUpdater:
         already has and this process has not restarted - a worker spawned
         then would import the new engine under the old server."""
         with self._lock:
-            if self._state["status"] == "running":
+            # succeeded too: the restart is a moment away, and a job let in
+            # before it would hold it back
+            if self._state["status"] in ("running", "succeeded"):
                 return (
                     "dw is updating and the server will restart - submit this "
                     "job again once it is back"
@@ -287,6 +293,9 @@ class DwUpdater:
                 logger.error(f"dw update failed: {tail}")
         except Exception as e:  # pip timeout, missing interpreter, ...
             with self._lock:
+                self._restart_required = self._restart_required or getattr(
+                    e, "partial", False
+                )
                 self._state = {"status": "failed", "error": str(e), "log": None}
             logger.error(f"dw update failed: {e}")
         if ok:

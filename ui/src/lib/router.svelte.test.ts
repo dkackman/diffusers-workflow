@@ -592,6 +592,32 @@ it('a hash with no query resets every box, one listener at a time', async () => 
   expect(location.hash).toBe('#/ws/studio/gallery')
 })
 
+it('the router settles a replace before the boxes write, one listener at a time', async () => {
+  // The boxes' shared listener must run after the router's own. Before it,
+  // a box reset by the new hash writes the hash in the microtask turn
+  // between the two, the router finds the hash already committed, and the
+  // route never moves (a missing workspace's link with a filter stayed put)
+  const { hashState, codec, route, replaceRoute } = await loadRouter()
+  await go('#/ws/studio/gallery?starred=1')
+  const box = await boxes(() => ({
+    starred: hashState('starred', false, codec.flag),
+  }))
+  expect(box.starred.value).toBe(true)
+  replaceRoute('#/ws/studio/jobs')
+  for (const [type, listener] of [...listeners]) {
+    if (type !== 'hashchange') continue
+    const event = new HashChangeEvent('hashchange')
+    if (typeof listener === 'function') listener(event)
+    else listener.handleEvent(event)
+    await Promise.resolve()
+    await Promise.resolve()
+    settleBoxes()
+  }
+  await flush()
+  expect(route.view).toMatchObject({ section: 'jobs' })
+  expect(box.starred.value).toBe(false)
+})
+
 it('a list is written with a plain comma', async () => {
   const { hashState, codec } = await loadRouter()
   await go('#/ws/studio/gallery')

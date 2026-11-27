@@ -211,23 +211,29 @@ describe('adding a discovered argument', () => {
 })
 
 describe('a braced value', () => {
-  it('stays braced when its text is replaced', () => {
+  it('under a type key stays braced when its text is replaced', () => {
     // Add wrote `{pil}` so the engine keeps it a string; typing over it must
     // not leave a bare word the engine loads as a type, after validation
-    expect(commitArgument(undefined, 'latent', '{pil}')).toBe('{latent}')
-    expect(commitArgument(undefined, '{latent}', '{pil}')).toBe('{latent}')
+    const commit = (raw: string, previous: unknown, key = 'output_type') =>
+      commitArgument(undefined, raw, previous, key)
+    expect(commit('latent', '{pil}')).toBe('{latent}')
+    expect(commit('{latent}', '{pil}')).toBe('{latent}')
+    expect(commit('nf4', '{int8}', 'quantization_dtype')).toBe('{nf4}')
+    // left as typed: an unbraced type, a dotted type, a reference, a blank
+    expect(commit('torch.float32', 'torch.float16', 'torch_dtype')).toBe(
+      'torch.float32',
+    )
+    expect(commit('torch.float32', '{pil}')).toBe('torch.float32')
+    expect(commit('variable:kind', '{pil}')).toBe('variable:kind')
+    expect(commit('', '{pil}')).toBe('')
   })
 
-  it('an unbraced type, a reference and an emptied field are left as typed', () => {
-    expect(commitArgument(undefined, 'torch.float32', 'torch.float16')).toBe(
-      'torch.float32',
+  it('under any other key is only text', () => {
+    // the engine strips braces under type keys alone: a prompt that was
+    // `{x}` and becomes `a red fox` must not be sent as `{a red fox}`
+    expect(commitArgument(undefined, 'a red fox', '{x}', 'prompt')).toBe(
+      'a red fox',
     )
-    expect(commitArgument(undefined, 'variable:kind', '{pil}')).toBe(
-      'variable:kind',
-    )
-    expect(commitArgument(undefined, 'torch.float32', '{pil}')).toBe(
-      'torch.float32',
-    )
-    expect(commitArgument(undefined, '', '{pil}')).toBe('')
+    expect(commitArgument(undefined, 'fox', '{x}')).toBe('fox')
   })
 })

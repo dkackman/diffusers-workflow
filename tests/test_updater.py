@@ -4,6 +4,7 @@ states) is covered in tests/test_server.py::TestDiffusersUpdate; these tests
 stay below the FastAPI layer and never spawn a real pip subprocess."""
 
 import json
+import subprocess
 import sys
 from types import SimpleNamespace
 
@@ -311,3 +312,22 @@ class TestRunCommands:
 
     def test_no_commands_succeed(self):
         assert updater.run_commands([]).returncode == 0
+
+
+def test_run_commands_says_how_many_finished_before_one_raised(monkeypatch):
+    """A caller that must know whether an earlier step landed (dw's own
+    update) reads `ran` off the error."""
+    from dw.server import updater
+
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        if len(calls) == 2:
+            raise subprocess.TimeoutExpired(command, 1)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(updater.subprocess, "run", run)
+    with pytest.raises(subprocess.TimeoutExpired) as raised:
+        updater.run_commands([["a"], ["b"], ["c"]])
+    assert raised.value.ran == 1

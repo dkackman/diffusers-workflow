@@ -94,7 +94,7 @@
 
   function update(key: string, raw: string) {
     const previous = args?.[key]
-    write(key, commitArgument(parameters.get(key), raw, previous))
+    write(key, commitArgument(parameters.get(key), raw, previous, key))
     if (!description) holdEarly(key, raw, previous)
   }
 
@@ -123,7 +123,7 @@
     for (const [key, { held, raw, written, original }] of early) {
       const parameter = found.parameters.find((p) => p.name === key)
       if (parameter && held[key] === written) {
-        held[key] = commitArgument(parameter, raw, original)
+        held[key] = commitArgument(parameter, raw, original, key)
       }
     }
     early.clear()

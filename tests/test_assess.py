@@ -1458,6 +1458,26 @@ class TestHeldFrames:
         assert timed["clusters"][0]["start"] == round(2 / 12, 3)
         assert timed["clusters"][0]["first_frame"] == 2
 
+    def test_a_cut_between_two_quiet_shots_stands(self):
+        """Two near-still shots (an animatic, a locked-off take): no neighbour
+        moved, so there is nothing to hold the cut against, and it stands. Its
+        neighbours are the cut's own, not holds for a refill to morph across."""
+        from dw.tasks.assess import frames_media
+        from dw.tasks.held_frames import held_measure
+
+        rng = numpy.random.default_rng(0)
+        first = rng.integers(0, 255, (64, 64, 3), dtype=numpy.uint8)
+        second = rng.integers(0, 255, (64, 64, 3), dtype=numpy.uint8)
+        frames = []
+        for i in range(24):
+            frame = (first if i < 12 else second).copy()
+            frame[i % 64, :8] = 255 - frame[i % 64, :8]  # one row changes
+            frames.append(frame)
+        _d, held, cuts = held_measure(frames_media(numpy.stack(frames)))
+
+        assert cuts == [12]
+        assert held == []
+
     def test_a_count_at_the_threshold_raises_a_file_and_cluster_finding(self):
         answer = analyze_held_frames(held_video(with_repeats(moving_grey(96))))
 

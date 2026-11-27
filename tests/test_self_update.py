@@ -2,6 +2,7 @@
 latest-release lookup and the restart exit. Nothing here runs pip, reaches the
 network or stops the test process."""
 
+import subprocess
 import sys
 import threading
 import time
@@ -107,6 +108,19 @@ class TestRunCommands:
         monkeypatch.setattr(self_update, "run_commands", second_fails)
         assert self_update._run_commands().partial is True
         monkeypatch.setattr(self_update, "run_commands", real)
+
+    def test_an_install_that_raises_after_the_first_is_partial(self, monkeypatch):
+        self.wire(monkeypatch, [])
+
+        def raises(commands):
+            error = subprocess.TimeoutExpired(commands[-1], 1)
+            error.ran = 1  # the dw step finished before this one hung
+            raise error
+
+        monkeypatch.setattr(self_update, "run_commands", raises)
+        with pytest.raises(subprocess.TimeoutExpired) as raised:
+            self_update._run_commands()
+        assert raised.value.partial is True
 
     def test_a_failed_refresh_still_succeeds_and_says_so(self, monkeypatch, caplog):
         self.wire(monkeypatch, [0, 1])
@@ -262,6 +276,33 @@ class TestDwUpdater:
         assert state["status"] == "failed" and codes == []
         assert "restart dw-serve" in state["error"]
         assert "partly updated" in updater.submission_refusal()
+
+    def test_a_step_that_raises_after_the_dw_step_still_refuses_jobs(self):
+        """A timeout on the diffusers archive, say: the dw step had landed."""
+
+        def run():
+            error = subprocess.TimeoutExpired(["pip"], 1)
+            error.partial = True
+            raise error
+
+        updater = DwUpdater(run_fn=run, exit_fn=lambda code: None, delay=0)
+        updater.start()
+        updater.join()
+        assert updater.status()["status"] == "failed"
+        assert "partly updated" in updater.submission_refusal()
+
+    def test_a_finished_update_refuses_jobs_until_the_restart(self):
+        """No gap between pip finishing and the exit: a job let in there
+        would hold the restart back and leave every later job refused."""
+        asked = []
+
+        def exit_fn(code):
+            asked.append(updater.submission_refusal())
+
+        updater = DwUpdater(run_fn=lambda: None, exit_fn=exit_fn, delay=0)
+        updater.start()
+        updater.join()
+        assert asked and "dw is updating" in asked[0]
 
     def test_a_failure_before_anything_installed_lifts_the_refusal(self):
         failed = SimpleNamespace(returncode=2, stdout="", stderr="boom")

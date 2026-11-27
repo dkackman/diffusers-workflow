@@ -163,12 +163,18 @@ def run_commands(commands, timeout=PIP_TIMEOUT_SECONDS):
     stdout, stderr = [], []
     completed = None
     for command in commands:
-        completed = subprocess.run(
-            sanitize_command_args(command),
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
+        try:
+            completed = subprocess.run(
+                sanitize_command_args(command),
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+        except Exception as e:  # a timeout, a missing interpreter
+            # How many finished before this one: the caller may need to know
+            # that an earlier step landed
+            e.ran = len(stdout)
+            raise
         stdout.append(completed.stdout or "")
         stderr.append(completed.stderr or "")
         if completed.returncode != 0:

@@ -21,16 +21,23 @@ export function commitArgument(
   parameter: PipelineParameter | undefined,
   raw: string,
   previous: unknown,
+  /** The argument's key: only a type key's braces are kept */
+  name?: string,
 ): unknown {
   if (keepsNull(raw, previous)) return null
   const shape = isReference(previous)
     ? (parameter?.default ?? undefined)
     : previous
   const value = coerce(widgetFor(parameter, shape), raw)
-  // A value held in {} stays a string to the engine. Typing a plain word
-  // over it keeps the braces: bare, under a type key, it would be loaded as
-  // a type and fail at load time, after validation has passed
-  return isBraced(previous) && isPlainWord(value) && !isReference(value)
+  // Under a type key a value held in {} stays a string to the engine. Typing
+  // a plain word over it keeps the braces: bare, it would be loaded as a type
+  // and fail at load time, after validation has passed. Any other key's
+  // braces are the text's own
+  const typed = name !== undefined && TYPE_KEY.test(name)
+  return typed &&
+    isBraced(previous) &&
+    isPlainWord(value) &&
+    !isReference(value)
     ? `{${value}}`
     : value
 }
