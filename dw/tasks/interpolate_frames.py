@@ -369,12 +369,17 @@ def _build_inference(net, device):
     carry = {"img": None}
 
     def get_flow_context(ph, pw, timestep):
-        key = (ph, pw, timestep)
-        ctx = flow_context_cache.get(key)
+        # The grid is the same at every timestep, so it is kept per size;
+        # only the midpoint's plane is kept with it. A refill asks for a
+        # timestep per held frame, and a full-resolution context for each
+        # was gigabytes on a freeze of a few seconds
+        ctx = flow_context_cache.get((ph, pw))
         if ctx is None:
-            ctx = _make_flow_context(ph, pw, device, timestep)
-            flow_context_cache[key] = ctx
-        return ctx
+            ctx = _make_flow_context(ph, pw, device)
+            flow_context_cache[(ph, pw)] = ctx
+        if timestep == 0.5:
+            return ctx
+        return ctx[0], ctx[1], torch.full_like(ctx[2], float(timestep))
 
     def inference(img1, img2, timestep=0.5):
         """Interpolate a single frame between two input frames, at

@@ -503,3 +503,33 @@ class TestTimestep:
 
         _interpolate_2x(_make_test_frames(4), _build_inference(Net(), "cpu"))
         assert seen == [0.5, 0.5, 0.5]
+
+
+class TestFlowContextCache:
+    def test_many_timesteps_build_one_grid(self, monkeypatch):
+        """A long hold is refilled at a timestep per frame; the warp grid is
+        the same for all of them, and a full-resolution grid per timestep
+        was gigabytes on a freeze of a few seconds."""
+        from dw.tasks import interpolate_frames
+
+        built, seen = [], []
+        real = interpolate_frames._make_flow_context
+
+        def counting(*args, **kwargs):
+            built.append(args)
+            return real(*args, **kwargs)
+
+        class Net(_FakeRifeNet):
+            def __call__(self, img0, img1, timestep, *rest):
+                seen.append(round(float(timestep.flatten()[0]), 3))
+                return super().__call__(img0, img1, timestep, *rest)
+
+        monkeypatch.setattr(interpolate_frames, "_make_flow_context", counting)
+        inference = interpolate_frames._build_inference(Net(), "cpu")
+        first, second = _make_test_frames(2)
+        steps = [(j + 1) / 40 for j in range(39)]
+        for timestep in steps:
+            inference(first, second, timestep)
+
+        assert len(built) == 1
+        assert seen == [round(step, 3) for step in steps]
