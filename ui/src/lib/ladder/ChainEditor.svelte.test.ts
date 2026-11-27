@@ -176,6 +176,39 @@ it('a tier where nothing fits strikes each model with its reason', () => {
   expect(tier('best').textContent).not.toContain('no target fits')
 })
 
+it('one model twice in a tier: each chip shows its own state', () => {
+  // once per device, as the server allows: the first is skipped here, the
+  // second is the one that runs, the third a fallback
+  edit(
+    {
+      best: [
+        { workflow: 'x', devices: ['cuda'] },
+        { workflow: 'x', devices: ['mps'] },
+        'x',
+      ],
+    },
+    {
+      answer: {
+        tiers: {
+          best: {
+            target: 'x',
+            skipped: [{ workflow: 'x', reason: 'cuda-only' }],
+            after: ['x'],
+          },
+        },
+      },
+    },
+  )
+  const chips = [...tier('best').querySelectorAll<HTMLElement>('li.target')]
+  expect(chips).toHaveLength(3)
+  expect(chips[0].querySelector('s')?.textContent).toBe('x')
+  expect(chips[0].textContent).toContain('needs CUDA')
+  expect(chips[1].querySelector('s')).toBeNull()
+  expect(chips[1].textContent).toContain('runs here')
+  expect(chips[2].textContent).toContain('fallback, not checked here')
+  expect(chips[2].textContent).not.toContain('runs here')
+})
+
 it('any other tier refusal is not put down to the machine', () => {
   const error =
     "Preference 'k' tier best names a target not in the catalog: 'x'"

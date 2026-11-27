@@ -61,17 +61,23 @@
 
   const known = $derived(new Set(judged))
 
-  /** What the dry run says of one target in a tier */
-  function shown(check: PreferenceTierCheck | undefined, name: string): Shown {
+  /** What the dry run says of one target in a tier: the `nth` chip of that
+   * name, since a model may stand in a tier once per device. A tier is tried
+   * in order, so its skips come first, then the one that runs, then the rest */
+  function shown(
+    check: PreferenceTierCheck | undefined,
+    name: string,
+    nth: number,
+  ): Shown {
     const out: Shown = { tone: null, struck: false, lines: [], download: null }
     if (!check) return out
-    const skip = (
+    const skips = (
       (check.skipped ?? []) as { workflow?: string; reason?: string }[]
-    ).find((s) => s.workflow === name)
-    if (skip) {
+    ).filter((s) => s.workflow === name)
+    if (nth < skips.length) {
       out.struck = true
-      out.lines.push(reasonText(skip.reason ?? ''))
-    } else if (check.target === name) {
+      out.lines.push(reasonText(skips[nth].reason ?? ''))
+    } else if (check.target === name && nth === skips.length) {
       out.tone = 'good'
       out.lines.push('runs here')
       const note = downloadNote(check.notes ?? [])
@@ -150,7 +156,10 @@
           >
             {#each draft[tier] as target, i (i + targetName(target))}
               {@const name = targetName(target)}
-              {@const state = shown(check, name)}
+              {@const nth = draft[tier]
+                .slice(0, i)
+                .filter((t) => targetName(t) === name).length}
+              {@const state = shown(check, name, nth)}
               <!-- A chip is a list item that takes focus so Alt+←/→ can move
                    it, and that drags; its own buttons are the fallback -->
               <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->

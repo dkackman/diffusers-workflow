@@ -57,7 +57,7 @@
   {/if}
   {#if rung?.skipped.length}
     <ul class="skipped">
-      {#each rung.skipped as skip (skip.workflow)}
+      {#each rung.skipped as skip, i (i + skip.workflow)}
         <li>
           <s>{skip.workflow}</s>
           <span class="muted">{reasonText(skip.reason)}</span>
