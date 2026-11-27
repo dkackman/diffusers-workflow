@@ -4,6 +4,8 @@
   import { SvelteSet } from 'svelte/reactivity'
   import ExpandingText from './ExpandingText.svelte'
   import VariableNotes from './VariableNotes.svelte'
+  import PreferenceRungs from './PreferenceRungs.svelte'
+  import type { Rung } from '../preferences'
   import NewVariable from './NewVariable.svelte'
   import {
     displayValue,
@@ -43,6 +45,7 @@
     seed = null,
     locked = new Set<string>(),
     onenhance = undefined,
+    rungs = null,
   }: {
     /** define: edit the workflow's own defaults (add/remove/coerce).
      * override: fill per-run values over read-only defaults. */
@@ -84,6 +87,10 @@
     /** Override mode: a free-text variable offers Enhance…, which asks the
      * page to open the enhancer for this key */
     onenhance?: (key: string) => void
+    /** Override mode: what each value of a preference tier selector runs on
+     * this host (#1762), shown under that selector. `fallback` is the tier
+     * a blank field resolves at when the workflow declares none */
+    rungs?: { selector: string; list: Rung[]; fallback: string } | null
   } = $props()
 
   const keys = $derived(Object.keys(variables ?? {}))
@@ -387,6 +394,13 @@
     hints={constraints[key]}
     findings={findings[key]}
   />
+  {#if mode === 'override' && rungs && rungs.selector === key && rungs.list.length}
+    <PreferenceRungs
+      {key}
+      rungs={rungs.list}
+      current={shown(key) || displayValue(variables?.[key]) || rungs.fallback}
+    />
+  {/if}
 {/snippet}
 
 <div class="formgrid top vars" class:withaction={mode === 'define'}>

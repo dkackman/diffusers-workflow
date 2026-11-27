@@ -207,7 +207,8 @@ them instead.
   the workspace (disabled for `default`). Until **Got it** is pressed in
   this browser, a first-run card at the top says what dw is and links
   `templates/text-to-image` (the Examples page, or the Workflows page, when
-  the listing lacks it); storage that throws keeps the dismissal for the
+  the listing lacks it) and points at **Make a better one** on the finished
+  job's page; storage that throws keeps the dismissal for the
   session (`ui/src/lib/firstRun.ts`).
 - **Workflows** - every workflow on the workspace's own `--workflow-dir`, as
   cards with the last image it made, its summary, the server's observed run
@@ -224,7 +225,13 @@ them instead.
   naming the variables they set, and the fields a bundle sets show the
   chosen bundle's values as placeholders - only the selector is sent, so
   the server applies the bundle itself; in the editor the selector stays
-  a text field with that line and its bundle names), the raw JSON on request, **Edit**, **Duplicate**, **Run** and delete.
+  a text field with that line and its bundle names; a workflow that declares
+  `tier` and composes one `preference:` key lists under the `tier` dropdown
+  what each tier runs on this host, from `GET /api/preferences?key=<k>&resolve=true` -
+  the target, the targets skipped greyed with their reason, or the refusal a
+  tier would give - with the chosen tier marked and no per-tier figure, the run
+  check's being the chosen one's; the run check lists each `plan.preferences`
+  line; `ui/src/lib/preferences.ts`), the raw JSON on request, **Edit**, **Duplicate**, **Run** and delete.
   Under the title, the card's curated figure says whose it is and the
   settings it holds for - "a maintainer's figure: ~3 min · 22 GB VRAM,
   measured on RTX 4090 at num_frames=121" (the card's `cost_drivers`, a list
@@ -292,7 +299,12 @@ them instead.
   variable with this run's values as placeholders; only the fields that differ
   are sent as the rerun's `arguments`), one button per other value of each
   `presets` selector the run declares (read from the workflow file as it is now;
-  an inline workflow has none), and **Export** (gathers the run into the workspace's `exports/` with
+  an inline workflow has none), **Make a better one** on a succeeded
+  `templates/text-to-image` job (opens `templates/preferred/text-to-image`
+  filled in with the job's prompt and seed, and no size or tier, so the
+  tier's size and the server's default tier apply; nothing is queued until
+  Run, so the run check shows any download first; `ui/src/lib/job/betterOne.ts`),
+  and **Export** (gathers the run into the workspace's `exports/` with
   `POST /api/jobs/{id}/export` and downloads the zip - the same bundle as
   MCP's `export_job`; replacing an existing export asks first). An `.otioz`
   among the results is drawn as a timeline strip (clips sized by duration, gaps

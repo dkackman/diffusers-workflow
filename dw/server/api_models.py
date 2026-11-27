@@ -921,6 +921,12 @@ class Plan(ApiModel):
         "The host RAM this run is projected to hold at its peak, from this "
         "machine's own history (#869); absent when there is no figure."
     )
+    preferences: list[str] = sometimes(
+        "One line per 'preference:' step, a composed child's own included: "
+        "'preference:<key> (tier <tier>) -> <workflow>; source: <shipped|server>', "
+        "then each target it skipped and why (dw/preferences.py); absent when "
+        "the workflow composes no preference."
+    )
 
 
 class ValidationResult(ApiModel):

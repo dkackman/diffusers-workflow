@@ -39,6 +39,10 @@
       </li>
       <li>Type a prompt and press Run.</li>
       <li>Watch the job, then find the picture in the Gallery.</li>
+      <li>
+        On the finished job's page, Make a better one opens the same prompt on
+        the model this server prefers.
+      </li>
     </ol>
     <div class="actions">
       <a class="plain cta" href={link.href}>{link.label}</a>

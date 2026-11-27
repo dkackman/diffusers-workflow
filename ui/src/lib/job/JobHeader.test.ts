@@ -232,3 +232,43 @@ it('does not tick for a job that has not started', () => {
     vi.useRealTimers()
   }
 })
+
+it('a succeeded first picture offers Make a better one, opened pre-filled', async () => {
+  sessionStorage.clear()
+  header(
+    job({
+      workflow: 'text-to-image',
+      workflow_name: 'templates/text-to-image',
+      arguments: { prompt: 'a cat', width: 512, height: 512 },
+    }),
+    {},
+    { seed: 42, seedVariable: 'seed', declared: { prompt: 'default' } },
+  )
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Make a better one' }),
+  )
+  expect(location.hash).toBe(
+    '#/ws/default/workflows/templates/preferred/text-to-image',
+  )
+  expect(JSON.parse(sessionStorage.getItem('dw-workflow-prefill')!)).toEqual({
+    workflow: 'templates/preferred/text-to-image',
+    arguments: { prompt: 'a cat', seed: 42 },
+  })
+  // nothing is queued: Run on that page is still the user's
+  expect(api.rerunJob).not.toHaveBeenCalled()
+})
+
+it('offers no better one on a failed first picture or another workflow', () => {
+  header(job({ workflow_name: 'templates/text-to-image', status: 'failed' }))
+  expect(screen.queryByRole('button', { name: 'Make a better one' })).toBeNull()
+  cleanup()
+  header(
+    job({ workflow_name: 'templates/text-to-image' }),
+    {},
+    { running: true },
+  )
+  expect(screen.queryByRole('button', { name: 'Make a better one' })).toBeNull()
+  cleanup()
+  header(job({ workflow_name: 'models/z-image' }))
+  expect(screen.queryByRole('button', { name: 'Make a better one' })).toBeNull()
+})

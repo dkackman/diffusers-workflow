@@ -38,6 +38,7 @@ it('the card says what dw is and how to start', () => {
     'Open text-to-image. It uses a small model that needs no Hugging Face login.',
     'Type a prompt and press Run.',
     'Watch the job, then find the picture in the Gallery.',
+    "On the finished job's page, Make a better one opens the same prompt on the model this server prefers.",
   ])
   expect(
     screen

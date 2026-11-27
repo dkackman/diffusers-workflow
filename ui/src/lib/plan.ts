@@ -33,6 +33,8 @@ export function describePlan(plan: Plan): PlanLine[] {
     tone: 'plain',
   })
 
+  lines.push(...preferenceLines(plan))
+
   lines.push(figure(plan.estimate, plan.list_entries))
 
   if (plan.host_memory) lines.push(hostMemory(plan.host_memory))
@@ -65,6 +67,13 @@ export function describePlan(plan: Plan): PlanLine[] {
   }
 
   return lines
+}
+
+/** What each 'preference:' step resolved to on this host and what it
+ * skipped, as the server words it (dw/preferences.py): the workflow the
+ * figure after it is the price of */
+function preferenceLines(plan: Plan): PlanLine[] {
+  return (plan.preferences ?? []).map((text) => ({ text, tone: 'plain' }))
 }
 
 /** One repo or URL to fetch: its size when known, and why the fetch would

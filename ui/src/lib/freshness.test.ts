@@ -104,6 +104,7 @@ const PAGE_TABLE: Record<string, Freshness[]> = {
     { watch: ['workflows'] },
     { watch: ['gallery'] },
     { watch: ['workflows'] },
+    { watch: ['workflows', 'models'] },
   ],
   'pages/WorkflowsPage.svelte': [
     { watch: ['workflows'] },

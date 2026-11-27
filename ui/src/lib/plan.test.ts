@@ -522,3 +522,23 @@ describe('planSummary', () => {
     )
   })
 })
+
+describe('describePlan preference lines (#1762)', () => {
+  it("shows each preference: step's line, before the figure it prices", () => {
+    const line =
+      'preference:text_to_image (tier best) -> models/z-image; source: shipped; skipped models/minimax-h3-image: device mps not in [cuda]'
+    const lines = describePlan({ ...base, preferences: [line] })
+    expect(lines.map((l) => l.text).slice(0, 3)).toEqual([
+      '8 steps (shots: 5)',
+      line,
+      'about 42 min on cuda - measured on RTX 3090',
+    ])
+    expect(lines[1].tone).toBe('plain')
+  })
+
+  it('a plan with no preference shows no such line', () => {
+    expect(
+      describePlan(base).some((l) => l.text.startsWith('preference:')),
+    ).toBe(false)
+  })
+})

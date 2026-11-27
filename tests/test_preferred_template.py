@@ -9,6 +9,7 @@ download, no network.
 
 import json
 import os
+from unittest.mock import patch
 
 import pytest
 
@@ -115,3 +116,47 @@ def test_an_unknown_tier_is_refused(tmp_path, cuda_session):
     errors = workflow(tmp_path).validation_errors({"tier": "ultra"})
     assert errors
     assert any("ultra" in error["message"] for error in errors)
+
+
+# --- over the server (#1762 stage B) -------------------------------------------
+
+
+def test_the_validate_route_answers_the_plan_preferences_line(tmp_path):
+    """`plan.preferences` is declared on the `Plan` response model: under
+    DW_STRICT_RESPONSES (tests/conftest.py) an undeclared field fails the
+    response, so the route itself is the test, not `build_plan`."""
+    from fastapi.testclient import TestClient
+
+    from dw.server.app import create_app
+    from dw.server.jobs import JobManager
+    from tests.test_server import ScriptedWorkerManager, success_script
+
+    workflows = os.path.join(REPO_ROOT, "workflows")
+    outputs = str(tmp_path / "outputs")
+    manager = JobManager(
+        outputs,
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+        workflow_dir=workflows,
+    )
+    app = create_app(workflow_dir=workflows, output_dir=outputs, job_manager=manager)
+    # A fixed host, so the shipped ladder resolves the same on any machine:
+    # the device and RAM from the probe, the card from the job manager's pool
+    host = Host(device_type="cuda", smallest_card_gb=48, host_ram_gb=128)
+    with (
+        patch.object(preferences, "default_host", return_value=host),
+        patch.object(manager, "smallest_card_gb", return_value=48.0),
+        TestClient(app, base_url="http://localhost") as client,
+    ):
+        response = client.post(
+            "/api/validate",
+            json={
+                "workflow_path": "templates/preferred/text-to-image",
+                "arguments": {"tier": "draft"},
+            },
+        )
+    assert response.status_code == 200, response.text
+    answer = response.json()
+    assert answer["valid"] is True, answer
+    (line,) = answer["plan"]["preferences"]
+    assert line.startswith("preference:text_to_image (tier draft) -> ")

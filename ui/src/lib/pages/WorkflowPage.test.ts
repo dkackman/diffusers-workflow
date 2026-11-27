@@ -978,3 +978,105 @@ it('WorkflowPage says no created time the listing does not give', async () => {
     `Changed ${formatMtime(1_790_000_000)}`,
   ])
 })
+
+describe('preference rungs beside the tier (#1762)', () => {
+  const preferred = {
+    id: 'preferred-text-to-image',
+    variables: {
+      prompt: 'a lighthouse',
+      seed: null,
+      width: 1024,
+      height: 1024,
+      tier: 'standard',
+    },
+    presets: {
+      tier: {
+        draft: { width: 512, height: 512 },
+        standard: { width: 1024, height: 1024 },
+        best: { width: 1024, height: 1024 },
+      },
+    },
+    steps: [{ name: 'main', workflow: { path: 'preference:text_to_image' } }],
+  }
+  const read = {
+    default_tier: 'standard',
+    etag: 'e',
+    preferences: {
+      text_to_image: {
+        etag: 'k',
+        source: 'shipped',
+        ladder: {},
+        resolutions: {
+          draft: { target: 'templates/text-to-image', skipped: [] },
+          standard: { target: 'models/z-image-sdnq', skipped: [] },
+          best: {
+            error: 'no target fits this host',
+            skipped: [
+              {
+                workflow: 'models/minimax-h3-image',
+                reason: 'device mps not in [cuda]',
+              },
+            ],
+          },
+        },
+      },
+    },
+  }
+
+  async function openPreferred() {
+    api.getWorkflow.mockResolvedValue({
+      definition: preferred,
+      origin: 'examples',
+      writable: false,
+    } as never)
+    render(WorkflowPage, { name: 'templates/preferred/text-to-image' })
+    await advance()
+    await advance()
+  }
+
+  const rungs = () => document.querySelector('[data-rungs-for="tier"]')
+
+  it("lists each tier's pick on this host, the skips greyed and an error rung's text", async () => {
+    api.getPreferences.mockResolvedValue(read)
+    await openPreferred()
+    expect(api.getPreferences).toHaveBeenCalledWith({
+      key: 'text_to_image',
+      resolve: true,
+    })
+    const list = rungs()!
+    const tier = (t: string) =>
+      list
+        .querySelector(`[data-tier="${t}"]`)!
+        .textContent!.replace(/\s+/g, ' ')
+    expect(tier('draft')).toContain('templates/text-to-image')
+    expect(tier('standard')).toContain('models/z-image-sdnq')
+    expect(tier('best')).toContain('no target fits this host')
+    expect(
+      list.querySelector('[data-tier="best"] .skip')!.textContent,
+    ).toContain('models/minimax-h3-image skipped: device mps not in [cuda]')
+    // the tier the form holds (its default) is marked
+    expect(
+      list.querySelector('[aria-current="true"]')!.getAttribute('data-tier'),
+    ).toBe('standard')
+    await fireEvent.change(field('tier'), { target: { value: 'best' } })
+    await advance()
+    expect(
+      rungs()!
+        .querySelector('[aria-current="true"]')!
+        .getAttribute('data-tier'),
+    ).toBe('best')
+  })
+
+  it('a failed read hides the rungs and leaves the dropdown', async () => {
+    api.getPreferences.mockRejectedValue(new Error('boom'))
+    await openPreferred()
+    expect(rungs()).toBeNull()
+    expect(field('tier').tagName).toBe('SELECT')
+  })
+
+  it('a workflow with no preference key reads none and shows none', async () => {
+    await openPage()
+    expect(api.getPreferences).not.toHaveBeenCalled()
+    expect(rungs()).toBeNull()
+  })
+})
