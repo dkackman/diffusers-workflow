@@ -7,6 +7,10 @@
   import LoadState from './ui/LoadState.svelte'
   import type { ModelDownload } from './types'
 
+  // `onfinished`: called when a download that was running is no longer, so a
+  // page listing what the downloads wrote can read it again
+  let { onfinished }: { onfinished?: () => void } = $props()
+
   // Downloads follow the models feed (one started or cancelled, here or by
   // an agent); one in flight also keeps a 2 s poll while it runs
   const downloadsRead = resource(() => api.listDownloads(), {
@@ -17,6 +21,13 @@
   const active = $derived(
     downloads.filter((d) => d.status === 'downloading').length,
   )
+
+  let wasActive = 0
+  $effect(() => {
+    const now = active
+    if (now < wasActive) onfinished?.()
+    wasActive = now
+  })
 
   const cancelDownload = action(
     async (id: string) => {

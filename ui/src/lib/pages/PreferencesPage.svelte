@@ -11,7 +11,6 @@
   import LadderCard from '../ladder/LadderCard.svelte'
   import { TIERS, keyProblem, staleEtag } from '../ladder/ladderDraft'
   import LoadState from '../ui/LoadState.svelte'
-  import PageHeader from '../ui/PageHeader.svelte'
   import StaleNotice from '../ui/StaleNotice.svelte'
 
   // Server → Preferences (#1762 stage C): the `preference:` ladders this
@@ -97,8 +96,6 @@
     void setTier.run(tier, data.etag)
   }
 </script>
-
-<PageHeader title="Preferences" />
 
 <LoadState of={read} label="the preferences" />
 

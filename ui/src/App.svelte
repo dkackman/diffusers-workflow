@@ -54,7 +54,6 @@
   import OverviewPage from './lib/pages/OverviewPage.svelte'
   import AssetsPage from './lib/pages/AssetsPage.svelte'
   import ModelsPage from './lib/pages/ModelsPage.svelte'
-  import PreferencesPage from './lib/pages/PreferencesPage.svelte'
   import ConnectPage from './lib/pages/ConnectPage.svelte'
   import SystemPage from './lib/pages/SystemPage.svelte'
   import SchemaPage from './lib/pages/SchemaPage.svelte'
@@ -355,9 +354,9 @@
       {:else if view.kind === 'server'}
         {#if view.section === 'schema'}<SchemaPage />
         {:else if view.section === 'models'}
-          <!-- temporary: Task 4 replaces both with the tabbed Models page -->
-          {#if view.rest[0] === 'preferences'}<PreferencesPage />
-          {:else}<ModelsPage />{/if}
+          <ModelsPage
+            tab={view.rest[0] === 'downloaded' ? 'downloaded' : 'preferences'}
+          />
         {:else if view.section === 'activity'}<ActivityPage />
         {:else if view.section === 'connect'}<ConnectPage />
         {:else}<SystemPage />{/if}

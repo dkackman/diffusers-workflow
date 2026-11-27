@@ -86,3 +86,16 @@ it('a models move reads the downloads again', async () => {
   feed.move(workspace.current, 'models')
   await waitFor(() => expect(state.reads).toBe(2))
 })
+
+it('onfinished fires when an active download completes', async () => {
+  const onfinished = vi.fn()
+  state.downloads = [download()]
+  render(ActiveDownloads, { onfinished })
+  await screen.findByText('org/big-model')
+  expect(onfinished).not.toHaveBeenCalled()
+  state.downloads = [
+    download({ status: 'done', finished_at: Date.now() / 1000 }),
+  ]
+  feed.move(workspace.current, 'models')
+  await waitFor(() => expect(onfinished).toHaveBeenCalledTimes(1))
+})
