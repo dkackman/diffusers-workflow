@@ -149,7 +149,7 @@ test("each sidebar section's tab title and h1 are its sidebar label", async ({
     .evaluateAll((links) =>
       links.map((a) => [a.getAttribute('href')!, a.getAttribute('title')!]),
     )
-  expect(items.length).toBe(13)
+  expect(items.length).toBe(14)
   for (const [href, label] of items) {
     await page.locator(`aside a[title][href="${href}"]`).click()
     await expect(page).toHaveURL(new RegExp(`${href.replace(/\//g, '\\/')}$`))
