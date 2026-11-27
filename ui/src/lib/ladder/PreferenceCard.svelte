@@ -212,7 +212,10 @@
   function discard() {
     refused = null
     stale = null
-    draft = draftOf(base)
+    // A read moved the key while the draft was held: the edit that is
+    // dropped goes back to what the server holds now, not what it started from
+    if (entry && entry.etag !== baseEtag) adopt()
+    else draft = draftOf(base)
     editing = false
     if (!entry) ondiscard?.()
   }

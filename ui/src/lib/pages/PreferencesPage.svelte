@@ -47,6 +47,11 @@
   ])
   // the one card in the chain editor; the others' Edit waits for it
   let editing = $state<string | null>(null)
+  // The key in the editor went away under it (reset or deleted elsewhere):
+  // its card is gone, so nothing else would ever release the lock
+  $effect(() => {
+    if (editing !== null && !shown.includes(editing)) editing = null
+  })
   const forget = (key: string) => {
     fresh = Object.fromEntries(Object.entries(fresh).filter(([k]) => k !== key))
   }

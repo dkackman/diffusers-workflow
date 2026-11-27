@@ -12,9 +12,17 @@ import '../router.svelte'
 import { ApiError } from '../apiErrors'
 import { confirmDialog } from '../confirm.svelte'
 import { api, resetApi } from '../test/apiMock'
+import { feed } from '../test/feedMock'
 
 vi.mock('../api', async () => (await import('../test/apiMock')).apiModule())
 vi.mock('../confirm.svelte', () => ({ confirmDialog: vi.fn() }))
+vi.mock('../changes.svelte', async () => ({
+  changes: (await import('../test/feedMock')).feed.changes,
+}))
+// Another tab or an agent wrote: every watcher reads again
+const elsewhere = () => {
+  for (const watch of [...feed.watches]) void watch.fn()
+}
 
 const CUDA = { workflow: 'models/minimax-h3-image', devices: ['cuda'] }
 const LADDER = {
@@ -366,4 +374,62 @@ it('changing the default tier writes it with its etag', async () => {
   await waitFor(() =>
     expect(api.setDefaultTier).toHaveBeenCalledWith('best', '"tier1"'),
   )
+})
+
+it('the edit lock releases when the edited key is removed elsewhere', async () => {
+  const both = read()
+  const mine = {
+    source: 'server',
+    etag: '"q1"',
+    ladder: { best: ['models/z-image'] },
+    resolutions: {},
+  }
+  api.getPreferences.mockResolvedValue({
+    ...both,
+    preferences: { ...both.preferences, qa: mine },
+  })
+  render(PreferencesPage)
+  const qa = await screen.findByRole('region', { name: 'preference qa' })
+  await fireEvent.click(within(qa).getByRole('button', { name: 'Edit' }))
+  const other = () =>
+    within(
+      screen.getByRole('region', { name: 'preference text_to_image' }),
+    ).getByRole<HTMLButtonElement>('button', { name: 'Edit' })
+  expect(other().disabled).toBe(true)
+  // reset to shipped in another tab: a key only the server had is gone
+  api.getPreferences.mockResolvedValue(both)
+  elsewhere()
+  await waitFor(() =>
+    expect(screen.queryByRole('region', { name: 'preference qa' })).toBeNull(),
+  )
+  await waitFor(() => expect(other().disabled).toBe(false))
+  expect(
+    screen.getByRole<HTMLButtonElement>('button', { name: 'New preference' })
+      .disabled,
+  ).toBe(false)
+})
+
+it('Discard after the key changed elsewhere reopens on what the server holds', async () => {
+  render(PreferencesPage)
+  const el = await edit(await card())
+  await fireEvent.click(
+    within(tier(el, 'standard')).getByRole('button', {
+      name: 'Remove models/z-image-sdnq',
+    }),
+  )
+  const theirs = read()
+  theirs.preferences.text_to_image.etag = '"k2"'
+  theirs.preferences.text_to_image.ladder = {
+    ...LADDER,
+    standard: ['models/flux-dev'],
+  }
+  api.getPreferences.mockResolvedValue(theirs)
+  elsewhere()
+  await waitFor(() => expect(api.getPreferences).toHaveBeenCalledTimes(2))
+  // the new read reaches the card before Discard is pressed
+  await new Promise((settle) => setTimeout(settle, 20))
+  await fireEvent.click(within(el).getByRole('button', { name: 'Discard' }))
+  const again = await edit(await card())
+  expect(tier(again, 'standard').textContent).toContain('models/flux-dev')
+  expect(tier(again, 'standard').textContent).not.toContain('models/z-image')
 })
