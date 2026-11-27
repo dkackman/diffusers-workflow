@@ -229,6 +229,56 @@ it('shows at most six proofs, whatever the listing hands back', async () => {
   )
 })
 
+// A workflow under a folder: its proof sits in a step's `final` subfolder,
+// and a gallery move reads the same folder again with no reload (#1769)
+it('a slash-named folder shows its proof and re-reads on a gallery move', async () => {
+  const proof = (run: string) => ({
+    name: `templates/image-processors/${run}/final/resize.png`,
+    folder: 'templates/image-processors',
+    subfolder: 'final',
+    run_id: run,
+    version: 1,
+    url: `/outputs/templates/image-processors/${run}/final/resize.png`,
+    kind: 'image',
+    size: 1,
+    mtime: 1,
+    label: 'resize.png',
+  })
+  const read = [
+    undefined,
+    undefined,
+    undefined,
+    { folder: 'templates/image-processors', limit: 6 },
+  ]
+  api.gallery.mockResolvedValueOnce({
+    workspace: 'studio',
+    files: [proof('r1')],
+  } as never)
+  render(WorkflowPage, { name: 'templates/image-processors' })
+  await advance()
+  await advance()
+  expect(api.gallery).toHaveBeenLastCalledWith(...read)
+  const hrefs = () =>
+    [...document.querySelectorAll('.proofs a.filetile')].map((a) =>
+      a.getAttribute('href'),
+    )
+  expect(hrefs()).toEqual([
+    '#/ws/studio/gallery?open=templates%2Fimage-processors%2Fr1%2Ffinal%2Fresize.png',
+  ])
+
+  api.gallery.mockClear()
+  api.gallery.mockResolvedValueOnce({
+    workspace: 'studio',
+    files: [proof('r2'), proof('r1')],
+  } as never)
+  feed.move('default', 'gallery')
+  await advance()
+  await advance()
+  expect(api.gallery).toHaveBeenCalledTimes(1)
+  expect(api.gallery).toHaveBeenLastCalledWith(...read)
+  expect(hrefs()).toHaveLength(2)
+})
+
 it('opens with an output: reference filled in from Use as input', async () => {
   sessionStorage.setItem(
     'dw-workflow-prefill',

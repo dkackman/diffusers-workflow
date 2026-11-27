@@ -128,6 +128,17 @@ with open(os.path.join(proof_dir, "proof.png"), "wb") as handle:
     handle.write(solid_png(128, 96, (150, 70, 70)))
 # Old, so it is not one of the Overview's recent files ahead of lighthouse.png
 os.utime(os.path.join(proof_dir, "proof.png"), (1767312000.0, 1767312000.0))
+# A proof for a workflow whose identity has a slash in it (the copied
+# templates/image-processors.json), in a step's `final` subfolder: the
+# Workflow page's strip reads folder=templates/image-processors (#1769)
+nested_proof_dir = os.path.join(
+    outputs, "templates", "image-processors", "20260910-130500-0f1d0f2e", "final"
+)
+os.makedirs(nested_proof_dir)
+nested_proof = os.path.join(nested_proof_dir, "image_processors-resize.0-0.0.png")
+with open(nested_proof, "wb") as handle:
+    handle.write(solid_png(96, 96, (70, 70, 150)))
+os.utime(nested_proof, (1767312000.0, 1767312000.0))
 with open(os.path.join(scratch, "workflows", "card-proof.json"), "w") as handle:
     json.dump(
         {
