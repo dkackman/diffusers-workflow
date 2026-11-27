@@ -54,7 +54,16 @@ it('a server route crumbs as server / section', () => {
   at('#/server/models')
   render(Breadcrumb)
   expect(links()).toEqual([
-    ['Server', '#/server/status'],
+    ['Server', '#/server/activity'],
+    ['Models', '#/server/models'],
+  ])
+})
+
+it('a Models tab crumbs as server / models', () => {
+  at('#/server/models/downloaded')
+  render(Breadcrumb)
+  expect(links()).toEqual([
+    ['Server', '#/server/activity'],
     ['Models', '#/server/models'],
   ])
 })

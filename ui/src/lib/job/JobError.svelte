@@ -39,7 +39,7 @@
   {#if explained.action === 'rerun' && canRerun}
     <ActionButton act={rerun}>Run again with changes…</ActionButton>
   {:else if explained.action === 'models'}
-    <a class="quiet" href={serverHref('models')}>Open Models</a>
+    <a class="quiet" href={serverHref('models', 'downloaded')}>Open Models</a>
   {/if}
   <Details summary="Engine detail" detail={engine} />
 </div>

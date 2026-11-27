@@ -6,7 +6,6 @@
   import { resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
   import PageHeader from '../ui/PageHeader.svelte'
-  import { SECTION_LABELS } from '../routes'
   import CachesPanel from '../CachesPanel.svelte'
   import {
     addressLabel,
@@ -74,7 +73,7 @@
 
 <!-- The status page's header: the queue below it is a section of this page -->
 <PageHeader
-  title={SECTION_LABELS.server.status}
+  title="Status"
   secondary={info ? `${info.hostname} · v${info.version}` : undefined}
   baseline
 />

@@ -87,8 +87,25 @@ it('shared and server groups link to their sections', async () => {
     screen.getByRole('link', { name: /models/i }).getAttribute('href'),
   ).toBe('#/server/models')
   expect(
-    screen.getByRole('link', { name: /status/i }).getAttribute('href'),
-  ).toBe('#/server/status')
+    screen.getByRole('link', { name: /activity/i }).getAttribute('href'),
+  ).toBe('#/server/activity')
+})
+
+it('the server rows run Activity, Models, Connect, System', () => {
+  render(Sidebar, { collapsed: false, onToggle: () => {} })
+  const group = screen.getByRole('group', { name: 'server' })
+  expect(
+    [...group.querySelectorAll('a')].map((a) => a.textContent?.trim()),
+  ).toEqual(['Activity', 'Models', 'Connect', 'System'])
+})
+
+it('a Models tab keeps the Models row current', () => {
+  location.hash = '#/server/models/downloaded'
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
+  render(Sidebar, { collapsed: false, onToggle: () => {} })
+  expect(
+    screen.getByRole('link', { name: /models/i }).getAttribute('aria-current'),
+  ).toBe('page')
 })
 
 it('the server group has no schema row', async () => {

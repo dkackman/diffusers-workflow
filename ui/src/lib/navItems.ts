@@ -1,5 +1,6 @@
 // The sidebar's nav rows: each section's route, label and icon
 import {
+  Activity,
   BookCopy,
   ClipboardList,
   Database,
@@ -9,8 +10,8 @@ import {
   Layers,
   ListTodo,
   MessageSquareText,
+  Plug,
   Server,
-  SlidersHorizontal,
   SquarePen,
 } from '@lucide/svelte'
 import {
@@ -71,11 +72,12 @@ export const SERVER_ITEMS: {
   label: string
   icon: typeof Layers
 }[] = [
-  { section: 'models', label: SECTION_LABELS.server.models, icon: Database },
   {
-    section: 'preferences',
-    label: SECTION_LABELS.server.preferences,
-    icon: SlidersHorizontal,
+    section: 'activity',
+    label: SECTION_LABELS.server.activity,
+    icon: Activity,
   },
-  { section: 'status', label: SECTION_LABELS.server.status, icon: Server },
+  { section: 'models', label: SECTION_LABELS.server.models, icon: Database },
+  { section: 'connect', label: SECTION_LABELS.server.connect, icon: Plug },
+  { section: 'system', label: SECTION_LABELS.server.system, icon: Server },
 ]

@@ -86,7 +86,7 @@ test('split view shows editable JSON beside the form', async ({ page }) => {
 test('the status page has one h1, with the queue as a section under it', async ({
   page,
 }) => {
-  await page.goto('/#/server/status')
+  await page.goto('/#/server/activity')
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Status')
   await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1)
   await expect(

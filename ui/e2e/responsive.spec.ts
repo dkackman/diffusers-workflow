@@ -15,7 +15,7 @@ const ROUTES = [
   '#/models',
   '#/schema',
   '#/ws/default/overview',
-  '#/server/status',
+  '#/server/activity',
   '#/ws/default/requests',
   '#/ws/default/assets',
 ]

@@ -55,6 +55,7 @@
   import AssetsPage from './lib/pages/AssetsPage.svelte'
   import ModelsPage from './lib/pages/ModelsPage.svelte'
   import PreferencesPage from './lib/pages/PreferencesPage.svelte'
+  import ServerPage from './lib/pages/ServerPage.svelte'
   import SchemaPage from './lib/pages/SchemaPage.svelte'
   import StatusPage from './lib/pages/StatusPage.svelte'
 
@@ -352,9 +353,12 @@
       {#if view.kind === 'missing'}<NotFoundPage />
       {:else if view.kind === 'server'}
         {#if view.section === 'schema'}<SchemaPage />
-        {:else if view.section === 'models'}<ModelsPage />
-        {:else if view.section === 'preferences'}<PreferencesPage />
-        {:else}<StatusPage />{/if}
+        {:else if view.section === 'models'}
+          <!-- temporary: Task 4 replaces both with the tabbed Models page -->
+          {#if view.rest[0] === 'preferences'}<PreferencesPage />
+          {:else}<ModelsPage />{/if}
+        {:else if view.section === 'activity'}<StatusPage />
+        {:else}<ServerPage />{/if}
       {:else if view.kind === 'shared'}
         {#if view.section === 'prompts'}<PromptsPage />
         {:else if view.section === 'prompt-edit'}<PromptEditorPage

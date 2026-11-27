@@ -35,7 +35,7 @@
         ]
       if (view.kind === 'server')
         return [
-          { label: SECTION_LABELS.groups.server, href: serverHref('status') },
+          { label: SECTION_LABELS.groups.server, href: serverHref('activity') },
           { label: sectionLabel(view), href: serverHref(view.section) },
         ]
       // a page that is not there has nowhere to link to

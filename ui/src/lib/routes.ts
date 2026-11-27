@@ -24,12 +24,17 @@ export const SHARED_SECTIONS = [
 export type SharedSection = (typeof SHARED_SECTIONS)[number]
 
 export const SERVER_SECTIONS = [
+  'activity',
   'models',
-  'preferences',
+  'connect',
+  'system',
   'schema',
-  'status',
 ] as const
 export type ServerSection = (typeof SERVER_SECTIONS)[number]
+
+/** The Models page's tabs: its one sub-path, `#/server/models/<tab>`. */
+export const MODELS_TABS = ['preferences', 'downloaded'] as const
+export type ModelsTab = (typeof MODELS_TABS)[number]
 
 /** The one set of section names: the sidebar's items and the breadcrumb
  * both read it, so they cannot drift. */
@@ -56,10 +61,11 @@ export const SECTION_LABELS: {
     examples: 'Examples',
   },
   server: {
+    activity: 'Activity',
     models: 'Models',
-    preferences: 'Preferences',
+    connect: 'Connect',
+    system: 'System',
     schema: 'Schema',
-    status: 'Status',
   },
   groups: { shared: 'Shared', server: 'Server' },
 }
@@ -67,7 +73,7 @@ export const SECTION_LABELS: {
 export type RouteView =
   | { kind: 'ws'; workspace: string; section: WsSection; rest: string[] }
   | { kind: 'shared'; section: SharedSection; rest: string[] }
-  | { kind: 'server'; section: ServerSection }
+  | { kind: 'server'; section: ServerSection; rest: string[] }
   | { kind: 'missing'; path: string }
 
 /** The name a view goes by in the breadcrumb. */
@@ -93,6 +99,8 @@ const isWs = (s: string): s is WsSection =>
   (WS_SECTIONS as readonly string[]).includes(s)
 const isShared = (s: string): s is SharedSection =>
   (SHARED_SECTIONS as readonly string[]).includes(s)
+const isModelsTab = (s: string): s is ModelsTab =>
+  (MODELS_TABS as readonly string[]).includes(s)
 const isServer = (s: string): s is ServerSection =>
   (SERVER_SECTIONS as readonly string[]).includes(s)
 
@@ -122,8 +130,13 @@ export function parseView(parts: string[]): RouteView | null {
     }
   }
   if (group === 'server' && second) {
-    return isServer(second)
-      ? { kind: 'server', section: second }
+    // The old Status and Preferences pages are legacy hashes, redirected
+    if (second === 'status' || second === 'preferences') return null
+    if (!isServer(second)) return missing(parts)
+    // Only Models has a sub-path, and only one of its tabs
+    if (!third) return { kind: 'server', section: second, rest: [] }
+    return second === 'models' && rest.length === 0 && isModelsTab(third)
+      ? { kind: 'server', section: second, rest: [third] }
       : missing(parts)
   }
   return null
@@ -161,7 +174,7 @@ export function legacyRedirect(
       // The queue spans every workspace; one job belongs to one. The job's
       // own workspace is not known until it loads, so the page corrects the
       // URL then (JobPage) - lastUsed is the first guess
-      return rest.length ? ws('jobs', ...rest) : ['server', 'status']
+      return rest.length ? ws('jobs', ...rest) : ['server', 'activity']
     case 'prompts':
       return ['shared', 'prompts']
     case 'prompt-edit':
@@ -173,7 +186,11 @@ export function legacyRedirect(
     case 'schema':
       return ['server', 'schema']
     case 'server':
-      return ['server', 'status']
+      // The old Status and Preferences pages moved: Status is Activity,
+      // Preferences is the Models page's first tab
+      if (rest[0] === 'status') return ['server', 'activity']
+      if (rest[0] === 'preferences') return ['server', 'models', 'preferences']
+      return ['server', 'activity']
     default:
       return null
   }
@@ -191,8 +208,8 @@ export function wsHref(
 export function sharedHref(section: SharedSection, ...rest: string[]): string {
   return join(['shared', section, ...rest])
 }
-export function serverHref(section: ServerSection): string {
-  return join(['server', section])
+export function serverHref(section: ServerSection, ...rest: string[]): string {
+  return join(['server', section, ...rest])
 }
 
 // A comma is left as typed: it is legal in a fragment, and a list reads

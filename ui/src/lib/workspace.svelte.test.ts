@@ -116,7 +116,7 @@ it('a shared or server route keeps scoping to the last-used workspace', async ()
   const { applyRouteWorkspace, workspace } = await import('./workspace.svelte')
   applyRouteWorkspace({ kind: 'shared', section: 'prompts', rest: [] })
   expect(workspace.current).toBe('studio')
-  applyRouteWorkspace({ kind: 'server', section: 'models' })
+  applyRouteWorkspace({ kind: 'server', section: 'models', rest: [] })
   expect(workspace.current).toBe('studio')
 })
 

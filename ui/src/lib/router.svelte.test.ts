@@ -80,6 +80,13 @@ it('redirects a legacy hash to the last-used workspace at load', async () => {
   })
 })
 
+it('a legacy redirect keeps the hash query', async () => {
+  location.hash = '#/server/status?x=1'
+  const { route } = await import('./router.svelte')
+  expect(location.hash).toBe('#/server/activity?x=1')
+  expect(route.view).toMatchObject({ kind: 'server', section: 'activity' })
+})
+
 it('an empty hash lands on the default overview', async () => {
   const { route } = await import('./router.svelte')
   expect(location.hash).toBe('#/ws/default/overview')
