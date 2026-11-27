@@ -87,8 +87,7 @@ export function assetChoices(
 ): SuggestItem[] {
   ensureAssetLibrary()
   const found = (assetLibrary.items ?? []).filter(
-    (asset) =>
-      (!kind || asset.kind === kind) && matchWords(query, asset.name),
+    (asset) => (!kind || asset.kind === kind) && matchWords(query, asset.name),
   )
   return ranked(found, query).map((asset) => ({
     value: asset.name,
@@ -121,8 +120,7 @@ export function outputChoices(
   ensureOutputLibrary()
   const found = (outputLibrary.items ?? []).filter(
     (file) =>
-      (!kind || file.kind === kind) &&
-      matchWords(query, file.name, file.label),
+      (!kind || file.kind === kind) && matchWords(query, file.name, file.label),
   )
   return ranked(found, query, true).map((file) => outputRow(file))
 }

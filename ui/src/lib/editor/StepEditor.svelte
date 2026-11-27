@@ -346,8 +346,7 @@
           }}
         >
           <option value="">default</option>
-          {#each optionsWith(TORCH_DTYPES, pretrained.torch_dtype) as dtype (dtype)}<option
-            >
+          {#each optionsWith(TORCH_DTYPES, pretrained.torch_dtype) as dtype (dtype)}<option>
               {dtype}
             </option>{/each}
         </select>
@@ -379,8 +378,7 @@
           }}
         >
           <option value="">don't save</option>
-          {#each contentTypeOptions(step.result?.content_type) as contentType (contentType)}<option
-            >
+          {#each contentTypeOptions(step.result?.content_type) as contentType (contentType)}<option>
               {contentType}
             </option>{/each}
         </select>
