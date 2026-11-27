@@ -3,6 +3,7 @@
 // the host wins. The server checks the ladder on PUT (dw/preferences.py:
 // check_ladder) and resolves it; this only shapes the edit and what is sent.
 import { ApiError } from '../apiErrors'
+import type { PreferenceResolution } from '../types'
 import { VARIABLE_NAME_CHARACTERS, VARIABLE_NAME_FIRST } from '../references'
 
 /** A ladder entry: a catalog name, or one with the devices it may run on
@@ -103,4 +104,25 @@ export function staleEtag(error: unknown): string | null | undefined {
   if (error.code !== 'stale_write') return undefined
   const etag = error.detail?.etag
   return typeof etag === 'string' ? etag : null
+}
+
+/** The targets the last full read passed over as gated for this box: a
+ * dry run names them as `known_blocked`, so it skips them without asking
+ * the Hub (dw/preferences.py: the skip reason starts "gated") */
+export function blockedFrom(
+  resolutions: Record<string, PreferenceResolution> | undefined,
+): string[] {
+  const blocked = new Set<string>()
+  for (const resolution of Object.values(resolutions ?? {}))
+    for (const skip of (resolution.skipped ?? []) as {
+      workflow?: unknown
+      reason?: unknown
+    }[])
+      if (
+        typeof skip.workflow === 'string' &&
+        typeof skip.reason === 'string' &&
+        skip.reason.startsWith('gated')
+      )
+        blocked.add(skip.workflow)
+  return [...blocked]
 }

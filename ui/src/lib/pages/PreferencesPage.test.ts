@@ -53,6 +53,7 @@ beforeEach(() => {
   api.listWorkflows.mockResolvedValue({
     workflows: ['models/z-image', 'models/flux-dev'],
   })
+  api.checkPreference.mockResolvedValue({ tiers: {} })
 })
 afterEach(cleanup)
 
@@ -94,8 +95,7 @@ it('lists a shipped key, its three tiers and the default tier', async () => {
 })
 
 it('saves a reordered tier with the etag and shows the picks it answers', async () => {
-  api.setPreference.mockResolvedValue({
-    key: 'text_to_image',
+  const saved = {
     source: 'server',
     etag: '"k2"',
     ladder: { ...LADDER, best: ['models/qwen-image-2.1', CUDA] },
@@ -103,8 +103,15 @@ it('saves a reordered tier with the etag and shows the picks it answers', async 
       ...RESOLUTIONS,
       best: { target: 'models/qwen-image-2.1', skipped: [], notes: ['moved'] },
     },
-  })
+  }
+  api.setPreference.mockResolvedValue({ key: 'text_to_image', ...saved })
   render(PreferencesPage)
+  await card()
+  // the read after the save: what the server now holds
+  api.getPreferences.mockResolvedValue({
+    ...read(),
+    preferences: { text_to_image: saved },
+  })
   const el = await edit(await card())
   await fireEvent.click(
     within(tier(el, 'best')).getByRole('button', {
@@ -122,11 +129,13 @@ it('saves a reordered tier with the etag and shows the picks it answers', async 
   // the answer's picks replace the read's: the skip is gone, the key is the server's
   const after = await screen.findByText('changed on this server')
   expect(after).toBeTruthy()
-  const read = await card()
-  expect(read.textContent).not.toContain('needs CUDA')
+  const shown = await card()
+  expect(shown.textContent).not.toContain('needs CUDA')
   expect(
-    within(read).getByRole('button', { name: 'Reset to shipped' }),
+    within(shown).getByRole('button', { name: 'Reset to shipped' }),
   ).toBeTruthy()
+  // and the page reads its preferences again
+  await waitFor(() => expect(api.getPreferences).toHaveBeenCalledTimes(2))
 })
 
 it('asks Reload or Overwrite on a 412, and Overwrite sends the new etag', async () => {
@@ -212,13 +221,23 @@ it("shows the server's 422 refusal beside the key", async () => {
   )
   render(PreferencesPage)
   const el = await edit(await card())
-  const field = within(tier(el, 'draft')).getByLabelText(
-    'workflow to add to draft',
-  )
-  await fireEvent.input(field, { target: { value: 'models/flux-dev' } })
   await fireEvent.click(
-    within(tier(el, 'draft')).getByRole('button', { name: 'Add' }),
+    within(tier(el, 'draft')).getByRole('button', {
+      name: 'Add a model to draft',
+    }),
   )
+  const pop = await waitFor(() => {
+    const found = document.querySelector<HTMLElement>('[data-popover-content]')
+    expect(found).not.toBeNull()
+    return found!
+  })
+  await fireEvent.input(
+    within(pop).getByLabelText('workflow to add to draft'),
+    {
+      target: { value: 'models/flux-dev' },
+    },
+  )
+  await fireEvent.click(within(pop).getByText('Add'))
   expect(tier(el, 'draft').textContent).toContain('models/flux-dev')
   await fireEvent.click(within(el).getByRole('button', { name: 'Save' }))
   const refusal = await within(el).findByRole('alert')
@@ -249,30 +268,68 @@ it('Reset to shipped sends DELETE with the etag and shows the key as shipped', a
   expect(screen.queryByRole('button', { name: 'Reset to shipped' })).toBeNull()
 })
 
-it('refuses an invalid new key before sending, and adds a valid one unsaved', async () => {
+async function newPreference(name: string, first: string) {
+  await fireEvent.click(screen.getByRole('button', { name: 'New preference' }))
+  const form = screen.getByRole('form', { name: 'New preference' })
+  await fireEvent.input(within(form).getByLabelText('Name'), {
+    target: { value: name },
+  })
+  await fireEvent.input(
+    within(form).getByLabelText('First model for the standard tier'),
+    { target: { value: first } },
+  )
+  await fireEvent.click(within(form).getByRole('button', { name: 'Create' }))
+  return form
+}
+
+it('New preference makes an unsaved card in the editor, its first model in the default tier', async () => {
   render(PreferencesPage)
   await card()
-  const field = screen.getByLabelText('New key')
-  await fireEvent.input(field, { target: { value: '../etc' } })
-  await fireEvent.click(screen.getByRole('button', { name: 'Add key' }))
-  expect((await screen.findByRole('alert')).textContent).toMatch(
-    /starts with a letter/,
-  )
-  await fireEvent.input(field, { target: { value: 'text_to_image' } })
-  await fireEvent.click(screen.getByRole('button', { name: 'Add key' }))
-  expect((await screen.findByRole('alert')).textContent).toMatch(/already/)
-  await fireEvent.input(field, { target: { value: 'image_edit' } })
-  await fireEvent.click(screen.getByRole('button', { name: 'Add key' }))
+  await fireEvent.click(screen.getByRole('button', { name: 'New preference' }))
+  expect(
+    screen.getByText(
+      /A workflow uses it by naming preference:<name> as a step's workflow path\./,
+    ),
+  ).toBeTruthy()
+  await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  await newPreference('image_edit', 'qa/a')
   const added = await screen.findByRole('region', {
     name: 'preference image_edit',
   })
   expect(within(added).getByText('not saved')).toBeTruthy()
-  // an empty ladder is not sent: the server refuses an empty rung
+  expect(tier(added, 'standard').textContent).toContain('qa/a')
   expect(
     within(added).getByRole<HTMLButtonElement>('button', { name: 'Save' })
       .disabled,
-  ).toBe(true)
+  ).toBe(false)
+  // one card in edit at a time: the others wait for this one
+  const other = await card()
+  const edit = within(other).getByRole<HTMLButtonElement>('button', {
+    name: 'Edit',
+  })
+  expect(edit.disabled).toBe(true)
   expect(api.setPreference).not.toHaveBeenCalled()
+  // Discard drops a key never saved
+  await fireEvent.click(within(added).getByRole('button', { name: 'Discard' }))
+  expect(
+    screen.queryByRole('region', { name: 'preference image_edit' }),
+  ).toBeNull()
+  expect(edit.disabled).toBe(false)
+})
+
+it('New preference refuses a name the server would, before sending', async () => {
+  render(PreferencesPage)
+  await card()
+  const form = await newPreference('../etc', 'qa/a')
+  expect(within(form).getByRole('alert').textContent).toMatch(
+    /starts with a letter/,
+  )
+  await fireEvent.input(within(form).getByLabelText('Name'), {
+    target: { value: 'text_to_image' },
+  })
+  await fireEvent.click(within(form).getByRole('button', { name: 'Create' }))
+  expect(within(form).getByRole('alert').textContent).toMatch(/already/)
+  expect(screen.queryByRole('region', { name: 'preference ../etc' })).toBeNull()
 })
 
 it('changing the default tier writes it with its etag', async () => {

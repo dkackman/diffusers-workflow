@@ -1,22 +1,39 @@
 <script lang="ts">
   import { action } from '../action.svelte'
   import { api } from '../api'
+  import { ApiError } from '../apiErrors'
+  import { confirmDialog } from '../confirm.svelte'
   import { rungsFrom } from '../preferences'
-  import { wsHref } from '../routes'
+  import { addLeaveGuard } from '../router.svelte'
+  import { sharedHref, wsHref } from '../routes'
   import type {
     PreferenceEntry,
     PreferenceReset,
     PreferenceSet,
   } from '../types'
   import { workspace } from '../workspace.svelte'
+  import ErrorLine from '../ui/ErrorLine.svelte'
   import StaleNotice from '../ui/StaleNotice.svelte'
-  import LadderCard from './LadderCard.svelte'
+  import ChainEditor from './ChainEditor.svelte'
   import TierAnswer from './TierAnswer.svelte'
+  import { dryRun } from './dryRun.svelte'
   import { keyLabel } from './preferenceCopy'
-  import { staleEtag, targetName } from './ladderDraft'
+  import {
+    blockedFrom,
+    draftOf,
+    sameLadder,
+    sendable,
+    staleEtag,
+    targetName,
+    type Ladder,
+  } from './ladderDraft'
 
   // One preference key on Server → Preferences (#1762): what each tier runs
-  // on this machine, in words. Edit opens the ladder editor (LadderCard)
+  // on this machine, in words, and Edit, which turns the tiers into chains
+  // (ChainEditor) checked live against this host as they change (dryRun).
+  // Save writes the draft with the etag the edit started from: a 412 asks
+  // Reload or Overwrite, a 422 shows the server's refusal here. Reset to
+  // shipped drops this server's list, and any edit made on it
   let {
     key,
     entry,
@@ -26,6 +43,10 @@
     onreset,
     onreload,
     ondiscard,
+    editing = $bindable(false),
+    locked = false,
+    seed,
+    readOnly = () => false,
   }: {
     key: string
     /** The key as the server holds it; null for a key added here, not yet saved */
@@ -34,13 +55,20 @@
     catalog: readonly string[]
     onsaved: (saved: PreferenceSet) => void
     onreset: (reset: PreferenceReset) => void
+    /** Read the page's preferences again */
     onreload: () => void
+    /** Drop a key added here and never saved */
     ondiscard?: () => void
+    /** The card is in the chain editor */
+    editing?: boolean
+    /** Another card holds the open edit: this one's Edit waits for it */
+    locked?: boolean
+    /** A key added here: the ladder its edit starts from */
+    seed?: Ladder
+    /** A workflow the catalog holds read-only (a shipped example) */
+    readOnly?: (name: string) => boolean
   } = $props()
 
-  // a key added here has nothing to read yet: it opens in the editor
-  // svelte-ignore state_referenced_locally
-  let editing = $state(!entry)
   const rungs = $derived(rungsFrom(entry?.resolutions))
   const tiers = $derived(Object.keys(entry?.ladder ?? {}))
   const used = $derived(entry?.used_by ?? [])
@@ -48,20 +76,109 @@
     ((entry?.ladder[tier] as unknown[] | undefined) ?? []).map((t) =>
       targetName(t as Parameters<typeof targetName>[0]),
     )
+  const usedHref = (name: string) =>
+    readOnly(name)
+      ? sharedHref('examples', ...name.split('/'))
+      : wsHref(workspace.current, 'workflows', ...name.split('/'))
 
-  let stale = $state<string | null | undefined>(undefined)
+  // The ladder the draft started from, and the etag it was read at. A read
+  // that moves the key replaces an unedited draft, never an edited one; an
+  // edited draft still saves against the etag it started from, so a write
+  // made meanwhile is a 412, never silently written over
+  let base = $state<Ladder>(draftOf(undefined))
+  let draft = $state<Ladder>(draftOf(undefined))
+  let baseEtag = $state<string | undefined>(undefined)
+  let seen = $state<string | null | undefined>(undefined)
+  function adopt() {
+    base = draftOf(entry?.ladder)
+    draft = draftOf(entry?.ladder ?? seed)
+    baseEtag = entry?.etag
+  }
+  $effect(() => {
+    const etag = entry?.etag ?? null
+    if (etag === seen) return
+    if (seen === undefined || sameLadder(draft, base)) adopt()
+    seen = etag
+  })
+  const dirty = $derived(!entry || !sameLadder(draft, base))
+  const empty = $derived(Object.keys(sendable(draft)).length === 0)
+
+  // The live check of the draft: only while the editor is open (an empty
+  // ladder sends nothing). Targets the last full read found gated are named,
+  // so the check skips them without asking the Hub
+  const check = dryRun(
+    () => key,
+    () => (editing ? draft : {}),
+    () => blockedFrom(entry?.resolutions),
+  )
+  const targetErrors = $derived(
+    Object.values(check.answer?.tiers ?? {}).some(
+      (t) => Object.keys(t.target_errors ?? {}).length > 0,
+    ),
+  )
+
+  // Leaving the page with an unsaved draft asks first
+  $effect(() => {
+    if (!editing || !dirty) return
+    return addLeaveGuard(() =>
+      confirmDialog(`Leave without saving your changes to ${key}?`, {
+        confirmLabel: 'Leave',
+        cancelLabel: 'Keep editing',
+        danger: true,
+      }),
+    )
+  })
+
+  let refused = $state<unknown>(null)
+  // A 412: the op held back, and the etag the server holds now
+  let stale = $state<{ op: 'save' | 'reset'; etag: string | null } | null>(null)
+
+  /** The write's refusals this card answers itself; any other failure is
+   * the action's toast */
+  function held(op: 'save' | 'reset', e: unknown): null {
+    const etag = staleEtag(e)
+    if (etag !== undefined) stale = { op, etag }
+    else if (op === 'save' && e instanceof ApiError && e.status === 422)
+      refused = e
+    else throw e
+    return null
+  }
+
+  const save = action(
+    async (ifMatch: string | undefined) => {
+      refused = null
+      stale = null
+      try {
+        const saved = await api.setPreference(key, sendable(draft), ifMatch)
+        base = draftOf(saved.ladder)
+        baseEtag = saved.etag
+        editing = false
+        onsaved(saved)
+        // the answer carries no `used_by` or full check: read them again
+        onreload()
+        return saved
+      } catch (e) {
+        return held('save', e)
+      }
+    },
+    { doing: () => `save ${key}`, success: (r) => `Saved ${r.key}` },
+  )
+
   const reset = action(
     async (ifMatch: string | undefined) => {
-      stale = undefined
+      refused = null
+      stale = null
       try {
         const answer = await api.resetPreference(key, ifMatch)
+        // Reset drops this server's ladder and any edit made on it
+        base = draftOf(answer.ladder)
+        draft = draftOf(answer.ladder)
+        baseEtag = answer.etag
+        editing = false
         onreset(answer)
         return answer
       } catch (e) {
-        const etag = staleEtag(e)
-        if (etag === undefined) throw e
-        stale = etag
-        return null
+        return held('reset', e)
       }
     },
     {
@@ -74,92 +191,126 @@
       }),
     },
   )
+
+  function reload() {
+    stale = null
+    refused = null
+    adopt()
+    onreload()
+  }
+
+  function overwrite() {
+    const held = stale
+    if (!held) return
+    const ifMatch = held.etag ?? undefined
+    void (held.op === 'save' ? save.run(ifMatch) : reset.run(ifMatch))
+  }
+
+  function discard() {
+    refused = null
+    stale = null
+    draft = draftOf(base)
+    editing = false
+    if (!entry) ondiscard?.()
+  }
 </script>
 
-{#if editing}
-  <div class="editing">
-    <LadderCard
-      {key}
-      {entry}
-      {catalog}
-      {defaultTier}
-      onsaved={(s) => {
-        onsaved(s)
-        editing = false
-      }}
-      onreset={(r) => {
-        onreset(r)
-        editing = false
-      }}
-      {onreload}
-      {ondiscard}
-    />
-    {#if entry}
-      <button type="button" class="quiet" onclick={() => (editing = false)}>
-        Close editor
-      </button>
-    {/if}
-  </div>
-{:else if entry}
-  <section class="panel card" data-key={key} aria-label="preference {key}">
-    <header>
-      <h2>{keyLabel(key)}</h2>
-      <code>{key}</code>
+<section class="panel card" data-key={key} aria-label="preference {key}">
+  <header>
+    <h2>{keyLabel(key)}</h2>
+    <code>{key}</code>
+    {#if !entry}
+      <span class="chip unsaved">not saved</span>
+    {:else}
       <span class="chip" data-source={entry.source}>
         {entry.source === 'server' ? 'changed on this server' : 'as shipped'}
       </span>
-      <span class="actions">
-        <button type="button" class="quiet" onclick={() => (editing = true)}>
+    {/if}
+    <span class="actions">
+      {#if entry && !editing}
+        <button
+          type="button"
+          class="quiet"
+          disabled={locked}
+          title={locked ? 'Save or discard the open edit first' : undefined}
+          onclick={() => (editing = true)}
+        >
           Edit
         </button>
-        {#if entry.source === 'server'}
+      {/if}
+      {#if entry?.source === 'server'}
+        <button
+          type="button"
+          class="quiet danger"
+          disabled={reset.busy}
+          onclick={() => reset.run(baseEtag ?? entry.etag)}
+        >
+          Reset to shipped
+        </button>
+      {/if}
+    </span>
+  </header>
+
+  {#if stale}
+    <StaleNotice what={key} onreload={reload} onoverwrite={overwrite} />
+  {/if}
+  {#if refused}<ErrorLine error={refused} doing="save {key}" />{/if}
+
+  {#if used.length}
+    <details class="used">
+      <summary>
+        used by {used.length}
+        {used.length === 1 ? 'workflow' : 'workflows'}
+      </summary>
+      <ul>
+        {#each used as name (name)}
+          <li><a href={usedHref(name)}>{name}</a></li>
+        {/each}
+      </ul>
+    </details>
+  {/if}
+
+  {#if editing}
+    <ChainEditor
+      bind:draft
+      {catalog}
+      answer={check.answer}
+      contract={entry?.contract}
+      base={entry ? base : undefined}
+      {defaultTier}
+    />
+    {#if check.refused}
+      <ErrorLine error={check.refused} doing="check {key}" />
+    {/if}
+    <footer>
+      {#if dirty}
+        <span class="unsaved-note">
+          Unsaved changes · Jobs already queued keep the model they were given
+        </span>
+        <span class="actions">
+          <button type="button" class="quiet" onclick={discard}>
+            Discard
+          </button>
           <button
             type="button"
-            class="quiet danger"
-            disabled={reset.busy}
-            onclick={() => reset.run(entry.etag)}
+            disabled={empty ||
+              save.busy ||
+              targetErrors ||
+              check.refused !== null}
+            onclick={() => save.run(baseEtag)}
           >
-            Reset to shipped
+            Save
           </button>
-        {/if}
-      </span>
-    </header>
-
-    {#if stale !== undefined}
-      <StaleNotice
-        what={key}
-        onreload={() => {
-          stale = undefined
-          onreload()
-        }}
-        onoverwrite={() => reset.run(stale ?? undefined)}
-      />
-    {/if}
-
-    {#if used.length}
-      <details class="used">
-        <summary>
-          used by {used.length}
-          {used.length === 1 ? 'workflow' : 'workflows'}
-        </summary>
-        <ul>
-          {#each used as name (name)}
-            <li>
-              <a
-                href={wsHref(
-                  workspace.current,
-                  'workflows',
-                  ...name.split('/'),
-                )}
-              >
-                {name}
-              </a>
-            </li>
-          {/each}
-        </ul>
-      </details>
-    {/if}
-
+        </span>
+      {:else}
+        <span class="actions">
+          <button type="button" class="quiet" onclick={discard}>
+            Close editor
+          </button>
+        </span>
+      {/if}
+    </footer>
+  {:else}
     <div class="tiers">
       {#each tiers as tier (tier)}
         <TierAnswer
@@ -170,8 +321,8 @@
         />
       {/each}
     </div>
-  </section>
-{/if}
+  {/if}
+</section>
 
 <style>
   .card {
@@ -181,18 +332,8 @@
     gap: var(--space-3);
     padding: var(--space-3) var(--space-4);
   }
-  .editing {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: var(--space-2);
-    margin-bottom: var(--space-3);
-  }
-  .editing :global(.ladder) {
-    align-self: stretch;
-    margin-bottom: 0;
-  }
-  header {
+  header,
+  footer {
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
@@ -206,6 +347,10 @@
     margin-left: auto;
     display: flex;
     gap: var(--space-2);
+  }
+  .unsaved-note {
+    color: var(--warn);
+    font-size: var(--t-sm);
   }
   .used {
     font-size: var(--t-sm);

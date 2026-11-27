@@ -2,6 +2,7 @@ import { expect, it } from 'vitest'
 import { ApiError } from '../apiErrors'
 import {
   added,
+  blockedFrom,
   draftOf,
   keyProblem,
   moved,
@@ -72,4 +73,23 @@ it('reads the etag a 412 stale_write carries, and nothing else', () => {
   expect(staleEtag(new ApiError('changed', 409, 'stale_write'))).toBeUndefined()
   expect(staleEtag(new ApiError('bad', 422))).toBeUndefined()
   expect(staleEtag(new Error('x'))).toBeUndefined()
+})
+
+it('names the targets the last full read found gated, once each', () => {
+  expect(
+    blockedFrom({
+      best: {
+        target: 'models/qwen-image-2.1',
+        skipped: [
+          { workflow: 'models/flux-dev', reason: 'gated, no access' },
+          { workflow: 'models/minimax-h3-image', reason: 'cuda-only' },
+        ],
+      },
+      standard: {
+        skipped: [{ workflow: 'models/flux-dev', reason: 'gated, no access' }],
+      },
+      draft: { target: 'a' },
+    }),
+  ).toEqual(['models/flux-dev'])
+  expect(blockedFrom(undefined)).toEqual([])
 })

@@ -8,10 +8,16 @@
     PreferenceSet,
   } from '../types'
   import PreferenceCard from '../ladder/PreferenceCard.svelte'
-  import { TIERS, keyProblem, staleEtag } from '../ladder/ladderDraft'
+  import {
+    TIERS,
+    keyProblem,
+    staleEtag,
+    type Ladder,
+  } from '../ladder/ladderDraft'
   import Segmented from '../ui/Segmented.svelte'
   import LoadState from '../ui/LoadState.svelte'
   import StaleNotice from '../ui/StaleNotice.svelte'
+  import Suggest from '../ui/Suggest.svelte'
 
   // Server → Preferences (#1762 stage C): the `preference:` ladders this
   // server resolves, shipped or its own, each editable here, and the tier a
@@ -26,14 +32,24 @@
   )
   const catalog = resource(() => api.listWorkflows(), { watch: ['workflows'] })
   const names = $derived(catalog.data?.workflows ?? [])
+  // a workflow a shipped library holds opens under Examples, as the
+  // Workflows page links it
+  const details = $derived(catalog.data?.details ?? {})
+  const readOnly = (name: string) => details[name]?.writable === false
 
   const stored = $derived(Object.keys(read.data?.preferences ?? {}).sort())
-  // keys added here and not saved yet, after the stored ones
-  let fresh = $state<string[]>([])
+  // keys added here and not saved yet, after the stored ones, each with the
+  // ladder its edit starts from
+  let fresh = $state<Record<string, Ladder>>({})
   const shown = $derived([
     ...stored,
-    ...fresh.filter((k) => !stored.includes(k)),
+    ...Object.keys(fresh).filter((k) => !stored.includes(k)),
   ])
+  // the one card in the chain editor; the others' Edit waits for it
+  let editing = $state<string | null>(null)
+  const forget = (key: string) => {
+    fresh = Object.fromEntries(Object.entries(fresh).filter(([k]) => k !== key))
+  }
 
   function withEntry(key: string, entry: PreferenceEntry | null) {
     const data = read.data
@@ -52,7 +68,7 @@
 
   function saved({ key, ...entry }: PreferenceSet) {
     withEntry(key, entry)
-    fresh = fresh.filter((k) => k !== key)
+    forget(key)
   }
 
   function wasReset({
@@ -67,15 +83,26 @@
     else withEntry(key, { source, etag, ladder, resolutions })
   }
 
+  // New preference (spec §7): a name and the first model for the default
+  // tier make a card in the editor; nothing is saved until its Save
+  let creating = $state(false)
   let newKey = $state('')
+  let firstModel = $state('')
   let keyRefused = $state<string | null>(null)
-  function addKey(event: SubmitEvent) {
+  function closeNew() {
+    creating = false
+    newKey = ''
+    firstModel = ''
+    keyRefused = null
+  }
+  function addKey(event: SubmitEvent, tier: string) {
     event.preventDefault()
     const name = newKey.trim()
     keyRefused = keyProblem(name, shown)
     if (keyRefused) return
-    fresh = [...fresh, name]
-    newKey = ''
+    fresh = { ...fresh, [name]: { [tier]: [firstModel.trim()] } }
+    editing = name
+    closeNew()
   }
 
   // the default tier: a 412 asks Reload or Overwrite, as a key's does
@@ -143,30 +170,71 @@
       entry={data.preferences[key] ?? null}
       catalog={names}
       defaultTier={data.default_tier}
+      bind:editing={
+        () => editing === key,
+        (open) => {
+          if (open) editing = key
+          else if (editing === key) editing = null
+        }
+      }
+      locked={editing !== null && editing !== key}
+      seed={fresh[key]}
+      {readOnly}
       onsaved={saved}
       onreset={wasReset}
       onreload={() => void read.refresh()}
-      ondiscard={() => (fresh = fresh.filter((k) => k !== key))}
+      ondiscard={() => forget(key)}
     />
   {/each}
 
-  <form class="addkey" onsubmit={addKey}>
-    <label for="new-key">New key</label>
-    <input
-      id="new-key"
-      placeholder="image_edit"
-      bind:value={newKey}
-      oninput={() => (keyRefused = null)}
-      aria-invalid={keyRefused ? true : undefined}
-      aria-describedby={keyRefused ? 'new-key-problem' : undefined}
-    />
-    <button type="submit" class="quiet" disabled={!newKey.trim()}>
-      Add key
+  {#if creating}
+    <form
+      class="panel addkey"
+      aria-label="New preference"
+      onsubmit={(e) => addKey(e, data.default_tier)}
+    >
+      <label for="new-key">Name</label>
+      <input
+        id="new-key"
+        placeholder="image_edit"
+        bind:value={newKey}
+        oninput={() => (keyRefused = null)}
+        aria-invalid={keyRefused ? true : undefined}
+        aria-describedby={keyRefused ? 'new-key-problem' : undefined}
+      />
+      <p class="muted">
+        A workflow uses it by naming preference:&lt;name&gt; as a step's
+        workflow path.
+      </p>
+      <Suggest
+        aria-label="First model for the {data.default_tier} tier"
+        placeholder="first model for {data.default_tier}…"
+        suggestions={names}
+        bind:value={firstModel}
+      />
+      <span class="buttons">
+        <button type="button" class="quiet" onclick={closeNew}>Cancel</button>
+        <button type="submit" disabled={!newKey.trim() || !firstModel.trim()}>
+          Create
+        </button>
+      </span>
+      {#if keyRefused}
+        <p id="new-key-problem" class="warn" role="alert">{keyRefused}</p>
+      {/if}
+    </form>
+  {:else}
+    <button
+      type="button"
+      class="quiet"
+      disabled={editing !== null}
+      title={editing !== null
+        ? 'Save or discard the open edit first'
+        : undefined}
+      onclick={() => (creating = true)}
+    >
+      New preference
     </button>
-    {#if keyRefused}
-      <p id="new-key-problem" class="warn" role="alert">{keyRefused}</p>
-    {/if}
-  </form>
+  {/if}
 {/if}
 
 <style>
@@ -184,9 +252,16 @@
     padding: var(--space-3) var(--space-4);
     margin-bottom: var(--space-3);
   }
+  .addkey {
+    padding: var(--space-3) var(--space-4);
+  }
   .addkey input {
     width: auto;
     min-width: 12rem;
+  }
+  .buttons {
+    display: flex;
+    gap: var(--space-2);
   }
   .addkey p {
     flex-basis: 100%;
