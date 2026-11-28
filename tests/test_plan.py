@@ -4039,3 +4039,27 @@ class TestMovedDriversPriceFromTheObservedDefault:
     def test_no_default_history_stays_curated(self, plan):
         quoted = self.quote(plan, self.MOVED, self.history())
         assert quoted["scaled"].startswith("scaled from the curated 7.9 min")
+
+    @pytest.mark.parametrize(
+        "check, name",
+        [
+            ("variable:words_check", "words_check"),
+            ({"words_similarity_min": "variable:words_floor"}, "words_floor"),
+        ],
+    )
+    def test_a_chains_check_variables_are_read_from_the_chain(self, check, name):
+        from dw.plan import _borrowable_drivers
+
+        definition = {
+            "cost_drivers": ["num_inference_steps", name, "rolls"],
+            "variables": {"num_inference_steps": 9, name: 0.5, "rolls": 1},
+            "steps": [
+                {
+                    "pipeline": {
+                        "chain": {"check": check, "retries": "variable:rolls"},
+                        "arguments": {},
+                    }
+                }
+            ],
+        }
+        assert _borrowable_drivers(definition) == {"num_inference_steps"}

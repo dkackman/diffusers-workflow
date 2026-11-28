@@ -487,6 +487,15 @@ def _chain_is_checked(definition, expanded):
     return _chain_retries(definition, variables) > 0 or bool(words_minutes)
 
 
+def _chain_check_variables(chain):
+    """(check, retries): the variable each of a chain block's two is read
+    from, None for one that is not a variable."""
+    return tuple(
+        references.ref_name(references.VARIABLE, chain.get(key))
+        for key in ("check", "retries")
+    )
+
+
 def _unchecked_arguments(definition, arguments):
     """`arguments` with the one chain's `check` off and its `retries` 0, or
     None when the chain's `check` is not a variable an argument can turn
@@ -494,12 +503,10 @@ def _unchecked_arguments(definition, arguments):
     blocks = list(_chain_blocks(definition.get("steps")))
     if len(blocks) != 1:
         return None
-    chain = blocks[0][0]
-    check = references.ref_name(references.VARIABLE, chain.get("check"))
+    check, retries = _chain_check_variables(blocks[0][0])
     if check is None:
         return None
     twin = {**(arguments or {}), check: False}
-    retries = references.ref_name(references.VARIABLE, chain.get("retries"))
     if retries is not None:
         twin[retries] = 0
     return twin
@@ -551,10 +558,17 @@ def _thin(block):
 
 def _borrowable_drivers(definition):
     """The `cost_drivers` whose moved value a history run at the default can
-    stand in for (#1795). Not a chain's `check` or `retries`, whose re-rolls
-    are priced on top, and not a variable naming which child a composing step
+    stand in for (#1795). Not a variable a chain reads its `check` or
+    `retries` from, whose re-rolls are priced on top, and not a variable naming which child a composing step
     runs: that is another workflow's cost, priced by resolving it (#1722)."""
-    kept = {"check", "retries"}
+    kept = set()
+    for chain, _ in _chain_blocks(definition.get("steps")):
+        kept.update(_chain_check_variables(chain))
+        if isinstance(chain.get("check"), dict):
+            kept.update(
+                references.ref_name(references.VARIABLE, value)
+                for value in chain["check"].values()
+            )
     for _, step, *_ in references.iter_steps(definition.get("steps") or []):
         child = step.get("workflow")
         if isinstance(child, dict):
