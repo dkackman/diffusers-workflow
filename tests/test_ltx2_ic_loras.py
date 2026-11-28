@@ -88,7 +88,9 @@ CARDS = {
         "ltx-2.5-22b-ic-lora-pixel-spatial-upscaler-x2-1.0.safetensors",
         2,
         960,
-        544,
+        # Not the 544 the others render: half of 544 is off diffusers' 32
+        # grid, and the reference would be squashed (#1809)
+        576,
         121,
         1.0,
     ),

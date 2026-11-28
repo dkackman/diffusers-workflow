@@ -27,14 +27,14 @@
             "reason": "LTX-2.5's pipelines refuse a height not divisible by 32 outright (ValueError, not a silent floor), so it is checked here before the low-resolution stage's load rather than after it"
         },
         "width": {
-            "modulus": 32,
+            "modulus": 64,
             "remainder": 0,
-            "reason": "LTX-2.5's pipelines refuse a width not divisible by 32 outright (ValueError, not a silent floor), so it is checked here before the upscale stage's load rather than after it"
+            "reason": "the reference is encoded at half the output width and the pipeline floors that to a multiple of 32, which squashes the picture, so the output width is a multiple of 64"
         },
         "height": {
-            "modulus": 32,
+            "modulus": 64,
             "remainder": 0,
-            "reason": "LTX-2.5's pipelines refuse a height not divisible by 32 outright (ValueError, not a silent floor), so it is checked here before the upscale stage's load rather than after it"
+            "reason": "the reference is encoded at half the output height and the pipeline floors that to a multiple of 32, which squashes the picture, so the output height is a multiple of 64"
         },
         "num_frames": {
             "modulus": 8,
