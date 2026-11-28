@@ -1341,7 +1341,9 @@ count is exact: a longer source is cut to its first `num_frames` frames and a
 shorter one holds its last frame. `downscale` (default 1) divides `width` and
 `height`, which must both be divisible by it: a 2x upscaler fits its reference
 with `downscale: 2` and passes the full `width`/`height` to the pipeline
-(`templates/ltx2/upscale-clip`).
+(`templates/ltx2/upscale-clip`). Those must then be multiples of 64: the
+pipeline floors the reference's size to a multiple of 32, and a half size off
+that grid is squashed (544 rows would be read as 512).
 
 `align` (default 1, letterbox only) snaps the picture's box to multiples of
 that many pixels - a masked model's cell, 32 for H3's 16 px x patch 2 - so the

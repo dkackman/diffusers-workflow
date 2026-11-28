@@ -1,6 +1,6 @@
 {
     "id": "LTX2UpscaleClip",
-    "description": "Re-renders a clip from the asset library at exactly twice its size with the spatial-upscaler in-context LoRA, the clip attached as the reference for the whole denoise - so composition, motion and subject carry over while fine detail (texture, edges, micro-contrast) is invented, not interpolated. It is a generative re-render, not a faithful resize: the vendor scopes it as a creative step, not for live-action footage where factual fidelity matters, and a heavily compressed source is 'restore-decompression''s job first. 'width'/'height' are the output size the model renders (each divisible by 32); a first step fits the source to half of it and 'num_frames', and a last step restores the result to twice the source's size at the source's own length - so the output is exactly 2x the source whatever its size (under crop, 2x the kept region, since crop cuts the edges off for good). A different aspect ratio is handled by 'fit': letterbox (default) pads it and the padding is cut back off, stretch resizes it, crop cuts it to fill. A source shorter than 'num_frames' is held on its last frame and trimmed back after; a longer one is cut to its opening 'num_frames' frames. Defaults render 960x544 at 121 frames; the model runs at its 24 fps, and the output is written at the source's frame rate, one frame per source frame - 'frame_rate' overrides that rate, never the frame count. Replace the default prompt with a description of the source's subject, setting, motion and lighting - the vendor card states no caption convention, and the prompt is what anchors the re-render to the scene. 'lora_scale' is 1.0 because the weights ship pre-scaled. The upscale is saved to intermediate/; the deliverable in final/ carries the source's own soundtrack cut to the output length, so a source with no audio fails at that step, after the upscale is saved.",
+    "description": "Re-renders a clip from the asset library at exactly twice its size with the spatial-upscaler in-context LoRA, the clip attached as the reference for the whole denoise - so composition, motion and subject carry over while fine detail (texture, edges, micro-contrast) is invented, not interpolated. It is a generative re-render, not a faithful resize: the vendor scopes it as a creative step, not for live-action footage where factual fidelity matters, and a heavily compressed source is 'restore-decompression''s job first. 'width'/'height' are the size the model renders (each rounded up to a multiple of 64, so half of it, the reference, stays on the model's 32 grid); a first step fits the source to half of it and 'num_frames', and a last step restores the result to twice the source's size at the source's own length - so the output is exactly 2x the source whatever its size (under crop, 2x the kept region, since crop cuts the edges off for good). A different aspect ratio is handled by 'fit': letterbox (default) pads it and the padding is cut back off, stretch resizes it, crop cuts it to fill. A source shorter than 'num_frames' is held on its last frame and trimmed back after; a longer one is cut to its opening 'num_frames' frames. Defaults render 960x576 at 121 frames; the model runs at its 24 fps, and the output is written at the source's frame rate, one frame per source frame - 'frame_rate' overrides that rate, never the frame count. Replace the default prompt with a description of the source's subject, setting, motion and lighting - the vendor card states no caption convention, and the prompt is what anchors the re-render to the scene. 'lora_scale' is 1.0 because the weights ship pre-scaled. The upscale is saved to intermediate/; the deliverable in final/ carries the source's own soundtrack cut to the output length, so a source with no audio fails at that step, after the upscale is saved.",
     "summary": "2x generative re-render of your own clip, any aspect or length, soundtrack kept. width/height = the render size.",
     "cost": [
         {"device": "cuda", "name": "RTX 3090", "vram_gb": 24, "minutes": 3.4}
@@ -23,7 +23,7 @@
         "prompt": "A high-resolution rendering of the scene in the reference video, with the same subject, framing and motion, and sharp, fine detail.",
         "negative_prompt": "constant:diffusers.pipelines.ltx2.utils.DEFAULT_NEGATIVE_PROMPT",
         "width": 960,
-        "height": 544,
+        "height": 576,
         "num_frames": 121,
         "frame_rate": "source",
         "fit": "letterbox",
@@ -32,14 +32,16 @@
     },
     "variable_constraints": {
         "width": {
-            "modulus": 32,
+            "modulus": 64,
             "remainder": 0,
-            "reason": "LTX-2.5's pipelines refuse a width not divisible by 32 outright (ValueError, not a silent floor), so it is checked here before the pipeline load rather than after it"
+            "snap": "up",
+            "reason": "the reference is encoded at half the render size and the pipeline floors that to a multiple of 32, which squashes the picture, so the render width is a multiple of 64; the output is still 2x the source, since the last step cuts the padding back off"
         },
         "height": {
-            "modulus": 32,
+            "modulus": 64,
             "remainder": 0,
-            "reason": "LTX-2.5's pipelines refuse a height not divisible by 32 outright (ValueError, not a silent floor), so it is checked here before the pipeline load rather than after it"
+            "snap": "up",
+            "reason": "the reference is encoded at half the render size and the pipeline floors that to a multiple of 32, which squashes the picture, so the render height is a multiple of 64; the output is still 2x the source, since the last step cuts the padding back off"
         },
         "num_frames": {
             "modulus": 8,

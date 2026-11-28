@@ -568,8 +568,16 @@ class TestTheCatalogsNumbersAreTheLibrarys:
             ]
             assert declared, f"no LTX-2.5 template declares a {name} constraint"
             for path, rule in declared:
-                assert rule["modulus"] == modulus, path
                 assert rule["remainder"] == 0, path
+                if os.path.basename(path) in (
+                    "upscale-clip.json",
+                    "generative-upscale.json",
+                ):
+                    # Their reference is half the size, on the same grid
+                    # (#1809, tests/test_ic_reference_grid.py)
+                    assert rule["modulus"] == 2 * modulus, path
+                    continue
+                assert rule["modulus"] == modulus, path
                 # A hard ValueError, not a floor like num_frames: no snap
                 assert "snap" not in rule, path
 

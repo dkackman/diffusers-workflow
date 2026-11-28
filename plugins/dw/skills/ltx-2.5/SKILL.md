@@ -42,7 +42,7 @@ This skill is written for dw `0.23.0-alpha.4`; `get_server_info`'s `plugin` says
 - **A generative 2x render**: `templates/ltx2/generative-upscale` draws its own
   low-res pass, then an IC-LoRA re-renders it twice the size,
   inventing detail. `base_width`/`base_height` are the first render's size,
-  `width`/`height` the doubled target. The user's clip: `templates/ltx2/upscale-clip`.
+  `width`/`height` the doubled target (multiples of 64). The user's clip: `templates/ltx2/upscale-clip`.
 - **Keeping a subject across a clip**: `templates/ltx2/reference-sheet`. The
   family's only identity route; the user must author the reference sheet
   - one composite image, a clean panel per character, prop and location, no

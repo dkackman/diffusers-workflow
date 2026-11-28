@@ -23,7 +23,7 @@ blur or grain - so name the defect and let the user correct you.
 ## Upscale or sharpen
 
 `templates/ltx2/upscale-clip` (IC-LoRA re-render), `width`/`height` the
-render size, or `refine-clip` (its own latents, no LoRA), `width`/`height`
+render size (rounded up to a multiple of 64), or `refine-clip` (its own latents, no LoRA), `width`/`height`
 the working size. Both fit the source first and restore after: output
 exactly 2x the source (2x the kept region under crop) at its length, any
 aspect ratio letterboxed and cut back (`fit`), a short source held and

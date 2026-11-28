@@ -85,12 +85,12 @@ class TestTheFittedVideoReachesThePipeline:
         assert isinstance(frames, FittedVideo)
         assert isinstance(frames, numpy.ndarray)
         assert frames.dtype == numpy.float32
-        # Half the 960x544 output, at the template's 121 frames
-        assert frames.shape == (121, 272, 480, 3)
+        # Half the 960x576 render, at the template's 121 frames
+        assert frames.shape == (121, 288, 480, 3)
         assert frames.fps == SRC_FPS
         assert 0.0 <= frames.min() and frames.max() <= 1.0
         # The output size still goes to the pipeline
-        assert (arguments["width"], arguments["height"]) == (960, 544)
+        assert (arguments["width"], arguments["height"]) == (960, 576)
 
     def test_refine_clip_upsamples_the_fitted_video(self, asset_clip, tmp_path):
         steps = realized_steps("refine-clip", tmp_path)
