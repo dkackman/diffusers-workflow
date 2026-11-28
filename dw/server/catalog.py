@@ -94,14 +94,16 @@ def catalog_name_for(path, source):
     return catalog_name_from_root(path, source.root)
 
 
-def attach_observed(details, observed_costs, workspace_name=None):
+def attach_observed(details, observed_costs, workspace_name=None, *, definitions):
     """Fold this box's own history into each detail, as `observed`.
 
     Separate from `workflow_details` because that cache is keyed on a file's
     mtime and this figure changes when no file has: a job finishing moves
-    every number here. A detail carries `cost_drivers` and the defaults they
-    take, which is everything the aggregate needs - the file is not read a
-    second time.
+    every number here. `definitions` (`listed_definitions`) are the files as
+    `workflow_details` parsed them - the whole definition, because what
+    counts as a comparable run is read off its steps and presets as well as
+    its variables, and the listing's figure must be the one `get_workflow`
+    and a plan give (#1789).
 
     A detail's own `writable` says whether its entry is this workspace's own
     copy or a shared catalog one (#274): only the former is scoped to
@@ -112,24 +114,28 @@ def attach_observed(details, observed_costs, workspace_name=None):
     if observed_costs is None or not observed_costs.refresh():
         return details
     for name, detail in details.items():
-        drivers = detail.get("cost_drivers") or {}
-        # The shape `observed_for` reads: the drivers with their defaults,
-        # and the variable names, which is what the no-drivers fallback
-        # (default-arguments-only runs) compares a job's arguments against
-        surrogate = {
-            "cost_drivers": sorted(drivers),
-            "variables": {
-                **{variable: None for variable in detail.get("variable_names") or []},
-                **drivers,
-            },
-        }
+        definition = definitions.get(name)
+        if definition is None:
+            continue
         workspace = workspace_name if detail.get("writable") else None
         observed = observed_costs.observed(
-            name, surrogate, fresh=False, workspace=workspace
+            name, definition, fresh=False, workspace=workspace
         )
         if observed:
             detail["observed"] = observed
     return details
+
+
+def listed_definitions(sources_by_name):
+    """Each name's definition as `workflow_details` last parsed it, so what
+    reads a listing's files whole opens none of them again. A file that did
+    not parse has none."""
+    definitions = {}
+    for name, source in sources_by_name.items():
+        cached = _workflow_detail_cache.get(os.path.join(source.root, f"{name}.json"))
+        if cached and cached[2] is not None:
+            definitions[name] = cached[2]
+    return definitions
 
 
 def workflow_details(sources_by_name):
@@ -163,6 +169,7 @@ def workflow_details(sources_by_name):
                 "writable": source.writable,
             }
             continue
+        definition = None
         try:
             with open(path, "r") as file:
                 definition = json.load(file)
@@ -202,8 +209,8 @@ def workflow_details(sources_by_name):
                 "constraints": definition.get("variable_constraints") or {},
                 # The variables the author says move this workflow's cost,
                 # with what they default to - what buckets this box's own
-                # runs into comparable ones (#93). Carried here so an
-                # observed figure needs no second read of the file
+                # runs into comparable ones (#93), and shows what an
+                # observed figure is for
                 "cost_drivers": {
                     name: effective_variables(definition).get(name)
                     for name in declared_drivers(definition)
@@ -227,7 +234,7 @@ def workflow_details(sources_by_name):
                 "cost_drivers": {},
                 "cost": None,
             }
-        _workflow_detail_cache[path] = (mtime, detail)
+        _workflow_detail_cache[path] = (mtime, detail, definition)
         # Cached by content, not by placement: the same file listed from a
         # different source keeps its parsed detail and gets fresh origins
         details[name] = {

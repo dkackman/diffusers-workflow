@@ -13,7 +13,11 @@ import re
 
 import pytest
 
-from dw.server.catalog import attach_observed, workflow_details
+from dw.server.catalog import (
+    attach_observed,
+    listed_definitions,
+    workflow_details,
+)
 from dw.server.catalog_shape import (
     SUMMARY_LIMIT,
     derive_catalog_metadata,
@@ -755,7 +759,11 @@ def test_the_compact_listing_fits_the_budget():
     details = workflow_details(found)
     # As the server answers it: every workflow carrying the observed figures
     # it would carry on a box that had run them all
-    attach_observed(details, _every_workflow_observed(details))
+    attach_observed(
+        details,
+        _every_workflow_observed(details),
+        definitions=listed_definitions(found),
+    )
 
     compact = project_listing(details, view="compact")
     assert _tokens(compact) <= COMPACT_BUDGET, (

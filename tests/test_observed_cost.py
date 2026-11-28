@@ -53,6 +53,60 @@ def workflow(drivers=None, **variables):
     return definition
 
 
+class TestTheListingAgreesWithTheVariablesView:
+    """#1789: the listing aggregated over a stand-in definition with no
+    `steps`, so a task-only workflow's runs all read as warm and its
+    `observed_minutes` went missing, or counted only the runs that logged a
+    load, while `get_workflow` and the plan reported them all."""
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "templates/generate-speech",
+            "templates/voice-clone",
+            "templates/text-to-sound-effect",
+        ],
+    )
+    def test_a_task_only_template_reports_every_run(self, tmp_path, name):
+        from dw.library import library_path
+        from dw.server.catalog import (
+            attach_observed,
+            listed_definitions,
+            workflow_details,
+        )
+        from dw.server.catalog_shape import project_listing
+
+        history = JobHistory(tmp_path / "jobs.sqlite")
+        loading = json.dumps([{"type": "log", "message": "loading"}])
+        with history._connect() as connection:
+            for job_id, seconds, events in (
+                ("a", 6.0, "[]"),
+                ("b", 18.0, "[]"),
+                ("c", 30.0, loading),
+            ):
+                connection.execute(
+                    "INSERT INTO jobs (id, status, started_at, finished_at,"
+                    " arguments, manifest, events, workflow_name)"
+                    " VALUES (?,?,?,?,?,?,?,?)",
+                    (job_id, "succeeded", 100.0, 100.0 + seconds, "{}", "[]")
+                    + (events, name),
+                )
+        costs = ObservedCosts(history)
+        found, _shadowed = library_path(
+            "workflows", None, primary=os.path.join(REPO_ROOT, "workflows")
+        ).entries()
+        details = workflow_details(found)
+        attach_observed(details, costs, definitions=listed_definitions(found))
+        with open(os.path.join(REPO_ROOT, "workflows", f"{name}.json")) as file:
+            whole = costs.observed(name, json.load(file))
+
+        assert whole["cold_runs"] == 3
+        assert details[name]["observed"] == whole
+        entry = project_listing(details, view="compact", shape="audio")[name]
+        assert entry["observed_runs"] == 3
+        assert entry["observed_minutes"] == whole["cold_minutes"]
+
+
 class TestResumedChainRows:
     def test_a_resumed_chain_run_is_not_a_full_run_s_basis(self):
         definition = workflow(["num_frames"], num_frames=124, resume=None)
@@ -526,7 +580,8 @@ class TestOffTheJobRow:
             name: {"cost_drivers": {}, "variable_names": []}
             for name in ("templates/x", "templates/y", "templates/z")
         }
-        attach_observed(details, costs)
+        definitions = {name: {"steps": []} for name in details}
+        attach_observed(details, costs, definitions=definitions)
 
         assert len(reads) == 1
 

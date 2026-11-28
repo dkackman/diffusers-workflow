@@ -72,6 +72,7 @@ from ..admission import JobRequest, admit_for, workspace_roots
 from ..catalog import (
     matching_prompts,
     attach_observed,
+    listed_definitions,
     prompt_details,
     resolve_prompt_name,
     resolve_readable_workflow,
@@ -388,6 +389,7 @@ def list_workflows(
                 workflow_details(found),
                 getattr(state, "observed_costs", None),
                 ws.name,
+                definitions=listed_definitions(found),
             ),
             shape=shape,
             traits=[t.strip() for t in (traits or "").split(",") if t.strip()],
