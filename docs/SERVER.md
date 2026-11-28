@@ -1135,10 +1135,11 @@ it has one, otherwise from the workflow's `cost` block. Quote `minutes`;
   with no `entry_frames` (older history, entries without `num_frames`, a
   matched chain's per-segment figure, or an `inherited` one) keeps the
   discard above.
-- *A tier this box never ran.* A run whose drivers have no history of their
-  own (a preset tier, say) is priced from the same run's history at the
-  default preset, scaled by how far the drivers moved: `derived`,
-  `low_confidence`, with `scaled`.
+- *Drivers this box never ran.* A run whose drivers have no history of their
+  own (a preset tier, other steps, a bigger canvas) is priced from the same
+  run's history at the default preset, or failing that at the default drivers
+  too, scaled by how far they moved: `derived`, `low_confidence`, with
+  `scaled`.
 - *Checked chains.* A chain that may re-roll or words-check is quoted at its
   worst case: this box's history is re-priced for the re-rolls and Whisper
   passes it may pay (`derived`, `scaled` saying so), and the quote is never
@@ -1166,8 +1167,8 @@ it has one, otherwise from the workflow's `cost` block. Quote `minutes`;
 
 **Thin history.** Below 3 cold runs an `observed` figure is not quoted at
 full authority. It is blended toward the curated figure scaled to the run
-(or toward this box's default-tier history scaled to it, when a preset tier's
-own bucket is the thin one): one run counts for a third of the blend, two for
+(or toward this box's default-drivers history scaled to it, when a preset
+tier's or a changed driver's own bucket is the thin one): one run counts for a third of the blend, two for
 two thirds, three or more not at all. The blend is marked `tempered: true`
 and keeps `basis: observed`, with `observed_minutes` and `curated_minutes`
 beside it so `minutes` can be reconciled against either. With nothing to

@@ -3974,3 +3974,68 @@ def test_a_component_one_step_nulls_and_another_loads_is_still_counted():
     assert skips_of([step(), step(safety_checker=None)]).get("org/sd") == set()
     both = [step(safety_checker=None), step(safety_checker=None)]
     assert skips_of(both)["org/sd"] == {"safety_checker"}
+
+
+CATALOG_REFERENCE = "workflows/templates/minimax/reference-to-video.json"
+
+
+class TestMovedDriversPriceFromTheObservedDefault:
+    """#1795 (C-F484): a by-name run at steps or a canvas this box has never
+    run scales this box's default history, not the curated row."""
+
+    AREA = (1344 * 768) / (960 * 544)
+    MOVED = {"seed": 42, "num_inference_steps": 30, "width": 1344, "height": 768}
+
+    @staticmethod
+    def history(**buckets):
+        """Only the default drivers' bucket has runs, plus `own` for a run
+        that names them."""
+
+        def answer(arguments):
+            if set(arguments) <= {"seed"}:
+                return buckets.get("default")
+            return buckets.get("own")
+
+        return answer
+
+    def quote(self, plan, arguments, history):
+        template = _repo_json(CATALOG_REFERENCE)
+        return plan(template, arguments=arguments, observed=history)["estimate"]
+
+    def test_steps_and_canvas_scale_the_observed_default(self, plan):
+        steps = _repo_json(CATALOG_REFERENCE)["variables"]["num_inference_steps"]
+        history = self.history(default=observed(minutes=4.1, runs=54))
+        quoted = self.quote(plan, self.MOVED, history)
+        assert quoted["basis"] == "derived"
+        assert quoted["scaled"].startswith("scaled from the observed 4.1 min")
+        assert "curated" not in quoted["scaled"]
+        assert quoted["minutes"] == pytest.approx(
+            4.1 * 30 / steps * self.AREA, rel=0.05
+        )
+        assert quoted["low_confidence"] is True
+
+    @pytest.mark.parametrize(
+        "moved", [{"lora_model_name": None}, {"weights_dtype": "{int8}"}]
+    )
+    def test_an_unscaled_driver_beside_steps_is_named(self, plan, moved):
+        history = self.history(default=observed(minutes=4.1, runs=54))
+        quoted = self.quote(
+            plan, {"seed": 42, "num_inference_steps": 30, **moved}, history
+        )
+        assert quoted["scaled"].startswith("scaled from the observed 4.1 min")
+        assert quoted["differs"] == list(moved)
+        assert quoted["low_confidence"] is True
+
+    def test_a_thin_bucket_tempers_toward_the_observed_default(self, plan):
+        history = self.history(
+            default=observed(minutes=4.1, runs=54),
+            own=observed(minutes=24.0, runs=1),
+        )
+        quoted = self.quote(plan, self.MOVED, history)
+        assert quoted["tempered"] is True
+        assert "scaled from the observed 4.1 min" in quoted["scaled"]
+        assert "curated" not in quoted["scaled"]
+
+    def test_no_default_history_stays_curated(self, plan):
+        quoted = self.quote(plan, self.MOVED, self.history())
+        assert quoted["scaled"].startswith("scaled from the curated 7.9 min")

@@ -37,6 +37,7 @@ from .cost_scaling import (
     _driver_scaling,
     fixed_share,
     _entry_cost_field_shifted,
+    _declared_drivers,
     words_check_term,
     _chain_blocks,
     _chain_retries,
@@ -512,13 +513,13 @@ def _observed_block(
     that raised because history could not be read would cost the caller the
     whole pre-flight.
 
-    A run whose drivers this box has never run (a preset tier, say) has no
-    bucket of its own. Rather than fall to the curated row, which can sit far
-    from this box's speed (#1236), the history of the same run under the
-    default preset is scaled by the ratio the drivers moved by. A tier whose
-    own bucket is too thin to quote alone carries that scaled figure as
-    `baseline`, the one `estimate` tempers it toward in place of the
-    curated row."""
+    A run whose drivers this box has never run (a preset tier, other steps or
+    a bigger canvas) has no bucket of its own. Rather than fall to the curated
+    row, which can sit far from this box's speed (#1236), the history of the
+    same run at the default drivers is scaled by the ratio they moved by
+    (#1795). A run whose own bucket is too thin to quote alone carries that
+    scaled figure as `baseline`, the one `estimate` tempers it toward in place
+    of the curated row."""
     if not callable(observed):
         return observed if isinstance(observed, dict) else None
     try:
@@ -548,33 +549,61 @@ def _thin(block):
     return isinstance(runs, int) and runs < SMALL_N_THRESHOLD
 
 
-def _scaled_observed(observed, arguments, definition, expanded, entries, device=None):
-    """History of the run with the preset selectors left at their defaults,
-    scaled to `arguments`' drivers, or None when there is none or nothing
-    but the selector itself moved.
+def _borrowable_drivers(definition):
+    """The `cost_drivers` whose moved value a history run at the default can
+    stand in for (#1795). Not a chain's `check` or `retries`, whose re-rolls
+    are priced on top, and not a variable naming which child a composing step
+    runs: that is another workflow's cost, priced by resolving it (#1722)."""
+    kept = {"check", "retries"}
+    for _, step, *_ in references.iter_steps(definition.get("steps") or []):
+        child = step.get("workflow")
+        if isinstance(child, dict):
+            kept.add(references.ref_name(references.VARIABLE, child.get("path")))
+    return set(_declared_drivers(definition)) - kept
 
-    A driver the preset moved that no rule scales (a tier's weights dtype)
-    keeps the figure, named in `differs`, as the curated path keeps it
-    (#866): the observed default is still far nearer this box's speed than
-    the curated row (#1236)."""
+
+def _scaled_observed(observed, arguments, definition, expanded, entries, device=None):
+    """History of a run near this one, scaled to `arguments`' drivers, or None
+    when there is none or nothing but a selector itself moved.
+
+    The nearest comes first: the same arguments with the preset selectors left
+    at their defaults (#1236), and only when that has no history, with the
+    scalar drivers a default run can stand in for left at theirs too (#1795,
+    `_borrowable_drivers`). A list argument stays, since
+    `_driver_scaling` prices no list's length.
+
+    A moved driver that no rule scales (a tier's weights dtype) keeps the
+    figure, named in `differs`, as the curated path keeps it (#866): the
+    observed default is still far nearer this box's speed than the curated
+    row (#1236, #1795)."""
     selectors = preset_selectors(definition)
-    base_args = {k: v for k, v in arguments.items() if k not in selectors}
-    if len(base_args) == len(arguments):
-        return None
-    block = observed(base_args)
-    if not isinstance(block, dict) or not isinstance(
-        block.get("cold_minutes"), (int, float)
-    ):
+    drivers = _borrowable_drivers(definition)
+    tried = len(arguments)
+    for dropped in (selectors, selectors | drivers):
+        base_args = {
+            k: v
+            for k, v in arguments.items()
+            if k not in dropped or (k not in selectors and isinstance(v, list))
+        }
+        if len(base_args) == tried:
+            continue
+        tried = len(base_args)
+        block = observed(base_args)
+        if isinstance(block, dict) and isinstance(
+            block.get("cold_minutes"), (int, float)
+        ):
+            break
+    else:
         return None
     if block.get("inherited_from"):
-        # Another template's history, an approximation of its own (#797)
+        # An inline copy's history of its template, already the default drivers
         return None
     baseline = effective_variables(definition, base_args)
     scaling = _driver_scaling(definition, expanded, entries, baseline=baseline)
     if scaling is None:
         return None
     factor, axes, unscaled = scaling
-    # The selector itself moved by construction; what it moved is scaled
+    # A selector itself moved by construction; what it moved is scaled
     differs = [name for name in unscaled if name not in selectors]
     if not axes and not differs:
         return None
@@ -913,8 +942,8 @@ def estimate(
         )
         baseline = _frames_rescaled(baseline, definition, expanded, device)
     if measured is not None:
-        # A thin bucket blends toward this box's default-tier history scaled
-        # to its drivers when there is one, not the curated row (#1236)
+        # A thin bucket blends toward this box's default-drivers history
+        # scaled to its own when there is one, not the curated row (#1236)
         partner = _with_worst_case(
             _observed(baseline, device),
             definition,
