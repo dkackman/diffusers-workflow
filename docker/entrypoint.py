@@ -8,7 +8,7 @@ changes lives on a volume: `DW_ENV_DIR/venv`, a venv made with
 package, and its own site-packages comes first, so a diffusers installed there
 shadows the baked one. pip run from it leaves the image's copy alone and adds
 only the dependencies a new commit needs that the image does not already
-satisfy. The server runs under the overlay's interpreter, so the Models page's
+satisfy. The server runs under the overlay's interpreter, so the System page's
 updater (`dw/server/updater.py`, which pips into `sys.executable`) lands its
 installs on the volume too.
 
@@ -19,7 +19,7 @@ can hold dependency versions that would now shadow newer ones the image ships -
 and reinstalls the diffusers the old overlay held, not HEAD. When the overlay
 does not import (a broken HEAD, no network on the first start), the server runs
 on the image's interpreter and the baked diffusers instead, so it still comes
-up and the Models page can pin a working commit.
+up and the System page can pin a working commit.
 
 `DW_DIFFUSERS_REF` picks what a new overlay installs: `head` (the default),
 a commit hash (which the overlay is then held to), or `image` (no overlay).
@@ -151,7 +151,7 @@ def install_target(kind, commit, marker, previous):
 
     A pinned ref wins. Otherwise the diffusers the old overlay held, so an image
     upgrade never moves it: its commit, or a revert when it was a release (the
-    Models page's revert). Nothing recorded means a new overlay, so HEAD."""
+    System page's revert). Nothing recorded means a new overlay, so HEAD."""
     if kind == "commit":
         return {"commit": commit}
     held = previous or marker or {}
@@ -210,7 +210,7 @@ def prepare_overlay(environ, image, run=subprocess.run):
             current = None
 
     if current is None:
-        # The old overlay's own answer beats the marker: the Models page may have
+        # The old overlay's own answer beats the marker: the System page may have
         # moved it since the marker was written. It may not run at all once the
         # image's Python changed, so the marker is the fallback.
         previous = probe(python, run) if python.exists() else None
@@ -233,7 +233,7 @@ def prepare_overlay(environ, image, run=subprocess.run):
             )
             log(
                 "the overlay did not install or import - serving the baked diffusers "
-                f"{image.get('diffusers')}; an update from the Models page now lands in the "
+                f"{image.get('diffusers')}; an update from the System page now lands in the "
                 "container, not the volume, and is lost when it is re-created"
             )
             return BASE_PYTHON
@@ -327,7 +327,7 @@ def serve(args, environ=None, run=subprocess.run, execve=os.execve):
 
 
 def update_diffusers(args, environ=None, run=subprocess.run):
-    """The Models page's update, from `docker exec`: HEAD, a commit, or a revert."""
+    """The System page's update, from `docker exec`: HEAD, a commit, or a revert."""
     parser = argparse.ArgumentParser(prog="update-diffusers")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--commit", help="a commit hash to pin (default: main HEAD)")

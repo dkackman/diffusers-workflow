@@ -20,7 +20,7 @@ Then, from another machine on the LAN, `curl http://<box>:8765/api/health
 The full client-side setup is in [docs/REMOTE.md](../../docs/REMOTE.md).
 
 Updating: `git pull && bash ./install.sh` in the checkout, then
-`sudo systemctl restart dw-serve`. (The web UI's Models page can update
+`sudo systemctl restart dw-serve`. (The web UI's Server → System page can update
 `diffusers` alone without a restart.)
 
 macOS as the server: there is no unit here; a `launchd` plist with the same

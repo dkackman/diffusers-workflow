@@ -575,15 +575,7 @@ them instead.
   `last_job_use` is `null` - a copy or backup bumps it and a noatime or
   relatime disk may never move it. Deleting a repo forgets its
   `last_job_use`. Download a repo by id with live progress (cancellable; partial files resume on retry), and delete
-  one to free disk (refused while a job is running or queued). It also shows the installed
-  diffusers version (with its commit for a git install) and **Update from
-  GitHub** installs HEAD - new pipelines usually land there before a PyPI
-  release. Refused while a job is running or queued; on success the idle
-  worker restarts so the next job imports the new version. Pinning a commit
-  or reverting is the API's (`POST /api/system/diffusers/update`, below).
-  Without git (an installed copy) it installs the GitHub archive of `main`'s
-  commit. Beside it, the dw version, with **Update dw** on an installed copy
-  ([Update dw](#update-dw)).
+  one to free disk (refused while a job is running or queued).
 
   ![The model manager: each cached repo with its size, file count and last use](img/ui-models.png)
 
@@ -642,7 +634,14 @@ them instead.
 - **System** (Server, `#/server/system`) - the **Runtime** panel (Python,
   torch, CUDA, driver and package versions, with a copy button), the
   resolved directories, **Software** (the dw and diffusers updates) and the
-  Caches panel (below).
+  Caches panel (below). Software shows the installed diffusers version (with
+  its commit for a git install) and **Update from GitHub** installs HEAD -
+  new pipelines usually land there before a PyPI release. Refused while a job
+  is running or queued; on success the idle worker restarts so the next job
+  imports the new version. Pinning a commit or reverting is the API's
+  (`POST /api/system/diffusers/update`, below). Without git (an installed
+  copy) it installs the GitHub archive of `main`'s commit. Beside it, the dw
+  version, with **Update dw** on an installed copy ([Update dw](#update-dw)).
 
   ![The Activity page: host, version, a worker per RTX 3090 with its memory, and the queue](img/ui-status-dark.png)
 

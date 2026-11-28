@@ -8,6 +8,8 @@ request by, a guide can be fetched a section at a time, and a wrong name says
 what the right ones are.
 """
 
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -610,3 +612,16 @@ class TestAgentRules:
         assert "Claude Code with the `dw` plugin is the tested path" in content
         assert "no-plugin Claude Sonnet session" in content
         assert "Other MCP clients and models are untested" in content
+
+
+def test_no_served_guide_puts_the_updates_on_the_models_page():
+    """#1799: the dw and diffusers updates are on Server -> System. Matched over
+    the whole text, since the mentions that survived a first pass wrapped."""
+    docs = Path(__file__).resolve().parents[1] / "docs"
+    for file_name, _ in guides.GUIDES.values():
+        text = " ".join((docs / file_name).read_text().split())
+        assert "Models page" not in text, file_name
+
+    server = (docs / "SERVER.md").read_text()
+    models = server.split("- **Models** (Server)")[1].split("- **Preferences**")[0]
+    assert "Update from" not in models and "Update dw" not in models

@@ -99,7 +99,7 @@ class TestInstallTarget:
         ) == {"commit": "abc1234"}
 
     def test_old_overlay_beats_marker(self, entry):
-        """The Models page may have moved diffusers since the marker was written."""
+        """The System page may have moved diffusers since the marker was written."""
         assert entry.install_target(
             "head", None, {"commit": "f" * 40}, {"commit": "e" * 40}
         ) == {"commit": "e" * 40}

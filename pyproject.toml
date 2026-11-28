@@ -40,7 +40,7 @@ dependencies = [
     "torchvision>=0.29.1",
     # Diffusers and the HuggingFace ecosystem. The floor is the newest
     # PyPI release; the newest pipelines may need git HEAD on top, which
-    # install.sh layers on (and the web UI's Models page can install)
+    # install.sh layers on (and the web UI's System page can install)
     "diffusers>=0.43.0",
     # The floor is past 5.17.0, whose TextToAudioPipeline.preprocess called
     # BatchEncoding.to(dtype=...) and broke every generate_speech call (#169,

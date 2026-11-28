@@ -127,7 +127,7 @@ only diffusers and any dependency a new commit needs that the image lacks.
 - **If the overlay doesn't import** (a broken HEAD, or no network on the
   first start), the server starts on the copy of diffusers built into the
   image and says so in the log. Pin a working commit with `update-diffusers
-  --commit SHA` (or `--revert`), then restart. An update from the Models
+  --commit SHA` (or `--revert`), then restart. An update from the System
   page in this state goes into the container rather than the volume, so it
   is lost when the container is re-created.
 
