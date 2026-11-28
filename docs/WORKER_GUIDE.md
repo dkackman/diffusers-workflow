@@ -29,7 +29,7 @@ replies over a pair of `multiprocessing.Queue`s.
   and the step cache on each idle card; models reload on the next job. The
   worker process stays alive (same pid), so process-level state is not
   renewed; a fresh process needs the worker to exit.
-- **diffusers updated from the Models page**: an idle worker is shut down,
+- **diffusers updated from the System page**: an idle worker is shut down,
   so the next job imports the new version.
 - **PyTorch settings**: the worker applies dw's TF32 and cuDNN settings
   (`configure_torch`, `dw/__init__.py`) when it starts and again at each

@@ -81,7 +81,7 @@ GitHub generates notes from commits at tag time. The sections below are the hand
   that server fail to start: run `venv/bin/dw setup --no-service --no-desktop`
   from a checkout, or keep a hand-added `dw` registration, which setup reports
   as a duplicate.
-- **Update dw** on the Models page upgrades an installed copy and restarts it;
+- **Update dw** on the Server → System page upgrades an installed copy and restarts it;
   any other server shows the one-liner instead.
 - Each release carries `dw-mcp-<version>.mcpb` for Claude Desktop, and lists it
   in the MCP Registry as `io.github.dkackman/dw` once `MCP_REGISTRY_PUBLISH` is

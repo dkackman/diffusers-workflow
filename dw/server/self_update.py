@@ -1,4 +1,4 @@
-"""Update dw itself from the Models page, on an installed copy.
+"""Update dw itself from the System page, on an installed copy.
 
 An install made by the bootstrap scripts (INSTALL.md) runs `dw-serve --managed`
 under a service manager that restarts it. Only that server may update itself:

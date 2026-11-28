@@ -83,7 +83,8 @@ compare `(Get-FileHash .\bootstrap.ps1).Hash` with the `bootstrap.ps1` line
 5. diffusers `main`, from the GitHub archive of its current commit (no git
    needed), then a plain `diffusers` install for any dependency that commit
    adds. When GitHub's API cannot be read it warns and installs released
-   diffusers; the Models page moves it to `main` later.
+   diffusers; the Server → System page moves it to `main`
+   later.
 6. The platform extras: on macOS `fp4-fp8-for-torch-mps` and `fluidtop`, on
    Windows `bitsandbytes` and `kernels`.
 7. The install record, then `dw setup`.
@@ -368,7 +369,8 @@ server runs, and the restart picks them up.
 at the next release that has one, or after you remove your own marketplace
 and run `dw setup` again.
 
-**The Update dw button.** The Models page shows the installed dw version and,
+**The Update dw button.** The Server → System page shows the installed dw
+version and,
 when PyPI has a newer release (the server compares the versions by PEP 440,
 and offers nothing when it can't tell), an **Update dw** button. It runs the same
 upgrade inside the server (dw with torch held, diffusers to `main`, then
@@ -380,7 +382,7 @@ and its output is in the update log; run `dw setup` again then. It works only on
 `contrib/systemd`, a LaunchDaemon, Docker) shows the one-liner to run instead.
 [SERVER.md](SERVER.md#the-service-dw-setup-installs) has the rules.
 
-**diffusers alone.** The Models page's **Update from GitHub** moves diffusers to
+**diffusers alone.** The System page's **Update from GitHub** moves diffusers to
 `main`. On an installed copy, which has no git, it installs the GitHub archive
 of `main`'s commit.
 

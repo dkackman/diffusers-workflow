@@ -638,7 +638,7 @@ workspace unless one is named.
 
 | Client | How |
 | --- | --- |
-| Web UI | The sidebar lists every workspace; the selected one is named in the hash (`#/ws/<name>/...`), so a link and a reload both land where they say. The choice is remembered in `localStorage` as a fallback for a route that names none (Shared, Server), and Server → Status adds a filter over the all-workspaces queue — job history spans every workspace there and says which one each job ran in |
+| Web UI | The sidebar lists every workspace; the selected one is named in the hash (`#/ws/<name>/...`), so a link and a reload both land where they say. The choice is remembered in `localStorage` as a fallback for a route that names none (Shared, Server), and Server → Activity adds a filter over the all-workspaces queue — job history spans every workspace there and says which one each job ran in |
 | MCP | `list_workspaces`, then `use_workspace(name)`: a session default, so switching is one visible step in the transcript. Most tools also take `workspace=` per call; over a shared `/mcp` mount see [REMOTE.md](REMOTE.md#claude-code-no-local-install) |
 | HTTP | `?workspace=` on the route, or `"workspace"` in a `POST /api/jobs` body |
 | Web UI (create/delete) | The sidebar's `+ new` creates one; a workspace's own Overview page deletes it (disabled for `default`) |

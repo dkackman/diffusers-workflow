@@ -67,7 +67,8 @@ stops at logout. `sudo loginctl disable-linger $USER` turns it off.
 
 ### Update dw
 
-The Models page shows the installed dw version (`GET /api/system/dw`). On a
+The Server → System page shows the installed dw version (`GET /api/system/dw`)
+in its Software panel. On a
 server setup's service started (`--managed`), when PyPI has a newer release
 (checked at most every ten minutes; the server's `newer` decides, a PEP 440
 compare, so `0.10.0` is newer than `0.9.0` and `1.0.0rc1` older than `1.0.0`;
@@ -1676,7 +1677,7 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
   one (#1615). A populated root that an environment variable
   points away from its default has no marker and is not clearable until you
   create the `.dw-cache` file in it by hand (read per request, no restart);
-  see [SECURITY.md](SECURITY.md#disk-caches). The Server page's Caches panel
+  see [SECURITY.md](SECURITY.md#disk-caches). The System page's Caches panel
   drives all three. Behind the bearer token like every `/api/*` route
 - `POST /api/models/download` (`{"repo_id": ...}`), `GET /api/models/downloads`,
   `POST /api/models/downloads/{id}/cancel` — background snapshot downloads
@@ -1730,7 +1731,8 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
   `?device=cuda:1` it clears that card alone and answers `{cleared, info,
   device}`. Refused with 409 when no card asked about is idle - the caller
   retries once the job finishes rather than this call blocking until it does
-- `GET /api/server` — connection details for the Server page: `hostname`,
+- `GET /api/server` — connection details for the Connect and System
+  pages: `hostname`,
   `version`, `device`, the `bind_host`/`port`/`wildcard_bind` the server was
   started with, `auth_required` (whether a token is configured - never the
   token itself), `trust_workflows` (whether `--trust-workflows` is on), `mcp` (`mounted` plus its `path`), the `directories` in use,
@@ -1747,7 +1749,7 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
   seconds - and `logs` is `{path, size_bytes, backups, total_bytes}` - the
   active log file, how many of its rotated backups (at most 7) are on disk,
   and the bytes of all of them. A figure that can't be read is `null`, never
-  an error; `logs` is `null` when no log file is configured. The Status page
+  an error; `logs` is `null` when no log file is configured. The System page
   shows both as a Storage panel beside Caches
 
 ## Notes

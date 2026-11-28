@@ -61,7 +61,7 @@ itself, prefixing a relative one with the address it reaches the server at.
 
 Open `http://<box>:8765`. Click the key icon in the header and paste the
 token once; it is kept in the browser's `localStorage` and sent with every
-request. On a network bind the Server → Status page shows the server's
+request. On a network bind the Server → Connect page shows the server's
 addresses and the `claude mcp add` line (with the token header only when a
 token is required), ready to copy. On a loopback bind read from a page on
 another hostname (the reverse proxy below, or a tunnel), it builds both from
@@ -71,7 +71,7 @@ and a reload after an upgrade picks up the new version.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="img/ui-connect-dark.png">
-  <img alt="Status page, Connect from another machine: an address picker, the browser URL, and the claude mcp add line for that address with a token placeholder" src="img/ui-connect.png">
+  <img alt="Connect page, Connect from another machine: an address picker, the browser URL, and the claude mcp add line for that address with a token placeholder" src="img/ui-connect.png">
 </picture>
 
 ## Claude Code, no local install

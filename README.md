@@ -199,7 +199,7 @@ claude mcp add --transport http dw http://gpu-box:8765/mcp \
   --header "Authorization: Bearer $DW_API_TOKEN"
 ```
 
-The server's **Status** page writes that line for you. The whole setup is in
+The server's **Connect** page writes that line for you. The whole setup is in
 [Remote GPU server](docs/REMOTE.md).
 
 On Linux with an NVIDIA GPU, the

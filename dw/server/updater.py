@@ -2,7 +2,7 @@
 running server, or revert to the last known-good published release.
 
 The newest model pipelines often land in diffusers git before a release,
-so the Models page offers the same install install.sh performs. pip runs
+so the System page offers the same install install.sh performs. pip runs
 in a background thread against this venv with a fixed argument list built
 from validated inputs - no request data reaches the command line unchecked.
 The persistent worker keeps the old import until it restarts, so on success

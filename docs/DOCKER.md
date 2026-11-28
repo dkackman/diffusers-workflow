@@ -117,7 +117,8 @@ only diffusers and any dependency a new commit needs that the image lacks.
 
 - **The first start** installs main HEAD (or `DW_DIFFUSERS_REF`; see below).
 - **A restart changes nothing.** diffusers moves only when you ask it to.
-- **Update** to HEAD from the web UI's Models page, as on a native install,
+- **Update** to HEAD from the web UI's Server → System page, as on a native
+  install,
   or to HEAD, a commit or the release floor with
   `docker compose -f docker/compose.yaml exec dw python /opt/dw/entrypoint.py update-diffusers [--commit SHA | --revert]`,
   then restart the container (a running job keeps the old import).
