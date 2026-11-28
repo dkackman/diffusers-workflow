@@ -745,7 +745,7 @@ def record_step(workflow, loop, index, step_data, outcome, sub_manifest, timing=
     shots = step_shots(getattr(result, "saved_shots", None), saved_files, references)
     if shots:
         details["shots"] = shots
-        warn_shot_collisions(step_data, step_name, shots)
+    warn_shot_collisions(step_data, step_name, result, shots)
     # No entry at all for a step the parent saves for: the
     # parent's own entry names the same files, under the step
     # name the caller wrote (#92)

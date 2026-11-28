@@ -485,20 +485,38 @@ def duplicate_shot_names(shots):
     return duplicates or None
 
 
-def warn_shot_collisions(step_data, step_name, shots):
-    """Joined shots that share a name, said where the join made them."""
+def warn_shot_collisions(step_data, step_name, result, shots):
+    """Joined shots that share a name, said where the join made them.
+
+    `shots` is `step_shots`' answer, None for a step that wrote no file. A
+    join with no `result` block still made its collision, and the saving step
+    downstream only carries it, so its artifacts are read instead (#1794).
+    """
     # Only the step that joined made the collision; a step
     # that carries an input's shots over (pair_audio,
-    # interpolate_frames) repeats what the caller can only
-    # act on at the join (#568)
-    command = step_data.get("task", {}).get("command")
-    duplicates = None if carries_shots(command) else duplicate_shot_names(shots)
-    if not duplicates:
+    # interpolate_frames, a composing step over its child's
+    # join) repeats what the caller can only act on at the
+    # join (#568)
+    task = step_data.get("task", {})
+    if "workflow" in step_data or carries_shots(task.get("command")):
+        return
+    if shots:
+        duplicates = duplicate_shot_names(shots)
+        found = list((duplicates or {}).items())
+    elif shot_references(task.get("arguments")) is not None:
+        found = [
+            item
+            for artifact in result.get_artifacts()
+            for item in (
+                duplicate_shot_names(getattr(artifact, "shots", None)) or {}
+            ).items()
+        ]
+    else:
         return
     # Frames and samples stay exact either way - only a
     # name-based lookup (a `shots=` argument, a finding)
     # can no longer tell the collided shots apart (#508)
-    for file, names in duplicates.items():
+    for file, names in found:
         extra = {"file": file} if file is not None else {}
         emit_warning(
             "joined shots share a name ("

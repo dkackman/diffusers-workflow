@@ -1317,3 +1317,94 @@ def test_a_cut_inside_a_shot_drops_the_seam_that_opened_it():
         assert key not in at_start
     # No cut at the head: the first shot keeps what it had
     assert trimmed_shots(shots, 0, 70)[1]["trim_frames"] == 2
+
+
+def test_an_unsaved_join_inside_a_composed_workflow_warns_once_at_the_join(
+    tmp_path, monkeypatch
+):
+    """#1794: the dissolve template's join saves no file, its saving step is a
+    carry-over (pair_audio), and the composing step only carries too - the
+    collision is still said, once, by the join. A real run: real files, their
+    run manifest's shots, a real dissolve_videos and pair_audio."""
+    from dw.events import RunContext
+    from dw.step_cache import step_cache
+    from dw.workflow import Workflow
+    from dw.writers import encode_video
+
+    monkeypatch.chdir(tmp_path)
+    names = ["shot@accuse", "shot@deflect"]
+    for episode in ("a", "b"):
+        folder = tmp_path / episode
+        folder.mkdir()
+        encode_video(
+            [Image.new("RGB", (64, 64), (0, 0, 0)) for _ in range(8)],
+            fps=4,
+            output_path=str(folder / "episode.mp4"),
+        )
+        shots = [shot_record(names[0], 0, 4), shot_record(names[1], 4, 4)]
+        (folder / MANIFEST_FILE_NAME).write_text(
+            json.dumps(
+                {"steps": [{"step": "x", "files": ["episode.mp4"], "shots": shots}]}
+            )
+        )
+    child = {
+        "id": "child",
+        "steps": [
+            {
+                "name": "edit",
+                "task": {
+                    "command": "dissolve_videos",
+                    "arguments": {
+                        "videos": ["a/episode.mp4", "b/episode.mp4"],
+                        "dissolve_frames": 2,
+                        "fps": 4,
+                    },
+                },
+            },
+            {
+                "name": "film",
+                "task": {
+                    "command": "pair_audio",
+                    "arguments": {
+                        "video": "previous_result:edit",
+                        "audio": "previous_result:tone",
+                        "sample_rate": 8000,
+                    },
+                },
+                "result": {"content_type": "video/mp4", "fps": 4},
+            },
+        ],
+    }
+    child["steps"].insert(
+        1,
+        {
+            "name": "tone",
+            "task": {
+                "command": "slice_audio",
+                "arguments": {
+                    "audio": "a/tone.wav",
+                    "start_frame": 0,
+                    "num_frames": 14,
+                    "fps": 4,
+                },
+            },
+        },
+    )
+    import soundfile
+
+    soundfile.write(str(tmp_path / "a" / "tone.wav"), numpy.zeros(32000), 8000)
+    (tmp_path / "child.json").write_text(json.dumps(child))
+
+    for parent_result in (None, {"content_type": "video/mp4", "fps": 4}):
+        step = {"name": "cut", "workflow": {"path": "child.json", "arguments": {}}}
+        if parent_result:
+            step["result"] = parent_result
+        parent = {"id": "parent", "steps": [step]}
+        step_cache.clear()
+        events = []
+        workflow = Workflow(parent, str(tmp_path / "out"), str(tmp_path / "p.json"))
+        workflow.run({}, context=RunContext(on_event=events.append))
+
+        (warning,) = [e for e in events if e.get("kind") == "shot_name_collision"]
+        assert warning["command"] == "edit"
+        assert warning["names"] == names
