@@ -134,9 +134,14 @@ def parse_blocks(text, total=None):
     for part in text.split(","):
         match = _RANGE.match(part)
         if not match:
+            numbered = (
+                ""
+                if total is None
+                else f"; blocks are numbered 0-{total - 1} on this transformer"
+            )
             raise ValueError(
                 f"'blocks' entry {part.strip()!r} is not an int or an a-b range "
-                f"(like {DEFAULT_BLOCKS!r})"
+                f"(like {DEFAULT_BLOCKS!r}){numbered}"
             )
         first = int(match.group(1))
         last = int(match.group(2)) if match.group(2) is not None else first

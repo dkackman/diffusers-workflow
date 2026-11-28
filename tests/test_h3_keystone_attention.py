@@ -224,6 +224,12 @@ def test_value_problem_blocks_past_the_total():
     assert keystone_attention_value_problem({"blocks": "31-49"}, 50) is None
 
 
+@pytest.mark.parametrize("blocks", ["-1", "31,-1", "a-b"])
+def test_a_malformed_entry_names_the_range_when_the_count_is_known(blocks):
+    assert "0-49" in keystone_attention_value_problem({"blocks": blocks}, 50)
+    assert "numbered" not in keystone_attention_value_problem({"blocks": blocks})
+
+
 def test_value_problem_leaves_unresolved_references_alone():
     assert keystone_attention_value_problem({"balance": "variable:b"}) is None
     assert keystone_attention_value_problem({"blocks": "variable:b"}, 50) is None
@@ -338,6 +344,15 @@ def test_no_image_or_no_guides_is_refused(flag_on):
 def test_bad_values_are_refused(flag_on, monkeypatch, value, match):
     monkeypatch.setattr(ka, "declared_block_count", lambda: 50)
     _refused(h3_workflow({KEYSTONE_ATTENTION_INPUT: value}), match)
+
+
+def test_a_negative_block_names_the_declared_range(flag_on):
+    total = ka.declared_block_count()
+    if total is None:
+        pytest.skip("this diffusers declares no H3 block count")
+    _refused(
+        h3_workflow({KEYSTONE_ATTENTION_INPUT: {"blocks": "-1"}}), f"0-{total - 1}"
+    )
 
 
 def test_tst_is_refused(flag_on):
