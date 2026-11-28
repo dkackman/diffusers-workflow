@@ -385,6 +385,18 @@ def encode_frame_latent(components, frame):
     return encoded.to("cpu", torch.float32)
 
 
+# One text for both layout steps: diffusers merges the workflows' inputs by name
+# and keeps the first branch's description (ref2va's), so the pipeline's signature
+# shows whatever that one step says (#1806)
+GUIDES_DESCRIPTION = (
+    "Clips to hold the generated video to: a list of {'video': (n, h, w, 3) uint8 frames, "
+    "'frame': pixel frame}. On t2va and fl2va, any number of clips, each 'frame' a multiple "
+    "of 17 and n one of 1, 5 or 17m + 5; a guide that also carries 'audio': (channels, samples) "
+    "and 'sample_rate' holds that soundtrack over its span. On ref2va, exactly one clip, at "
+    "'frame': 0, n the render's frame count, video only."
+)
+
+
 class DwH3GuideLayoutStep(ModularPipelineBlocks):
     model_name = "minimax-h3"
 
@@ -422,11 +434,7 @@ class DwH3GuideLayoutStep(ModularPipelineBlocks):
                 name=GUIDES_INPUT,
                 type_hint=list,
                 default=None,
-                description=(
-                    "Clips to hold the generated video to: a list of {'video': (n, h, w, 3) uint8 frames, "
-                    "'frame': pixel frame, a multiple of 17}, n one of 1, 5 or 17m + 5. A guide that also "
-                    "carries 'audio': (channels, samples) and 'sample_rate' holds that soundtrack over its span."
-                ),
+                description=GUIDES_DESCRIPTION,
             ),
             InputParam(
                 name=GUIDE_NOISE_INPUT,
@@ -753,10 +761,7 @@ class DwH3Ref2VAGuideLayoutStep(ModularPipelineBlocks):
                 name=GUIDES_INPUT,
                 type_hint=list,
                 default=None,
-                description=(
-                    "On ref2va, one clip to hold the generated video to: [{'video': (n, h, w, 3) uint8 "
-                    "frames, 'frame': 0}], n the render's frame count. Video only."
-                ),
+                description=GUIDES_DESCRIPTION,
             ),
         ]
         if "condition_latents" not in names:

@@ -324,3 +324,18 @@ def test_the_estimate_path_counts_a_ref2va_steps_guide(monkeypatch):
 
 def test_the_module_imports_its_block_through_the_guides_helper():
     assert h3_guides.ref2va_guide_block() is DwH3Ref2VAGuideLayoutStep
+
+
+def test_the_pipeline_signature_describes_guides_for_every_workflow():
+    """#1806: the merged signature keeps one branch's description (ref2va's),
+    so that text has to carry the t2va/fl2va form too."""
+    from dw.introspection import describe_class
+
+    (guides,) = [
+        parameter
+        for parameter in describe_class("MiniMaxH3ModularPipeline")["parameters"]
+        if parameter["name"] == "guides"
+    ]
+    assert "list" in guides["annotation"]
+    for words in ("t2va", "fl2va", "multiple of 17", "ref2va", "'audio'"):
+        assert words in guides["description"], words
