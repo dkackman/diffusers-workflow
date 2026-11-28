@@ -612,7 +612,11 @@ clip is probed at validate, at admission and at run; one that cannot be
 probed before the run (a `previous_result:` clip) is charged at the step's
 `num_frames`, and the message says it was charged at the worst case. H3's
 `t2va` and `fl2va` templates declare the guide term, so a guided step is
-judged by what its guides add rather than passing on the clip alone.
+judged by what its guides add rather than passing on the clip alone. The one
+exception is `templates/minimax/repair-segment`: its two guides are cut at run
+time, so that charge would price each at `num_frames`. It has no guide term and
+folds their frames into a higher `bytes_per_voxel` instead (its `reason` gives
+the arithmetic).
 
 ### Remote code is refused by default
 
