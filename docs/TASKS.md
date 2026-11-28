@@ -2588,9 +2588,9 @@ Shot boundaries come, in order: the step's own `shots` argument, the shots
 carried by the video an earlier step returned, the run manifest beside the
 file, and otherwise the whole file is treated as one shot. `shots_source`
 reports which: `argument`, `artifact`, `manifest`, or `none`. With `none`, the
-shot-against-shot rules (`shot_level_spread`, and all of `analyze_seams`') go
-to `rules_skipped` with `reason: "no shot boundaries"`, and the run warns
-`no_shot_boundaries`.
+shot-against-shot rules (`shot_level_spread` and `shot_bed_drop`, and all of
+`analyze_seams`') go to `rules_skipped` with `reason: "no shot boundaries"`,
+and the run warns `no_shot_boundaries`.
 
 ### analyze_shots
 

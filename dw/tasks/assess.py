@@ -397,6 +397,11 @@ def _shot_span_findings(probe, records, media):
     return findings
 
 
+# analyze_shots' rules that compare one shot with another; the rest read each
+# shot on its own and still run when the whole file is the one shot
+CROSS_SHOT_RULES = frozenset({"shot_level_spread", "shot_bed_drop"})
+
+
 def probe_answer(probe, measurements, findings, shots_source, shot_dependent=()):
     """A probe's answer, with `rules_applied` cut down to the rules that
     actually ran. `shot_dependent` names (or `True` for all of the probe's
@@ -483,7 +488,7 @@ def shots_answer(media, records, source):
             {"shots": [], "rms_range_db": None, "has_audio": False},
             _shot_span_findings("analyze_shots", records, media),
             source,
-            shot_dependent={"shot_level_spread"},
+            shot_dependent=CROSS_SHOT_RULES,
         )
     records = records or [_whole_file_shot(media)]
     overrun_findings = _shot_span_findings("analyze_shots", records, media)
@@ -579,7 +584,7 @@ def shots_answer(media, records, source):
         + (probe_findings("analyze_shots", answer, at) if at else [])
         + dead_air_findings,
         source,
-        shot_dependent={"shot_level_spread"},
+        shot_dependent=CROSS_SHOT_RULES,
     )
 
 

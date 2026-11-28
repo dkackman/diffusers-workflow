@@ -969,11 +969,15 @@ class TestRealFile:
 
         shots_answer = analyze_shots(str(path))
         assert shots_answer["shots_source"] == "none"
-        assert "shot_level_spread" not in shots_answer["rules_applied"]
+        assert shots_answer["rules_applied"] == ["shot_dead_air"]
         assert shots_answer["rules_skipped"] == [
-            {"rule": "shot_level_spread", "reason": "no shot boundaries"}
+            {"rule": name, "reason": "no shot boundaries"}
+            for name in ("shot_level_spread", "shot_bed_drop")
         ]
-        assert any("no shot boundaries" in w[0].lower() for w in warnings)
+        assert any(
+            "shot_bed_drop, shot_level_spread could not be measured" in w[0]
+            for w in warnings
+        )
 
         json.dumps(seams_answer)
         json.dumps(shots_answer)
