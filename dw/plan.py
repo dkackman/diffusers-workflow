@@ -596,7 +596,7 @@ def _scaled_observed(observed, arguments, definition, expanded, entries, device=
     else:
         return None
     if block.get("inherited_from"):
-        # An inline copy's history of its template, already the default drivers
+        # Another template's history, an approximation of its own (#797)
         return None
     baseline = effective_variables(definition, base_args)
     scaling = _driver_scaling(definition, expanded, entries, baseline=baseline)
