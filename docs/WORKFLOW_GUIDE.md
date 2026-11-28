@@ -31,7 +31,7 @@ and carries a `configures` naming the template it is an instance of:
 }
 ```
 
-### Default preferences
+## Default preferences
 
 `dw/preference_defaults.json` ranks catalog workflows per task, for a caller
 that names a task rather than a model: it is the shipped store the

@@ -271,6 +271,17 @@ class TestTheRealDocs:
         for prefix in ("variable:", "previous_result:", "asset:", "preference:"):
             assert f"`{prefix}`" in guide["content"]
 
+    def test_the_workflows_index_stays_small(self):
+        # #1787: every session reads the index, so the first section must not
+        # absorb maintainer material; the preference ladder is its own section.
+        index = guides.get_guide("workflows")
+
+        assert len(index["content"].encode()) < 3000
+        assert "Default preferences" in index["withheld"]
+        section = guides.get_guide("workflows", section="Default preferences")
+        assert "`text_to_image`" in section["content"]
+        assert "must be placed" in section["content"]
+
     def test_composing_points_at_the_preference_override(self):
         composing = guides.get_guide(
             "workflows", section="Composing a stored workflow"
