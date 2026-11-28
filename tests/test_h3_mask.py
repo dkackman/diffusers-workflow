@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from dw.hold_audio import mask_errors
+from dw.hold_audio import hold_audio_errors, mask_errors, refine_strength_errors
 from dw.pipeline_processors import h3_mask
 from dw.pipeline_processors.h3_hold import core_denoise_sequences
 from dw.pipeline_processors.h3_mask import edits_regions, insert_mask_blocks
@@ -760,6 +760,31 @@ def h3_step(workflow="t2va", chain=None, **arguments):
 def template(name):
     with open(os.path.join(ROOT, "workflows", "templates", name)) as f:
         return json.load(f)
+
+
+def test_the_guide_example_is_a_step_of_the_template():
+    """#1801: the guide section's example is a step, not a bare arguments
+    object, it names the template that holds the setup, and dropped into that
+    template's step it passes the regional edit's checks."""
+    with open(os.path.join(ROOT, "docs", "WORKFLOW_GUIDE.md")) as f:
+        guide = f.read()
+    section = guide.split("### H3: regional edit with source_video and a mask")[1]
+    section = section.split("\n####")[0]
+    assert "`templates/minimax/regional-edit`" in section
+    step = json.loads(section.split("```json\n")[1].split("```")[0])
+
+    definition = template("minimax/regional-edit.json")
+    shipped = definition["steps"][0]
+    assert step["name"] == shipped["name"]
+    assert step["result"] == shipped["result"]
+    arguments = step["pipeline"]["arguments"]
+    assert set(arguments) == set(shipped["pipeline"]["arguments"]) | {"mask_grow"}
+    assert arguments["output"] == shipped["pipeline"]["arguments"]["output"]
+
+    shipped["pipeline"]["arguments"] = arguments
+    assert mask_errors(definition) == []
+    assert refine_strength_errors(definition) == []
+    assert hold_audio_errors(definition) == []
 
 
 def edit_errors(definition):

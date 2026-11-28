@@ -2616,14 +2616,32 @@ mask and a `hold_audio`, the whole source is refined under that soundtrack. With
 and no `hold_audio`, the call is not a refine at all: it is the audio pass (see [Audio over
 a finished picture](#audio-over-a-finished-picture)).
 
+The complete workflow is the `templates/minimax/regional-edit` template: one `edit` step.
+Its `pipeline` block carries the whole setup - `configuration`, `from_pretrained_arguments`
+(`"workflow": "t2va"`), `loras`, `scheduler` (`video_shift` 6) and `audio_scheduler` - and
+these `arguments`, and the step saves the result. The step below shows the `arguments` and
+`result` with literal values. Its `pipeline` is not complete on its own: copy the setup
+blocks from the template's step into it.
+
 ```json
 {
-    "source_video": "asset:fox_dawn.mp4",
-    "mask_image": "asset:fox_mask.png",
-    "mask_grow": 1,
-    "refine_strength": 0.9,
-    "hold_audio": "asset:fox_dawn.mp4",
-    "prompt": "the fox holds a pine cone in its mouth, same light and motion"
+    "name": "edit",
+    "pipeline": {
+        "arguments": {
+            "prompt": "the fox holds a pine cone in its mouth, same light and motion",
+            "source_video": "asset:fox_dawn.mp4",
+            "mask_image": "asset:fox_mask.png",
+            "mask_grow": 1,
+            "refine_strength": 0.9,
+            "hold_audio": "asset:fox_dawn.mp4",
+            "num_frames": 124,
+            "width": 960,
+            "height": 544,
+            "num_inference_steps": 5,
+            "output": ["videos", "audio", "sampling_rate"]
+        }
+    },
+    "result": { "content_type": "video/mp4", "fps": 24, "subfolder": "final" }
 }
 ```
 
